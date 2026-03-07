@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_autofill_service/flutter_autofill_service.dart';
 
+import '../../../../../core/theme/app_icons.dart';
+
 class AndroidAutofillAction extends StatelessWidget {
   const AndroidAutofillAction({super.key});
 
@@ -13,7 +15,7 @@ class AndroidAutofillAction extends StatelessWidget {
 
     return IconButton(
       tooltip: 'Enable Android Autofill',
-      icon: const Icon(Icons.auto_fix_high_outlined),
+      icon: const Icon(AppIcons.magic),
       onPressed: () async {
         final messenger = ScaffoldMessenger.of(context);
         final service = AutofillService();

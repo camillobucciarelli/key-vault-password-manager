@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ "$#" -lt 2 ]]; then
-  echo "Usage: $0 <chrome|edge> <extension-id>"
+  echo "Usage: $0 <chrome|edge|firefox> <extension-id-or-addon-id>"
   exit 1
 fi
 
@@ -22,8 +22,12 @@ case "${BROWSER}" in
     TEMPLATE="${SCRIPT_DIR}/manifests/edge/dev.camillobucciarelli.password_manager_native_host.json"
     DEST_DIR="$HOME/Library/Application Support/Microsoft Edge/NativeMessagingHosts"
     ;;
+  firefox)
+    TEMPLATE="${SCRIPT_DIR}/manifests/firefox/dev.camillobucciarelli.password_manager_native_host.json"
+    DEST_DIR="$HOME/Library/Application Support/Mozilla/NativeMessagingHosts"
+    ;;
   *)
-    echo "Unsupported browser '${BROWSER}'. Use chrome or edge."
+    echo "Unsupported browser '${BROWSER}'. Use chrome, edge, or firefox."
     exit 1
     ;;
 esac

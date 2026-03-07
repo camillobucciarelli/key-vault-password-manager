@@ -1,12 +1,24 @@
+import 'dart:async';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:loggy/loggy.dart';
 import 'package:stream_transform/stream_transform.dart';
 
 import '../../../data/datasources/secure_data_source.dart';
 import '../../../data/services/vault_kdbx_service.dart';
+import '../../../domain/models/database_sync_status.dart';
+import '../../../domain/models/sync_conflict.dart';
+import '../../../domain/repositories/database_sync_repository.dart';
+import '../../../domain/usecases/connect_google_account_usecase.dart';
+import '../../../domain/usecases/disconnect_google_account_usecase.dart';
+import '../../../domain/usecases/get_drive_connection_status_usecase.dart';
 import '../../../domain/models/vault_entry.dart';
 import '../../../domain/models/vault_snapshot.dart';
 import '../../../domain/usecases/get_selected_key_file_path_usecase.dart';
+import '../../../domain/usecases/link_database_to_drive_usecase.dart';
+import '../../../domain/usecases/list_drive_remote_files_usecase.dart';
+import '../../../domain/usecases/set_database_auto_sync_usecase.dart';
+import '../../../domain/usecases/sync_database_now_usecase.dart';
 import 'vault_event.dart';
 import 'vault_state.dart';
 
@@ -16,6 +28,14 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     required this.secureDataSource,
     required this.getSelectedKeyFilePathUseCase,
     required this.vaultKdbxService,
+    required this.getDriveConnectionStatusUseCase,
+    required this.connectGoogleAccountUseCase,
+    required this.disconnectGoogleAccountUseCase,
+    required this.linkDatabaseToDriveUseCase,
+    required this.listDriveRemoteFilesUseCase,
+    required this.syncDatabaseNowUseCase,
+    required this.setDatabaseAutoSyncUseCase,
+    required this.databaseSyncRepository,
   }) : super(VaultState.initial(databasePath: databasePath)) {
     on<InitializeVault>(_onInitializeVault);
     on<RefreshVault>(_onRefreshVault);
@@ -51,15 +71,31 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<RemoveVaultAttachment>(_onRemoveVaultAttachment);
     on<ExportVaultAttachment>(_onExportVaultAttachment);
     on<ClearVaultInfo>(_onClearVaultInfo);
+    on<ConnectGoogleDrive>(_onConnectGoogleDrive);
+    on<DisconnectGoogleDrive>(_onDisconnectGoogleDrive);
+    on<LinkCurrentDatabaseToDrive>(_onLinkCurrentDatabaseToDrive);
+    on<SyncCurrentDatabaseNow>(_onSyncCurrentDatabaseNow);
+    on<ToggleCurrentDatabaseAutoSync>(_onToggleCurrentDatabaseAutoSync);
+    on<ClearVaultSyncFeedback>(_onClearVaultSyncFeedback);
+    on<LoadDriveRemoteFiles>(_onLoadDriveRemoteFiles);
   }
 
   final SecureDataSource secureDataSource;
   final GetSelectedKeyFilePathUseCase getSelectedKeyFilePathUseCase;
   final VaultKdbxService vaultKdbxService;
+  final GetDriveConnectionStatusUseCase getDriveConnectionStatusUseCase;
+  final ConnectGoogleAccountUseCase connectGoogleAccountUseCase;
+  final DisconnectGoogleAccountUseCase disconnectGoogleAccountUseCase;
+  final LinkDatabaseToDriveUseCase linkDatabaseToDriveUseCase;
+  final ListDriveRemoteFilesUseCase listDriveRemoteFilesUseCase;
+  final SyncDatabaseNowUseCase syncDatabaseNowUseCase;
+  final SetDatabaseAutoSyncUseCase setDatabaseAutoSyncUseCase;
+  final DatabaseSyncRepository databaseSyncRepository;
 
   String _password = '';
   String? _keyFilePath;
   String? _lastRegularGroupId;
+  Timer? _autoSyncDebounce;
 
   Future<void> _onInitializeVault(
     InitializeVault event,
@@ -69,6 +105,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     try {
       _password = await secureDataSource.getMasterPassword() ?? '';
       _keyFilePath = await getSelectedKeyFilePathUseCase();
+      await _refreshSyncState(emit);
+      if (state.isDriveConnected && state.isDriveLinked) {
+        await _performSync(emit, silentIfConflict: true);
+      }
       await _reload(emit);
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
     } catch (e, st) {
@@ -247,6 +287,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         currentGroupId: currentGroupId,
         keepLoadingFlag: false,
       );
+      await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed creating vault entry.', e, st);
       emit(
@@ -282,6 +323,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
+      await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed updating vault entry.', e, st);
       emit(
@@ -311,6 +353,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
+      await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed deleting vault entry.', e, st);
       emit(
@@ -340,6 +383,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         currentGroupId: state.currentGroupId,
         keepLoadingFlag: false,
       );
+      await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed moving vault entry.', e, st);
       emit(
@@ -371,6 +415,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         currentGroupId: parentGroupId,
         keepLoadingFlag: false,
       );
+      await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed creating vault group.', e, st);
       emit(
@@ -400,6 +445,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         currentGroupId: state.currentGroupId,
         keepLoadingFlag: false,
       );
+      await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed renaming vault group.', e, st);
       emit(
@@ -455,6 +501,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         currentGroupId: fallbackGroupId,
         keepLoadingFlag: false,
       );
+      await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed deleting vault group.', e, st);
       emit(
@@ -485,6 +532,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
+      await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed moving vault group.', e, st);
       emit(
@@ -511,6 +559,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
+      await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed restoring vault entry from recycle bin.', e, st);
       emit(
@@ -540,6 +589,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
+      await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed restoring vault group from recycle bin.', e, st);
       emit(
@@ -569,6 +619,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
+      await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed permanently deleting vault entry.', e, st);
       emit(
@@ -598,6 +649,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
+      await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed permanently deleting vault group.', e, st);
       emit(
@@ -626,6 +678,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
+      await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed emptying recycle bin.', e, st);
       emit(
@@ -738,6 +791,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       emit(state.copyWith(infoMessage: 'Attachment added.'));
+      await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed adding attachment.', e, st);
       emit(
@@ -768,6 +822,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       emit(state.copyWith(infoMessage: 'Attachment removed.'));
+      await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed removing attachment.', e, st);
       emit(
@@ -813,6 +868,293 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
 
   void _onClearVaultInfo(ClearVaultInfo event, Emitter<VaultState> emit) {
     emit(state.copyWith(clearInfo: true));
+  }
+
+  Future<void> _onConnectGoogleDrive(
+    ConnectGoogleDrive event,
+    Emitter<VaultState> emit,
+  ) async {
+    emit(
+      state.copyWith(
+        syncStatus: DatabaseSyncStatus.syncing,
+        clearSyncError: true,
+      ),
+    );
+    try {
+      await connectGoogleAccountUseCase();
+      await _refreshSyncState(emit);
+      emit(
+        state.copyWith(
+          syncStatus: DatabaseSyncStatus.success,
+          infoMessage: 'Google Drive connected.',
+        ),
+      );
+    } catch (e, st) {
+      logError('Google Drive connect failed.', e, st);
+      emit(
+        state.copyWith(
+          syncStatus: DatabaseSyncStatus.error,
+          syncError: 'Unable to connect Google Drive.',
+        ),
+      );
+    }
+  }
+
+  Future<void> _onDisconnectGoogleDrive(
+    DisconnectGoogleDrive event,
+    Emitter<VaultState> emit,
+  ) async {
+    emit(state.copyWith(syncStatus: DatabaseSyncStatus.syncing));
+    try {
+      await disconnectGoogleAccountUseCase();
+      emit(
+        state.copyWith(
+          isDriveConnected: false,
+          isDriveLinked: false,
+          linkedDriveFileName: null,
+          syncStatus: DatabaseSyncStatus.disconnected,
+          infoMessage: 'Google Drive disconnected.',
+          clearSyncError: true,
+          clearSyncConflict: true,
+        ),
+      );
+    } catch (e, st) {
+      logError('Google Drive disconnect failed.', e, st);
+      emit(
+        state.copyWith(
+          syncStatus: DatabaseSyncStatus.error,
+          syncError: 'Unable to disconnect Google Drive.',
+        ),
+      );
+    }
+  }
+
+  Future<void> _onLinkCurrentDatabaseToDrive(
+    LinkCurrentDatabaseToDrive event,
+    Emitter<VaultState> emit,
+  ) async {
+    if (!state.isDriveConnected) {
+      emit(
+        state.copyWith(
+          syncStatus: DatabaseSyncStatus.error,
+          syncError: 'Connect Google Drive first.',
+        ),
+      );
+      return;
+    }
+
+    emit(
+      state.copyWith(
+        syncStatus: DatabaseSyncStatus.syncing,
+        clearSyncError: true,
+      ),
+    );
+    try {
+      final mapping = await linkDatabaseToDriveUseCase(
+        databasePath: state.databasePath,
+        remoteFileId: event.remoteFileId,
+        remoteFileName: event.remoteFileName,
+      );
+      emit(
+        state.copyWith(
+          isDriveLinked: true,
+          linkedDriveFileName: mapping.driveFileName,
+          autoSyncEnabled: mapping.autoSyncEnabled,
+          lastSyncAt: mapping.lastSyncAt,
+          syncStatus: DatabaseSyncStatus.success,
+          infoMessage: 'Database linked to ${mapping.driveFileName}.',
+        ),
+      );
+    } catch (e, st) {
+      logError('Link database to Drive failed.', e, st);
+      emit(
+        state.copyWith(
+          syncStatus: DatabaseSyncStatus.error,
+          syncError: 'Unable to link current database.',
+        ),
+      );
+    }
+  }
+
+  Future<void> _onSyncCurrentDatabaseNow(
+    SyncCurrentDatabaseNow event,
+    Emitter<VaultState> emit,
+  ) async {
+    await _performSync(emit, resolution: event.resolution);
+    await _reload(
+      emit,
+      currentGroupId: state.currentGroupId,
+      keepLoadingFlag: false,
+    );
+  }
+
+  Future<void> _onToggleCurrentDatabaseAutoSync(
+    ToggleCurrentDatabaseAutoSync event,
+    Emitter<VaultState> emit,
+  ) async {
+    try {
+      await setDatabaseAutoSyncUseCase(state.databasePath, event.enabled);
+      emit(
+        state.copyWith(
+          autoSyncEnabled: event.enabled,
+          infoMessage: event.enabled
+              ? 'Auto-sync enabled.'
+              : 'Auto-sync disabled.',
+        ),
+      );
+    } catch (e, st) {
+      logError('Toggle auto-sync failed.', e, st);
+      emit(
+        state.copyWith(
+          syncStatus: DatabaseSyncStatus.error,
+          syncError: 'Unable to update auto-sync setting.',
+        ),
+      );
+    }
+  }
+
+  void _onClearVaultSyncFeedback(
+    ClearVaultSyncFeedback event,
+    Emitter<VaultState> emit,
+  ) {
+    emit(state.copyWith(clearSyncError: true, clearSyncConflict: true));
+  }
+
+  Future<void> _onLoadDriveRemoteFiles(
+    LoadDriveRemoteFiles event,
+    Emitter<VaultState> emit,
+  ) async {
+    if (!state.isDriveConnected) {
+      emit(
+        state.copyWith(
+          remoteDriveFiles: const [],
+          isLoadingRemoteDriveFiles: false,
+        ),
+      );
+      return;
+    }
+
+    emit(state.copyWith(isLoadingRemoteDriveFiles: true, clearSyncError: true));
+    try {
+      final files = await listDriveRemoteFilesUseCase();
+      emit(
+        state.copyWith(
+          remoteDriveFiles: files,
+          isLoadingRemoteDriveFiles: false,
+          clearSyncError: true,
+        ),
+      );
+    } catch (e, st) {
+      logError('Unable to load Drive files.', e, st);
+      emit(
+        state.copyWith(
+          isLoadingRemoteDriveFiles: false,
+          syncError: 'Unable to load remote Drive files.',
+          syncStatus: DatabaseSyncStatus.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _refreshSyncState(Emitter<VaultState> emit) async {
+    final connected = await getDriveConnectionStatusUseCase();
+    final mapping = await databaseSyncRepository.getMapping(state.databasePath);
+    emit(
+      state.copyWith(
+        isDriveConnected: connected,
+        isDriveLinked: mapping != null,
+        linkedDriveFileName: mapping?.driveFileName,
+        autoSyncEnabled: mapping?.autoSyncEnabled ?? true,
+        lastSyncAt: mapping?.lastSyncAt,
+        syncStatus: connected
+            ? DatabaseSyncStatus.idle
+            : DatabaseSyncStatus.disconnected,
+        clearSyncError: true,
+      ),
+    );
+  }
+
+  Future<void> _scheduleAutoSync(Emitter<VaultState> emit) async {
+    if (!state.isDriveConnected ||
+        !state.isDriveLinked ||
+        !state.autoSyncEnabled) {
+      return;
+    }
+
+    _autoSyncDebounce?.cancel();
+    _autoSyncDebounce = Timer(const Duration(seconds: 2), () async {
+      await _performSync(emit, silentIfConflict: true);
+    });
+  }
+
+  Future<void> _performSync(
+    Emitter<VaultState> emit, {
+    SyncConflictResolution? resolution,
+    bool silentIfConflict = false,
+  }) async {
+    if (!state.isDriveConnected || !state.isDriveLinked) {
+      return;
+    }
+
+    emit(
+      state.copyWith(
+        syncStatus: DatabaseSyncStatus.syncing,
+        clearSyncError: true,
+      ),
+    );
+
+    try {
+      final result = await syncDatabaseNowUseCase(
+        state.databasePath,
+        resolution: resolution,
+      );
+
+      if (result is SyncNowConflict) {
+        emit(
+          state.copyWith(
+            syncStatus: DatabaseSyncStatus.conflict,
+            pendingSyncConflict: result.conflict,
+          ),
+        );
+
+        if (!silentIfConflict) {
+          emit(
+            state.copyWith(
+              syncError: 'Sync conflict detected. Choose how to proceed.',
+            ),
+          );
+        }
+        return;
+      }
+
+      final mapping = await databaseSyncRepository.getMapping(
+        state.databasePath,
+      );
+
+      emit(
+        state.copyWith(
+          syncStatus: DatabaseSyncStatus.success,
+          linkedDriveFileName: mapping?.driveFileName,
+          lastSyncAt: mapping?.lastSyncAt ?? DateTime.now(),
+          clearSyncError: true,
+          clearSyncConflict: true,
+        ),
+      );
+    } catch (e, st) {
+      logError('Drive sync failed.', e, st);
+      emit(
+        state.copyWith(
+          syncStatus: DatabaseSyncStatus.error,
+          syncError: 'Unable to sync with Google Drive.',
+        ),
+      );
+    }
+  }
+
+  @override
+  Future<void> close() {
+    _autoSyncDebounce?.cancel();
+    return super.close();
   }
 
   List<VaultEntry> _computeVisibleEntries({

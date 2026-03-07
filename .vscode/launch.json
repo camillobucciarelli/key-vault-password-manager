@@ -17,6 +17,24 @@
             "request": "launch",
             "type": "dart",
             "flutterMode": "release"
+        },
+        {
+            "name": "flutter run (macOS + Drive OAuth)",
+            "request": "launch",
+            "type": "dart",
+            "deviceId": "macos",
+            "args": [
+                "--dart-define=GOOGLE_DESKTOP_CLIENT_ID=YOUR_DESKTOP_CLIENT_ID",
+                "--dart-define=GOOGLE_DESKTOP_CLIENT_SECRET=YOUR_DESKTOP_CLIENT_SECRET"
+            ]
+        },
+        {
+            "name": "flutter run (mobile + Drive OAuth)",
+            "request": "launch",
+            "type": "dart",
+            "args": [
+                "--dart-define=GOOGLE_MOBILE_CLIENT_ID=YOUR_MOBILE_CLIENT_ID"
+            ]
         }
     ]
 }

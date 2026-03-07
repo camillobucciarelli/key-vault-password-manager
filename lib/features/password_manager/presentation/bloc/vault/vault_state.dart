@@ -1,5 +1,8 @@
 import 'package:equatable/equatable.dart';
 
+import '../../../domain/models/database_sync_status.dart';
+import '../../../domain/models/drive_remote_file.dart';
+import '../../../domain/models/sync_conflict.dart';
 import '../../../domain/models/vault_entry.dart';
 import '../../../domain/models/vault_group.dart';
 
@@ -22,6 +25,16 @@ class VaultState extends Equatable {
     this.sortBy = VaultEntrySort.titleAsc,
     this.errorMessage,
     this.infoMessage,
+    this.isDriveConnected = false,
+    this.isDriveLinked = false,
+    this.autoSyncEnabled = true,
+    this.syncStatus = DatabaseSyncStatus.disconnected,
+    this.syncError,
+    this.lastSyncAt,
+    this.pendingSyncConflict,
+    this.remoteDriveFiles = const [],
+    this.isLoadingRemoteDriveFiles = false,
+    this.linkedDriveFileName,
   });
 
   factory VaultState.initial({required String databasePath}) {
@@ -43,6 +56,16 @@ class VaultState extends Equatable {
   final VaultEntrySort sortBy;
   final String? errorMessage;
   final String? infoMessage;
+  final bool isDriveConnected;
+  final bool isDriveLinked;
+  final bool autoSyncEnabled;
+  final DatabaseSyncStatus syncStatus;
+  final String? syncError;
+  final DateTime? lastSyncAt;
+  final SyncConflict? pendingSyncConflict;
+  final List<DriveRemoteFile> remoteDriveFiles;
+  final bool isLoadingRemoteDriveFiles;
+  final String? linkedDriveFileName;
 
   VaultState copyWith({
     String? rootGroupId,
@@ -59,8 +82,20 @@ class VaultState extends Equatable {
     VaultEntrySort? sortBy,
     String? errorMessage,
     String? infoMessage,
+    bool? isDriveConnected,
+    bool? isDriveLinked,
+    bool? autoSyncEnabled,
+    DatabaseSyncStatus? syncStatus,
+    String? syncError,
+    DateTime? lastSyncAt,
+    SyncConflict? pendingSyncConflict,
+    List<DriveRemoteFile>? remoteDriveFiles,
+    bool? isLoadingRemoteDriveFiles,
+    String? linkedDriveFileName,
     bool clearError = false,
     bool clearInfo = false,
+    bool clearSyncError = false,
+    bool clearSyncConflict = false,
   }) {
     return VaultState(
       databasePath: databasePath,
@@ -78,6 +113,19 @@ class VaultState extends Equatable {
       sortBy: sortBy ?? this.sortBy,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
       infoMessage: clearInfo ? null : infoMessage ?? this.infoMessage,
+      isDriveConnected: isDriveConnected ?? this.isDriveConnected,
+      isDriveLinked: isDriveLinked ?? this.isDriveLinked,
+      autoSyncEnabled: autoSyncEnabled ?? this.autoSyncEnabled,
+      syncStatus: syncStatus ?? this.syncStatus,
+      syncError: clearSyncError ? null : syncError ?? this.syncError,
+      lastSyncAt: lastSyncAt ?? this.lastSyncAt,
+      pendingSyncConflict: clearSyncConflict
+          ? null
+          : pendingSyncConflict ?? this.pendingSyncConflict,
+      remoteDriveFiles: remoteDriveFiles ?? this.remoteDriveFiles,
+      isLoadingRemoteDriveFiles:
+          isLoadingRemoteDriveFiles ?? this.isLoadingRemoteDriveFiles,
+      linkedDriveFileName: linkedDriveFileName ?? this.linkedDriveFileName,
     );
   }
 
@@ -138,5 +186,15 @@ class VaultState extends Equatable {
     sortBy,
     errorMessage,
     infoMessage,
+    isDriveConnected,
+    isDriveLinked,
+    autoSyncEnabled,
+    syncStatus,
+    syncError,
+    lastSyncAt,
+    pendingSyncConflict,
+    remoteDriveFiles,
+    isLoadingRemoteDriveFiles,
+    linkedDriveFileName,
   ];
 }

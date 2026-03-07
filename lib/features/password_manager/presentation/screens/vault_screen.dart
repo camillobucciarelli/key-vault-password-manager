@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -9,10 +10,14 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../../../../core/responsive/breakpoints.dart';
 import '../../../../../core/theme/app_backgrounds.dart';
+import '../../../../../core/theme/app_colors.dart';
+import '../../../../../core/theme/app_icons.dart';
 import '../../../../../injection_container.dart' as di;
 import '../../domain/models/vault_custom_field.dart';
 import '../../domain/models/vault_entry.dart';
 import '../../domain/models/vault_group.dart';
+import '../../domain/models/sync_conflict.dart';
+import '../../domain/models/database_sync_status.dart';
 import '../bloc/vault/vault_bloc.dart';
 import '../bloc/vault/vault_event.dart';
 import '../bloc/vault/vault_state.dart';
@@ -24,8 +29,9 @@ class _VaultLayoutBreakpoints {
 
   static const double tabletMax = Breakpoints.tablet;
   static const double compactPhone = 380;
-  static const double searchSortStack = 760;
-  static const double breadcrumbBarHeight = 44;
+  static const double searchSortStack = 620;
+  static const double breadcrumbBarHeight = 40;
+  static const double syncStripHeight = 44;
 }
 
 class _VaultUiTokens {
@@ -69,18 +75,32 @@ class VaultScreen extends StatelessWidget {
 class _VaultView extends StatelessWidget {
   const _VaultView();
 
-  double _contentTopPadding(BuildContext context) {
+  double _contentTopPadding(
+    BuildContext context, {
+    required bool isCompactLayout,
+    required bool avoidAppBarOverlap,
+  }) {
+    if (avoidAppBarOverlap) {
+      return isCompactLayout ? 8 : 12;
+    }
+
     return MediaQuery.paddingOf(context).top +
         kToolbarHeight +
         _VaultLayoutBreakpoints.breadcrumbBarHeight +
-        8;
+        _VaultLayoutBreakpoints.syncStripHeight +
+        (isCompactLayout ? 6 : 0);
   }
 
   @override
   Widget build(BuildContext context) {
+    final viewportWidth = MediaQuery.sizeOf(context).width;
+    final isTabletViewport =
+        viewportWidth >= Breakpoints.mobile &&
+        viewportWidth < _VaultLayoutBreakpoints.tabletMax;
+
     return Scaffold(
       backgroundColor: Colors.transparent,
-      extendBodyBehindAppBar: true,
+      extendBodyBehindAppBar: !isTabletViewport,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -98,28 +118,51 @@ class _VaultView extends StatelessWidget {
               onPressed: () {
                 context.read<VaultBloc>().add(const OpenParentGroup());
               },
-              icon: const Icon(Icons.arrow_back_ios_new_rounded),
+              icon: const Icon(AppIcons.back),
             );
           },
         ),
         title: BlocBuilder<VaultBloc, VaultState>(
           builder: (context, state) {
+            final colorScheme = Theme.of(context).colorScheme;
             final title = state.currentGroup?.name;
-            if (title == null || title.trim().isEmpty) {
-              return const Text('Vault');
-            }
-            return Text(title, overflow: TextOverflow.ellipsis);
+            final resolvedTitle = (title == null || title.trim().isEmpty)
+                ? 'Vault'
+                : title;
+            return Row(
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _syncStatusColor(state.syncStatus, colorScheme),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(resolvedTitle, overflow: TextOverflow.ellipsis),
+                ),
+              ],
+            );
           },
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(
-            _VaultLayoutBreakpoints.breadcrumbBarHeight,
+            _VaultLayoutBreakpoints.breadcrumbBarHeight +
+                _VaultLayoutBreakpoints.syncStripHeight,
           ),
           child: BlocBuilder<VaultBloc, VaultState>(
             builder: (context, state) {
-              return _BreadcrumbsBar(
-                groups: state.breadcrumbs(),
-                rootGroupId: state.rootGroupId,
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _BreadcrumbsBar(
+                    groups: state.breadcrumbs(),
+                    rootGroupId: state.rootGroupId,
+                  ),
+                  _SyncStatusStrip(state: state),
+                ],
               );
             },
           ),
@@ -129,14 +172,116 @@ class _VaultView extends StatelessWidget {
           IconButton(
             tooltip: 'Open recycle bin',
             onPressed: () => _showRecycleBinDialog(context),
-            icon: const Icon(Icons.delete_outline),
+            icon: const Icon(AppIcons.delete),
           ),
           IconButton(
             tooltip: 'Refresh',
             onPressed: () {
               context.read<VaultBloc>().add(const RefreshVault());
             },
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(AppIcons.refresh),
+          ),
+          BlocBuilder<VaultBloc, VaultState>(
+            builder: (context, state) {
+              final icon = switch (state.syncStatus) {
+                DatabaseSyncStatus.syncing => AppIcons.sync,
+                DatabaseSyncStatus.success => AppIcons.cloudDone,
+                DatabaseSyncStatus.error => AppIcons.cloudOff,
+                DatabaseSyncStatus.conflict => AppIcons.warning,
+                DatabaseSyncStatus.disconnected => AppIcons.cloudOff,
+                DatabaseSyncStatus.idle => AppIcons.cloud,
+              };
+              return PopupMenuButton<String>(
+                tooltip: 'Drive sync',
+                icon: Icon(icon),
+                onSelected: (value) async {
+                  switch (value) {
+                    case 'connect':
+                      context.read<VaultBloc>().add(const ConnectGoogleDrive());
+                      break;
+                    case 'disconnect':
+                      context.read<VaultBloc>().add(
+                        const DisconnectGoogleDrive(),
+                      );
+                      break;
+                    case 'link':
+                      context.read<VaultBloc>().add(
+                        const LoadDriveRemoteFiles(),
+                      );
+                      final choice = await _showLinkDatabaseDialog(context);
+                      if (choice != null && context.mounted) {
+                        context.read<VaultBloc>().add(
+                          LinkCurrentDatabaseToDrive(
+                            remoteFileId: choice.remoteFileId,
+                            remoteFileName: choice.remoteFileName,
+                          ),
+                        );
+                      }
+                      break;
+                    case 'syncNow':
+                      context.read<VaultBloc>().add(
+                        const SyncCurrentDatabaseNow(),
+                      );
+                      break;
+                    case 'toggleAutoSync':
+                      context.read<VaultBloc>().add(
+                        ToggleCurrentDatabaseAutoSync(!state.autoSyncEnabled),
+                      );
+                      break;
+                  }
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    enabled: false,
+                    child: Text(
+                      'Status: ${_syncStatusLabel(state.syncStatus)}',
+                    ),
+                  ),
+                  PopupMenuItem(
+                    enabled: false,
+                    child: Text(
+                      state.linkedDriveFileName == null
+                          ? 'Linked file: -'
+                          : 'Linked file: ${state.linkedDriveFileName}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  PopupMenuItem(
+                    enabled: false,
+                    child: Text(
+                      state.lastSyncAt == null
+                          ? 'Last sync: never'
+                          : 'Last sync: ${_formatSyncDateTime(state.lastSyncAt!)}',
+                    ),
+                  ),
+                  const PopupMenuDivider(),
+                  PopupMenuItem(
+                    value: state.isDriveConnected ? 'disconnect' : 'connect',
+                    child: Text(
+                      state.isDriveConnected
+                          ? 'Disconnect Google Drive'
+                          : 'Connect Google Drive',
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'link',
+                    child: Text('Link this database'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'syncNow',
+                    child: Text('Sync now'),
+                  ),
+                  PopupMenuItem(
+                    value: 'toggleAutoSync',
+                    child: Text(
+                      state.autoSyncEnabled
+                          ? 'Disable auto-sync'
+                          : 'Enable auto-sync',
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -158,10 +303,32 @@ class _VaultView extends StatelessWidget {
                 context.read<VaultBloc>().add(const ClearVaultError());
               }
               if (state.infoMessage != null && state.infoMessage!.isNotEmpty) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text(state.infoMessage!)));
+                final isSyncInfo =
+                    state.infoMessage!.toLowerCase().contains('sync') ||
+                    state.infoMessage!.toLowerCase().contains('google drive');
+                if (isSyncInfo) {
+                  _showSyncSnackBar(
+                    context,
+                    state.infoMessage!,
+                    status: state.syncStatus,
+                  );
+                } else {
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(SnackBar(content: Text(state.infoMessage!)));
+                }
                 context.read<VaultBloc>().add(const ClearVaultInfo());
+              }
+              if (state.syncError != null && state.syncError!.isNotEmpty) {
+                _showSyncSnackBar(
+                  context,
+                  state.syncError!,
+                  status: state.syncStatus,
+                );
+                context.read<VaultBloc>().add(const ClearVaultSyncFeedback());
+              }
+              if (state.pendingSyncConflict != null) {
+                _showSyncConflictDialog(context, state.pendingSyncConflict!);
               }
             },
             builder: (context, state) {
@@ -176,6 +343,10 @@ class _VaultView extends StatelessWidget {
                       final isSmallScreen =
                           constraints.maxWidth <
                           _VaultLayoutBreakpoints.tabletMax;
+                      final isTabletLayout =
+                          constraints.maxWidth >= Breakpoints.mobile &&
+                          constraints.maxWidth <
+                              _VaultLayoutBreakpoints.tabletMax;
                       final horizontalPadding =
                           constraints.maxWidth <
                               _VaultLayoutBreakpoints.compactPhone
@@ -186,7 +357,11 @@ class _VaultView extends StatelessWidget {
                         return SingleChildScrollView(
                           padding: EdgeInsets.fromLTRB(
                             horizontalPadding,
-                            _contentTopPadding(context),
+                            _contentTopPadding(
+                              context,
+                              isCompactLayout: true,
+                              avoidAppBarOverlap: isTabletLayout,
+                            ),
                             horizontalPadding,
                             horizontalPadding,
                           ),
@@ -232,7 +407,7 @@ class _VaultView extends StatelessWidget {
                                     },
                                     addLabel: '+ Add folder',
                                     addTooltip: 'Add folder',
-                                    addIcon: Icons.create_new_folder_outlined,
+                                    addIcon: AppIcons.folderAdd,
                                   ),
                                   initiallyExpanded: false,
                                   children: [
@@ -290,7 +465,7 @@ class _VaultView extends StatelessWidget {
                                     },
                                     addLabel: '+ Add record',
                                     addTooltip: 'Add record',
-                                    addIcon: Icons.add_card_outlined,
+                                    addIcon: AppIcons.cardAdd,
                                   ),
                                   initiallyExpanded: true,
                                   children: [
@@ -299,6 +474,7 @@ class _VaultView extends StatelessWidget {
                                       groups: state.groups,
                                       searchQuery: state.searchQuery,
                                       sortBy: state.sortBy,
+                                      keepSearchSortInline: isTabletLayout,
                                       isScrollablePage: true,
                                       showHeader: false,
                                       wrapWithCard: false,
@@ -314,7 +490,11 @@ class _VaultView extends StatelessWidget {
                       return Padding(
                         padding: EdgeInsets.fromLTRB(
                           horizontalPadding,
-                          _contentTopPadding(context),
+                          _contentTopPadding(
+                            context,
+                            isCompactLayout: false,
+                            avoidAppBarOverlap: false,
+                          ),
                           horizontalPadding,
                           horizontalPadding,
                         ),
@@ -409,7 +589,7 @@ class _SectionTitleWithCount extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             animationDuration: _VaultUiTokens.buttonTransitionDuration,
           ),
-          icon: Icon(addIcon ?? Icons.add, size: 18),
+          icon: Icon(addIcon ?? AppIcons.add, size: 18),
           label: Text(resolvedLabel),
         );
 
@@ -437,6 +617,126 @@ class _SectionTitleWithCount extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+class _SyncStatusStrip extends StatelessWidget {
+  const _SyncStatusStrip({required this.state});
+
+  final VaultState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final statusColor = _syncStatusColor(state.syncStatus, colorScheme);
+    final statusIcon = switch (state.syncStatus) {
+      DatabaseSyncStatus.syncing => AppIcons.sync,
+      DatabaseSyncStatus.success => AppIcons.cloudDone,
+      DatabaseSyncStatus.error => AppIcons.cloudOff,
+      DatabaseSyncStatus.conflict => AppIcons.warning,
+      DatabaseSyncStatus.disconnected => AppIcons.cloudOff,
+      DatabaseSyncStatus.idle => AppIcons.cloud,
+    };
+    final label = state.lastSyncAt == null
+        ? _syncStatusLabel(state.syncStatus)
+        : '${_syncStatusLabel(state.syncStatus)} • ${_formatSyncDateTime(state.lastSyncAt!)}';
+    final details = state.linkedDriveFileName == null
+        ? label
+        : '$label • ${state.linkedDriveFileName}';
+    final canSyncNow = state.isDriveConnected && state.isDriveLinked;
+
+    return SizedBox(
+      height: _VaultLayoutBreakpoints.syncStripHeight,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: colorScheme.surface.withValues(alpha: 0.58),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: colorScheme.outlineVariant.withValues(alpha: 0.65),
+            ),
+          ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final compactAction = constraints.maxWidth < 560;
+
+              final syncAction = compactAction
+                  ? FilledButton.tonal(
+                      onPressed: canSyncNow
+                          ? () {
+                              context.read<VaultBloc>().add(
+                                const SyncCurrentDatabaseNow(),
+                              );
+                            }
+                          : null,
+                      style: FilledButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        minimumSize: const Size(40, 34),
+                        padding: EdgeInsets.zero,
+                        animationDuration:
+                            _VaultUiTokens.buttonTransitionDuration,
+                      ),
+                      child: const Tooltip(
+                        message: 'Sync now',
+                        child: Icon(AppIcons.sync, size: 16),
+                      ),
+                    )
+                  : FilledButton.tonalIcon(
+                      onPressed: canSyncNow
+                          ? () {
+                              context.read<VaultBloc>().add(
+                                const SyncCurrentDatabaseNow(),
+                              );
+                            }
+                          : null,
+                      style: FilledButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        minimumSize: const Size(0, 40),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        animationDuration:
+                            _VaultUiTokens.buttonTransitionDuration,
+                      ),
+                      icon: const Icon(AppIcons.sync, size: 16),
+                      label: const Text('Sync now'),
+                    );
+
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 18,
+                      height: 18,
+                      decoration: BoxDecoration(
+                        color: statusColor.withValues(alpha: 0.16),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Icon(statusIcon, size: 12, color: statusColor),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        details,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: colorScheme.onSurface.withValues(alpha: 0.86),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    syncAction,
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ),
     );
   }
 }
@@ -477,7 +777,7 @@ class _BreadcrumbsBar extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.home_outlined, size: 16),
+              const Icon(AppIcons.home, size: 16),
               const SizedBox(width: 4),
               Text('Vault', style: rootLabelStyle),
             ],
@@ -493,7 +793,7 @@ class _BreadcrumbsBar extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 2),
           child: Icon(
-            Icons.chevron_right_rounded,
+            AppIcons.chevronRight,
             size: 16,
             color: colorScheme.onSurface.withValues(alpha: 0.6),
           ),
@@ -582,13 +882,13 @@ class _RecycleBinDialog extends StatelessWidget {
             onPressed: () {
               context.read<VaultBloc>().add(const LoadRecycleBinEntries());
             },
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(AppIcons.refresh),
           ),
         ],
       ),
       content: SizedBox(
-        width: 620,
-        height: 420,
+        width: _dialogContentWidth(context, 620),
+        height: _dialogContentHeight(context, 420),
         child: BlocBuilder<VaultBloc, VaultState>(
           builder: (context, state) {
             if (state.isRecycleBinLoading) {
@@ -657,7 +957,7 @@ class _RecycleBinDialog extends StatelessWidget {
                         color: Theme.of(context).colorScheme.onError,
                       ),
                     )
-                  : const Icon(Icons.delete_forever_outlined),
+                  : const Icon(AppIcons.deleteSweep),
               label: Text(
                 state.recycleBinEntries.isEmpty
                     ? 'Empty bin'
@@ -801,7 +1101,7 @@ class _RecycleBinEntryListItem extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(
-                Icons.delete_outline,
+                AppIcons.delete,
                 size: 18,
                 color: colorScheme.onErrorContainer,
               ),
@@ -881,7 +1181,7 @@ class _RecycleBinEmptyState extends StatelessWidget {
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                Icons.delete_sweep_outlined,
+                AppIcons.deleteSweep,
                 color: colorScheme.onErrorContainer,
               ),
             ),
@@ -971,15 +1271,34 @@ class _GroupsCard extends StatelessWidget {
 
   Widget _buildGroupsList(BuildContext context) {
     if (groups.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        child: _FoldersEmptyState(
-          onAddPressed: () => _handleCreateFolder(context),
-        ),
+      final emptyState = _FoldersEmptyState(
+        onAddPressed: () => _handleCreateFolder(context),
+      );
+
+      if (isScrollablePage) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: emptyState,
+        );
+      }
+
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final minHeight = constraints.maxHeight > 32
+              ? constraints.maxHeight - 32
+              : 0.0;
+          return SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: minHeight),
+              child: Center(child: emptyState),
+            ),
+          );
+        },
       );
     }
 
-    return ListView.separated(
+    final list = ListView.separated(
       padding: EdgeInsets.zero,
       shrinkWrap: isScrollablePage,
       physics: isScrollablePage
@@ -1001,6 +1320,12 @@ class _GroupsCard extends StatelessWidget {
         );
       },
     );
+
+    if (isScrollablePage) {
+      return list;
+    }
+
+    return Scrollbar(child: list);
   }
 
   @override
@@ -1017,7 +1342,7 @@ class _GroupsCard extends StatelessWidget {
               onAddPressed: () => _handleCreateFolder(context),
               addLabel: '+ Add folder',
               addTooltip: 'Add folder',
-              addIcon: Icons.create_new_folder_outlined,
+              addIcon: AppIcons.folderAdd,
             ),
             const SizedBox(height: 10),
             Divider(
@@ -1086,7 +1411,7 @@ class _FolderListItem extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(
-                Icons.folder_outlined,
+                AppIcons.folder,
                 size: 18,
                 color: colorScheme.onPrimaryContainer,
               ),
@@ -1103,7 +1428,7 @@ class _FolderListItem extends StatelessWidget {
               ),
             ),
             Icon(
-              Icons.chevron_right_rounded,
+              AppIcons.chevronRight,
               size: 20,
               color: colorScheme.onSurface.withValues(alpha: 0.5),
             ),
@@ -1158,7 +1483,7 @@ class _FoldersEmptyState extends StatelessWidget {
               shape: BoxShape.circle,
             ),
             child: Icon(
-              Icons.folder_copy_outlined,
+              AppIcons.folderCopy,
               color: colorScheme.onPrimaryContainer,
             ),
           ),
@@ -1181,7 +1506,7 @@ class _FoldersEmptyState extends StatelessWidget {
             style: FilledButton.styleFrom(
               animationDuration: _VaultUiTokens.buttonTransitionDuration,
             ),
-            icon: const Icon(Icons.create_new_folder_outlined),
+            icon: const Icon(AppIcons.folderAdd),
             label: const Text('+ Add folder'),
           ),
         ],
@@ -1196,6 +1521,7 @@ class _EntriesCard extends StatelessWidget {
     required this.groups,
     required this.searchQuery,
     required this.sortBy,
+    this.keepSearchSortInline = false,
     this.isScrollablePage = false,
     this.showHeader = true,
     this.wrapWithCard = true,
@@ -1205,6 +1531,7 @@ class _EntriesCard extends StatelessWidget {
   final List<VaultGroup> groups;
   final String searchQuery;
   final VaultEntrySort sortBy;
+  final bool keepSearchSortInline;
   final bool isScrollablePage;
   final bool showHeader;
   final bool wrapWithCard;
@@ -1284,6 +1611,7 @@ class _EntriesCard extends StatelessWidget {
     return DropdownButtonFormField<VaultEntrySort>(
       initialValue: sortBy,
       isExpanded: true,
+      icon: const Icon(AppIcons.chevronDown),
       decoration: const InputDecoration(labelText: 'Sort by'),
       onChanged: (value) => _onSortChanged(context, value),
       items: const [
@@ -1305,21 +1633,40 @@ class _EntriesCard extends StatelessWidget {
 
   Widget _buildEntriesList(BuildContext context) {
     if (entries.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        child: _RecordsEmptyState(
-          searchQuery: searchQuery,
-          onAddPressed: () => _handleCreateEntry(context),
-          onClearSearch: searchQuery.isNotEmpty
-              ? () {
-                  context.read<VaultBloc>().add(const ClearVaultSearchQuery());
-                }
-              : null,
-        ),
+      final emptyState = _RecordsEmptyState(
+        searchQuery: searchQuery,
+        onAddPressed: () => _handleCreateEntry(context),
+        onClearSearch: searchQuery.isNotEmpty
+            ? () {
+                context.read<VaultBloc>().add(const ClearVaultSearchQuery());
+              }
+            : null,
+      );
+
+      if (isScrollablePage) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: emptyState,
+        );
+      }
+
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final minHeight = constraints.maxHeight > 32
+              ? constraints.maxHeight - 32
+              : 0.0;
+          return SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: minHeight),
+              child: Center(child: emptyState),
+            ),
+          );
+        },
       );
     }
 
-    return ListView.separated(
+    final list = ListView.separated(
       padding: EdgeInsets.zero,
       shrinkWrap: isScrollablePage,
       physics: isScrollablePage
@@ -1332,12 +1679,21 @@ class _EntriesCard extends StatelessWidget {
         final entry = entries[index];
         return _RecordListItem(
           entry: entry,
+          onOpen: () {
+            _showRecordDetailsDialog(context, entry);
+          },
           onSelectedAction: (action) {
             _handleEntryAction(context, entry, action);
           },
         );
       },
     );
+
+    if (isScrollablePage) {
+      return list;
+    }
+
+    return Scrollbar(child: list);
   }
 
   @override
@@ -1354,7 +1710,7 @@ class _EntriesCard extends StatelessWidget {
               onAddPressed: () => _handleCreateEntry(context),
               addLabel: '+ Add record',
               addTooltip: 'Add record',
-              addIcon: Icons.add_card_outlined,
+              addIcon: AppIcons.cardAdd,
             ),
             const SizedBox(height: 10),
             Divider(
@@ -1367,16 +1723,17 @@ class _EntriesCard extends StatelessWidget {
           ],
           LayoutBuilder(
             builder: (context, constraints) {
-              final isNarrowSearchBar =
+              final shouldStackSearchSort =
+                  !keepSearchSortInline &&
                   constraints.maxWidth <
-                  _VaultLayoutBreakpoints.searchSortStack;
+                      _VaultLayoutBreakpoints.searchSortStack;
 
               final searchField = TextFormField(
                 key: ValueKey('vault-search-$searchQuery'),
                 initialValue: searchQuery,
                 decoration: InputDecoration(
                   labelText: 'Search records',
-                  prefixIcon: const Icon(Icons.search),
+                  prefixIcon: const Icon(AppIcons.search),
                   suffixIcon: searchQuery.isNotEmpty
                       ? IconButton(
                           tooltip: 'Clear search',
@@ -1385,7 +1742,7 @@ class _EntriesCard extends StatelessWidget {
                               const ClearVaultSearchQuery(),
                             );
                           },
-                          icon: const Icon(Icons.clear),
+                          icon: const Icon(AppIcons.close),
                         )
                       : null,
                 ),
@@ -1394,7 +1751,7 @@ class _EntriesCard extends StatelessWidget {
                 },
               );
 
-              if (isNarrowSearchBar) {
+              if (shouldStackSearchSort) {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -1410,7 +1767,10 @@ class _EntriesCard extends StatelessWidget {
                 children: [
                   Expanded(child: searchField),
                   const SizedBox(width: 10),
-                  SizedBox(width: 240, child: _buildSortField(context)),
+                  SizedBox(
+                    width: math.min(250, constraints.maxWidth * 0.38),
+                    child: _buildSortField(context),
+                  ),
                 ],
               );
             },
@@ -1439,10 +1799,326 @@ class _EntriesCard extends StatelessWidget {
 
 enum _EntryAction { edit, move, attachments, showTotp, delete }
 
+Future<void> _copyTextToClipboard(
+  BuildContext context, {
+  required String text,
+  required String successMessage,
+}) async {
+  if (text.isEmpty) {
+    return;
+  }
+  await Clipboard.setData(ClipboardData(text: text));
+  if (!context.mounted) {
+    return;
+  }
+  ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(SnackBar(content: Text(successMessage)));
+}
+
+Future<void> _showRecordDetailsDialog(
+  BuildContext context,
+  VaultEntry entry,
+) async {
+  var passwordVisible = false;
+
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      final theme = Theme.of(dialogContext);
+      final colorScheme = theme.colorScheme;
+      final isCompactViewport =
+          MediaQuery.sizeOf(dialogContext).width < Breakpoints.mobile;
+      final customFields = entry.customFields
+          .where((field) => !_isOtpFieldKey(field.key))
+          .toList(growable: false);
+
+      Widget credentialSection({
+        required String label,
+        required String value,
+        required String emptyLabel,
+        VoidCallback? onCopy,
+        Widget? trailing,
+      }) {
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: colorScheme.outlineVariant.withValues(alpha: 0.7),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: colorScheme.onSurface.withValues(alpha: 0.74),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  trailing ?? const SizedBox.shrink(),
+                ],
+              ),
+              const SizedBox(height: 6),
+              SelectableText(
+                value.isEmpty ? emptyLabel : value,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: value.isEmpty
+                      ? colorScheme.onSurface.withValues(alpha: 0.62)
+                      : colorScheme.onSurface,
+                ),
+              ),
+              if (onCopy != null) ...[
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton.tonalIcon(
+                    onPressed: onCopy,
+                    style: FilledButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      minimumSize: const Size(0, 34),
+                      animationDuration:
+                          _VaultUiTokens.buttonTransitionDuration,
+                    ),
+                    icon: const Icon(AppIcons.copy, size: 16),
+                    label: Text('Copy $label'),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      }
+
+      Widget customFieldsSection() {
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: colorScheme.outlineVariant.withValues(alpha: 0.7),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Custom fields',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: colorScheme.onSurface.withValues(alpha: 0.74),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ...customFields.asMap().entries.expand((entry) {
+                final index = entry.key;
+                final field = entry.value;
+                final rows = <Widget>[
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              field.key,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: colorScheme.onSurface.withValues(
+                                  alpha: 0.78,
+                                ),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            SelectableText(
+                              field.value.isEmpty ? 'Not set' : field.value,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: field.value.isEmpty
+                                    ? colorScheme.onSurface.withValues(
+                                        alpha: 0.62,
+                                      )
+                                    : colorScheme.onSurface,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (field.value.isNotEmpty)
+                        IconButton(
+                          tooltip: 'Copy ${field.key}',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () {
+                            _copyTextToClipboard(
+                              dialogContext,
+                              text: field.value,
+                              successMessage: '${field.key} copied.',
+                            );
+                          },
+                          icon: const Icon(AppIcons.copy, size: 16),
+                        ),
+                    ],
+                  ),
+                ];
+
+                if (index < customFields.length - 1) {
+                  rows.add(
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Divider(
+                        height: 1,
+                        color: colorScheme.outlineVariant.withValues(
+                          alpha: 0.7,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+
+                return rows;
+              }),
+            ],
+          ),
+        );
+      }
+
+      return StatefulBuilder(
+        builder: (context, setState) {
+          final hiddenPassword = entry.password.isEmpty
+              ? 'Not set'
+              : '••••••••••••';
+          final resolvedPassword = passwordVisible
+              ? (entry.password.isEmpty ? 'Not set' : entry.password)
+              : hiddenPassword;
+
+          return AlertDialog(
+            insetPadding: EdgeInsets.symmetric(
+              horizontal: isCompactViewport ? 12 : 26,
+              vertical: isCompactViewport ? 14 : 24,
+            ),
+            title: Text(entry.title.isEmpty ? '(Untitled)' : entry.title),
+            content: SizedBox(
+              width: _dialogContentWidth(dialogContext, 500),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    credentialSection(
+                      label: 'Username',
+                      value: entry.username,
+                      emptyLabel: 'No username',
+                      onCopy: entry.username.isEmpty
+                          ? null
+                          : () {
+                              _copyTextToClipboard(
+                                dialogContext,
+                                text: entry.username,
+                                successMessage: 'Username copied.',
+                              );
+                            },
+                    ),
+                    const SizedBox(height: 10),
+                    credentialSection(
+                      label: 'Password',
+                      value: resolvedPassword,
+                      emptyLabel: 'No password',
+                      onCopy: entry.password.isEmpty
+                          ? null
+                          : () {
+                              _copyTextToClipboard(
+                                dialogContext,
+                                text: entry.password,
+                                successMessage: 'Password copied.',
+                              );
+                            },
+                      trailing: IconButton(
+                        tooltip: passwordVisible
+                            ? 'Hide password'
+                            : 'Show password',
+                        onPressed: entry.password.isEmpty
+                            ? null
+                            : () {
+                                setState(() {
+                                  passwordVisible = !passwordVisible;
+                                });
+                              },
+                        icon: Icon(
+                          passwordVisible ? AppIcons.eyeOff : AppIcons.eye,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    credentialSection(
+                      label: 'URL',
+                      value: entry.url,
+                      emptyLabel: 'No URL',
+                      onCopy: entry.url.isEmpty
+                          ? null
+                          : () {
+                              _copyTextToClipboard(
+                                dialogContext,
+                                text: entry.url,
+                                successMessage: 'URL copied.',
+                              );
+                            },
+                    ),
+                    const SizedBox(height: 10),
+                    credentialSection(
+                      label: 'Notes',
+                      value: entry.notes,
+                      emptyLabel: 'No notes',
+                      onCopy: entry.notes.isEmpty
+                          ? null
+                          : () {
+                              _copyTextToClipboard(
+                                dialogContext,
+                                text: entry.notes,
+                                successMessage: 'Notes copied.',
+                              );
+                            },
+                    ),
+                    if (customFields.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      customFieldsSection(),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Close'),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+}
+
 class _RecordListItem extends StatelessWidget {
-  const _RecordListItem({required this.entry, required this.onSelectedAction});
+  const _RecordListItem({
+    required this.entry,
+    required this.onOpen,
+    required this.onSelectedAction,
+  });
 
   final VaultEntry entry;
+  final VoidCallback onOpen;
   final ValueChanged<_EntryAction> onSelectedAction;
 
   @override
@@ -1452,6 +2128,7 @@ class _RecordListItem extends StatelessWidget {
     return _InteractiveItemSurface(
       radius: _VaultUiTokens.recordItemRadius,
       minHeight: _VaultUiTokens.recordItemHeight,
+      onTap: onOpen,
       baseColor: colorScheme.surface.withValues(alpha: 0.74),
       hoveredColor: colorScheme.surface.withValues(alpha: 0.85),
       baseBorderColor: colorScheme.outlineVariant.withValues(alpha: 0.7),
@@ -1469,7 +2146,7 @@ class _RecordListItem extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(
-                Icons.key_outlined,
+                AppIcons.key,
                 size: 18,
                 color: colorScheme.onSecondaryContainer,
               ),
@@ -1575,7 +2252,7 @@ class _RecordsEmptyState extends StatelessWidget {
               shape: BoxShape.circle,
             ),
             child: Icon(
-              isSearchActive ? Icons.search_off_outlined : Icons.key_outlined,
+              isSearchActive ? AppIcons.searchOff : AppIcons.key,
               color: colorScheme.onSecondaryContainer,
             ),
           ),
@@ -1601,7 +2278,7 @@ class _RecordsEmptyState extends StatelessWidget {
               style: OutlinedButton.styleFrom(
                 animationDuration: _VaultUiTokens.buttonTransitionDuration,
               ),
-              icon: const Icon(Icons.clear),
+              icon: const Icon(AppIcons.close),
               label: const Text('Clear search'),
             )
           else
@@ -1610,7 +2287,7 @@ class _RecordsEmptyState extends StatelessWidget {
               style: FilledButton.styleFrom(
                 animationDuration: _VaultUiTokens.buttonTransitionDuration,
               ),
-              icon: const Icon(Icons.add_card_outlined),
+              icon: const Icon(AppIcons.cardAdd),
               label: const Text('+ Add record'),
             ),
         ],
@@ -1648,8 +2325,7 @@ Future<_EntryDialogPayload?> _showEntryDialog(
   var password = initial?.password ?? '';
   var url = initial?.url ?? '';
   var notes = initial?.notes ?? '';
-  final otpUriController = TextEditingController(text: initial?.otpUri ?? '');
-  var otpUri = otpUriController.text;
+  var otpUri = initial?.otpUri ?? '';
   var customFieldsText =
       initial?.customFields
           .where((field) => !_isOtpFieldKey(field.key))
@@ -1667,7 +2343,7 @@ Future<_EntryDialogPayload?> _showEntryDialog(
           return AlertDialog(
             title: Text(initial == null ? 'Add record' : 'Edit record'),
             content: SizedBox(
-              width: 500,
+              width: _dialogContentWidth(context, 500),
               child: Form(
                 key: formKey,
                 child: SingleChildScrollView(
@@ -1706,9 +2382,7 @@ Future<_EntryDialogPayload?> _showEntryDialog(
                               });
                             },
                             icon: Icon(
-                              passwordVisible
-                                  ? Icons.visibility_off
-                                  : Icons.visibility,
+                              passwordVisible ? AppIcons.eyeOff : AppIcons.eye,
                             ),
                           ),
                         ),
@@ -1730,7 +2404,8 @@ Future<_EntryDialogPayload?> _showEntryDialog(
                       ),
                       const SizedBox(height: 10),
                       TextFormField(
-                        controller: otpUriController,
+                        key: ValueKey('entry-otp-uri-$otpUri'),
+                        initialValue: otpUri,
                         decoration: InputDecoration(
                           labelText: 'OTP URI (otpauth://...)',
                           suffixIcon: _supportsOtpQrScan()
@@ -1744,10 +2419,9 @@ Future<_EntryDialogPayload?> _showEntryDialog(
                                     }
                                     setState(() {
                                       otpUri = scannedOtpUri;
-                                      otpUriController.text = scannedOtpUri;
                                     });
                                   },
-                                  icon: const Icon(Icons.qr_code_scanner),
+                                  icon: const Icon(AppIcons.qrCode),
                                 )
                               : null,
                         ),
@@ -1809,7 +2483,6 @@ Future<_EntryDialogPayload?> _showEntryDialog(
       );
     },
   );
-  otpUriController.dispose();
   return result;
 }
 
@@ -1942,7 +2615,7 @@ Future<String?> _showGroupDialog(
       return AlertDialog(
         title: Text(title),
         content: SizedBox(
-          width: 380,
+          width: _dialogContentWidth(context, 380),
           child: Form(
             key: formKey,
             child: TextFormField(
@@ -2032,6 +2705,7 @@ Future<String?> _showMoveTargetDialog(
             content: DropdownButtonFormField<String>(
               initialValue: selectedGroupId,
               isExpanded: true,
+              icon: const Icon(AppIcons.chevronDown),
               items: options
                   .map(
                     (group) => DropdownMenuItem(
@@ -2076,7 +2750,7 @@ Future<void> _showAttachmentsDialog(
       return AlertDialog(
         title: const Text('Attachments'),
         content: SizedBox(
-          width: 520,
+          width: _dialogContentWidth(dialogContext, 520),
           child: entry.attachments.isEmpty
               ? const Text('No attachments for this record.')
               : ListView.separated(
@@ -2086,7 +2760,7 @@ Future<void> _showAttachmentsDialog(
                     return ListTile(
                       dense: true,
                       contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.attach_file),
+                      leading: const Icon(AppIcons.attachment),
                       title: Text(attachment.name),
                       subtitle: Text(_formatBytes(attachment.size)),
                       trailing: PopupMenuButton<_AttachmentAction>(
@@ -2238,7 +2912,7 @@ class _OtpQrScannerDialogState extends State<_OtpQrScannerDialog> {
     return AlertDialog(
       title: const Text('Scan OTP QR'),
       content: SizedBox(
-        width: 320,
+        width: _dialogContentWidth(context, 320),
         child: AspectRatio(
           aspectRatio: 1,
           child: ClipRRect(
@@ -2329,7 +3003,7 @@ class _TotpDialogContentState extends State<_TotpDialogContent> {
     }
 
     return SizedBox(
-      width: 280,
+      width: _dialogContentWidth(context, 280),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -2355,7 +3029,7 @@ class _TotpDialogContentState extends State<_TotpDialogContent> {
                 context,
               ).showSnackBar(const SnackBar(content: Text('OTP copied.')));
             },
-            icon: const Icon(Icons.copy_outlined),
+            icon: const Icon(AppIcons.copy),
             label: const Text('Copy code'),
           ),
         ],
@@ -2466,6 +3140,21 @@ class _TotpChipState extends State<_TotpChip> {
 
 enum _AttachmentAction { export, remove }
 
+double _dialogContentWidth(BuildContext context, double preferredWidth) {
+  final viewport = MediaQuery.sizeOf(context).width;
+  final availableWidth = viewport - 56;
+  if (availableWidth < 280) {
+    return viewport - 24;
+  }
+  return math.min(preferredWidth, availableWidth);
+}
+
+double _dialogContentHeight(BuildContext context, double preferredHeight) {
+  final viewport = MediaQuery.sizeOf(context).height;
+  final availableHeight = viewport - 140;
+  return math.min(preferredHeight, availableHeight);
+}
+
 String _formatBytes(int bytes) {
   if (bytes < 1024) {
     return '$bytes B';
@@ -2474,4 +3163,266 @@ String _formatBytes(int bytes) {
     return '${(bytes / 1024).toStringAsFixed(1)} KB';
   }
   return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+}
+
+class _LinkDatabaseChoice {
+  const _LinkDatabaseChoice._({this.remoteFileId, this.remoteFileName});
+
+  final String? remoteFileId;
+  final String? remoteFileName;
+
+  factory _LinkDatabaseChoice.existing(String remoteFileId) {
+    return _LinkDatabaseChoice._(remoteFileId: remoteFileId);
+  }
+
+  factory _LinkDatabaseChoice.newFile(String? remoteFileName) {
+    return _LinkDatabaseChoice._(remoteFileName: remoteFileName);
+  }
+}
+
+Future<_LinkDatabaseChoice?> _showLinkDatabaseDialog(
+  BuildContext context,
+) async {
+  final controller = TextEditingController();
+  var useExisting = false;
+  String? selectedExistingId;
+
+  final result = await showDialog<_LinkDatabaseChoice?>(
+    context: context,
+    builder: (dialogContext) {
+      return StatefulBuilder(
+        builder: (context, setState) {
+          final state = context.watch<VaultBloc>().state;
+          final remoteFiles = state.remoteDriveFiles;
+
+          if (selectedExistingId == null && remoteFiles.isNotEmpty) {
+            selectedExistingId = remoteFiles.first.id;
+          }
+
+          return AlertDialog(
+            title: const Text('Link current database'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment<bool>(
+                        value: false,
+                        label: Text('Create new'),
+                      ),
+                      ButtonSegment<bool>(
+                        value: true,
+                        label: Text('Use existing'),
+                      ),
+                    ],
+                    selected: {useExisting},
+                    onSelectionChanged: (selection) {
+                      setState(() {
+                        useExisting = selection.first;
+                      });
+                    },
+                  ),
+                ),
+                if (!useExisting)
+                  TextField(
+                    controller: controller,
+                    decoration: const InputDecoration(
+                      labelText: 'Remote filename (optional)',
+                      hintText: 'my-vault.kdbx',
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                if (useExisting)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Use existing Drive file',
+                      style: Theme.of(context).textTheme.labelLarge,
+                    ),
+                  ),
+                if (useExisting)
+                  state.isLoadingRemoteDriveFiles
+                      ? const Padding(
+                          padding: EdgeInsets.only(top: 12),
+                          child: CircularProgressIndicator(),
+                        )
+                      : remoteFiles.isEmpty
+                      ? const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: Text('No files found in appDataFolder.'),
+                        )
+                      : DropdownButton<String>(
+                          isExpanded: true,
+                          icon: const Icon(AppIcons.chevronDown),
+                          value: selectedExistingId,
+                          items: remoteFiles
+                              .map(
+                                (file) => DropdownMenuItem<String>(
+                                  value: file.id,
+                                  child: Text(
+                                    file.name,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              )
+                              .toList(growable: false),
+                          onChanged: (value) {
+                            setState(() {
+                              selectedExistingId = value;
+                            });
+                          },
+                        ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(null),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  if (useExisting) {
+                    if (selectedExistingId == null ||
+                        selectedExistingId!.isEmpty) {
+                      return;
+                    }
+                    Navigator.of(
+                      dialogContext,
+                    ).pop(_LinkDatabaseChoice.existing(selectedExistingId!));
+                    return;
+                  }
+
+                  Navigator.of(
+                    dialogContext,
+                  ).pop(_LinkDatabaseChoice.newFile(controller.text.trim()));
+                },
+                child: const Text('Link'),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+  controller.dispose();
+  return result;
+}
+
+Future<void> _showSyncConflictDialog(
+  BuildContext context,
+  SyncConflict conflict,
+) async {
+  final resolution = await showDialog<SyncConflictResolution>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: const Text('Sync conflict detected'),
+        content: Text(
+          'The local database and Drive file "${conflict.driveFileName}" both changed. Choose what to keep.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(SyncConflictResolution.cancel),
+            child: const Text('Cancel'),
+          ),
+          OutlinedButton(
+            onPressed: () => Navigator.of(
+              dialogContext,
+            ).pop(SyncConflictResolution.useRemote),
+            child: const Text('Use remote'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(
+              dialogContext,
+            ).pop(SyncConflictResolution.keepLocal),
+            child: const Text('Keep local'),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (!context.mounted) {
+    return;
+  }
+
+  context.read<VaultBloc>().add(const ClearVaultSyncFeedback());
+
+  if (resolution == null || resolution == SyncConflictResolution.cancel) {
+    return;
+  }
+
+  context.read<VaultBloc>().add(SyncCurrentDatabaseNow(resolution: resolution));
+}
+
+String _syncStatusLabel(DatabaseSyncStatus status) {
+  return switch (status) {
+    DatabaseSyncStatus.idle => 'Idle',
+    DatabaseSyncStatus.syncing => 'Syncing',
+    DatabaseSyncStatus.success => 'Synced',
+    DatabaseSyncStatus.error => 'Error',
+    DatabaseSyncStatus.conflict => 'Conflict',
+    DatabaseSyncStatus.disconnected => 'Disconnected',
+  };
+}
+
+Color _syncStatusColor(DatabaseSyncStatus status, ColorScheme colorScheme) {
+  return switch (status) {
+    DatabaseSyncStatus.idle => colorScheme.outline,
+    DatabaseSyncStatus.syncing => colorScheme.primary,
+    DatabaseSyncStatus.success => AppColors.success,
+    DatabaseSyncStatus.error => colorScheme.error,
+    DatabaseSyncStatus.conflict => AppColors.warning,
+    DatabaseSyncStatus.disconnected => colorScheme.outline,
+  };
+}
+
+void _showSyncSnackBar(
+  BuildContext context,
+  String message, {
+  required DatabaseSyncStatus status,
+}) {
+  final messenger = ScaffoldMessenger.of(context);
+  final theme = Theme.of(context);
+  final background = switch (status) {
+    DatabaseSyncStatus.success => AppColors.success,
+    DatabaseSyncStatus.conflict => AppColors.warning,
+    DatabaseSyncStatus.error => theme.colorScheme.error,
+    DatabaseSyncStatus.syncing => theme.colorScheme.primary,
+    DatabaseSyncStatus.idle => theme.colorScheme.surfaceContainerHighest,
+    DatabaseSyncStatus.disconnected =>
+      theme.colorScheme.surfaceContainerHighest,
+  };
+
+  final foreground = switch (status) {
+    DatabaseSyncStatus.error => theme.colorScheme.onError,
+    DatabaseSyncStatus.idle => theme.colorScheme.onSurface,
+    DatabaseSyncStatus.disconnected => theme.colorScheme.onSurface,
+    _ => Colors.white,
+  };
+
+  messenger
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(message, style: TextStyle(color: foreground)),
+        backgroundColor: background,
+        behavior: SnackBarBehavior.floating,
+        showCloseIcon: true,
+        closeIconColor: foreground,
+      ),
+    );
+}
+
+String _formatSyncDateTime(DateTime value) {
+  final local = value.toLocal();
+  final y = local.year.toString().padLeft(4, '0');
+  final m = local.month.toString().padLeft(2, '0');
+  final d = local.day.toString().padLeft(2, '0');
+  final hh = local.hour.toString().padLeft(2, '0');
+  final mm = local.minute.toString().padLeft(2, '0');
+  return '$y-$m-$d $hh:$mm';
 }

@@ -1,6 +1,8 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../../../../../core/theme/app_icons.dart';
+
 /// A dialog that collects a Master Password (and confirm) plus an optional Key File
 /// before creating a new KDBX database.
 ///
@@ -97,10 +99,12 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final dialogWidth = _dialogContentWidth(context, 420);
+
     return AlertDialog(
       title: const Text('New Database Credentials'),
       content: SizedBox(
-        width: 400,
+        width: dialogWidth,
         child: Form(
           key: _formKey,
           child: Column(
@@ -121,13 +125,11 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
                 obscureText: !_passwordVisible,
                 decoration: InputDecoration(
                   labelText: 'Master Password',
-                  prefixIcon: const Icon(Icons.lock_outline),
+                  prefixIcon: const Icon(AppIcons.lock),
                   border: const OutlineInputBorder(),
                   suffixIcon: IconButton(
                     icon: Icon(
-                      _passwordVisible
-                          ? Icons.visibility_off
-                          : Icons.visibility,
+                      _passwordVisible ? AppIcons.eyeOff : AppIcons.eye,
                     ),
                     onPressed: () =>
                         setState(() => _passwordVisible = !_passwordVisible),
@@ -153,11 +155,11 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
                 obscureText: !_confirmVisible,
                 decoration: InputDecoration(
                   labelText: 'Confirm Password',
-                  prefixIcon: const Icon(Icons.lock_outline),
+                  prefixIcon: const Icon(AppIcons.lock),
                   border: const OutlineInputBorder(),
                   suffixIcon: IconButton(
                     icon: Icon(
-                      _confirmVisible ? Icons.visibility_off : Icons.visibility,
+                      _confirmVisible ? AppIcons.eyeOff : AppIcons.eye,
                     ),
                     onPressed: () =>
                         setState(() => _confirmVisible = !_confirmVisible),
@@ -201,7 +203,7 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
                     if (_generatedKeyFilePath == null)
                       OutlinedButton.icon(
                         onPressed: _pickGeneratedKeyFilePath,
-                        icon: const Icon(Icons.save_alt_outlined),
+                        icon: const Icon(AppIcons.save),
                         label: const Text('Choose key file destination'),
                         style: OutlinedButton.styleFrom(
                           minimumSize: const Size(double.infinity, 44),
@@ -210,13 +212,13 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
                     else
                       ListTile(
                         contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.key_outlined),
+                        leading: const Icon(AppIcons.fileKey),
                         title: Text(
                           _generatedKeyFilePath!,
                           overflow: TextOverflow.ellipsis,
                         ),
                         trailing: IconButton(
-                          icon: const Icon(Icons.close),
+                          icon: const Icon(AppIcons.close),
                           tooltip: 'Remove generated key file path',
                           onPressed: _clearGeneratedKeyFilePath,
                         ),
@@ -226,7 +228,7 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
               else if (_keyFilePath == null)
                 OutlinedButton.icon(
                   onPressed: _pickKeyFile,
-                  icon: const Icon(Icons.attach_file),
+                  icon: const Icon(AppIcons.attachment),
                   label: const Text('Select Key File'),
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size(double.infinity, 44),
@@ -235,13 +237,13 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
               else
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.insert_drive_file_outlined),
+                  leading: const Icon(AppIcons.file),
                   title: Text(
                     _keyFileName ?? _keyFilePath!,
                     overflow: TextOverflow.ellipsis,
                   ),
                   trailing: IconButton(
-                    icon: const Icon(Icons.close),
+                    icon: const Icon(AppIcons.close),
                     tooltip: 'Remove key file',
                     onPressed: _clearKeyFile,
                   ),
@@ -273,4 +275,13 @@ class CreateDatabaseCredentials {
   final String? keyFilePath;
   final bool generateKeyFile;
   final String? generatedKeyFilePath;
+}
+
+double _dialogContentWidth(BuildContext context, double preferredWidth) {
+  final viewport = MediaQuery.sizeOf(context).width;
+  final availableWidth = viewport - 56;
+  if (availableWidth < 280) {
+    return viewport - 24;
+  }
+  return availableWidth < preferredWidth ? availableWidth : preferredWidth;
 }

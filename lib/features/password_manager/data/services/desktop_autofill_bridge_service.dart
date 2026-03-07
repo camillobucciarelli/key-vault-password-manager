@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:loggy/loggy.dart';
 import 'package:path/path.dart' as p;
 
+import '../../domain/models/vault_entry.dart';
 import '../../domain/services/vault_autofill_matcher.dart';
 import '../../domain/usecases/get_selected_database_path_usecase.dart';
 import '../../domain/usecases/get_selected_key_file_path_usecase.dart';
@@ -29,6 +30,9 @@ class DesktopAutofillBridgeService {
 
   HttpServer? _server;
   String? _token;
+  DateTime? _tokenExpiresAt;
+
+  static const Duration _tokenTtl = Duration(minutes: 20);
 
   Future<void> start() async {
     if (!_isDesktop || _server != null) {
@@ -38,11 +42,13 @@ class DesktopAutofillBridgeService {
     try {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       final token = _generateToken();
+      final expiresAt = DateTime.now().add(_tokenTtl);
 
       _server = server;
       _token = token;
+      _tokenExpiresAt = expiresAt;
 
-      await _writeBridgeConfig(server.port, token);
+      await _writeBridgeConfig(server.port, token, expiresAt);
       server.listen(
         _handleRequest,
         onError: (Object error, StackTrace st) {
@@ -80,6 +86,13 @@ class DesktopAutofillBridgeService {
       }
 
       final auth = request.headers.value(HttpHeaders.authorizationHeader) ?? '';
+
+      final tokenExpired =
+          _tokenExpiresAt == null || DateTime.now().isAfter(_tokenExpiresAt!);
+      if (tokenExpired) {
+        await _rotateToken();
+      }
+
       final expected = 'Bearer ${_token ?? ''}';
       if (auth != expected) {
         _json(request.response, HttpStatus.unauthorized, {
@@ -133,11 +146,15 @@ class DesktopAutofillBridgeService {
       );
 
       final host = _extractHost(url);
-      final matches = matcher.findBestMatches(
+      final roughMatches = matcher.findBestMatches(
         entries: entries,
         webDomains: host.isEmpty ? const {} : {host},
         limit: limit,
       );
+      final matches = _filterMatchesForHost(
+        roughMatches,
+        host,
+      ).take(limit).toList(growable: false);
 
       _json(request.response, HttpStatus.ok, {
         'ok': true,
@@ -182,6 +199,40 @@ class DesktopAutofillBridgeService {
     return host;
   }
 
+  Iterable<VaultEntry> _filterMatchesForHost(
+    List<VaultEntry> entries,
+    String requestedHost,
+  ) {
+    if (requestedHost.isEmpty) {
+      return const [];
+    }
+
+    return entries.where((entry) {
+      final entryHost = _extractHost(entry.url);
+      if (entryHost.isEmpty) {
+        return false;
+      }
+
+      return _hostsMatch(requestedHost, entryHost);
+    });
+  }
+
+  bool _hostsMatch(String requestedHost, String credentialHost) {
+    if (requestedHost == credentialHost) {
+      return true;
+    }
+
+    if (requestedHost.endsWith('.$credentialHost')) {
+      return true;
+    }
+
+    if (credentialHost.endsWith('.$requestedHost')) {
+      return true;
+    }
+
+    return false;
+  }
+
   String _generateToken() {
     final bytes = Uint8List.fromList(
       List<int>.generate(32, (_) => Random.secure().nextInt(256)),
@@ -189,12 +240,34 @@ class DesktopAutofillBridgeService {
     return base64Url.encode(bytes).replaceAll('=', '');
   }
 
-  Future<void> _writeBridgeConfig(int port, String token) async {
+  Future<void> _rotateToken() async {
+    if (_server == null) {
+      return;
+    }
+
+    final token = _generateToken();
+    final expiresAt = DateTime.now().add(_tokenTtl);
+    _token = token;
+    _tokenExpiresAt = expiresAt;
+    await _writeBridgeConfig(_server!.port, token, expiresAt);
+  }
+
+  Future<void> _writeBridgeConfig(
+    int port,
+    String token,
+    DateTime expiresAt,
+  ) async {
     final dir = Directory(_bridgeDirectoryPath());
     await dir.create(recursive: true);
 
     final file = File(p.join(dir.path, 'bridge.json'));
-    final payload = {'host': '127.0.0.1', 'port': port, 'token': token};
+    final payload = {
+      'host': '127.0.0.1',
+      'port': port,
+      'token': token,
+      'expiresAtEpochMs': expiresAt.millisecondsSinceEpoch,
+      'version': 1,
+    };
     await file.writeAsString(jsonEncode(payload), flush: true);
   }
 

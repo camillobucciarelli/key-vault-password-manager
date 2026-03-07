@@ -7,6 +7,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:loggy/loggy.dart';
 
 import 'core/theme/app_theme.dart';
+import 'core/theme/app_icons.dart';
 import 'core/theme/theme_cubit.dart';
 import 'core/responsive/responsive_layout.dart';
 import 'injection_container.dart' as di;
@@ -97,7 +98,7 @@ class HomePage extends StatelessWidget {
         title: const Text('Password Manager MVP'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.brightness_6),
+            icon: const Icon(AppIcons.magic),
             onPressed: () {
               context.read<ThemeCubit>().toggleTheme();
             },

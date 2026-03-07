@@ -1,0 +1,25 @@
+import 'package:flutter/material.dart';
+
+class AppNavigation {
+  AppNavigation._();
+
+  static Future<T?> pushFadeReplacement<T extends Object?, TO extends Object?>(
+    BuildContext context,
+    Widget page,
+  ) {
+    return Navigator.of(context).pushReplacement<T, TO>(
+      PageRouteBuilder<T>(
+        transitionDuration: const Duration(milliseconds: 220),
+        reverseTransitionDuration: const Duration(milliseconds: 180),
+        pageBuilder: (_, __, ___) => page,
+        transitionsBuilder: (context, animation, _, child) {
+          final curve = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          );
+          return FadeTransition(opacity: curve, child: child);
+        },
+      ),
+    );
+  }
+}

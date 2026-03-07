@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
 import 'package:password_manager/features/password_manager/domain/services/vault_autofill_matcher.dart';
 
 Future<void> main() async {
@@ -68,11 +69,15 @@ Future<Map<String, Object?>> _handleMessage(
     );
 
     final host = _extractHost(url);
-    final matches = matcher.findBestMatches(
+    final roughMatches = matcher.findBestMatches(
       entries: allEntries,
       webDomains: host.isEmpty ? const {} : {host},
       limit: limit,
     );
+    final matches = _filterMatchesByHost(
+      roughMatches,
+      host,
+    ).take(limit).toList(growable: false);
 
     final credentials = matches
         .map(
@@ -97,46 +102,119 @@ Future<Map<String, Object?>> _findCredentialsViaRunningApp({
   required int limit,
 }) async {
   try {
-    final bridgeFile = File(_bridgeFilePath());
-    if (!await bridgeFile.exists()) {
+    final config = await _readBridgeConfig();
+    if (config == null) {
       return {'ok': false, 'error': 'Bridge config not found.'};
     }
 
-    final decoded = jsonDecode(await bridgeFile.readAsString());
-    if (decoded is! Map) {
-      return {'ok': false, 'error': 'Invalid bridge config.'};
-    }
-
-    final config = decoded.cast<String, Object?>();
-    final host = config['host'] as String?;
-    final port = config['port'] as num?;
-    final token = config['token'] as String?;
-
-    if (host == null || port == null || token == null || token.isEmpty) {
-      return {'ok': false, 'error': 'Bridge config missing fields.'};
-    }
-
-    final client = HttpClient();
-    try {
-      final request = await client.post(host, port.toInt(), '/v1/find');
-      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      request.headers.contentType = ContentType.json;
-      request.write(jsonEncode({'url': url, 'limit': limit}));
-
-      final response = await request.close();
-      final body = await utf8.decoder.bind(response).join();
-      final parsed = jsonDecode(body);
-      if (parsed is Map) {
-        return parsed.cast<String, Object?>();
+    var response = await _callBridge(config: config, url: url, limit: limit);
+    if ((response['httpStatus'] as int?) == HttpStatus.unauthorized) {
+      final refreshedConfig = await _readBridgeConfig();
+      if (refreshedConfig != null) {
+        response = await _callBridge(
+          config: refreshedConfig,
+          url: url,
+          limit: limit,
+        );
       }
-
-      return {'ok': false, 'error': 'Invalid response from running app.'};
-    } finally {
-      client.close();
     }
+
+    final body = response['body'];
+    if (body is Map<String, Object?>) {
+      return body;
+    }
+
+    return {'ok': false, 'error': 'Invalid response from running app.'};
   } catch (error) {
     return {'ok': false, 'error': '$error'};
   }
+}
+
+Future<Map<String, Object?>?> _readBridgeConfig() async {
+  final bridgeFile = File(_bridgeFilePath());
+  if (!await bridgeFile.exists()) {
+    return null;
+  }
+
+  final decoded = jsonDecode(await bridgeFile.readAsString());
+  if (decoded is! Map) {
+    return null;
+  }
+
+  return decoded.cast<String, Object?>();
+}
+
+Future<Map<String, Object?>> _callBridge({
+  required Map<String, Object?> config,
+  required String url,
+  required int limit,
+}) async {
+  final host = config['host'] as String?;
+  final port = config['port'] as num?;
+  final token = config['token'] as String?;
+
+  if (host == null || port == null || token == null || token.isEmpty) {
+    return {
+      'httpStatus': 0,
+      'body': {'ok': false, 'error': 'Bridge config missing fields.'},
+    };
+  }
+
+  final client = HttpClient();
+  try {
+    final request = await client.post(host, port.toInt(), '/v1/find');
+    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+    request.headers.contentType = ContentType.json;
+    request.write(jsonEncode({'url': url, 'limit': limit}));
+
+    final response = await request.close();
+    final bodyText = await utf8.decoder.bind(response).join();
+    final decodedBody = jsonDecode(bodyText);
+
+    if (decodedBody is Map) {
+      return {
+        'httpStatus': response.statusCode,
+        'body': decodedBody.cast<String, Object?>(),
+      };
+    }
+
+    return {
+      'httpStatus': response.statusCode,
+      'body': {'ok': false, 'error': 'Bridge body is not JSON map.'},
+    };
+  } finally {
+    client.close();
+  }
+}
+
+Iterable<VaultEntry> _filterMatchesByHost(
+  List<VaultEntry> entries,
+  String host,
+) {
+  if (host.isEmpty) {
+    return const [];
+  }
+
+  return entries.where((entry) {
+    final entryHost = _extractHost(entry.url);
+    if (entryHost.isEmpty) {
+      return false;
+    }
+    return _hostsMatch(host, entryHost);
+  });
+}
+
+bool _hostsMatch(String requestedHost, String credentialHost) {
+  if (requestedHost == credentialHost) {
+    return true;
+  }
+  if (requestedHost.endsWith('.$credentialHost')) {
+    return true;
+  }
+  if (credentialHost.endsWith('.$requestedHost')) {
+    return true;
+  }
+  return false;
 }
 
 String _bridgeFilePath() {

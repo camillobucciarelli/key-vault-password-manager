@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../../domain/models/vault_custom_field.dart';
+import '../../../domain/models/sync_conflict.dart';
 import 'vault_state.dart';
 
 abstract class VaultEvent extends Equatable {
@@ -265,4 +266,48 @@ class ClearVaultError extends VaultEvent {
 
 class ClearVaultInfo extends VaultEvent {
   const ClearVaultInfo();
+}
+
+class ConnectGoogleDrive extends VaultEvent {
+  const ConnectGoogleDrive();
+}
+
+class DisconnectGoogleDrive extends VaultEvent {
+  const DisconnectGoogleDrive();
+}
+
+class LinkCurrentDatabaseToDrive extends VaultEvent {
+  const LinkCurrentDatabaseToDrive({this.remoteFileId, this.remoteFileName});
+
+  final String? remoteFileId;
+  final String? remoteFileName;
+
+  @override
+  List<Object?> get props => [remoteFileId, remoteFileName];
+}
+
+class SyncCurrentDatabaseNow extends VaultEvent {
+  const SyncCurrentDatabaseNow({this.resolution});
+
+  final SyncConflictResolution? resolution;
+
+  @override
+  List<Object?> get props => [resolution];
+}
+
+class ToggleCurrentDatabaseAutoSync extends VaultEvent {
+  const ToggleCurrentDatabaseAutoSync(this.enabled);
+
+  final bool enabled;
+
+  @override
+  List<Object?> get props => [enabled];
+}
+
+class ClearVaultSyncFeedback extends VaultEvent {
+  const ClearVaultSyncFeedback();
+}
+
+class LoadDriveRemoteFiles extends VaultEvent {
+  const LoadDriveRemoteFiles();
 }

@@ -1,4 +1,4 @@
-# Desktop Browser Autofill (Chrome/Edge)
+# Desktop Browser Autofill (Chrome/Edge/Firefox + Safari adapter)
 
 This project now includes a desktop autofill MVP based on:
 - Browser extension (`desktop/browser_extension/`)
@@ -8,11 +8,11 @@ This project now includes a desktop autofill MVP based on:
 
 ## What it does
 
-1. You open a login page in Chrome/Edge.
+1. You open a login page in a supported browser.
 2. Open the extension popup.
 3. If the KeyVault app is open and unlocked, just click **Find credentials**.
 4. Optional fallback mode: enter database path and password/key file in popup.
-4. Click **Find credentials**.
+5. Click **Find credentials**.
 5. The extension asks the local native host for matches on current domain.
 6. You choose a match and click **Fill this account**.
 
@@ -20,10 +20,12 @@ This project now includes a desktop autofill MVP based on:
 
 ### 1) Load extension unpacked
 
-1. Open `chrome://extensions` (or `edge://extensions`).
+1. Open `chrome://extensions`, `edge://extensions`, or `about:debugging#/runtime/this-firefox`.
 2. Enable **Developer mode**.
 3. Click **Load unpacked** and select `desktop/browser_extension`.
-4. Copy the extension ID shown by browser.
+4. Copy extension ID (Chrome/Edge) or add-on ID (Firefox, from manifest gecko id).
+
+Safari uses a converted Xcode project (see Safari section below).
 
 ### 2) Register native messaging host
 
@@ -39,9 +41,32 @@ For Edge:
 ./desktop/native_host/install_host_macos.sh edge <EXTENSION_ID>
 ```
 
+For Firefox:
+
+```bash
+./desktop/native_host/install_host_macos.sh firefox keyvault-autofill@camillobucciarelli.dev
+```
+
 This creates:
 - Chrome manifest in `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/`
 - Edge manifest in `~/Library/Application Support/Microsoft Edge/NativeMessagingHosts/`
+- Firefox manifest in `~/Library/Application Support/Mozilla/NativeMessagingHosts/`
+
+### 3) Package extension zip (optional)
+
+```bash
+./desktop/browser_extension/package_extension.sh
+```
+
+### 4) Safari adapter (experimental)
+
+Use converter script:
+
+```bash
+./desktop/safari/convert_extension_to_safari.sh
+```
+
+Then follow `desktop/safari/README.md`.
 
 ## Usage
 
@@ -50,7 +75,8 @@ This creates:
 1. Start KeyVault desktop app and unlock your vault.
 2. Visit a page with login form.
 3. Click extension icon and press **Find credentials**.
-4. Choose an entry and click **Fill this account**.
+4. Keep **Auto refresh when tab/page changes** enabled (default) to refresh automatically.
+5. Choose an entry and click **Fill this account**.
 
 ### Fallback mode (direct vault access)
 
@@ -68,12 +94,12 @@ Then click **Find credentials**.
 - In fallback mode, master password is not persisted by this code; it is sent per-request to host.
 - Communication browser <-> host uses local native messaging (stdio).
 - Communication host <-> app bridge uses local loopback and a random bearer token in bridge config.
+- Bridge token expires automatically every 20 minutes and is rotated.
+- Returned credentials are filtered with strict domain matching (same host or direct subdomain relationship).
 
 ## Current limitations
 
-- MVP supports **Chrome/Edge** only.
-- App session bridge is local-only and currently unaudited (MVP hardening pending).
-- Firefox/Safari adapters are not wired yet.
+- Safari adapter is present but still marked experimental.
 
 ## Troubleshooting
 
@@ -83,7 +109,7 @@ Then click **Find credentials**.
     - `desktop/native_host/keyvault_native_host.sh`
     - `desktop/native_host/install_host_macos.sh`
 - **"Specified native messaging host not found"**
-  - Re-run install script with correct extension ID.
+  - Re-run install script with correct browser and extension/add-on ID.
   - Verify the manifest JSON exists in the browser path above.
 - **"Running app session unavailable"**
   - Ensure KeyVault desktop app is open.
