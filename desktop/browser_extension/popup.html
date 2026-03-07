@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KeyVault Autofill</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>KeyVault Autofill</h1>
+
+      <p class="hint">
+        Recommended: keep KeyVault desktop app open and unlocked. In this case no password is required here.
+      </p>
+
+      <label>
+        Database path (fallback mode)
+        <input id="databasePath" type="text" placeholder="/path/to/vault.kdbx" />
+      </label>
+
+      <label>
+        Master password (fallback mode)
+        <input id="masterPassword" type="password" placeholder="Master password" />
+      </label>
+
+      <label>
+        Key file path (fallback mode)
+        <input id="keyFilePath" type="text" placeholder="/path/to/keyfile.key" />
+      </label>
+
+      <label>
+        Max results
+        <input id="limit" type="number" min="1" max="10" value="5" />
+      </label>
+
+      <button id="findButton">Find credentials</button>
+      <p id="status" class="status"></p>
+
+      <section>
+        <h2>Matches</h2>
+        <div id="results" class="results"></div>
+      </section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+  </html>
