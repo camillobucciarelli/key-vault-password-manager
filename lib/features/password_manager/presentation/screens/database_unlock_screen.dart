@@ -2,17 +2,18 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../../../core/navigation/app_navigation.dart';
 import '../../../../../core/theme/app_backgrounds.dart';
 import '../../../../../core/theme/app_icons.dart';
 import '../../../../../injection_container.dart' as di;
 import '../bloc/database_unlock/database_unlock_bloc.dart';
 import '../bloc/database_unlock/database_unlock_event.dart';
 import '../bloc/database_unlock/database_unlock_state.dart';
-import 'vault_screen.dart';
+import 'coordinators/database_flow_coordinator.dart';
 
 class DatabaseUnlockScreen extends StatelessWidget {
   final String databasePath;
+  static const DatabaseFlowCoordinator _flowCoordinator =
+      DatabaseFlowCoordinator();
 
   const DatabaseUnlockScreen({super.key, required this.databasePath});
 
@@ -65,18 +66,10 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
         decoration: BoxDecoration(gradient: AppBackgrounds.gradient(context)),
         child: BlocConsumer<DatabaseUnlockBloc, DatabaseUnlockState>(
           listener: (context, state) {
-            if (state.unlocked) {
-              AppNavigation.pushFadeReplacement(
-                context,
-                VaultScreen(databasePath: state.databasePath),
-              );
-            }
-
-            if (state.errorMessage != null && state.errorMessage!.isNotEmpty) {
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(SnackBar(content: Text(state.errorMessage!)));
-            }
+            DatabaseUnlockScreen._flowCoordinator.onDatabaseUnlockState(
+              context,
+              state,
+            );
           },
           builder: (context, state) {
             if (state.isLoading) {

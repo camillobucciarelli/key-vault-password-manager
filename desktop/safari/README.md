@@ -13,7 +13,7 @@ From repository root:
 Optional custom name/bundle id:
 
 ```bash
-./desktop/safari/convert_extension_to_safari.sh KeyVaultSafariAutofill dev.camillobucciarelli.keyvault.safari
+./desktop/safari/convert_extension_to_safari.sh KeyVaultSafariAutofill dev.camillobucciarelli.kdbxKeyVault.safari
 ```
 
 Generated project output:

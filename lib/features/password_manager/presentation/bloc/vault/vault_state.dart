@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../../domain/models/database_sync_status.dart';
+import '../../../domain/models/drive_remote_folder.dart';
 import '../../../domain/models/drive_remote_file.dart';
 import '../../../domain/models/sync_conflict.dart';
 import '../../../domain/models/vault_entry.dart';
@@ -34,6 +35,8 @@ class VaultState extends Equatable {
     this.pendingSyncConflict,
     this.remoteDriveFiles = const [],
     this.isLoadingRemoteDriveFiles = false,
+    this.remoteDriveFolders = const [],
+    this.isLoadingRemoteDriveFolders = false,
     this.linkedDriveFileName,
   });
 
@@ -65,6 +68,8 @@ class VaultState extends Equatable {
   final SyncConflict? pendingSyncConflict;
   final List<DriveRemoteFile> remoteDriveFiles;
   final bool isLoadingRemoteDriveFiles;
+  final List<DriveRemoteFolder> remoteDriveFolders;
+  final bool isLoadingRemoteDriveFolders;
   final String? linkedDriveFileName;
 
   VaultState copyWith({
@@ -91,6 +96,8 @@ class VaultState extends Equatable {
     SyncConflict? pendingSyncConflict,
     List<DriveRemoteFile>? remoteDriveFiles,
     bool? isLoadingRemoteDriveFiles,
+    List<DriveRemoteFolder>? remoteDriveFolders,
+    bool? isLoadingRemoteDriveFolders,
     String? linkedDriveFileName,
     bool clearError = false,
     bool clearInfo = false,
@@ -125,6 +132,9 @@ class VaultState extends Equatable {
       remoteDriveFiles: remoteDriveFiles ?? this.remoteDriveFiles,
       isLoadingRemoteDriveFiles:
           isLoadingRemoteDriveFiles ?? this.isLoadingRemoteDriveFiles,
+      remoteDriveFolders: remoteDriveFolders ?? this.remoteDriveFolders,
+      isLoadingRemoteDriveFolders:
+          isLoadingRemoteDriveFolders ?? this.isLoadingRemoteDriveFolders,
       linkedDriveFileName: linkedDriveFileName ?? this.linkedDriveFileName,
     );
   }
@@ -195,6 +205,8 @@ class VaultState extends Equatable {
     pendingSyncConflict,
     remoteDriveFiles,
     isLoadingRemoteDriveFiles,
+    remoteDriveFolders,
+    isLoadingRemoteDriveFolders,
     linkedDriveFileName,
   ];
 }

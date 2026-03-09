@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.camillobucciarelli.password_manager"
+    namespace = "dev.camillobucciarelli.kdbxKeyVault"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -21,7 +21,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "dev.camillobucciarelli.password_manager"
+        applicationId = "dev.camillobucciarelli.kdbxKeyVault"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

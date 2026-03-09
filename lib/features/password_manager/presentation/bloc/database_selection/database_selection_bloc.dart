@@ -9,6 +9,7 @@ import 'package:kdbx/kdbx.dart';
 import 'package:loggy/loggy.dart';
 
 import '../../../data/datasources/secure_data_source.dart';
+import '../../../domain/usecases/link_database_to_drive_usecase.dart';
 import '../../../domain/usecases/save_selected_key_file_path_usecase.dart';
 import '../../../domain/usecases/get_selected_database_path_usecase.dart';
 import '../../../domain/usecases/set_biometric_protection_enabled_usecase.dart';
@@ -26,6 +27,7 @@ class DatabaseSelectionBloc
   setBiometricProtectionEnabledUseCase;
   final SecureDataSource secureDataSource;
   final ValidateDatabaseUseCase validateDatabaseUseCase;
+  final LinkDatabaseToDriveUseCase linkDatabaseToDriveUseCase;
 
   DatabaseSelectionBloc({
     required this.getSelectedDatabasePathUseCase,
@@ -34,10 +36,12 @@ class DatabaseSelectionBloc
     required this.setBiometricProtectionEnabledUseCase,
     required this.secureDataSource,
     required this.validateDatabaseUseCase,
+    required this.linkDatabaseToDriveUseCase,
   }) : super(DatabaseSelectionInitial()) {
     on<CheckInitialDatabase>(_onCheckInitialDatabase);
     on<SelectExistingDatabase>(_onSelectExistingDatabase);
     on<CreateNewDatabase>(_onCreateNewDatabase);
+    on<SelectDriveDatabaseLocalCopy>(_onSelectDriveDatabaseLocalCopy);
   }
 
   Future<void> _onCheckInitialDatabase(
@@ -76,28 +80,20 @@ class DatabaseSelectionBloc
     Emitter<DatabaseSelectionState> emit,
   ) async {
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['kdbx'],
-        withData: kIsWeb, // Required to get file bytes on Web
+        withData: kIsWeb,
       );
 
       if (result != null) {
         emit(DatabaseSelectionLoading());
 
-        String path;
-        if (kIsWeb) {
-          path = 'web_selected_db.kdbx';
-          // NOTE: On Web, the file bytes are in result.files.single.bytes
-          // To fully support reading the KDBX on Web, these bytes should be saved
-          // to SharedPreferences or a Memory Cache here. For now, we save the virtual path.
-        } else {
-          if (result.files.single.path == null) {
-            emit(const DatabaseSelectionError('Could not resolve file path.'));
-            emit(DatabaseSelectionUnselected());
-            return;
-          }
-          path = result.files.single.path!;
+        final path = _resolveSelectedDatabasePath(result);
+        if (path == null) {
+          emit(const DatabaseSelectionError('Could not resolve file path.'));
+          emit(DatabaseSelectionUnselected());
+          return;
         }
 
         final isValid = await validateDatabaseUseCase(path);
@@ -128,18 +124,7 @@ class DatabaseSelectionBloc
     Emitter<DatabaseSelectionState> emit,
   ) async {
     try {
-      String? outputFile;
-
-      if (kIsWeb) {
-        outputFile = 'web_internal_db.kdbx';
-      } else {
-        outputFile = await FilePicker.platform.saveFile(
-          dialogTitle: 'Please select an output file:',
-          fileName: 'new_database.kdbx',
-          type: FileType.custom,
-          allowedExtensions: ['kdbx'],
-        );
-      }
+      var outputFile = await _resolveOutputFilePath();
 
       if (outputFile != null) {
         emit(DatabaseSelectionLoading());
@@ -149,41 +134,16 @@ class DatabaseSelectionBloc
         }
 
         if (!kIsWeb) {
-          Uint8List? keyFileBytes;
-          String? selectedKeyFilePath;
-
-          if (event.generateKeyFile) {
-            if (event.generatedKeyFilePath == null ||
-                event.generatedKeyFilePath!.trim().isEmpty) {
-              emit(
-                const DatabaseSelectionError(
-                  'No destination selected for generated key file.',
-                ),
-              );
-              emit(DatabaseSelectionUnselected());
-              return;
-            }
-
-            selectedKeyFilePath = event.generatedKeyFilePath;
-            keyFileBytes = _generateRandomKeyFileBytes();
-            await File(selectedKeyFilePath!).writeAsBytes(keyFileBytes);
-          } else if (event.keyFilePath != null &&
-              event.keyFilePath!.isNotEmpty) {
-            selectedKeyFilePath = event.keyFilePath;
-            keyFileBytes = await File(event.keyFilePath!).readAsBytes();
+          final selectedKeyFilePath = await _prepareKeyFilePath(event, emit);
+          if (selectedKeyFilePath == null && event.generateKeyFile) {
+            return;
           }
 
-          final credentials = Credentials.composite(
-            ProtectedValue.fromString(event.password),
-            keyFileBytes,
+          await _createDesktopDatabase(
+            outputFile: outputFile,
+            password: event.password,
+            keyFilePath: selectedKeyFilePath,
           );
-
-          final kdbx = KdbxFormat().create(credentials, 'New Database');
-          await File(outputFile).writeAsBytes(await kdbx.save());
-
-          await saveSelectedKeyFilePathUseCase(selectedKeyFilePath);
-          await setBiometricProtectionEnabledUseCase(true);
-          await secureDataSource.saveMasterPassword(event.password);
         }
 
         await saveSelectedDatabasePathUseCase(outputFile);
@@ -196,10 +156,125 @@ class DatabaseSelectionBloc
     }
   }
 
+  Future<void> _onSelectDriveDatabaseLocalCopy(
+    SelectDriveDatabaseLocalCopy event,
+    Emitter<DatabaseSelectionState> emit,
+  ) async {
+    try {
+      emit(DatabaseSelectionLoading());
+
+      final isValid = await validateDatabaseUseCase(event.localPath);
+      if (!isValid) {
+        emit(
+          const DatabaseSelectionError(
+            'The downloaded Drive file is not a valid KDBX database.',
+          ),
+        );
+        emit(DatabaseSelectionUnselected());
+        return;
+      }
+
+      await saveSelectedDatabasePathUseCase(event.localPath);
+      await saveSelectedKeyFilePathUseCase(null);
+      await secureDataSource.clearMasterPassword();
+      await setBiometricProtectionEnabledUseCase(true);
+
+      try {
+        await linkDatabaseToDriveUseCase(
+          databasePath: event.localPath,
+          remoteFileId: event.remoteFileId,
+        );
+      } catch (e, st) {
+        logWarning('Drive linking failed after download.', e, st);
+        emit(
+          const DatabaseSelectionError(
+            'Database opened, but auto-link to Drive failed. You can link it from the Vault sync menu.',
+          ),
+        );
+      }
+
+      emit(DatabaseSelectionSuccess(event.localPath));
+    } catch (e, st) {
+      logError('Failed while selecting database from Drive.', e, st);
+      emit(DatabaseSelectionError(e.toString()));
+      emit(DatabaseSelectionUnselected());
+    }
+  }
+
   Uint8List _generateRandomKeyFileBytes() {
     final random = Random.secure();
     return Uint8List.fromList(
       List<int>.generate(64, (_) => random.nextInt(256)),
     );
+  }
+
+  String? _resolveSelectedDatabasePath(FilePickerResult result) {
+    if (kIsWeb) {
+      return 'web_selected_db.kdbx';
+    }
+    return result.files.single.path;
+  }
+
+  Future<String?> _resolveOutputFilePath() async {
+    if (kIsWeb) {
+      return 'web_internal_db.kdbx';
+    }
+    return FilePicker.platform.saveFile(
+      dialogTitle: 'Please select an output file:',
+      fileName: 'new_database.kdbx',
+      type: FileType.custom,
+      allowedExtensions: ['kdbx'],
+    );
+  }
+
+  Future<String?> _prepareKeyFilePath(
+    CreateNewDatabase event,
+    Emitter<DatabaseSelectionState> emit,
+  ) async {
+    if (event.generateKeyFile) {
+      final generatedPath = event.generatedKeyFilePath;
+      if (generatedPath == null || generatedPath.trim().isEmpty) {
+        emit(
+          const DatabaseSelectionError(
+            'No destination selected for generated key file.',
+          ),
+        );
+        emit(DatabaseSelectionUnselected());
+        return null;
+      }
+
+      final keyFileBytes = _generateRandomKeyFileBytes();
+      await File(generatedPath).writeAsBytes(keyFileBytes);
+      return generatedPath;
+    }
+
+    final selectedPath = event.keyFilePath;
+    if (selectedPath == null || selectedPath.isEmpty) {
+      return null;
+    }
+    return selectedPath;
+  }
+
+  Future<void> _createDesktopDatabase({
+    required String outputFile,
+    required String password,
+    required String? keyFilePath,
+  }) async {
+    Uint8List? keyFileBytes;
+    if (keyFilePath != null && keyFilePath.isNotEmpty) {
+      keyFileBytes = await File(keyFilePath).readAsBytes();
+    }
+
+    final credentials = Credentials.composite(
+      ProtectedValue.fromString(password),
+      keyFileBytes,
+    );
+
+    final kdbx = KdbxFormat().create(credentials, 'New Database');
+    await File(outputFile).writeAsBytes(await kdbx.save());
+
+    await saveSelectedKeyFilePathUseCase(keyFilePath);
+    await setBiometricProtectionEnabledUseCase(true);
+    await secureDataSource.saveMasterPassword(password);
   }
 }

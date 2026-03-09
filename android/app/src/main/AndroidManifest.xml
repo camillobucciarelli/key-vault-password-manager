@@ -47,10 +47,10 @@
 
         <meta-data
             android:name="com.keevault.flutter_autofill_service.ACTIVITY_NAME"
-            android:value="dev.camillobucciarelli.password_manager.AutofillActivity" />
+            android:value="dev.camillobucciarelli.kdbxKeyVault.AutofillActivity" />
         <meta-data
             android:name="com.keevault.flutter_autofill_service.SAVE_ACTIVITY_NAME"
-            android:value="dev.camillobucciarelli.password_manager.MainActivity" />
+            android:value="dev.camillobucciarelli.kdbxKeyVault.MainActivity" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

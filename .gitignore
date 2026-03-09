@@ -46,3 +46,6 @@ app.*.map.json
 
 # FVM Version Cache
 .fvm/
+
+# Local OAuth dart-define values
+.env.dart.define.json

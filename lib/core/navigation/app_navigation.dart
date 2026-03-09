@@ -11,7 +11,7 @@ class AppNavigation {
       PageRouteBuilder<T>(
         transitionDuration: const Duration(milliseconds: 220),
         reverseTransitionDuration: const Duration(milliseconds: 180),
-        pageBuilder: (_, __, ___) => page,
+        pageBuilder: (_, animation, secondaryAnimation) => page,
         transitionsBuilder: (context, animation, _, child) {
           final curve = CurvedAnimation(
             parent: animation,

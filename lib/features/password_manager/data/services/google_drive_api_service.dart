@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import '../../domain/models/drive_remote_folder.dart';
 import '../../domain/models/drive_remote_file.dart';
 import 'drive_auth_service.dart';
 
@@ -19,12 +20,12 @@ class GoogleDriveApiService {
   final DriveAuthService _driveAuthService;
   final http.Client _httpClient;
 
-  Future<List<DriveRemoteFile>> listKdbxFilesInAppData() async {
+  Future<List<DriveRemoteFile>> listKdbxFilesInDrive() async {
     final uri = Uri.parse('$_apiBase/files').replace(
       queryParameters: {
-        'spaces': 'appDataFolder',
+        'spaces': 'drive',
         'q':
-            "'appDataFolder' in parents and trashed = false and name contains '.kdbx'",
+            "mimeType != 'application/vnd.google-apps.folder' and trashed = false and name contains '.kdbx'",
         'fields': 'files(id,name,modifiedTime,md5Checksum)',
         'pageSize': '200',
         'orderBy': 'modifiedTime desc',
@@ -46,6 +47,44 @@ class GoogleDriveApiService {
         .toList(growable: false);
   }
 
+  Future<List<DriveRemoteFolder>> listFoldersInDrive({String? query}) async {
+    const baseQuery =
+        "mimeType = 'application/vnd.google-apps.folder' and trashed = false";
+    final normalizedQuery = query?.trim();
+    final driveQuery = normalizedQuery == null || normalizedQuery.isEmpty
+        ? baseQuery
+        : "$baseQuery and name contains '${_escapeDriveQueryLiteral(normalizedQuery)}'";
+
+    final uri = Uri.parse('$_apiBase/files').replace(
+      queryParameters: {
+        'spaces': 'drive',
+        'q': driveQuery,
+        'fields': 'files(id,name)',
+        'pageSize': '200',
+        'orderBy': 'name',
+      },
+    );
+
+    final response = await _authedGet(uri);
+    _ensureSuccess(response, 'Unable to list Drive folders');
+
+    final payload = jsonDecode(response.body) as Map<String, dynamic>;
+    final files = payload['files'];
+    if (files is! List) {
+      return const [];
+    }
+
+    return files
+        .whereType<Map<String, dynamic>>()
+        .map(
+          (map) => DriveRemoteFolder(
+            id: map['id'] as String,
+            name: map['name'] as String,
+          ),
+        )
+        .toList(growable: false);
+  }
+
   Future<DriveRemoteFile> getFileMetadata(String fileId) async {
     final uri = Uri.parse(
       '$_apiBase/files/$fileId',
@@ -59,6 +98,7 @@ class GoogleDriveApiService {
   Future<DriveRemoteFile> createFile({
     required String fileName,
     required Uint8List bytes,
+    String? parentFolderId,
   }) async {
     final boundary = _generateBoundary();
     final uri = Uri.parse(
@@ -67,7 +107,8 @@ class GoogleDriveApiService {
 
     final metadata = jsonEncode({
       'name': fileName,
-      'parents': ['appDataFolder'],
+      if (parentFolderId != null && parentFolderId.trim().isNotEmpty)
+        'parents': [parentFolderId.trim()],
     });
     final body = _buildMultipartBody(
       boundary: boundary,
@@ -158,6 +199,10 @@ class GoogleDriveApiService {
 
   String _generateBoundary() {
     return 'boundary-${DateTime.now().microsecondsSinceEpoch}';
+  }
+
+  String _escapeDriveQueryLiteral(String value) {
+    return value.replaceAll('\\', r'\\').replaceAll("'", r"\'");
   }
 
   Uint8List _buildMultipartBody({

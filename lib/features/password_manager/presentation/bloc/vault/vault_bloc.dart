@@ -16,6 +16,7 @@ import '../../../domain/models/vault_entry.dart';
 import '../../../domain/models/vault_snapshot.dart';
 import '../../../domain/usecases/get_selected_key_file_path_usecase.dart';
 import '../../../domain/usecases/link_database_to_drive_usecase.dart';
+import '../../../domain/usecases/list_drive_remote_folders_usecase.dart';
 import '../../../domain/usecases/list_drive_remote_files_usecase.dart';
 import '../../../domain/usecases/set_database_auto_sync_usecase.dart';
 import '../../../domain/usecases/sync_database_now_usecase.dart';
@@ -33,6 +34,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     required this.disconnectGoogleAccountUseCase,
     required this.linkDatabaseToDriveUseCase,
     required this.listDriveRemoteFilesUseCase,
+    required this.listDriveRemoteFoldersUseCase,
     required this.syncDatabaseNowUseCase,
     required this.setDatabaseAutoSyncUseCase,
     required this.databaseSyncRepository,
@@ -78,6 +80,15 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<ToggleCurrentDatabaseAutoSync>(_onToggleCurrentDatabaseAutoSync);
     on<ClearVaultSyncFeedback>(_onClearVaultSyncFeedback);
     on<LoadDriveRemoteFiles>(_onLoadDriveRemoteFiles);
+    on<LoadDriveRemoteFolders>(
+      _onLoadDriveRemoteFolders,
+      transformer: (events, mapper) => events
+          .debounce(const Duration(milliseconds: 300))
+          .distinct(
+            (previous, next) => previous.query?.trim() == next.query?.trim(),
+          )
+          .switchMap(mapper),
+    );
   }
 
   final SecureDataSource secureDataSource;
@@ -88,6 +99,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   final DisconnectGoogleAccountUseCase disconnectGoogleAccountUseCase;
   final LinkDatabaseToDriveUseCase linkDatabaseToDriveUseCase;
   final ListDriveRemoteFilesUseCase listDriveRemoteFilesUseCase;
+  final ListDriveRemoteFoldersUseCase listDriveRemoteFoldersUseCase;
   final SyncDatabaseNowUseCase syncDatabaseNowUseCase;
   final SetDatabaseAutoSyncUseCase setDatabaseAutoSyncUseCase;
   final DatabaseSyncRepository databaseSyncRepository;
@@ -954,6 +966,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         databasePath: state.databasePath,
         remoteFileId: event.remoteFileId,
         remoteFileName: event.remoteFileName,
+        remoteFolderId: event.remoteFolderId,
       );
       emit(
         state.copyWith(
@@ -1028,7 +1041,9 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       emit(
         state.copyWith(
           remoteDriveFiles: const [],
+          remoteDriveFolders: const [],
           isLoadingRemoteDriveFiles: false,
+          isLoadingRemoteDriveFolders: false,
         ),
       );
       return;
@@ -1050,6 +1065,44 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         state.copyWith(
           isLoadingRemoteDriveFiles: false,
           syncError: 'Unable to load remote Drive files.',
+          syncStatus: DatabaseSyncStatus.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _onLoadDriveRemoteFolders(
+    LoadDriveRemoteFolders event,
+    Emitter<VaultState> emit,
+  ) async {
+    if (!state.isDriveConnected) {
+      emit(
+        state.copyWith(
+          remoteDriveFolders: const [],
+          isLoadingRemoteDriveFolders: false,
+        ),
+      );
+      return;
+    }
+
+    emit(
+      state.copyWith(isLoadingRemoteDriveFolders: true, clearSyncError: true),
+    );
+    try {
+      final folders = await listDriveRemoteFoldersUseCase(query: event.query);
+      emit(
+        state.copyWith(
+          remoteDriveFolders: folders,
+          isLoadingRemoteDriveFolders: false,
+          clearSyncError: true,
+        ),
+      );
+    } catch (e, st) {
+      logError('Unable to load Drive folders.', e, st);
+      emit(
+        state.copyWith(
+          isLoadingRemoteDriveFolders: false,
+          syncError: 'Unable to load Drive folders.',
           syncStatus: DatabaseSyncStatus.error,
         ),
       );

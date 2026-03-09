@@ -4,19 +4,28 @@
         {
             "name": "flutter run",
             "request": "launch",
-            "type": "dart"
+            "type": "dart",
+            "args": [
+                "--dart-define-from-file=.env.dart.define.json"
+            ]
         },
         {
             "name": "flutter run (profile mode)",
             "request": "launch",
             "type": "dart",
-            "flutterMode": "profile"
+            "flutterMode": "profile",
+            "args": [
+                "--dart-define-from-file=.env.dart.define.json"
+            ]
         },
         {
             "name": "flutter run (release mode)",
             "request": "launch",
             "type": "dart",
-            "flutterMode": "release"
+            "flutterMode": "release",
+            "args": [
+                "--dart-define-from-file=.env.dart.define.json"
+            ]
         },
         {
             "name": "flutter run (macOS + Drive OAuth)",
@@ -24,8 +33,7 @@
             "type": "dart",
             "deviceId": "macos",
             "args": [
-                "--dart-define=GOOGLE_DESKTOP_CLIENT_ID=YOUR_DESKTOP_CLIENT_ID",
-                "--dart-define=GOOGLE_DESKTOP_CLIENT_SECRET=YOUR_DESKTOP_CLIENT_SECRET"
+                "--dart-define-from-file=.env.dart.define.json"
             ]
         },
         {
@@ -33,7 +41,7 @@
             "request": "launch",
             "type": "dart",
             "args": [
-                "--dart-define=GOOGLE_MOBILE_CLIENT_ID=YOUR_MOBILE_CLIENT_ID"
+                "--dart-define-from-file=.env.dart.define.json"
             ]
         }
     ]
