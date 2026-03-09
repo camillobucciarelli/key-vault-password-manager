@@ -1,4 +1,4 @@
-const HOST_NAME = "dev.camillobucciarelli.password_manager_native_host";
+const HOST_NAME = "dev.camillobucciarelli.kdbxKeyVault_native_host";
 
 async function sendNativeMessage(message) {
   return new Promise((resolve, reject) => {

@@ -12,7 +12,7 @@ abstract class IosAutofillDataSource {
 
 class IosAutofillDataSourceImpl implements IosAutofillDataSource {
   static const MethodChannel _channel = MethodChannel(
-    'dev.camillobucciarelli.password_manager/ios_autofill',
+    'dev.camillobucciarelli.kdbxKeyVault/ios_autofill',
   );
 
   @override

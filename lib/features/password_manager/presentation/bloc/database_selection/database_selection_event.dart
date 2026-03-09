@@ -32,3 +32,16 @@ class CreateNewDatabase extends DatabaseSelectionEvent {
     generatedKeyFilePath ?? '',
   ];
 }
+
+class SelectDriveDatabaseLocalCopy extends DatabaseSelectionEvent {
+  const SelectDriveDatabaseLocalCopy({
+    required this.localPath,
+    required this.remoteFileId,
+  });
+
+  final String localPath;
+  final String remoteFileId;
+
+  @override
+  List<Object> get props => [localPath, remoteFileId];
+}

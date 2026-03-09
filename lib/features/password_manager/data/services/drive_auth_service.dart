@@ -16,7 +16,7 @@ class DriveAuthService {
        _googleTokenDataSource = googleTokenDataSource,
        _desktopOAuthPkceService = desktopOAuthPkceService,
        _googleSignIn = GoogleSignIn(
-         scopes: const ['https://www.googleapis.com/auth/drive.file'],
+         scopes: const ['https://www.googleapis.com/auth/drive'],
          serverClientId: config.mobileClientId,
        );
 

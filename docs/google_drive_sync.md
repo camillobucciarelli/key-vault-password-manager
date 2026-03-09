@@ -1,19 +1,34 @@
 # Google Drive Sync Setup
 
-This app supports KDBX sync with Google Drive `appDataFolder` on Android, iOS, macOS, Windows, and Linux.
+This app supports KDBX sync with Google Drive on Android, iOS, macOS, Windows, and Linux.
 
 ## OAuth Configuration
 
-Create OAuth clients in Google Cloud Console and pass credentials via `--dart-define`:
+Create OAuth clients in Google Cloud Console and pass credentials via `--dart-define-from-file`:
 
 - `GOOGLE_MOBILE_CLIENT_ID` for Android/iOS sign-in.
 - `GOOGLE_DESKTOP_CLIENT_ID` for macOS/Windows/Linux desktop OAuth.
 - `GOOGLE_DESKTOP_CLIENT_SECRET` for macOS/Windows/Linux desktop OAuth token exchange.
 
-Example:
+The user still signs in interactively at runtime and explicitly authorizes Drive access.
+The app registration values above identify your app to Google OAuth.
+
+Create your local env file from the example:
 
 ```bash
-flutter run --dart-define=GOOGLE_MOBILE_CLIENT_ID=... --dart-define=GOOGLE_DESKTOP_CLIENT_ID=... --dart-define=GOOGLE_DESKTOP_CLIENT_SECRET=...
+cp .env.dart.define.example.json .env.dart.define.json
+```
+
+Then fill `.env.dart.define.json` with your real OAuth values and run:
+
+```bash
+flutter run --dart-define-from-file=.env.dart.define.json
+```
+
+Build example:
+
+```bash
+flutter build macos --dart-define-from-file=.env.dart.define.json
 ```
 
 ## Runtime Flow
@@ -24,9 +39,12 @@ flutter run --dart-define=GOOGLE_MOBILE_CLIENT_ID=... --dart-define=GOOGLE_DESKT
    - Link this database.
    - Sync now.
    - Enable/disable auto-sync.
-3. On conflict, choose one:
-   - Keep local
-   - Use remote
-   - Cancel
+3. When linking, choose one:
+   - Create a new `.kdbx` file in a selected Drive folder.
+   - Use an existing `.kdbx` file from Drive.
+4. On conflict, choose one:
+    - Keep local
+    - Use remote
+    - Cancel
 
-All remote files are created or managed in Google Drive `appDataFolder` with scope `drive.file`.
+Google OAuth scope used for Drive operations: `https://www.googleapis.com/auth/drive`.

@@ -10,7 +10,7 @@ struct SharedAutofillCredential: Codable {
 }
 
 final class SharedAutofillStore {
-  private let appGroupId = "group.dev.camillobucciarelli.passwordManager"
+  private let appGroupId = "group.dev.camillobucciarelli.kdbxKeyVault"
   private let autofillEntriesKey = "autofill_entries_json"
 
   func readCredentials() -> [SharedAutofillCredential] {

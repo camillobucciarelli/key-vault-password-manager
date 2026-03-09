@@ -7,9 +7,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:loggy/loggy.dart';
 
 import 'core/theme/app_theme.dart';
-import 'core/theme/app_icons.dart';
 import 'core/theme/theme_cubit.dart';
-import 'core/responsive/responsive_layout.dart';
 import 'injection_container.dart' as di;
 import 'features/password_manager/data/services/ios_autofill_snapshot_coordinator.dart';
 import 'features/password_manager/data/services/desktop_autofill_bridge_service.dart';
@@ -83,48 +81,6 @@ class PasswordManagerApp extends StatelessWidget {
             home: const DatabaseSelectionScreen(),
           );
         },
-      ),
-    );
-  }
-}
-
-class HomePage extends StatelessWidget {
-  const HomePage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Password Manager MVP'),
-        actions: [
-          IconButton(
-            icon: const Icon(AppIcons.magic),
-            onPressed: () {
-              context.read<ThemeCubit>().toggleTheme();
-            },
-            tooltip: 'Toggle Theme',
-          ),
-        ],
-      ),
-      body: ResponsiveLayout(
-        mobileBody: const Center(
-          child: Text(
-            'Mobile Layout',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          ),
-        ),
-        tabletBody: const Center(
-          child: Text(
-            'Tablet Layout',
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-          ),
-        ),
-        desktopBody: const Center(
-          child: Text(
-            'Desktop Layout',
-            style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-          ),
-        ),
       ),
     );
   }

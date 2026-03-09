@@ -125,12 +125,10 @@ class DatabaseUnlockBloc
     UnlockWithManualCredentials event,
     Emitter<DatabaseUnlockState> emit,
   ) async {
-    if (state.biometricAvailable && !state.biometricVerified) {
-      emit(
-        state.copyWith(
-          errorMessage:
-              'Use biometric authentication before unlocking the database.',
-        ),
+    if (_requiresBiometricGate()) {
+      _emitError(
+        emit,
+        'Use biometric authentication before unlocking the database.',
       );
       return;
     }
@@ -157,11 +155,10 @@ class DatabaseUnlockBloc
       );
     } catch (e, st) {
       logError('Manual database unlock failed.', e, st);
-      emit(
-        state.copyWith(
-          isLoading: false,
-          errorMessage: 'Unable to unlock database with provided credentials.',
-        ),
+      _emitError(
+        emit,
+        'Unable to unlock database with provided credentials.',
+        isLoading: false,
       );
     }
   }
@@ -182,12 +179,10 @@ class DatabaseUnlockBloc
 
     if ((storedPassword == null || storedPassword.isEmpty) &&
         (state.keyFilePath == null || state.keyFilePath!.isEmpty)) {
-      emit(
-        state.copyWith(
-          isLoading: false,
-          errorMessage:
-              'No saved credentials found. Insert password or select a key file.',
-        ),
+      _emitError(
+        emit,
+        'No saved credentials found. Insert password or select a key file.',
+        isLoading: false,
       );
       return;
     }
@@ -205,12 +200,23 @@ class DatabaseUnlockBloc
         e,
         st,
       );
-      emit(
-        state.copyWith(
-          isLoading: false,
-          errorMessage: 'Saved credentials are not valid. Unlock manually.',
-        ),
+      _emitError(
+        emit,
+        'Saved credentials are not valid. Unlock manually.',
+        isLoading: false,
       );
     }
+  }
+
+  bool _requiresBiometricGate() {
+    return state.biometricAvailable && !state.biometricVerified;
+  }
+
+  void _emitError(
+    Emitter<DatabaseUnlockState> emit,
+    String message, {
+    bool? isLoading,
+  }) {
+    emit(state.copyWith(isLoading: isLoading, errorMessage: message));
   }
 }

@@ -13,14 +13,14 @@ The extension scaffold files are present, but the Xcode target is not yet attach
 1. Open `ios/Runner.xcworkspace`.
 2. Add a new target: `Credential Provider Extension`.
 3. Set target bundle id (example):
-   - `dev.camillobucciarelli.passwordManager.CredentialProviderExtension`
+   - `dev.camillobucciarelli.kdbxKeyVault.CredentialProviderExtension`
 4. Add these files to the extension target:
    - `ios/CredentialProviderExtension/CredentialProviderViewController.swift`
    - `ios/CredentialProviderExtension/SharedAutofillStore.swift`
    - `ios/CredentialProviderExtension/Info.plist`
    - `ios/CredentialProviderExtension/CredentialProviderExtension.entitlements`
 5. Enable App Group capability for both targets with:
-   - `group.dev.camillobucciarelli.passwordManager`
+   - `group.dev.camillobucciarelli.kdbxKeyVault`
 6. Build and run on device, then enable AutoFill in iOS Settings.
 
 ## Desktop browser implementation plan

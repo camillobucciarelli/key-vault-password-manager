@@ -277,13 +277,18 @@ class DisconnectGoogleDrive extends VaultEvent {
 }
 
 class LinkCurrentDatabaseToDrive extends VaultEvent {
-  const LinkCurrentDatabaseToDrive({this.remoteFileId, this.remoteFileName});
+  const LinkCurrentDatabaseToDrive({
+    this.remoteFileId,
+    this.remoteFileName,
+    this.remoteFolderId,
+  });
 
   final String? remoteFileId;
   final String? remoteFileName;
+  final String? remoteFolderId;
 
   @override
-  List<Object?> get props => [remoteFileId, remoteFileName];
+  List<Object?> get props => [remoteFileId, remoteFileName, remoteFolderId];
 }
 
 class SyncCurrentDatabaseNow extends VaultEvent {
@@ -310,4 +315,13 @@ class ClearVaultSyncFeedback extends VaultEvent {
 
 class LoadDriveRemoteFiles extends VaultEvent {
   const LoadDriveRemoteFiles();
+}
+
+class LoadDriveRemoteFolders extends VaultEvent {
+  const LoadDriveRemoteFolders({this.query});
+
+  final String? query;
+
+  @override
+  List<Object?> get props => [query];
 }

@@ -3,10 +3,10 @@ import UIKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
-  private let autofillChannelName = "dev.camillobucciarelli.password_manager/ios_autofill"
+  private let autofillChannelName = "dev.camillobucciarelli.kdbxKeyVault/ios_autofill"
   private let autofillEntriesKey = "autofill_entries_json"
   private let autofillLastSyncKey = "autofill_last_sync_epoch_ms"
-  private let appGroupId = "group.dev.camillobucciarelli.passwordManager"
+  private let appGroupId = "group.dev.camillobucciarelli.kdbxKeyVault"
 
   override func application(
     _ application: UIApplication,

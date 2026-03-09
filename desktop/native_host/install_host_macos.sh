@@ -15,15 +15,15 @@ HOST_PATH="${SCRIPT_DIR}/keyvault_native_host.sh"
 
 case "${BROWSER}" in
   chrome)
-    TEMPLATE="${SCRIPT_DIR}/manifests/chrome/dev.camillobucciarelli.password_manager_native_host.json"
+    TEMPLATE="${SCRIPT_DIR}/manifests/chrome/dev.camillobucciarelli.kdbxKeyVault_native_host.json"
     DEST_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
     ;;
   edge)
-    TEMPLATE="${SCRIPT_DIR}/manifests/edge/dev.camillobucciarelli.password_manager_native_host.json"
+    TEMPLATE="${SCRIPT_DIR}/manifests/edge/dev.camillobucciarelli.kdbxKeyVault_native_host.json"
     DEST_DIR="$HOME/Library/Application Support/Microsoft Edge/NativeMessagingHosts"
     ;;
   firefox)
-    TEMPLATE="${SCRIPT_DIR}/manifests/firefox/dev.camillobucciarelli.password_manager_native_host.json"
+    TEMPLATE="${SCRIPT_DIR}/manifests/firefox/dev.camillobucciarelli.kdbxKeyVault_native_host.json"
     DEST_DIR="$HOME/Library/Application Support/Mozilla/NativeMessagingHosts"
     ;;
   *)
@@ -33,7 +33,7 @@ case "${BROWSER}" in
 esac
 
 mkdir -p "${DEST_DIR}"
-DEST_PATH="${DEST_DIR}/dev.camillobucciarelli.password_manager_native_host.json"
+DEST_PATH="${DEST_DIR}/dev.camillobucciarelli.kdbxKeyVault_native_host.json"
 
 python3 - <<PY
 from pathlib import Path
