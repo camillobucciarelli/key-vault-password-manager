@@ -1,5 +1,8 @@
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as path;
 
 import '../../../../../core/theme/app_icons.dart';
 
@@ -53,10 +56,28 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
   }
 
   Future<void> _pickGeneratedKeyFilePath() async {
-    final savePath = await FilePicker.platform.saveFile(
-      dialogTitle: 'Select destination for generated key file',
-      fileName: 'database.key',
-    );
+    if (_isMobilePlatform) {
+      setState(() {
+        _generatedKeyFilePath = 'database.key';
+      });
+      return;
+    }
+
+    String? savePath;
+
+    try {
+      savePath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Select destination for generated key file',
+        fileName: 'database.key',
+      );
+    } catch (_) {
+      final directory = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: 'Select destination folder for generated key file',
+      );
+      if (directory != null && directory.isNotEmpty) {
+        savePath = path.join(directory, 'database.key');
+      }
+    }
 
     if (savePath == null || savePath.isEmpty) {
       return;
@@ -103,164 +124,223 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
 
     return AlertDialog(
       title: const Text('New Database Credentials'),
+      insetPadding: _dialogInsetPadding(context),
+      contentPadding: _dialogContentPadding(context),
+      actionsOverflowDirection: VerticalDirection.down,
+      actionsOverflowButtonSpacing: 8,
       content: SizedBox(
         width: dialogWidth,
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Set a Master Password to protect your database. You may also add a Key File for extra security.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // Master Password
-              TextFormField(
-                controller: _passwordCtrl,
-                obscureText: !_passwordVisible,
-                decoration: InputDecoration(
-                  labelText: 'Master Password',
-                  prefixIcon: const Icon(AppIcons.lock),
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _passwordVisible ? AppIcons.eyeOff : AppIcons.eye,
-                    ),
-                    onPressed: () =>
-                        setState(() => _passwordVisible = !_passwordVisible),
+        child: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Set a Master Password to protect your database. You may also add a Key File for extra security.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
-                validator: (value) {
-                  final hasGeneratedKeyFile =
-                      _generateKeyFile &&
-                      (_generatedKeyFilePath?.isNotEmpty ?? false);
-                  if ((value == null || value.isEmpty) &&
-                      _keyFilePath == null &&
-                      !hasGeneratedKeyFile) {
-                    return 'Please enter a password or choose a Key File.';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 20),
 
-              // Confirm Password
-              TextFormField(
-                controller: _confirmCtrl,
-                obscureText: !_confirmVisible,
-                decoration: InputDecoration(
-                  labelText: 'Confirm Password',
-                  prefixIcon: const Icon(AppIcons.lock),
-                  border: const OutlineInputBorder(),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _confirmVisible ? AppIcons.eyeOff : AppIcons.eye,
-                    ),
-                    onPressed: () =>
-                        setState(() => _confirmVisible = !_confirmVisible),
-                  ),
-                ),
-                validator: (value) {
-                  if (value != _passwordCtrl.text) {
-                    return 'Passwords do not match.';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 20),
-
-              // Key File section
-              Text('Key File (optional)', style: theme.textTheme.labelLarge),
-              const SizedBox(height: 8),
-              SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Generate key file automatically'),
-                subtitle: const Text(
-                  'You will choose where to save the generated file.',
-                ),
-                value: _generateKeyFile,
-                onChanged: (value) {
-                  setState(() {
-                    _generateKeyFile = value;
-                    _keyFilePath = null;
-                    _keyFileName = null;
-                    if (!value) {
-                      _generatedKeyFilePath = null;
-                    }
-                  });
-                },
-              ),
-              const SizedBox(height: 8),
-              if (_generateKeyFile)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (_generatedKeyFilePath == null)
-                      OutlinedButton.icon(
-                        onPressed: _pickGeneratedKeyFilePath,
-                        icon: const Icon(AppIcons.save),
-                        label: const Text('Choose key file destination'),
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(double.infinity, 44),
-                        ),
-                      )
-                    else
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(AppIcons.fileKey),
-                        title: Text(
-                          _generatedKeyFilePath!,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: IconButton(
-                          icon: const Icon(AppIcons.close),
-                          tooltip: 'Remove generated key file path',
-                          onPressed: _clearGeneratedKeyFilePath,
-                        ),
+                // Master Password
+                TextFormField(
+                  controller: _passwordCtrl,
+                  obscureText: !_passwordVisible,
+                  decoration: InputDecoration(
+                    labelText: 'Master Password',
+                    prefixIcon: const Icon(AppIcons.lock),
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _passwordVisible ? AppIcons.eyeOff : AppIcons.eye,
                       ),
-                  ],
-                )
-              else if (_keyFilePath == null)
-                OutlinedButton.icon(
-                  onPressed: _pickKeyFile,
-                  icon: const Icon(AppIcons.attachment),
-                  label: const Text('Select Key File'),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 44),
+                      onPressed: () =>
+                          setState(() => _passwordVisible = !_passwordVisible),
+                    ),
                   ),
-                )
-              else
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(AppIcons.file),
-                  title: Text(
-                    _keyFileName ?? _keyFilePath!,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: IconButton(
-                    icon: const Icon(AppIcons.close),
-                    tooltip: 'Remove key file',
-                    onPressed: _clearKeyFile,
-                  ),
+                  validator: (value) {
+                    final hasGeneratedKeyFile =
+                        _generateKeyFile &&
+                        (_generatedKeyFilePath?.isNotEmpty ?? false);
+                    if ((value == null || value.isEmpty) &&
+                        _keyFilePath == null &&
+                        !hasGeneratedKeyFile) {
+                      return 'Please enter a password or choose a Key File.';
+                    }
+                    return null;
+                  },
                 ),
-            ],
+                const SizedBox(height: 16),
+
+                // Confirm Password
+                TextFormField(
+                  controller: _confirmCtrl,
+                  obscureText: !_confirmVisible,
+                  decoration: InputDecoration(
+                    labelText: 'Confirm Password',
+                    prefixIcon: const Icon(AppIcons.lock),
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _confirmVisible ? AppIcons.eyeOff : AppIcons.eye,
+                      ),
+                      onPressed: () =>
+                          setState(() => _confirmVisible = !_confirmVisible),
+                    ),
+                  ),
+                  validator: (value) {
+                    if (value != _passwordCtrl.text) {
+                      return 'Passwords do not match.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 20),
+
+                // Key File section
+                Text('Key File (optional)', style: theme.textTheme.labelLarge),
+                const SizedBox(height: 8),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Generate key file automatically'),
+                  subtitle: const Text(
+                    'On Android/iOS it will be saved in app internal storage.',
+                  ),
+                  value: _generateKeyFile,
+                  onChanged: (value) {
+                    setState(() {
+                      _generateKeyFile = value;
+                      _keyFilePath = null;
+                      _keyFileName = null;
+                      if (!value) {
+                        _generatedKeyFilePath = null;
+                      }
+                    });
+                  },
+                ),
+                const SizedBox(height: 8),
+                if (_generateKeyFile)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (_generatedKeyFilePath == null)
+                        OutlinedButton.icon(
+                          onPressed: _pickGeneratedKeyFilePath,
+                          icon: const Icon(AppIcons.save),
+                          label: Text(
+                            _isMobilePlatform
+                                ? 'Prepare generated key file'
+                                : 'Choose key file destination',
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(double.infinity, 48),
+                          ),
+                        )
+                      else
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(AppIcons.fileKey),
+                          title: Text(
+                            _isMobilePlatform
+                                ? 'Generated key file will be saved in app internal storage'
+                                : _generatedKeyFilePath!,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(AppIcons.close),
+                            tooltip: 'Remove generated key file path',
+                            onPressed: _clearGeneratedKeyFilePath,
+                          ),
+                        ),
+                    ],
+                  )
+                else if (_keyFilePath == null)
+                  OutlinedButton.icon(
+                    onPressed: _pickKeyFile,
+                    icon: const Icon(AppIcons.attachment),
+                    label: const Text('Select Key File'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 48),
+                    ),
+                  )
+                else
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(AppIcons.file),
+                    title: Text(
+                      _keyFileName ?? _keyFilePath!,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: IconButton(
+                      icon: const Icon(AppIcons.close),
+                      tooltip: 'Remove key file',
+                      onPressed: _clearKeyFile,
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(onPressed: _submit, child: const Text('Create')),
+        ..._adaptiveDialogActions(context, [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(onPressed: _submit, child: const Text('Create')),
+        ]),
       ],
     );
   }
+}
+
+List<Widget> _adaptiveDialogActions(
+  BuildContext context,
+  List<Widget> actions,
+) {
+  final width = MediaQuery.sizeOf(context).width;
+  if (width >= 360) {
+    return actions;
+  }
+
+  return actions
+      .map((action) => SizedBox(width: double.infinity, child: action))
+      .toList(growable: false);
+}
+
+bool _isVeryCompactDialogWidth(BuildContext context) {
+  return MediaQuery.sizeOf(context).width < 340;
+}
+
+EdgeInsets _dialogInsetPadding(BuildContext context) {
+  if (_isVeryCompactDialogWidth(context)) {
+    return const EdgeInsets.symmetric(horizontal: 12, vertical: 20);
+  }
+  return const EdgeInsets.symmetric(horizontal: 20, vertical: 24);
+}
+
+EdgeInsets _dialogContentPadding(BuildContext context) {
+  if (_isVeryCompactDialogWidth(context)) {
+    return const EdgeInsets.fromLTRB(12, 10, 12, 6);
+  }
+  return const EdgeInsets.fromLTRB(20, 18, 20, 12);
+}
+
+bool get _isMobilePlatform {
+  if (kIsWeb) {
+    return false;
+  }
+  return switch (defaultTargetPlatform) {
+    TargetPlatform.android || TargetPlatform.iOS => true,
+    TargetPlatform.fuchsia ||
+    TargetPlatform.linux ||
+    TargetPlatform.macOS ||
+    TargetPlatform.windows => false,
+  };
 }
 
 class CreateDatabaseCredentials {

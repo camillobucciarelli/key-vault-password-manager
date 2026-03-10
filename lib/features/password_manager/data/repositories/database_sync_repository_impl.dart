@@ -1,5 +1,4 @@
 import '../../domain/models/database_sync_mapping.dart';
-import '../../domain/models/drive_remote_folder.dart';
 import '../../domain/models/drive_remote_file.dart';
 import '../../domain/models/sync_conflict.dart';
 import '../../domain/repositories/database_sync_repository.dart';
@@ -42,29 +41,22 @@ class DatabaseSyncRepositoryImpl implements DatabaseSyncRepository {
     required String databasePath,
     String? remoteFileId,
     String? remoteFileName,
-    String? remoteFolderId,
   }) {
     return _databaseSyncOrchestrator.linkDatabaseToDrive(
       databasePath: databasePath,
       remoteFileId: remoteFileId,
       remoteFileName: remoteFileName,
-      remoteFolderId: remoteFolderId,
     );
   }
 
   @override
-  Future<List<DriveRemoteFile>> listRemoteFiles() {
-    return _databaseSyncOrchestrator.listRemoteFiles();
+  Future<List<DriveRemoteFile>> listRemoteFiles({String? query}) {
+    return _databaseSyncOrchestrator.listRemoteFiles(query: query);
   }
 
   @override
   Future<Uint8List> downloadRemoteFile(String fileId) {
     return _databaseSyncOrchestrator.downloadRemoteFile(fileId);
-  }
-
-  @override
-  Future<List<DriveRemoteFolder>> listRemoteFolders({String? query}) {
-    return _databaseSyncOrchestrator.listRemoteFolders(query: query);
   }
 
   @override

@@ -1,7 +1,6 @@
 import 'package:equatable/equatable.dart';
 
 import '../../../domain/models/database_sync_status.dart';
-import '../../../domain/models/drive_remote_folder.dart';
 import '../../../domain/models/drive_remote_file.dart';
 import '../../../domain/models/sync_conflict.dart';
 import '../../../domain/models/vault_entry.dart';
@@ -16,7 +15,9 @@ class VaultState extends Equatable {
     this.currentGroupId,
     this.groups = const [],
     this.entries = const [],
+    this.allEntries = const [],
     this.visibleEntries = const [],
+    this.expandedGroupIds = const [],
     this.recycleBinEntries = const [],
     this.isLoading = false,
     this.isSaving = false,
@@ -35,8 +36,6 @@ class VaultState extends Equatable {
     this.pendingSyncConflict,
     this.remoteDriveFiles = const [],
     this.isLoadingRemoteDriveFiles = false,
-    this.remoteDriveFolders = const [],
-    this.isLoadingRemoteDriveFolders = false,
     this.linkedDriveFileName,
   });
 
@@ -49,7 +48,9 @@ class VaultState extends Equatable {
   final String? currentGroupId;
   final List<VaultGroup> groups;
   final List<VaultEntry> entries;
+  final List<VaultEntry> allEntries;
   final List<VaultEntry> visibleEntries;
+  final List<String> expandedGroupIds;
   final List<VaultEntry> recycleBinEntries;
   final bool isLoading;
   final bool isSaving;
@@ -68,8 +69,6 @@ class VaultState extends Equatable {
   final SyncConflict? pendingSyncConflict;
   final List<DriveRemoteFile> remoteDriveFiles;
   final bool isLoadingRemoteDriveFiles;
-  final List<DriveRemoteFolder> remoteDriveFolders;
-  final bool isLoadingRemoteDriveFolders;
   final String? linkedDriveFileName;
 
   VaultState copyWith({
@@ -77,7 +76,9 @@ class VaultState extends Equatable {
     String? currentGroupId,
     List<VaultGroup>? groups,
     List<VaultEntry>? entries,
+    List<VaultEntry>? allEntries,
     List<VaultEntry>? visibleEntries,
+    List<String>? expandedGroupIds,
     List<VaultEntry>? recycleBinEntries,
     bool? isLoading,
     bool? isSaving,
@@ -96,8 +97,6 @@ class VaultState extends Equatable {
     SyncConflict? pendingSyncConflict,
     List<DriveRemoteFile>? remoteDriveFiles,
     bool? isLoadingRemoteDriveFiles,
-    List<DriveRemoteFolder>? remoteDriveFolders,
-    bool? isLoadingRemoteDriveFolders,
     String? linkedDriveFileName,
     bool clearError = false,
     bool clearInfo = false,
@@ -110,7 +109,9 @@ class VaultState extends Equatable {
       currentGroupId: currentGroupId ?? this.currentGroupId,
       groups: groups ?? this.groups,
       entries: entries ?? this.entries,
+      allEntries: allEntries ?? this.allEntries,
       visibleEntries: visibleEntries ?? this.visibleEntries,
+      expandedGroupIds: expandedGroupIds ?? this.expandedGroupIds,
       recycleBinEntries: recycleBinEntries ?? this.recycleBinEntries,
       isLoading: isLoading ?? this.isLoading,
       isSaving: isSaving ?? this.isSaving,
@@ -132,9 +133,6 @@ class VaultState extends Equatable {
       remoteDriveFiles: remoteDriveFiles ?? this.remoteDriveFiles,
       isLoadingRemoteDriveFiles:
           isLoadingRemoteDriveFiles ?? this.isLoadingRemoteDriveFiles,
-      remoteDriveFolders: remoteDriveFolders ?? this.remoteDriveFolders,
-      isLoadingRemoteDriveFolders:
-          isLoadingRemoteDriveFolders ?? this.isLoadingRemoteDriveFolders,
       linkedDriveFileName: linkedDriveFileName ?? this.linkedDriveFileName,
     );
   }
@@ -186,7 +184,9 @@ class VaultState extends Equatable {
     currentGroupId,
     groups,
     entries,
+    allEntries,
     visibleEntries,
+    expandedGroupIds,
     recycleBinEntries,
     isLoading,
     isSaving,
@@ -205,8 +205,6 @@ class VaultState extends Equatable {
     pendingSyncConflict,
     remoteDriveFiles,
     isLoadingRemoteDriveFiles,
-    remoteDriveFolders,
-    isLoadingRemoteDriveFolders,
     linkedDriveFileName,
   ];
 }

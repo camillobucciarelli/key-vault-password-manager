@@ -4,17 +4,19 @@ class _EntriesCard extends StatefulWidget {
   const _EntriesCard({
     required this.entries,
     required this.groups,
+    required this.rootGroupId,
+    required this.currentGroupId,
+    required this.expandedGroupIds,
     required this.searchQuery,
-    required this.sortBy,
-    this.keepSearchSortInline = false,
     this.isScrollablePage = false,
   });
 
   final List<VaultEntry> entries;
   final List<VaultGroup> groups;
+  final String? rootGroupId;
+  final String? currentGroupId;
+  final List<String> expandedGroupIds;
   final String searchQuery;
-  final VaultEntrySort sortBy;
-  final bool keepSearchSortInline;
   final bool isScrollablePage;
 
   @override
@@ -59,10 +61,17 @@ class _EntriesCardState extends State<_EntriesCard> {
     }
   }
 
-  Future<void> _handleCreateEntry(BuildContext context) async {
+  Future<void> _handleCreateEntry(
+    BuildContext context, {
+    String? targetGroupId,
+  }) async {
     final payload = await _showEntryDialog(context);
     if (payload != null && context.mounted) {
-      context.read<VaultBloc>().add(
+      final bloc = context.read<VaultBloc>();
+      if (targetGroupId != null) {
+        bloc.add(OpenGroup(targetGroupId));
+      }
+      bloc.add(
         CreateVaultEntry(
           title: payload.title,
           username: payload.username,
@@ -72,6 +81,61 @@ class _EntriesCardState extends State<_EntriesCard> {
           customFields: payload.customFields,
         ),
       );
+    }
+  }
+
+  Future<void> _handleCreateFolder(
+    BuildContext context, {
+    String? targetGroupId,
+  }) async {
+    final name = await _showGroupDialog(context);
+    if (name == null || name.trim().isEmpty || !context.mounted) {
+      return;
+    }
+
+    final bloc = context.read<VaultBloc>();
+    if (targetGroupId != null) {
+      bloc.add(OpenGroup(targetGroupId));
+    }
+    bloc.add(CreateVaultGroup(name.trim()));
+  }
+
+  Future<void> _handleFolderAction(
+    BuildContext context, {
+    required VaultGroup group,
+    required _FolderAction action,
+  }) async {
+    switch (action) {
+      case _FolderAction.addRecord:
+        await _handleCreateEntry(context, targetGroupId: group.id);
+        break;
+      case _FolderAction.addSubfolder:
+        await _handleCreateFolder(context, targetGroupId: group.id);
+        break;
+      case _FolderAction.rename:
+        await _handleChildGroupAction(
+          context,
+          group: group,
+          action: _ChildGroupAction.rename,
+          allGroups: widget.groups,
+        );
+        break;
+      case _FolderAction.move:
+        await _handleChildGroupAction(
+          context,
+          group: group,
+          action: _ChildGroupAction.move,
+          allGroups: widget.groups,
+        );
+        break;
+      case _FolderAction.delete:
+        await _handleChildGroupAction(
+          context,
+          group: group,
+          action: _ChildGroupAction.delete,
+          allGroups: widget.groups,
+        );
+        break;
     }
   }
 
@@ -123,37 +187,6 @@ class _EntriesCardState extends State<_EntriesCard> {
     }
   }
 
-  void _onSortChanged(BuildContext context, VaultEntrySort? value) {
-    if (value == null) {
-      return;
-    }
-    context.read<VaultBloc>().add(SetVaultSort(value));
-  }
-
-  Widget _buildSortField(BuildContext context) {
-    return DropdownButtonFormField<VaultEntrySort>(
-      initialValue: widget.sortBy,
-      isExpanded: true,
-      icon: const Icon(AppIcons.chevronDown),
-      decoration: const InputDecoration(labelText: 'Sort by'),
-      onChanged: (value) => _onSortChanged(context, value),
-      items: const [
-        DropdownMenuItem(
-          value: VaultEntrySort.titleAsc,
-          child: Text('Title A-Z'),
-        ),
-        DropdownMenuItem(
-          value: VaultEntrySort.titleDesc,
-          child: Text('Title Z-A'),
-        ),
-        DropdownMenuItem(
-          value: VaultEntrySort.usernameAsc,
-          child: Text('Username A-Z'),
-        ),
-      ],
-    );
-  }
-
   Future<void> _openEntry(
     BuildContext context,
     VaultEntry entry, {
@@ -182,10 +215,154 @@ class _EntriesCardState extends State<_EntriesCard> {
     BuildContext context, {
     required bool showInlineDetail,
   }) {
-    if (widget.entries.isEmpty) {
+    final groups = widget.groups
+        .where((group) => !group.isRecycleBin)
+        .toList(growable: false);
+    final byId = {for (final group in groups) group.id: group};
+    final byParent = <String?, List<VaultGroup>>{};
+    for (final group in groups) {
+      byParent.putIfAbsent(group.parentId, () => <VaultGroup>[]).add(group);
+    }
+    for (final children in byParent.values) {
+      children.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
+    }
+
+    final entriesByGroup = <String, List<VaultEntry>>{};
+    for (final entry in widget.entries) {
+      entriesByGroup
+          .putIfAbsent(entry.groupId, () => <VaultEntry>[])
+          .add(entry);
+    }
+
+    final autoExpanded = <String>{};
+    if (widget.searchQuery.trim().isNotEmpty) {
+      for (final entry in widget.entries) {
+        var cursorId = entry.groupId;
+        while (true) {
+          final cursor = byId[cursorId];
+          if (cursor == null) {
+            break;
+          }
+          autoExpanded.add(cursor.id);
+          final parentId = cursor.parentId;
+          if (parentId == null) {
+            break;
+          }
+          cursorId = parentId;
+        }
+      }
+    }
+
+    final visibleGroupMemo = <String, bool>{};
+    bool groupHasVisibleContent(String groupId) {
+      final cached = visibleGroupMemo[groupId];
+      if (cached != null) {
+        return cached;
+      }
+
+      final hasEntries =
+          (entriesByGroup[groupId] ?? const <VaultEntry>[]).isNotEmpty;
+      if (hasEntries) {
+        visibleGroupMemo[groupId] = true;
+        return true;
+      }
+
+      final children = byParent[groupId] ?? const <VaultGroup>[];
+      for (final child in children) {
+        if (groupHasVisibleContent(child.id)) {
+          visibleGroupMemo[groupId] = true;
+          return true;
+        }
+      }
+
+      visibleGroupMemo[groupId] = false;
+      return false;
+    }
+
+    final rootId = widget.rootGroupId;
+    final treeItems = <Widget>[];
+    final manualExpanded = widget.expandedGroupIds.toSet();
+
+    void appendGroup(VaultGroup group, int depth) {
+      if (widget.searchQuery.trim().isNotEmpty &&
+          !groupHasVisibleContent(group.id)) {
+        return;
+      }
+
+      final isExpanded =
+          manualExpanded.contains(group.id) || autoExpanded.contains(group.id);
+      final isCurrent = widget.currentGroupId == group.id;
+      final children = byParent[group.id] ?? const <VaultGroup>[];
+      final records = entriesByGroup[group.id] ?? const <VaultEntry>[];
+
+      treeItems.add(
+        Padding(
+          padding: EdgeInsets.only(left: depth * 14.0),
+          child: _FolderListItem(
+            group: group,
+            isExpanded: isExpanded,
+            isCurrent: isCurrent,
+            isRoot: group.id == rootId,
+            childGroupsCount: children.length,
+            recordsCount: records.length,
+            onOpen: () {
+              context.read<VaultBloc>().add(OpenGroup(group.id));
+            },
+            onToggleExpand: () {
+              context.read<VaultBloc>().add(ToggleVaultGroupExpanded(group.id));
+            },
+            onSelectedAction: (action) async {
+              await _handleFolderAction(context, group: group, action: action);
+            },
+          ),
+        ),
+      );
+
+      if (!isExpanded) {
+        return;
+      }
+
+      for (final child in children) {
+        appendGroup(child, depth + 1);
+      }
+
+      for (final entry in records) {
+        final isSelected = showInlineDetail && _selectedEntryId == entry.id;
+        treeItems.add(
+          Padding(
+            padding: EdgeInsets.only(left: (depth + 1) * 14.0),
+            child: _RecordListItem(
+              entry: entry,
+              isSelected: isSelected,
+              onOpen: () => _openEntry(
+                context,
+                entry,
+                showInlineDetail: showInlineDetail,
+              ),
+              onSelectedAction: (action) {
+                _handleEntryAction(context, entry, action);
+              },
+            ),
+          ),
+        );
+      }
+    }
+
+    final rootGroup = rootId == null ? null : byId[rootId];
+    if (rootGroup != null) {
+      appendGroup(rootGroup, 0);
+    } else {
+      final fallbackRootChildren = byParent[null] ?? const <VaultGroup>[];
+      for (final group in fallbackRootChildren) {
+        appendGroup(group, 0);
+      }
+    }
+
+    if (treeItems.isEmpty) {
       final emptyState = _RecordsEmptyState(
         searchQuery: widget.searchQuery,
-        onAddPressed: () => _handleCreateEntry(context),
         onClearSearch: widget.searchQuery.isNotEmpty
             ? () {
                 context.read<VaultBloc>().add(const ClearVaultSearchQuery());
@@ -222,22 +399,10 @@ class _EntriesCardState extends State<_EntriesCard> {
       physics: widget.isScrollablePage
           ? const NeverScrollableScrollPhysics()
           : const AlwaysScrollableScrollPhysics(),
-      itemCount: widget.entries.length,
+      itemCount: treeItems.length,
       separatorBuilder: (_, _) =>
           const SizedBox(height: _VaultUiTokens.recordListSpacing),
-      itemBuilder: (context, index) {
-        final entry = widget.entries[index];
-        final isSelected = showInlineDetail && _selectedEntryId == entry.id;
-        return _RecordListItem(
-          entry: entry,
-          isSelected: isSelected,
-          onOpen: () =>
-              _openEntry(context, entry, showInlineDetail: showInlineDetail),
-          onSelectedAction: (action) {
-            _handleEntryAction(context, entry, action);
-          },
-        );
-      },
+      itemBuilder: (context, index) => treeItems[index],
     );
 
     if (widget.isScrollablePage) {
@@ -256,27 +421,8 @@ class _EntriesCardState extends State<_EntriesCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _SectionTitleWithCount(
-            title: 'Records',
-            count: widget.entries.length,
-            onAddPressed: () => _handleCreateEntry(context),
-            addLabel: 'Add record',
-            addTooltip: 'Add record',
-            addIcon: AppIcons.cardAdd,
-          ),
-          const SizedBox(height: 10),
-          Divider(
-            height: 1,
-            color: colorScheme.outlineVariant.withValues(alpha: 0.7),
-          ),
-          const SizedBox(height: 10),
           LayoutBuilder(
             builder: (context, constraints) {
-              final shouldStackSearchSort =
-                  !widget.keepSearchSortInline &&
-                  constraints.maxWidth <
-                      _VaultLayoutBreakpoints.searchSortStack;
-
               final searchField = TextFormField(
                 key: ValueKey('vault-search-${widget.searchQuery}'),
                 initialValue: widget.searchQuery,
@@ -300,28 +446,7 @@ class _EntriesCardState extends State<_EntriesCard> {
                 },
               );
 
-              if (shouldStackSearchSort) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    searchField,
-                    const SizedBox(height: 10),
-                    _buildSortField(context),
-                  ],
-                );
-              }
-
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: searchField),
-                  const SizedBox(width: 10),
-                  SizedBox(
-                    width: math.min(250, constraints.maxWidth * 0.38),
-                    child: _buildSortField(context),
-                  ),
-                ],
-              );
+              return searchField;
             },
           ),
           const SizedBox(height: 10),
@@ -392,6 +517,8 @@ class _EntriesCardState extends State<_EntriesCard> {
 
 enum _EntryAction { edit, move, attachments, showTotp, delete }
 
+enum _FolderAction { addRecord, addSubfolder, rename, move, delete }
+
 Future<void> _copyTextToClipboard(
   BuildContext context, {
   required String text,
@@ -407,6 +534,25 @@ Future<void> _copyTextToClipboard(
   ScaffoldMessenger.of(
     context,
   ).showSnackBar(SnackBar(content: Text(successMessage)));
+}
+
+bool _useLongPressCopy() {
+  switch (defaultTargetPlatform) {
+    case TargetPlatform.android:
+    case TargetPlatform.iOS:
+      return true;
+    case TargetPlatform.fuchsia:
+    case TargetPlatform.linux:
+    case TargetPlatform.macOS:
+    case TargetPlatform.windows:
+      return false;
+  }
+}
+
+String _copyHintLabel() {
+  return _useLongPressCopy()
+      ? 'Long press a field to copy'
+      : 'Click a field to copy';
 }
 
 class _EntryDetailsPage extends StatelessWidget {
@@ -542,6 +688,100 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
     final resolvedPassword = _passwordVisible
         ? (entry.password.isEmpty ? 'Not set' : entry.password)
         : (entry.password.isEmpty ? 'Not set' : '••••••••••••');
+    final standardFields = <Widget>[
+      _EntryFieldCard(
+        label: 'Username',
+        value: entry.username,
+        emptyLabel: 'Username not set',
+        maxLines: 1,
+        onCopy: entry.username.isEmpty
+            ? null
+            : () {
+                _copyTextToClipboard(
+                  context,
+                  text: entry.username,
+                  successMessage: 'Copied username.',
+                );
+              },
+      ),
+      _EntryFieldCard(
+        label: 'Password',
+        value: resolvedPassword,
+        emptyLabel: 'Password not set',
+        maxLines: 1,
+        trailing: IconButton(
+          tooltip: _passwordVisible ? 'Hide password' : 'Show password',
+          onPressed: entry.password.isEmpty
+              ? null
+              : () {
+                  setState(() {
+                    _passwordVisible = !_passwordVisible;
+                  });
+                },
+          icon: Icon(
+            _passwordVisible ? AppIcons.eyeOff : AppIcons.eye,
+            size: 18,
+          ),
+        ),
+        onCopy: entry.password.isEmpty
+            ? null
+            : () {
+                _copyTextToClipboard(
+                  context,
+                  text: entry.password,
+                  successMessage: 'Copied password.',
+                );
+              },
+      ),
+      _EntryFieldCard(
+        label: 'URL',
+        value: entry.url,
+        emptyLabel: 'URL not set',
+        maxLines: 1,
+        onCopy: entry.url.isEmpty
+            ? null
+            : () {
+                _copyTextToClipboard(
+                  context,
+                  text: entry.url,
+                  successMessage: 'Copied URL.',
+                );
+              },
+      ),
+      _EntryFieldCard(
+        label: 'Notes',
+        value: entry.notes,
+        emptyLabel: 'Notes not set',
+        maxLines: 4,
+        onCopy: entry.notes.isEmpty
+            ? null
+            : () {
+                _copyTextToClipboard(
+                  context,
+                  text: entry.notes,
+                  successMessage: 'Copied notes.',
+                );
+              },
+      ),
+    ];
+
+    if (totpData != null) {
+      standardFields.insert(
+        3,
+        _EntryFieldCard(
+          label: 'One-time code (${totpData.remainingSeconds}s)',
+          value: totpData.code,
+          maxLines: 1,
+          onCopy: () {
+            _copyTextToClipboard(
+              context,
+              text: totpData.code,
+              successMessage: 'Copied one-time code.',
+            );
+          },
+        ),
+      );
+    }
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -588,7 +828,9 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        entry.username.isEmpty ? 'No username' : entry.username,
+                        entry.username.isEmpty
+                            ? 'Username not set'
+                            : entry.username,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodyMedium?.copyWith(
@@ -629,114 +871,27 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                   ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Divider(
               height: 1,
               color: colorScheme.outlineVariant.withValues(alpha: 0.65),
             ),
-            const SizedBox(height: 12),
-            _EntryFieldCard(
-              label: 'Title',
-              value: title,
-              onCopy: () {
-                _copyTextToClipboard(
-                  context,
-                  text: title,
-                  successMessage: 'Title copied.',
-                );
-              },
-            ),
-            const SizedBox(height: 8),
-            _EntryFieldCard(
-              label: 'Username',
-              value: entry.username,
-              emptyLabel: 'No username',
-              onCopy: entry.username.isEmpty
-                  ? null
-                  : () {
-                      _copyTextToClipboard(
-                        context,
-                        text: entry.username,
-                        successMessage: 'Username copied.',
-                      );
-                    },
-            ),
-            const SizedBox(height: 8),
-            _EntryFieldCard(
-              label: 'Password',
-              value: resolvedPassword,
-              emptyLabel: 'No password',
-              trailing: IconButton(
-                tooltip: _passwordVisible ? 'Hide password' : 'Show password',
-                onPressed: entry.password.isEmpty
-                    ? null
-                    : () {
-                        setState(() {
-                          _passwordVisible = !_passwordVisible;
-                        });
-                      },
-                icon: Icon(
-                  _passwordVisible ? AppIcons.eyeOff : AppIcons.eye,
-                  size: 18,
-                ),
+            const SizedBox(height: 10),
+            Text(
+              _copyHintLabel(),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurface.withValues(alpha: 0.66),
               ),
-              onCopy: entry.password.isEmpty
-                  ? null
-                  : () {
-                      _copyTextToClipboard(
-                        context,
-                        text: entry.password,
-                        successMessage: 'Password copied.',
-                      );
-                    },
             ),
-            if (totpData != null) ...[
-              const SizedBox(height: 8),
-              _EntryFieldCard(
-                label: 'OTP code (${totpData.remainingSeconds}s)',
-                value: totpData.code,
-                onCopy: () {
-                  _copyTextToClipboard(
-                    context,
-                    text: totpData.code,
-                    successMessage: 'OTP copied.',
-                  );
-                },
-              ),
-            ],
-            const SizedBox(height: 8),
-            _EntryFieldCard(
-              label: 'Website',
-              value: entry.url,
-              emptyLabel: 'No URL',
-              onCopy: entry.url.isEmpty
-                  ? null
-                  : () {
-                      _copyTextToClipboard(
-                        context,
-                        text: entry.url,
-                        successMessage: 'Website copied.',
-                      );
-                    },
-            ),
-            const SizedBox(height: 8),
-            _EntryFieldCard(
-              label: 'Notes',
-              value: entry.notes,
-              emptyLabel: 'No notes',
-              onCopy: entry.notes.isEmpty
-                  ? null
-                  : () {
-                      _copyTextToClipboard(
-                        context,
-                        text: entry.notes,
-                        successMessage: 'Notes copied.',
-                      );
-                    },
-            ),
+            const SizedBox(height: 6),
+            _EntryFieldsWrap(children: standardFields),
             if (customFields.isNotEmpty) ...[
               const SizedBox(height: 10),
-              _CustomFieldsDetailCard(fields: customFields),
+              _EntryDetailsSection(
+                title: 'Custom fields',
+                caption: 'Stored separately from standard record fields.',
+                child: _CustomFieldsDetailCard(fields: customFields),
+              ),
             ],
           ],
         ),
@@ -750,6 +905,7 @@ class _EntryFieldCard extends StatelessWidget {
     required this.label,
     required this.value,
     this.emptyLabel = 'Not set',
+    this.maxLines = 3,
     this.trailing,
     this.onCopy,
   });
@@ -757,6 +913,7 @@ class _EntryFieldCard extends StatelessWidget {
   final String label;
   final String value;
   final String emptyLabel;
+  final int? maxLines;
   final Widget? trailing;
   final VoidCallback? onCopy;
 
@@ -766,11 +923,11 @@ class _EntryFieldCard extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final resolved = value.isEmpty ? emptyLabel : value;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+    final content = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
       decoration: BoxDecoration(
         color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.34),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: colorScheme.outlineVariant.withValues(alpha: 0.65),
         ),
@@ -790,18 +947,12 @@ class _EntryFieldCard extends StatelessWidget {
                 ),
               ),
               trailing ?? const SizedBox.shrink(),
-              if (onCopy != null)
-                IconButton(
-                  tooltip: 'Copy $label',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: onCopy,
-                  icon: const Icon(AppIcons.copy, size: 17),
-                ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           SelectableText(
             resolved,
+            maxLines: maxLines,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: value.isEmpty
                   ? colorScheme.onSurface.withValues(alpha: 0.62)
@@ -810,6 +961,90 @@ class _EntryFieldCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+
+    if (onCopy == null) {
+      return content;
+    }
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _useLongPressCopy() ? null : onCopy,
+        onLongPress: _useLongPressCopy() ? onCopy : null,
+        borderRadius: BorderRadius.circular(10),
+        child: content,
+      ),
+    );
+  }
+}
+
+class _EntryDetailsSection extends StatelessWidget {
+  const _EntryDetailsSection({
+    required this.title,
+    required this.child,
+    this.caption,
+  });
+
+  final String title;
+  final String? caption;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          title,
+          style: theme.textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: colorScheme.onSurface.withValues(alpha: 0.85),
+          ),
+        ),
+        if (caption != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            caption!,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurface.withValues(alpha: 0.66),
+            ),
+          ),
+        ],
+        const SizedBox(height: 6),
+        child,
+      ],
+    );
+  }
+}
+
+class _EntryFieldsWrap extends StatelessWidget {
+  const _EntryFieldsWrap({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const spacing = 8.0;
+        final useTwoColumns = constraints.maxWidth >= 520;
+        final itemWidth = useTwoColumns
+            ? (constraints.maxWidth - spacing) / 2
+            : constraints.maxWidth;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            for (final child in children)
+              SizedBox(width: itemWidth, child: child),
+          ],
+        );
+      },
     );
   }
 }
@@ -821,109 +1056,28 @@ class _CustomFieldsDetailCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.34),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.65),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Custom fields',
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: colorScheme.onSurface.withValues(alpha: 0.76),
-              fontWeight: FontWeight.w600,
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < fields.length; i++) ...[
+          _EntryFieldCard(
+            label: fields[i].key,
+            value: fields[i].value,
+            emptyLabel: 'Value not set',
+            maxLines: null,
+            onCopy: fields[i].value.isEmpty
+                ? null
+                : () {
+                    _copyTextToClipboard(
+                      context,
+                      text: fields[i].value,
+                      successMessage: 'Copied ${fields[i].key}.',
+                    );
+                  },
           ),
-          const SizedBox(height: 10),
-          ...fields.asMap().entries.expand((entry) {
-            final field = entry.value;
-            final widgets = <Widget>[
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          field.key,
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: colorScheme.onSurface.withValues(alpha: 0.8),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        SelectableText(
-                          field.value.isEmpty ? 'Not set' : field.value,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: field.value.isEmpty
-                                ? colorScheme.onSurface.withValues(alpha: 0.62)
-                                : colorScheme.onSurface,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Column(
-                    children: [
-                      IconButton(
-                        tooltip: 'Copy key',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () {
-                          _copyTextToClipboard(
-                            context,
-                            text: field.key,
-                            successMessage: 'Custom key copied.',
-                          );
-                        },
-                        icon: const Icon(AppIcons.copy, size: 16),
-                      ),
-                      IconButton(
-                        tooltip: 'Copy value',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: field.value.isEmpty
-                            ? null
-                            : () {
-                                _copyTextToClipboard(
-                                  context,
-                                  text: field.value,
-                                  successMessage: 'Custom value copied.',
-                                );
-                              },
-                        icon: const Icon(AppIcons.copy, size: 16),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ];
-
-            if (entry.key < fields.length - 1) {
-              widgets.add(
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Divider(
-                    height: 1,
-                    color: colorScheme.outlineVariant.withValues(alpha: 0.65),
-                  ),
-                ),
-              );
-            }
-
-            return widgets;
-          }),
+          if (i < fields.length - 1) const SizedBox(height: 8),
         ],
-      ),
+      ],
     );
   }
 }
@@ -970,6 +1124,181 @@ class _EntryDetailEmptyState extends StatelessWidget {
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: colorScheme.onSurface.withValues(alpha: 0.64),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FolderListItem extends StatelessWidget {
+  const _FolderListItem({
+    required this.group,
+    required this.isExpanded,
+    required this.isCurrent,
+    required this.isRoot,
+    required this.childGroupsCount,
+    required this.recordsCount,
+    required this.onOpen,
+    required this.onToggleExpand,
+    required this.onSelectedAction,
+  });
+
+  final VaultGroup group;
+  final bool isExpanded;
+  final bool isCurrent;
+  final bool isRoot;
+  final int childGroupsCount;
+  final int recordsCount;
+  final VoidCallback onOpen;
+  final VoidCallback onToggleExpand;
+  final ValueChanged<_FolderAction> onSelectedAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final itemAnimationDuration = MediaQuery.of(context).disableAnimations
+        ? Duration.zero
+        : _VaultUiTokens.itemTransitionDuration;
+    final hasChildren = childGroupsCount > 0;
+    final caretIcon = isExpanded ? AppIcons.chevronDown : AppIcons.chevronRight;
+
+    return _InteractiveItemSurface(
+      radius: _VaultUiTokens.recordItemRadius,
+      minHeight: _VaultUiTokens.recordItemHeight,
+      onTap: onOpen,
+      baseColor: isCurrent
+          ? colorScheme.primaryContainer.withValues(alpha: 0.62)
+          : colorScheme.surface.withValues(alpha: 0.74),
+      hoveredColor: isCurrent
+          ? colorScheme.primaryContainer.withValues(alpha: 0.72)
+          : colorScheme.surface.withValues(alpha: 0.85),
+      baseBorderColor: isCurrent
+          ? colorScheme.primary.withValues(alpha: 0.62)
+          : colorScheme.outlineVariant.withValues(alpha: 0.7),
+      hoveredBorderColor: colorScheme.primary.withValues(alpha: 0.42),
+      child: Padding(
+        padding: const EdgeInsets.only(left: 6, right: 6, top: 8, bottom: 8),
+        child: Row(
+          children: [
+            AnimatedContainer(
+              duration: itemAnimationDuration,
+              width: 4,
+              height: 28,
+              decoration: BoxDecoration(
+                color: isCurrent
+                    ? colorScheme.primary.withValues(alpha: 0.92)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            const SizedBox(width: 4),
+            IconButton(
+              tooltip: isExpanded ? 'Collapse folder' : 'Expand folder',
+              onPressed: hasChildren ? onToggleExpand : null,
+              icon: Icon(caretIcon, size: 16),
+            ),
+            Container(
+              width: _VaultUiTokens.folderIconContainerSize,
+              height: _VaultUiTokens.folderIconContainerSize,
+              decoration: BoxDecoration(
+                color: colorScheme.tertiaryContainer.withValues(alpha: 0.54),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                isExpanded ? AppIcons.folderOpen : AppIcons.folder,
+                size: 18,
+                color: colorScheme.onTertiaryContainer,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          group.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: isCurrent
+                                    ? colorScheme.onPrimaryContainer
+                                    : null,
+                              ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '$childGroupsCount folders • $recordsCount records',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: isCurrent
+                          ? colorScheme.onPrimaryContainer.withValues(
+                              alpha: 0.8,
+                            )
+                          : null,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (isRoot) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: colorScheme.primary.withValues(alpha: 0.36),
+                  ),
+                ),
+                child: Text(
+                  'ROOT',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.2,
+                    color: colorScheme.primary,
+                  ),
+                ),
+              ),
+            ],
+            PopupMenuButton<_FolderAction>(
+              tooltip: 'Folder actions',
+              onSelected: onSelectedAction,
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: _FolderAction.addRecord,
+                  child: const Text('Add record'),
+                ),
+                PopupMenuItem(
+                  value: _FolderAction.addSubfolder,
+                  child: const Text('Add subfolder'),
+                ),
+                if (!isRoot) ...const [
+                  PopupMenuDivider(),
+                  PopupMenuItem(
+                    value: _FolderAction.rename,
+                    child: Text('Rename'),
+                  ),
+                  PopupMenuItem(value: _FolderAction.move, child: Text('Move')),
+                  PopupMenuItem(
+                    value: _FolderAction.delete,
+                    child: Text('Delete'),
+                  ),
+                ],
+              ],
             ),
           ],
         ),
@@ -1102,14 +1431,9 @@ class _RecordListItem extends StatelessWidget {
 }
 
 class _RecordsEmptyState extends StatelessWidget {
-  const _RecordsEmptyState({
-    required this.searchQuery,
-    required this.onAddPressed,
-    this.onClearSearch,
-  });
+  const _RecordsEmptyState({required this.searchQuery, this.onClearSearch});
 
   final String searchQuery;
-  final Future<void> Function() onAddPressed;
   final VoidCallback? onClearSearch;
 
   @override
@@ -1152,7 +1476,7 @@ class _RecordsEmptyState extends StatelessWidget {
           Text(
             isSearchActive
                 ? 'Try a different keyword or clear the search.'
-                : 'Add a record to start storing credentials in this folder.',
+                : 'Use the folder menu to add records or subfolders.',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodySmall,
           ),
@@ -1167,14 +1491,7 @@ class _RecordsEmptyState extends StatelessWidget {
               label: const Text('Clear search'),
             )
           else
-            FilledButton.icon(
-              onPressed: onAddPressed,
-              style: FilledButton.styleFrom(
-                animationDuration: _VaultUiTokens.buttonTransitionDuration,
-              ),
-              icon: const Icon(AppIcons.cardAdd),
-              label: const Text('+ Add record'),
-            ),
+            const SizedBox.shrink(),
         ],
       ),
     );
@@ -1223,6 +1540,9 @@ class _TotpChipState extends State<_TotpChip> {
     }
 
     final colorScheme = Theme.of(context).colorScheme;
+    final animationDuration = MediaQuery.of(context).disableAnimations
+        ? Duration.zero
+        : _VaultUiTokens.chipTransitionDuration;
     final highlighted = _isHovered || _isFocused;
 
     return FocusableActionDetector(
@@ -1246,7 +1566,7 @@ class _TotpChipState extends State<_TotpChip> {
           });
         },
         child: AnimatedScale(
-          duration: _VaultUiTokens.chipTransitionDuration,
+          duration: animationDuration,
           curve: Curves.easeOutCubic,
           scale: highlighted ? 1.02 : 1,
           child: InkWell(
@@ -1255,7 +1575,7 @@ class _TotpChipState extends State<_TotpChip> {
             },
             borderRadius: BorderRadius.circular(999),
             child: AnimatedContainer(
-              duration: _VaultUiTokens.chipTransitionDuration,
+              duration: animationDuration,
               curve: Curves.easeInOutCubic,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(999),
@@ -1266,7 +1586,6 @@ class _TotpChipState extends State<_TotpChip> {
                 ),
               ),
               child: Chip(
-                visualDensity: VisualDensity.compact,
                 side: BorderSide.none,
                 backgroundColor: highlighted
                     ? colorScheme.secondaryContainer.withValues(alpha: 0.75)

@@ -7,6 +7,8 @@ abstract class LocalDataSource {
   Future<void> cacheKeyFilePath(String? path);
   Future<bool> getBiometricProtectionEnabled();
   Future<void> setBiometricProtectionEnabled(bool enabled);
+  Future<bool> getAutofillPromptSeen();
+  Future<void> setAutofillPromptSeen(bool seen);
 }
 
 class LocalDataSourceImpl implements LocalDataSource {
@@ -14,6 +16,7 @@ class LocalDataSourceImpl implements LocalDataSource {
   static const dbPathKey = 'CACHED_DATABASE_PATH';
   static const keyFilePathKey = 'CACHED_KEY_FILE_PATH';
   static const biometricProtectionKey = 'BIOMETRIC_PROTECTION_ENABLED';
+  static const autofillPromptSeenKey = 'AUTOFILL_PROMPT_SEEN';
 
   LocalDataSourceImpl({required this.sharedPreferences});
 
@@ -53,5 +56,15 @@ class LocalDataSourceImpl implements LocalDataSource {
   @override
   Future<void> setBiometricProtectionEnabled(bool enabled) async {
     await sharedPreferences.setBool(biometricProtectionKey, enabled);
+  }
+
+  @override
+  Future<bool> getAutofillPromptSeen() async {
+    return sharedPreferences.getBool(autofillPromptSeenKey) ?? false;
+  }
+
+  @override
+  Future<void> setAutofillPromptSeen(bool seen) async {
+    await sharedPreferences.setBool(autofillPromptSeenKey, seen);
   }
 }

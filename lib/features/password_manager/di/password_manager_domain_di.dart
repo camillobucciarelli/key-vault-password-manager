@@ -7,7 +7,6 @@ import '../domain/usecases/get_drive_connection_status_usecase.dart';
 import '../domain/usecases/get_selected_database_path_usecase.dart';
 import '../domain/usecases/get_selected_key_file_path_usecase.dart';
 import '../domain/usecases/link_database_to_drive_usecase.dart';
-import '../domain/usecases/list_drive_remote_folders_usecase.dart';
 import '../domain/usecases/list_drive_remote_files_usecase.dart';
 import '../domain/usecases/save_selected_database_path_usecase.dart';
 import '../domain/usecases/save_selected_key_file_path_usecase.dart';
@@ -31,7 +30,6 @@ void registerPasswordManagerDomainDependencies(GetIt sl) {
   sl.registerLazySingleton(() => GetDriveConnectionStatusUseCase(sl()));
   sl.registerLazySingleton(() => LinkDatabaseToDriveUseCase(sl()));
   sl.registerLazySingleton(() => ListDriveRemoteFilesUseCase(sl()));
-  sl.registerLazySingleton(() => ListDriveRemoteFoldersUseCase(sl()));
   sl.registerLazySingleton(() => SyncDatabaseNowUseCase(sl()));
   sl.registerLazySingleton(() => SetDatabaseAutoSyncUseCase(sl()));
 }

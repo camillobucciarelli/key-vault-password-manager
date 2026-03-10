@@ -1,22 +1,40 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ThemeCubit extends Cubit<ThemeMode> {
-  ThemeCubit() : super(ThemeMode.system);
+  ThemeCubit(this._sharedPreferences)
+    : super(_loadInitialTheme(_sharedPreferences));
+
+  static const _themeModePreferenceKey = 'theme_mode';
+
+  final SharedPreferences _sharedPreferences;
+
+  static ThemeMode _loadInitialTheme(SharedPreferences sharedPreferences) {
+    final themeModeValue = sharedPreferences.getString(_themeModePreferenceKey);
+
+    return switch (themeModeValue) {
+      'light' => ThemeMode.light,
+      'dark' => ThemeMode.dark,
+      'system' => ThemeMode.system,
+      _ => ThemeMode.system,
+    };
+  }
 
   void toggleTheme() {
-    if (state == ThemeMode.light) {
-      emit(ThemeMode.dark);
-    } else if (state == ThemeMode.dark) {
-      emit(ThemeMode.light);
-    } else {
-      // If system, switch to light or dark based on a default (here we choose dark to toggle to light, or vice-versa)
-      // For simplicity, from system, let's go to light
-      emit(ThemeMode.light);
-    }
+    final nextTheme = switch (state) {
+      ThemeMode.light => ThemeMode.dark,
+      ThemeMode.dark => ThemeMode.light,
+      ThemeMode.system => ThemeMode.light,
+    };
+
+    setTheme(nextTheme);
   }
 
   void setTheme(ThemeMode mode) {
     emit(mode);
+    unawaited(_sharedPreferences.setString(_themeModePreferenceKey, mode.name));
   }
 }

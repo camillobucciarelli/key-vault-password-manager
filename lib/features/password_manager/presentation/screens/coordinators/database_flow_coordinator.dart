@@ -14,6 +14,9 @@ class DatabaseFlowCoordinator {
     DatabaseSelectionState state,
   ) {
     if (state is DatabaseSelectionSuccess) {
+      if (state.userMessage != null && state.userMessage!.isNotEmpty) {
+        _showSnackBar(context, state.userMessage!);
+      }
       AppNavigation.pushFadeReplacement(
         context,
         DatabaseUnlockScreen(databasePath: state.path),

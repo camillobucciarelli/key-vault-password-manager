@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 
 import '../../domain/models/database_sync_mapping.dart';
-import '../../domain/models/drive_remote_folder.dart';
 import '../../domain/models/drive_remote_file.dart';
 import '../../domain/models/sync_conflict.dart';
 import '../../domain/repositories/database_sync_repository.dart';
@@ -25,7 +24,6 @@ class DatabaseSyncOrchestrator {
     required String databasePath,
     String? remoteFileId,
     String? remoteFileName,
-    String? remoteFolderId,
   }) async {
     final dbFile = File(databasePath);
     if (!await dbFile.exists()) {
@@ -56,7 +54,6 @@ class DatabaseSyncOrchestrator {
       remote = await _googleDriveApiService.createFile(
         fileName: desiredName,
         bytes: bytes,
-        parentFolderId: remoteFolderId,
       );
 
       final checksum = md5.convert(bytes).toString();
@@ -202,16 +199,12 @@ class DatabaseSyncOrchestrator {
     return const SyncNowSuccess();
   }
 
-  Future<List<DriveRemoteFile>> listRemoteFiles() {
-    return _googleDriveApiService.listKdbxFilesInDrive();
+  Future<List<DriveRemoteFile>> listRemoteFiles({String? query}) {
+    return _googleDriveApiService.listKdbxFilesInDrive(query: query);
   }
 
   Future<Uint8List> downloadRemoteFile(String fileId) {
     return _googleDriveApiService.downloadFile(fileId);
-  }
-
-  Future<List<DriveRemoteFolder>> listRemoteFolders({String? query}) {
-    return _googleDriveApiService.listFoldersInDrive(query: query);
   }
 
   Future<void> setAutoSync(String databasePath, bool enabled) async {

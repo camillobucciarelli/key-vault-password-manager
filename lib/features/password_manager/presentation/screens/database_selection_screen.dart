@@ -1,12 +1,15 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:path/path.dart' as p;
 
 import '../../../../../core/theme/app_backgrounds.dart';
 import '../../../../../core/theme/app_icons.dart';
+import '../../../../../core/utils/mobile_file_storage.dart';
 import '../../../../../injection_container.dart' as di;
 import '../../domain/repositories/database_sync_repository.dart';
 import '../../domain/usecases/connect_google_account_usecase.dart';
@@ -17,7 +20,6 @@ import '../bloc/database_selection/database_selection_bloc.dart';
 import '../bloc/database_selection/database_selection_event.dart';
 import '../bloc/database_selection/database_selection_state.dart';
 import 'coordinators/database_flow_coordinator.dart';
-import '../widgets/android_autofill_action.dart';
 import '../widgets/create_database_dialog.dart';
 
 class DatabaseSelectionScreen extends StatelessWidget {
@@ -86,19 +88,24 @@ class DatabaseSelectionScreen extends StatelessWidget {
         return;
       }
 
-      var savePath = await FilePicker.platform.saveFile(
-        dialogTitle: 'Save a local copy of the Drive database',
-        fileName: selected.name,
-        type: FileType.custom,
-        allowedExtensions: ['kdbx'],
-      );
+      String? savePath;
+      if (_isMobilePlatform) {
+        savePath = selected.name;
+      } else {
+        savePath = await FilePicker.platform.saveFile(
+          dialogTitle: 'Save a local copy of the Drive database',
+          fileName: selected.name,
+          type: FileType.custom,
+          allowedExtensions: ['kdbx'],
+        );
 
-      if (savePath == null || savePath.trim().isEmpty) {
-        return;
-      }
+        if (savePath == null || savePath.trim().isEmpty) {
+          return;
+        }
 
-      if (!savePath.toLowerCase().endsWith('.kdbx')) {
-        savePath = '$savePath.kdbx';
+        if (!savePath.toLowerCase().endsWith('.kdbx')) {
+          savePath = '$savePath.kdbx';
+        }
       }
 
       if (!context.mounted) {
@@ -109,16 +116,34 @@ class DatabaseSelectionScreen extends StatelessWidget {
       final bytes = await di.sl<DatabaseSyncRepository>().downloadRemoteFile(
         selected.id,
       );
-      await File(savePath).writeAsBytes(bytes, flush: true);
+      final localPath = _isMobilePlatform
+          ? await MobileFileStorage.saveBytesToAppDirectory(
+              bytes: bytes,
+              fileName: p.basename(savePath),
+              subdirectory: 'databases',
+            )
+          : savePath;
+
+      if (!_isMobilePlatform) {
+        await File(localPath).writeAsBytes(bytes, flush: true);
+      }
       hideProgressIfNeeded();
 
       if (!context.mounted) {
         return;
       }
 
+      if (_isMobilePlatform) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Database salvato nella memoria interna dell\'app.'),
+          ),
+        );
+      }
+
       context.read<DatabaseSelectionBloc>().add(
         SelectDriveDatabaseLocalCopy(
-          localPath: savePath,
+          localPath: localPath,
           remoteFileId: selected.id,
         ),
       );
@@ -164,8 +189,12 @@ class DatabaseSelectionScreen extends StatelessWidget {
           builder: (context, setState) {
             return AlertDialog(
               title: const Text('Step 2/2: Select Drive database'),
+              insetPadding: _dialogInsetPadding(dialogContext),
+              contentPadding: _dialogContentPadding(dialogContext),
+              actionsOverflowDirection: VerticalDirection.down,
+              actionsOverflowButtonSpacing: 8,
               content: SizedBox(
-                width: 460,
+                width: _dialogContentWidth(dialogContext, 460),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -284,7 +313,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              actions: [
+              actions: _adaptiveDialogActions(dialogContext, [
                 TextButton(
                   onPressed: () => Navigator.of(dialogContext).pop(),
                   child: const Text('Cancel'),
@@ -298,7 +327,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
                   },
                   child: const Text('Continue'),
                 ),
-              ],
+              ]),
             );
           },
         );
@@ -316,16 +345,53 @@ class DatabaseSelectionScreen extends StatelessWidget {
     return '$year-$month-$day $hour:$minute';
   }
 
+  double _dialogContentWidth(BuildContext context, double preferredWidth) {
+    final viewport = MediaQuery.sizeOf(context).width;
+    final availableWidth = viewport - 56;
+    if (availableWidth < 280) {
+      return viewport - 24;
+    }
+    return availableWidth < preferredWidth ? availableWidth : preferredWidth;
+  }
+
+  bool _isVeryCompactDialogWidth(BuildContext context) {
+    return MediaQuery.sizeOf(context).width < 340;
+  }
+
+  EdgeInsets _dialogInsetPadding(BuildContext context) {
+    if (_isVeryCompactDialogWidth(context)) {
+      return const EdgeInsets.symmetric(horizontal: 12, vertical: 20);
+    }
+    return const EdgeInsets.symmetric(horizontal: 20, vertical: 24);
+  }
+
+  EdgeInsets _dialogContentPadding(BuildContext context) {
+    if (_isVeryCompactDialogWidth(context)) {
+      return const EdgeInsets.fromLTRB(12, 10, 12, 6);
+    }
+    return const EdgeInsets.fromLTRB(20, 18, 20, 12);
+  }
+
+  List<Widget> _adaptiveDialogActions(
+    BuildContext context,
+    List<Widget> actions,
+  ) {
+    if (MediaQuery.sizeOf(context).width >= 360) {
+      return actions;
+    }
+
+    return actions
+        .map((action) => SizedBox(width: double.infinity, child: action))
+        .toList(growable: false);
+  }
+
   @override
   Widget build(BuildContext context) {
     final topInset = MediaQuery.paddingOf(context).top + kToolbarHeight;
 
     return Scaffold(
       extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        title: const Text('Select Database'),
-        actions: const [AndroidAutofillAction()],
-      ),
+      appBar: AppBar(title: const Text('Select Database')),
       body: Container(
         decoration: BoxDecoration(gradient: AppBackgrounds.gradient(context)),
         child: BlocConsumer<DatabaseSelectionBloc, DatabaseSelectionState>(
@@ -369,19 +435,17 @@ class DatabaseSelectionScreen extends StatelessWidget {
                               ).colorScheme.onSurface.withValues(alpha: 0.55),
                             ),
                             const SizedBox(height: 24),
-                            const Text(
+                            Text(
                               'No database selected',
-                              style: TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                              ),
+                              style: Theme.of(context).textTheme.headlineSmall
+                                  ?.copyWith(fontWeight: FontWeight.w700),
                               textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 12),
-                            const Text(
+                            Text(
                               'Please select an existing KDBX database or create a new one to continue.',
                               textAlign: TextAlign.center,
-                              style: TextStyle(fontSize: 16),
+                              style: Theme.of(context).textTheme.bodyLarge,
                             ),
                             const SizedBox(height: 32),
                             FilledButton.icon(
@@ -393,7 +457,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
                               icon: const Icon(AppIcons.folderOpen),
                               label: const Text('Open Existing Database'),
                               style: FilledButton.styleFrom(
-                                minimumSize: const Size(double.infinity, 50),
+                                minimumSize: const Size(double.infinity, 48),
                               ),
                             ),
                             const SizedBox(height: 12),
@@ -421,7 +485,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
                               icon: const Icon(AppIcons.add),
                               label: const Text('Create New Database'),
                               style: OutlinedButton.styleFrom(
-                                minimumSize: const Size(double.infinity, 50),
+                                minimumSize: const Size(double.infinity, 48),
                               ),
                             ),
                             const SizedBox(height: 12),
@@ -432,7 +496,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
                               icon: const Icon(AppIcons.cloud),
                               label: const Text('Open from Google Drive'),
                               style: FilledButton.styleFrom(
-                                minimumSize: const Size(double.infinity, 50),
+                                minimumSize: const Size(double.infinity, 48),
                               ),
                             ),
                           ],
@@ -448,4 +512,17 @@ class DatabaseSelectionScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+bool get _isMobilePlatform {
+  if (kIsWeb) {
+    return false;
+  }
+  return switch (defaultTargetPlatform) {
+    TargetPlatform.android || TargetPlatform.iOS => true,
+    TargetPlatform.fuchsia ||
+    TargetPlatform.linux ||
+    TargetPlatform.macOS ||
+    TargetPlatform.windows => false,
+  };
 }

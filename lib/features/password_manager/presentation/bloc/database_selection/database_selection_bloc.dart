@@ -2,12 +2,15 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:kdbx/kdbx.dart';
 import 'package:loggy/loggy.dart';
+import 'package:path/path.dart' as p;
 
+import '../../../../../core/utils/mobile_file_storage.dart';
 import '../../../data/datasources/secure_data_source.dart';
 import '../../../domain/usecases/link_database_to_drive_usecase.dart';
 import '../../../domain/usecases/save_selected_key_file_path_usecase.dart';
@@ -48,30 +51,31 @@ class DatabaseSelectionBloc
     CheckInitialDatabase event,
     Emitter<DatabaseSelectionState> emit,
   ) async {
-    emit(DatabaseSelectionLoading());
+    _safeEmit(emit, DatabaseSelectionLoading());
     try {
       final path = await getSelectedDatabasePathUseCase();
       if (path != null && path.isNotEmpty) {
         // Also validate it still exists and is correct
         final isValid = await validateDatabaseUseCase(path);
         if (isValid) {
-          emit(DatabaseSelectionSuccess(path));
+          _safeEmit(emit, DatabaseSelectionSuccess(path));
         } else {
           // Path saved but invalid file (maybe deleted or corrupted)
-          emit(
+          _safeEmit(
+            emit,
             const DatabaseSelectionError(
               'Database file not found or corrupted.',
             ),
           );
-          emit(DatabaseSelectionUnselected());
+          _safeEmit(emit, DatabaseSelectionUnselected());
         }
       } else {
-        emit(DatabaseSelectionUnselected());
+        _safeEmit(emit, DatabaseSelectionUnselected());
       }
     } catch (e, st) {
       logError('Failed to check initial database selection state.', e, st);
-      emit(DatabaseSelectionError(e.toString()));
-      emit(DatabaseSelectionUnselected());
+      _safeEmit(emit, DatabaseSelectionError(e.toString()));
+      _safeEmit(emit, DatabaseSelectionUnselected());
     }
   }
 
@@ -83,16 +87,19 @@ class DatabaseSelectionBloc
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['kdbx'],
-        withData: kIsWeb,
+        withData: kIsWeb || _isMobilePlatform,
       );
 
       if (result != null) {
-        emit(DatabaseSelectionLoading());
+        _safeEmit(emit, DatabaseSelectionLoading());
 
-        final path = _resolveSelectedDatabasePath(result);
+        final path = await _resolveSelectedDatabasePath(result);
         if (path == null) {
-          emit(const DatabaseSelectionError('Could not resolve file path.'));
-          emit(DatabaseSelectionUnselected());
+          _safeEmit(
+            emit,
+            const DatabaseSelectionError('Could not resolve file path.'),
+          );
+          _safeEmit(emit, DatabaseSelectionUnselected());
           return;
         }
 
@@ -102,20 +109,29 @@ class DatabaseSelectionBloc
           await saveSelectedKeyFilePathUseCase(null);
           await secureDataSource.clearMasterPassword();
           await setBiometricProtectionEnabledUseCase(true);
-          emit(DatabaseSelectionSuccess(path));
+          _safeEmit(
+            emit,
+            DatabaseSelectionSuccess(
+              path,
+              userMessage: _isMobilePlatform
+                  ? 'Database importato nella memoria interna dell\'app per garantire accesso affidabile.'
+                  : null,
+            ),
+          );
         } else {
-          emit(
+          _safeEmit(
+            emit,
             const DatabaseSelectionError(
               'The selected file is not a valid KDBX file.',
             ),
           );
-          emit(DatabaseSelectionUnselected());
+          _safeEmit(emit, DatabaseSelectionUnselected());
         }
       }
     } catch (e, st) {
       logError('Failed while selecting an existing database file.', e, st);
-      emit(DatabaseSelectionError(e.toString()));
-      emit(DatabaseSelectionUnselected());
+      _safeEmit(emit, DatabaseSelectionError(e.toString()));
+      _safeEmit(emit, DatabaseSelectionUnselected());
     }
   }
 
@@ -127,7 +143,7 @@ class DatabaseSelectionBloc
       var outputFile = await _resolveOutputFilePath();
 
       if (outputFile != null) {
-        emit(DatabaseSelectionLoading());
+        _safeEmit(emit, DatabaseSelectionLoading());
 
         if (!outputFile.toLowerCase().endsWith('.kdbx')) {
           outputFile += '.kdbx';
@@ -139,7 +155,7 @@ class DatabaseSelectionBloc
             return;
           }
 
-          await _createDesktopDatabase(
+          outputFile = await _createDatabase(
             outputFile: outputFile,
             password: event.password,
             keyFilePath: selectedKeyFilePath,
@@ -147,12 +163,20 @@ class DatabaseSelectionBloc
         }
 
         await saveSelectedDatabasePathUseCase(outputFile);
-        emit(DatabaseSelectionSuccess(outputFile));
+        _safeEmit(
+          emit,
+          DatabaseSelectionSuccess(
+            outputFile,
+            userMessage: _isMobilePlatform
+                ? 'Nuovo database salvato nella memoria interna dell\'app.'
+                : null,
+          ),
+        );
       }
     } catch (e, st) {
       logError('Failed while creating a new database file.', e, st);
-      emit(DatabaseSelectionError(e.toString()));
-      emit(DatabaseSelectionUnselected());
+      _safeEmit(emit, DatabaseSelectionError(e.toString()));
+      _safeEmit(emit, DatabaseSelectionUnselected());
     }
   }
 
@@ -161,16 +185,17 @@ class DatabaseSelectionBloc
     Emitter<DatabaseSelectionState> emit,
   ) async {
     try {
-      emit(DatabaseSelectionLoading());
+      _safeEmit(emit, DatabaseSelectionLoading());
 
       final isValid = await validateDatabaseUseCase(event.localPath);
       if (!isValid) {
-        emit(
+        _safeEmit(
+          emit,
           const DatabaseSelectionError(
             'The downloaded Drive file is not a valid KDBX database.',
           ),
         );
-        emit(DatabaseSelectionUnselected());
+        _safeEmit(emit, DatabaseSelectionUnselected());
         return;
       }
 
@@ -186,18 +211,19 @@ class DatabaseSelectionBloc
         );
       } catch (e, st) {
         logWarning('Drive linking failed after download.', e, st);
-        emit(
+        _safeEmit(
+          emit,
           const DatabaseSelectionError(
             'Database opened, but auto-link to Drive failed. You can link it from the Vault sync menu.',
           ),
         );
       }
 
-      emit(DatabaseSelectionSuccess(event.localPath));
+      _safeEmit(emit, DatabaseSelectionSuccess(event.localPath));
     } catch (e, st) {
       logError('Failed while selecting database from Drive.', e, st);
-      emit(DatabaseSelectionError(e.toString()));
-      emit(DatabaseSelectionUnselected());
+      _safeEmit(emit, DatabaseSelectionError(e.toString()));
+      _safeEmit(emit, DatabaseSelectionUnselected());
     }
   }
 
@@ -208,16 +234,42 @@ class DatabaseSelectionBloc
     );
   }
 
-  String? _resolveSelectedDatabasePath(FilePickerResult result) {
+  Future<String?> _resolveSelectedDatabasePath(FilePickerResult result) async {
     if (kIsWeb) {
       return 'web_selected_db.kdbx';
     }
-    return result.files.single.path;
+
+    final selectedFile = result.files.single;
+    if (!_isMobilePlatform) {
+      return selectedFile.path;
+    }
+
+    final selectedPath = selectedFile.path;
+    if (selectedPath != null && selectedPath.isNotEmpty) {
+      return MobileFileStorage.copyFileToAppDirectory(
+        sourcePath: selectedPath,
+        fallbackFileName: selectedFile.name,
+        subdirectory: 'databases',
+      );
+    }
+
+    final selectedBytes = selectedFile.bytes;
+    if (selectedBytes == null) {
+      return null;
+    }
+    return MobileFileStorage.saveBytesToAppDirectory(
+      bytes: selectedBytes,
+      fileName: selectedFile.name,
+      subdirectory: 'databases',
+    );
   }
 
   Future<String?> _resolveOutputFilePath() async {
     if (kIsWeb) {
       return 'web_internal_db.kdbx';
+    }
+    if (_isMobilePlatform) {
+      return 'new_database.kdbx';
     }
     return FilePicker.platform.saveFile(
       dialogTitle: 'Please select an output file:',
@@ -232,18 +284,30 @@ class DatabaseSelectionBloc
     Emitter<DatabaseSelectionState> emit,
   ) async {
     if (event.generateKeyFile) {
+      final keyFileBytes = _generateRandomKeyFileBytes();
+      if (_isMobilePlatform) {
+        final fileName = event.generatedKeyFilePath == null
+            ? 'database.key'
+            : p.basename(event.generatedKeyFilePath!);
+        return MobileFileStorage.saveBytesToAppDirectory(
+          bytes: keyFileBytes,
+          fileName: fileName,
+          subdirectory: 'keys',
+        );
+      }
+
       final generatedPath = event.generatedKeyFilePath;
       if (generatedPath == null || generatedPath.trim().isEmpty) {
-        emit(
+        _safeEmit(
+          emit,
           const DatabaseSelectionError(
             'No destination selected for generated key file.',
           ),
         );
-        emit(DatabaseSelectionUnselected());
+        _safeEmit(emit, DatabaseSelectionUnselected());
         return null;
       }
 
-      final keyFileBytes = _generateRandomKeyFileBytes();
       await File(generatedPath).writeAsBytes(keyFileBytes);
       return generatedPath;
     }
@@ -252,10 +316,17 @@ class DatabaseSelectionBloc
     if (selectedPath == null || selectedPath.isEmpty) {
       return null;
     }
+    if (_isMobilePlatform) {
+      return MobileFileStorage.copyFileToAppDirectory(
+        sourcePath: selectedPath,
+        fallbackFileName: 'database.key',
+        subdirectory: 'keys',
+      );
+    }
     return selectedPath;
   }
 
-  Future<void> _createDesktopDatabase({
+  Future<String> _createDatabase({
     required String outputFile,
     required String password,
     required String? keyFilePath,
@@ -271,10 +342,45 @@ class DatabaseSelectionBloc
     );
 
     final kdbx = KdbxFormat().create(credentials, 'New Database');
-    await File(outputFile).writeAsBytes(await kdbx.save());
+    final savedBytes = await kdbx.save();
+    final finalOutputPath = _isMobilePlatform
+        ? await MobileFileStorage.saveBytesToAppDirectory(
+            bytes: savedBytes,
+            fileName: p.basename(outputFile),
+            subdirectory: 'databases',
+          )
+        : outputFile;
+
+    if (!_isMobilePlatform) {
+      await File(finalOutputPath).writeAsBytes(savedBytes);
+    }
 
     await saveSelectedKeyFilePathUseCase(keyFilePath);
     await setBiometricProtectionEnabledUseCase(true);
     await secureDataSource.saveMasterPassword(password);
+    return finalOutputPath;
+  }
+
+  bool get _isMobilePlatform {
+    if (kIsWeb) {
+      return false;
+    }
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.android || TargetPlatform.iOS => true,
+      TargetPlatform.fuchsia ||
+      TargetPlatform.linux ||
+      TargetPlatform.macOS ||
+      TargetPlatform.windows => false,
+    };
+  }
+
+  void _safeEmit(
+    Emitter<DatabaseSelectionState> emit,
+    DatabaseSelectionState nextState,
+  ) {
+    if (isClosed || emit.isDone) {
+      return;
+    }
+    emit(nextState);
   }
 }

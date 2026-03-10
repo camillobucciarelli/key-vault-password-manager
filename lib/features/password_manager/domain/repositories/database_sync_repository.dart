@@ -1,5 +1,4 @@
 import '../models/database_sync_mapping.dart';
-import '../models/drive_remote_folder.dart';
 import '../models/drive_remote_file.dart';
 import '../models/sync_conflict.dart';
 import 'dart:typed_data';
@@ -25,14 +24,12 @@ abstract class DatabaseSyncRepository {
 
   Future<DatabaseSyncMapping?> getMapping(String databasePath);
   Future<void> setAutoSync(String databasePath, bool enabled);
-  Future<List<DriveRemoteFile>> listRemoteFiles();
+  Future<List<DriveRemoteFile>> listRemoteFiles({String? query});
   Future<Uint8List> downloadRemoteFile(String fileId);
-  Future<List<DriveRemoteFolder>> listRemoteFolders({String? query});
   Future<DatabaseSyncMapping> linkDatabaseToDrive({
     required String databasePath,
     String? remoteFileId,
     String? remoteFileName,
-    String? remoteFolderId,
   });
 
   Future<SyncNowResult> syncNow(

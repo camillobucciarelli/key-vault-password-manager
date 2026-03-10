@@ -40,7 +40,6 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       disconnectGoogleAccountUseCase: sl(),
       linkDatabaseToDriveUseCase: sl(),
       listDriveRemoteFilesUseCase: sl(),
-      listDriveRemoteFoldersUseCase: sl(),
       syncDatabaseNowUseCase: sl(),
       setDatabaseAutoSyncUseCase: sl(),
       databaseSyncRepository: sl(),

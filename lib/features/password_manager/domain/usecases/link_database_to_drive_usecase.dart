@@ -10,13 +10,11 @@ class LinkDatabaseToDriveUseCase {
     required String databasePath,
     String? remoteFileId,
     String? remoteFileName,
-    String? remoteFolderId,
   }) {
     return _repository.linkDatabaseToDrive(
       databasePath: databasePath,
       remoteFileId: remoteFileId,
       remoteFileName: remoteFileName,
-      remoteFolderId: remoteFolderId,
     );
   }
 }

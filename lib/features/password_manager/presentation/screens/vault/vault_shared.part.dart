@@ -1,20 +1,14 @@
 part of '../vault_screen.dart';
 
-String? _validateCustomFieldsText(String text) {
+String? _validateCustomFieldRows(List<_CustomFieldFormRow> rows) {
   final seen = <String>{};
-  final lines = text.split('\n');
-  for (final rawLine in lines) {
-    final line = rawLine.trim();
-    if (line.isEmpty) {
+  for (final row in rows) {
+    final key = row.key.trim();
+    final value = row.value.trim();
+    if (key.isEmpty && value.isEmpty) {
       continue;
     }
 
-    final separatorIndex = line.indexOf('=');
-    if (separatorIndex <= 0) {
-      return 'Invalid custom field format. Use key=value.';
-    }
-
-    final key = line.substring(0, separatorIndex).trim();
     if (key.isEmpty) {
       return 'Custom field key cannot be empty.';
     }
@@ -52,42 +46,22 @@ bool _isOtpFieldKey(String key) {
 }
 
 List<VaultCustomField> _buildCustomFields({
-  required String customFieldsText,
+  required List<_CustomFieldFormRow> customFieldRows,
   required String otpUri,
 }) {
-  final fields = _parseCustomFields(
-    customFieldsText,
-  ).where((field) => !_isOtpFieldKey(field.key)).toList(growable: true);
+  final fields = customFieldRows
+      .map(
+        (row) => VaultCustomField(key: row.key.trim(), value: row.value.trim()),
+      )
+      .where((field) => field.key.isNotEmpty)
+      .where((field) => !_isOtpFieldKey(field.key))
+      .toList(growable: true);
 
   final trimmedOtpUri = otpUri.trim();
   if (trimmedOtpUri.isNotEmpty) {
     fields.add(VaultCustomField(key: 'otp', value: trimmedOtpUri));
   }
 
-  return fields;
-}
-
-List<VaultCustomField> _parseCustomFields(String text) {
-  final fields = <VaultCustomField>[];
-  final lines = text.split('\n');
-  for (final rawLine in lines) {
-    final line = rawLine.trim();
-    if (line.isEmpty) {
-      continue;
-    }
-
-    final separatorIndex = line.indexOf('=');
-    if (separatorIndex <= 0) {
-      continue;
-    }
-
-    final key = line.substring(0, separatorIndex).trim();
-    final value = line.substring(separatorIndex + 1).trim();
-    if (key.isEmpty) {
-      continue;
-    }
-    fields.add(VaultCustomField(key: key, value: value));
-  }
   return fields;
 }
 
@@ -104,6 +78,38 @@ double _dialogContentHeight(BuildContext context, double preferredHeight) {
   final viewport = MediaQuery.sizeOf(context).height;
   final availableHeight = viewport - 140;
   return math.min(preferredHeight, availableHeight);
+}
+
+bool _isVeryCompactDialogWidth(BuildContext context) {
+  return MediaQuery.sizeOf(context).width < 340;
+}
+
+EdgeInsets _dialogInsetPadding(BuildContext context) {
+  if (_isVeryCompactDialogWidth(context)) {
+    return const EdgeInsets.symmetric(horizontal: 12, vertical: 20);
+  }
+  return const EdgeInsets.symmetric(horizontal: 20, vertical: 24);
+}
+
+EdgeInsets _dialogContentPadding(BuildContext context) {
+  if (_isVeryCompactDialogWidth(context)) {
+    return const EdgeInsets.fromLTRB(12, 10, 12, 6);
+  }
+  return const EdgeInsets.fromLTRB(20, 18, 20, 12);
+}
+
+List<Widget> _adaptiveDialogActions(
+  BuildContext context,
+  List<Widget> actions,
+) {
+  final width = MediaQuery.sizeOf(context).width;
+  if (width >= 360) {
+    return actions;
+  }
+
+  return actions
+      .map((action) => SizedBox(width: double.infinity, child: action))
+      .toList(growable: false);
 }
 
 String _formatBytes(int bytes) {
@@ -154,12 +160,19 @@ void _showSyncSnackBar(
     DatabaseSyncStatus.disconnected =>
       theme.colorScheme.surfaceContainerHighest,
   };
+  final useLightForeground =
+      ThemeData.estimateBrightnessForColor(background) == Brightness.dark;
 
   final foreground = switch (status) {
     DatabaseSyncStatus.error => theme.colorScheme.onError,
+    DatabaseSyncStatus.syncing =>
+      useLightForeground ? Colors.white : Colors.black87,
+    DatabaseSyncStatus.success =>
+      useLightForeground ? Colors.white : Colors.black87,
+    DatabaseSyncStatus.conflict =>
+      useLightForeground ? Colors.white : Colors.black87,
     DatabaseSyncStatus.idle => theme.colorScheme.onSurface,
     DatabaseSyncStatus.disconnected => theme.colorScheme.onSurface,
-    _ => Colors.white,
   };
 
   messenger
@@ -184,7 +197,6 @@ Future<void> _startDriveLinkFlow(BuildContext context) async {
   }
 
   bloc.add(const LoadDriveRemoteFiles());
-  bloc.add(const LoadDriveRemoteFolders());
   final choice = await _showLinkDatabaseDialog(context);
   if (choice == null || !context.mounted) {
     return;
@@ -194,7 +206,6 @@ Future<void> _startDriveLinkFlow(BuildContext context) async {
     LinkCurrentDatabaseToDrive(
       remoteFileId: choice.remoteFileId,
       remoteFileName: choice.remoteFileName,
-      remoteFolderId: choice.remoteFolderId,
     ),
   );
 }
