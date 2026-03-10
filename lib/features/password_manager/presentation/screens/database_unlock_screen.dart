@@ -1,9 +1,13 @@
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:path/path.dart' as p;
 
 import '../../../../../core/theme/app_backgrounds.dart';
 import '../../../../../core/theme/app_icons.dart';
+import '../../../../../core/utils/mobile_file_storage.dart';
 import '../../../../../injection_container.dart' as di;
 import '../bloc/database_unlock/database_unlock_bloc.dart';
 import '../bloc/database_unlock/database_unlock_event.dart';
@@ -46,13 +50,48 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
   }
 
   Future<void> _pickKeyFile() async {
-    final result = await FilePicker.platform.pickFiles();
-    if (!mounted || result == null || result.files.single.path == null) {
+    final result = await FilePicker.platform.pickFiles(
+      withData: _isMobilePlatform,
+    );
+    if (!mounted || result == null) {
       return;
     }
-    context.read<DatabaseUnlockBloc>().add(
-      UpdateKeyFilePath(result.files.single.path),
-    );
+
+    final selected = result.files.single;
+    String? path = selected.path;
+    if (_isMobilePlatform) {
+      if (path != null && path.isNotEmpty) {
+        path = await MobileFileStorage.copyFileToAppDirectory(
+          sourcePath: path,
+          fallbackFileName: selected.name,
+          subdirectory: 'keys',
+        );
+      } else if (selected.bytes != null) {
+        path = await MobileFileStorage.saveBytesToAppDirectory(
+          bytes: selected.bytes!,
+          fileName: selected.name,
+          subdirectory: 'keys',
+        );
+      }
+    }
+
+    if (path == null || path.isEmpty) {
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    context.read<DatabaseUnlockBloc>().add(UpdateKeyFilePath(path));
+
+    if (_isMobilePlatform) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Key file importato nella memoria interna dell\'app.'),
+        ),
+      );
+    }
   }
 
   @override
@@ -78,9 +117,9 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
 
             return Center(
               child: SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(24, topInset + 24, 24, 24),
+                padding: EdgeInsets.fromLTRB(32, topInset + 24, 32, 32),
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 500),
+                  constraints: const BoxConstraints(maxWidth: 560),
                   child: TweenAnimationBuilder<double>(
                     duration: MediaQuery.of(context).disableAnimations
                         ? Duration.zero
@@ -169,24 +208,54 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
                                     const SizedBox(width: 10),
                                     Expanded(
                                       child: Text(
-                                        state.keyFilePath!,
+                                        _isMobilePlatform
+                                            ? p.basename(state.keyFilePath!)
+                                            : state.keyFilePath!,
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
-                                    IconButton(
-                                      tooltip: 'Change key file',
-                                      onPressed: _pickKeyFile,
-                                      icon: const Icon(AppIcons.edit),
-                                    ),
-                                    IconButton(
-                                      tooltip: 'Remove key file',
-                                      onPressed: () {
-                                        context.read<DatabaseUnlockBloc>().add(
-                                          const UpdateKeyFilePath(null),
-                                        );
-                                      },
-                                      icon: const Icon(AppIcons.close),
-                                    ),
+                                    if (_isMobilePlatform)
+                                      Wrap(
+                                        spacing: 2,
+                                        children: [
+                                          IconButton(
+                                            tooltip: 'Change key file',
+                                            onPressed: _pickKeyFile,
+                                            icon: const Icon(AppIcons.edit),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Remove key file',
+                                            onPressed: () {
+                                              context
+                                                  .read<DatabaseUnlockBloc>()
+                                                  .add(
+                                                    const UpdateKeyFilePath(
+                                                      null,
+                                                    ),
+                                                  );
+                                            },
+                                            icon: const Icon(AppIcons.close),
+                                          ),
+                                        ],
+                                      )
+                                    else ...[
+                                      IconButton(
+                                        tooltip: 'Change key file',
+                                        onPressed: _pickKeyFile,
+                                        icon: const Icon(AppIcons.edit),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Remove key file',
+                                        onPressed: () {
+                                          context
+                                              .read<DatabaseUnlockBloc>()
+                                              .add(
+                                                const UpdateKeyFilePath(null),
+                                              );
+                                        },
+                                        icon: const Icon(AppIcons.close),
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),
@@ -215,4 +284,17 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
       ),
     );
   }
+}
+
+bool get _isMobilePlatform {
+  if (kIsWeb) {
+    return false;
+  }
+  return switch (defaultTargetPlatform) {
+    TargetPlatform.android || TargetPlatform.iOS => true,
+    TargetPlatform.fuchsia ||
+    TargetPlatform.linux ||
+    TargetPlatform.macOS ||
+    TargetPlatform.windows => false,
+  };
 }

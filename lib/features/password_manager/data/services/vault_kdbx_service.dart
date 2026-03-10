@@ -68,11 +68,20 @@ class VaultKdbxService {
         .map((entry) => _mapEntry(resolvedCurrentGroup.uuid.uuid, entry))
         .toList(growable: false);
 
+    final allEntryModels = rootGroup
+        .getAllEntries()
+        .map(
+          (entry) =>
+              _mapEntry(entry.parent?.uuid.uuid ?? rootGroup.uuid.uuid, entry),
+        )
+        .toList(growable: false);
+
     return VaultSnapshot(
       rootGroupId: rootGroup.uuid.uuid,
       currentGroupId: resolvedCurrentGroup.uuid.uuid,
       groups: groupModels,
       entries: entryModels,
+      allEntries: allEntryModels,
     );
   }
 

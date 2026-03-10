@@ -6,7 +6,7 @@ class ListDriveRemoteFilesUseCase {
 
   final DatabaseSyncRepository _repository;
 
-  Future<List<DriveRemoteFile>> call() {
-    return _repository.listRemoteFiles();
+  Future<List<DriveRemoteFile>> call({String? query}) {
+    return _repository.listRemoteFiles(query: query);
   }
 }

@@ -13,10 +13,10 @@ import '../../../domain/usecases/connect_google_account_usecase.dart';
 import '../../../domain/usecases/disconnect_google_account_usecase.dart';
 import '../../../domain/usecases/get_drive_connection_status_usecase.dart';
 import '../../../domain/models/vault_entry.dart';
+import '../../../domain/models/vault_group.dart';
 import '../../../domain/models/vault_snapshot.dart';
 import '../../../domain/usecases/get_selected_key_file_path_usecase.dart';
 import '../../../domain/usecases/link_database_to_drive_usecase.dart';
-import '../../../domain/usecases/list_drive_remote_folders_usecase.dart';
 import '../../../domain/usecases/list_drive_remote_files_usecase.dart';
 import '../../../domain/usecases/set_database_auto_sync_usecase.dart';
 import '../../../domain/usecases/sync_database_now_usecase.dart';
@@ -34,7 +34,6 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     required this.disconnectGoogleAccountUseCase,
     required this.linkDatabaseToDriveUseCase,
     required this.listDriveRemoteFilesUseCase,
-    required this.listDriveRemoteFoldersUseCase,
     required this.syncDatabaseNowUseCase,
     required this.setDatabaseAutoSyncUseCase,
     required this.databaseSyncRepository,
@@ -53,6 +52,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<LoadRecycleBinEntries>(_onLoadRecycleBinEntries);
     on<OpenGroup>(_onOpenGroup);
     on<OpenParentGroup>(_onOpenParentGroup);
+    on<ToggleVaultGroupExpanded>(_onToggleVaultGroupExpanded);
     on<CreateVaultEntry>(_onCreateVaultEntry);
     on<UpdateVaultEntry>(_onUpdateVaultEntry);
     on<DeleteVaultEntry>(_onDeleteVaultEntry);
@@ -79,9 +79,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<SyncCurrentDatabaseNow>(_onSyncCurrentDatabaseNow);
     on<ToggleCurrentDatabaseAutoSync>(_onToggleCurrentDatabaseAutoSync);
     on<ClearVaultSyncFeedback>(_onClearVaultSyncFeedback);
-    on<LoadDriveRemoteFiles>(_onLoadDriveRemoteFiles);
-    on<LoadDriveRemoteFolders>(
-      _onLoadDriveRemoteFolders,
+    on<LoadDriveRemoteFiles>(
+      _onLoadDriveRemoteFiles,
       transformer: (events, mapper) => events
           .debounce(const Duration(milliseconds: 300))
           .distinct(
@@ -99,7 +98,6 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   final DisconnectGoogleAccountUseCase disconnectGoogleAccountUseCase;
   final LinkDatabaseToDriveUseCase linkDatabaseToDriveUseCase;
   final ListDriveRemoteFilesUseCase listDriveRemoteFilesUseCase;
-  final ListDriveRemoteFoldersUseCase listDriveRemoteFoldersUseCase;
   final SyncDatabaseNowUseCase syncDatabaseNowUseCase;
   final SetDatabaseAutoSyncUseCase setDatabaseAutoSyncUseCase;
   final DatabaseSyncRepository databaseSyncRepository;
@@ -113,7 +111,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     InitializeVault event,
     Emitter<VaultState> emit,
   ) async {
-    emit(state.copyWith(isLoading: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
     try {
       _password = await secureDataSource.getMasterPassword() ?? '';
       _keyFilePath = await getSelectedKeyFilePathUseCase();
@@ -125,7 +123,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
     } catch (e, st) {
       logError('Failed to initialize vault.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isLoading: false,
           errorMessage: 'Unable to load vault credentials.',
@@ -138,7 +137,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     RefreshVault event,
     Emitter<VaultState> emit,
   ) async {
-    emit(state.copyWith(isLoading: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
     await _reload(
       emit,
       currentGroupId: state.currentGroupId,
@@ -151,7 +150,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     OpenRecycleBin event,
     Emitter<VaultState> emit,
   ) async {
-    emit(state.copyWith(isLoading: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
     try {
       if (!state.isRecycleBinView) {
         _lastRegularGroupId = state.currentGroupId ?? state.rootGroupId;
@@ -164,7 +163,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       );
 
       if (recycleBinGroupId == null) {
-        emit(
+        _safeEmit(
+          emit,
           state.copyWith(
             isLoading: false,
             errorMessage: 'Recycle bin is empty and not created yet.',
@@ -178,10 +178,11 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         currentGroupId: recycleBinGroupId,
         keepLoadingFlag: false,
       );
-      emit(state.copyWith(isRecycleBinView: true, clearError: true));
+      _safeEmit(emit, state.copyWith(isRecycleBinView: true, clearError: true));
     } catch (e, st) {
       logError('Failed opening recycle bin.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isLoading: false,
           errorMessage: 'Unable to open recycle bin.',
@@ -195,11 +196,12 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     Emitter<VaultState> emit,
   ) {
     final query = event.query;
-    emit(
+    _safeEmit(
+      emit,
       state.copyWith(
         searchQuery: query,
         visibleEntries: _computeVisibleEntries(
-          entries: state.entries,
+          entries: state.allEntries,
           searchQuery: query,
           sortBy: state.sortBy,
         ),
@@ -211,11 +213,12 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     ClearVaultSearchQuery event,
     Emitter<VaultState> emit,
   ) {
-    emit(
+    _safeEmit(
+      emit,
       state.copyWith(
         searchQuery: '',
         visibleEntries: _computeVisibleEntries(
-          entries: state.entries,
+          entries: state.allEntries,
           searchQuery: '',
           sortBy: state.sortBy,
         ),
@@ -224,11 +227,12 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   }
 
   void _onSetVaultSort(SetVaultSort event, Emitter<VaultState> emit) {
-    emit(
+    _safeEmit(
+      emit,
       state.copyWith(
         sortBy: event.sortBy,
         visibleEntries: _computeVisibleEntries(
-          entries: state.entries,
+          entries: state.allEntries,
           searchQuery: state.searchQuery,
           sortBy: event.sortBy,
         ),
@@ -248,13 +252,13 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     Emitter<VaultState> emit,
   ) async {
     final fallback = _lastRegularGroupId ?? state.rootGroupId;
-    emit(state.copyWith(isLoading: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
     await _reload(emit, currentGroupId: fallback, keepLoadingFlag: false);
-    emit(state.copyWith(isRecycleBinView: false, clearError: true));
+    _safeEmit(emit, state.copyWith(isRecycleBinView: false, clearError: true));
   }
 
   Future<void> _onOpenGroup(OpenGroup event, Emitter<VaultState> emit) async {
-    emit(state.copyWith(isLoading: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
     await _reload(emit, currentGroupId: event.groupId);
   }
 
@@ -267,8 +271,28 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       return;
     }
 
-    emit(state.copyWith(isLoading: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
     await _reload(emit, currentGroupId: current!.parentId);
+  }
+
+  void _onToggleVaultGroupExpanded(
+    ToggleVaultGroupExpanded event,
+    Emitter<VaultState> emit,
+  ) {
+    final existingIds = state.groups.map((group) => group.id).toSet();
+    if (!existingIds.contains(event.groupId)) {
+      return;
+    }
+
+    final expanded = state.expandedGroupIds.toSet();
+    if (!expanded.add(event.groupId)) {
+      expanded.remove(event.groupId);
+    }
+
+    _safeEmit(
+      emit,
+      state.copyWith(expandedGroupIds: expanded.toList()..sort()),
+    );
   }
 
   Future<void> _onCreateVaultEntry(
@@ -280,7 +304,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       return;
     }
 
-    emit(state.copyWith(isSaving: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
     try {
       await vaultKdbxService.createEntry(
         databasePath: state.databasePath,
@@ -302,7 +326,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed creating vault entry.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isSaving: false,
           errorMessage: 'Unable to create entry.',
@@ -315,7 +340,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     UpdateVaultEntry event,
     Emitter<VaultState> emit,
   ) async {
-    emit(state.copyWith(isSaving: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
     try {
       await vaultKdbxService.updateEntry(
         databasePath: state.databasePath,
@@ -338,7 +363,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed updating vault entry.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isSaving: false,
           errorMessage: 'Unable to update entry.',
@@ -351,7 +377,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     DeleteVaultEntry event,
     Emitter<VaultState> emit,
   ) async {
-    emit(state.copyWith(isSaving: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
     try {
       await vaultKdbxService.deleteEntry(
         databasePath: state.databasePath,
@@ -368,7 +394,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed deleting vault entry.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isSaving: false,
           errorMessage: 'Unable to delete entry.',
@@ -381,7 +408,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     MoveVaultEntry event,
     Emitter<VaultState> emit,
   ) async {
-    emit(state.copyWith(isSaving: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
     try {
       await vaultKdbxService.moveEntry(
         databasePath: state.databasePath,
@@ -398,7 +425,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed moving vault entry.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(isSaving: false, errorMessage: 'Unable to move entry.'),
       );
     }
@@ -413,7 +441,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       return;
     }
 
-    emit(state.copyWith(isSaving: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
     try {
       await vaultKdbxService.createGroup(
         databasePath: state.databasePath,
@@ -430,7 +458,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed creating vault group.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isSaving: false,
           errorMessage: 'Unable to create group.',
@@ -443,7 +472,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     RenameVaultGroup event,
     Emitter<VaultState> emit,
   ) async {
-    emit(state.copyWith(isSaving: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
     try {
       await vaultKdbxService.renameGroup(
         databasePath: state.databasePath,
@@ -460,7 +489,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed renaming vault group.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isSaving: false,
           errorMessage: 'Unable to rename group.',
@@ -473,7 +503,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     DeleteVaultGroup event,
     Emitter<VaultState> emit,
   ) async {
-    emit(state.copyWith(isSaving: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
     try {
       final deletedGroup = state.groups
           .where((group) => group.id == event.groupId)
@@ -487,7 +517,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       );
 
       if (!isGroupEmpty) {
-        emit(
+        _safeEmit(
+          emit,
           state.copyWith(
             isSaving: false,
             errorMessage: 'Unable to delete: folder is not empty.',
@@ -516,7 +547,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed deleting vault group.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isSaving: false,
           errorMessage: 'Unable to delete group.',
@@ -529,7 +561,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     MoveVaultGroup event,
     Emitter<VaultState> emit,
   ) async {
-    emit(state.copyWith(isSaving: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
     try {
       await vaultKdbxService.moveGroup(
         databasePath: state.databasePath,
@@ -547,7 +579,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed moving vault group.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(isSaving: false, errorMessage: 'Unable to move group.'),
       );
     }
@@ -557,7 +590,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     RestoreVaultEntry event,
     Emitter<VaultState> emit,
   ) async {
-    emit(state.copyWith(isSaving: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
     try {
       await vaultKdbxService.restoreEntryFromRecycleBin(
         databasePath: state.databasePath,
@@ -574,7 +607,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed restoring vault entry from recycle bin.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isSaving: false,
           errorMessage: 'Unable to restore record.',
@@ -587,7 +621,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     RestoreVaultGroup event,
     Emitter<VaultState> emit,
   ) async {
-    emit(state.copyWith(isSaving: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
     try {
       await vaultKdbxService.restoreGroupFromRecycleBin(
         databasePath: state.databasePath,
@@ -604,7 +638,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed restoring vault group from recycle bin.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isSaving: false,
           errorMessage: 'Unable to restore folder.',
@@ -617,7 +652,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     DeleteVaultEntryPermanently event,
     Emitter<VaultState> emit,
   ) async {
-    emit(state.copyWith(isSaving: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
     try {
       await vaultKdbxService.deleteEntryPermanently(
         databasePath: state.databasePath,
@@ -634,7 +669,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed permanently deleting vault entry.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isSaving: false,
           errorMessage: 'Unable to permanently delete record.',
@@ -647,7 +683,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     DeleteVaultGroupPermanently event,
     Emitter<VaultState> emit,
   ) async {
-    emit(state.copyWith(isSaving: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
     try {
       await vaultKdbxService.deleteGroupPermanently(
         databasePath: state.databasePath,
@@ -664,7 +700,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed permanently deleting vault group.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isSaving: false,
           errorMessage: 'Unable to permanently delete folder.',
@@ -677,7 +714,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     EmptyRecycleBin event,
     Emitter<VaultState> emit,
   ) async {
-    emit(state.copyWith(isSaving: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
     try {
       await vaultKdbxService.emptyRecycleBin(
         databasePath: state.databasePath,
@@ -693,7 +730,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed emptying recycle bin.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isSaving: false,
           errorMessage: 'Unable to empty recycle bin.',
@@ -715,7 +753,15 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         currentGroupId: currentGroupId ?? state.currentGroupId,
       );
 
-      emit(
+      final normalizedExpanded = _normalizeExpandedGroupIds(
+        groups: snapshot.groups,
+        rootGroupId: snapshot.rootGroupId,
+        currentGroupId: snapshot.currentGroupId,
+        previousExpanded: state.expandedGroupIds,
+      );
+
+      _safeEmit(
+        emit,
         state.copyWith(
           isLoading: false,
           isSaving: false,
@@ -723,18 +769,21 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           currentGroupId: snapshot.currentGroupId,
           groups: snapshot.groups,
           entries: snapshot.entries,
+          allEntries: snapshot.allEntries,
           visibleEntries: _computeVisibleEntries(
-            entries: snapshot.entries,
+            entries: snapshot.allEntries,
             searchQuery: state.searchQuery,
             sortBy: state.sortBy,
           ),
+          expandedGroupIds: normalizedExpanded,
           clearError: true,
           clearInfo: true,
         ),
       );
     } catch (e, st) {
       logError('Failed loading vault data.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isLoading: false,
           isSaving: false,
@@ -744,7 +793,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     }
 
     if (!keepLoadingFlag && state.isLoading) {
-      emit(state.copyWith(isLoading: false));
+      _safeEmit(emit, state.copyWith(isLoading: false));
     }
   }
 
@@ -753,7 +802,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     bool isInitialLoad = false,
   }) async {
     if (!isInitialLoad) {
-      emit(state.copyWith(isRecycleBinLoading: true, clearError: true));
+      _safeEmit(
+        emit,
+        state.copyWith(isRecycleBinLoading: true, clearError: true),
+      );
     }
 
     try {
@@ -762,7 +814,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         password: _password,
         keyFilePath: _keyFilePath,
       );
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           recycleBinEntries: recycleBinEntries,
           isRecycleBinLoading: false,
@@ -771,7 +824,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       );
     } catch (e, st) {
       logError('Failed loading recycle bin entries.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isRecycleBinLoading: false,
           errorMessage: 'Unable to load recycle bin.',
@@ -781,14 +835,17 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   }
 
   void _onClearVaultError(ClearVaultError event, Emitter<VaultState> emit) {
-    emit(state.copyWith(clearError: true));
+    _safeEmit(emit, state.copyWith(clearError: true));
   }
 
   Future<void> _onAddVaultAttachment(
     AddVaultAttachment event,
     Emitter<VaultState> emit,
   ) async {
-    emit(state.copyWith(isSaving: true, clearError: true, clearInfo: true));
+    _safeEmit(
+      emit,
+      state.copyWith(isSaving: true, clearError: true, clearInfo: true),
+    );
     try {
       await vaultKdbxService.addAttachment(
         databasePath: state.databasePath,
@@ -802,11 +859,12 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         currentGroupId: state.currentGroupId,
         keepLoadingFlag: false,
       );
-      emit(state.copyWith(infoMessage: 'Attachment added.'));
+      _safeEmit(emit, state.copyWith(infoMessage: 'Attachment added.'));
       await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed adding attachment.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isSaving: false,
           errorMessage: 'Unable to add attachment. $e',
@@ -819,7 +877,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     RemoveVaultAttachment event,
     Emitter<VaultState> emit,
   ) async {
-    emit(state.copyWith(isSaving: true, clearError: true, clearInfo: true));
+    _safeEmit(
+      emit,
+      state.copyWith(isSaving: true, clearError: true, clearInfo: true),
+    );
     try {
       await vaultKdbxService.removeAttachment(
         databasePath: state.databasePath,
@@ -833,11 +894,12 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         currentGroupId: state.currentGroupId,
         keepLoadingFlag: false,
       );
-      emit(state.copyWith(infoMessage: 'Attachment removed.'));
+      _safeEmit(emit, state.copyWith(infoMessage: 'Attachment removed.'));
       await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed removing attachment.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isSaving: false,
           errorMessage: 'Unable to remove attachment.',
@@ -850,7 +912,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     ExportVaultAttachment event,
     Emitter<VaultState> emit,
   ) async {
-    emit(state.copyWith(isSaving: true, clearError: true, clearInfo: true));
+    _safeEmit(
+      emit,
+      state.copyWith(isSaving: true, clearError: true, clearInfo: true),
+    );
     try {
       final exportedPath = await vaultKdbxService.exportAttachment(
         databasePath: state.databasePath,
@@ -861,7 +926,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         destinationDirectory: event.destinationDirectory,
       );
 
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isSaving: false,
           infoMessage: 'Attachment exported: $exportedPath',
@@ -869,7 +935,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       );
     } catch (e, st) {
       logError('Failed exporting attachment.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isSaving: false,
           errorMessage: 'Unable to export attachment.',
@@ -879,14 +946,15 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   }
 
   void _onClearVaultInfo(ClearVaultInfo event, Emitter<VaultState> emit) {
-    emit(state.copyWith(clearInfo: true));
+    _safeEmit(emit, state.copyWith(clearInfo: true));
   }
 
   Future<void> _onConnectGoogleDrive(
     ConnectGoogleDrive event,
     Emitter<VaultState> emit,
   ) async {
-    emit(
+    _safeEmit(
+      emit,
       state.copyWith(
         syncStatus: DatabaseSyncStatus.syncing,
         clearSyncError: true,
@@ -895,7 +963,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     try {
       await connectGoogleAccountUseCase();
       await _refreshSyncState(emit);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           syncStatus: DatabaseSyncStatus.success,
           infoMessage: 'Google Drive connected.',
@@ -903,7 +972,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       );
     } catch (e, st) {
       logError('Google Drive connect failed.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           syncStatus: DatabaseSyncStatus.error,
           syncError: 'Unable to connect Google Drive.',
@@ -916,10 +986,11 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     DisconnectGoogleDrive event,
     Emitter<VaultState> emit,
   ) async {
-    emit(state.copyWith(syncStatus: DatabaseSyncStatus.syncing));
+    _safeEmit(emit, state.copyWith(syncStatus: DatabaseSyncStatus.syncing));
     try {
       await disconnectGoogleAccountUseCase();
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isDriveConnected: false,
           isDriveLinked: false,
@@ -932,7 +1003,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       );
     } catch (e, st) {
       logError('Google Drive disconnect failed.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           syncStatus: DatabaseSyncStatus.error,
           syncError: 'Unable to disconnect Google Drive.',
@@ -946,7 +1018,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     Emitter<VaultState> emit,
   ) async {
     if (!state.isDriveConnected) {
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           syncStatus: DatabaseSyncStatus.error,
           syncError: 'Connect Google Drive first.',
@@ -955,7 +1028,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       return;
     }
 
-    emit(
+    _safeEmit(
+      emit,
       state.copyWith(
         syncStatus: DatabaseSyncStatus.syncing,
         clearSyncError: true,
@@ -966,9 +1040,9 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         databasePath: state.databasePath,
         remoteFileId: event.remoteFileId,
         remoteFileName: event.remoteFileName,
-        remoteFolderId: event.remoteFolderId,
       );
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isDriveLinked: true,
           linkedDriveFileName: mapping.driveFileName,
@@ -980,7 +1054,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       );
     } catch (e, st) {
       logError('Link database to Drive failed.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           syncStatus: DatabaseSyncStatus.error,
           syncError: 'Unable to link current database.',
@@ -1007,7 +1082,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   ) async {
     try {
       await setDatabaseAutoSyncUseCase(state.databasePath, event.enabled);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           autoSyncEnabled: event.enabled,
           infoMessage: event.enabled
@@ -1017,7 +1093,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       );
     } catch (e, st) {
       logError('Toggle auto-sync failed.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           syncStatus: DatabaseSyncStatus.error,
           syncError: 'Unable to update auto-sync setting.',
@@ -1030,7 +1107,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     ClearVaultSyncFeedback event,
     Emitter<VaultState> emit,
   ) {
-    emit(state.copyWith(clearSyncError: true, clearSyncConflict: true));
+    _safeEmit(
+      emit,
+      state.copyWith(clearSyncError: true, clearSyncConflict: true),
+    );
   }
 
   Future<void> _onLoadDriveRemoteFiles(
@@ -1038,21 +1118,24 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     Emitter<VaultState> emit,
   ) async {
     if (!state.isDriveConnected) {
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           remoteDriveFiles: const [],
-          remoteDriveFolders: const [],
           isLoadingRemoteDriveFiles: false,
-          isLoadingRemoteDriveFolders: false,
         ),
       );
       return;
     }
 
-    emit(state.copyWith(isLoadingRemoteDriveFiles: true, clearSyncError: true));
+    _safeEmit(
+      emit,
+      state.copyWith(isLoadingRemoteDriveFiles: true, clearSyncError: true),
+    );
     try {
-      final files = await listDriveRemoteFilesUseCase();
-      emit(
+      final files = await listDriveRemoteFilesUseCase(query: event.query);
+      _safeEmit(
+        emit,
         state.copyWith(
           remoteDriveFiles: files,
           isLoadingRemoteDriveFiles: false,
@@ -1061,7 +1144,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       );
     } catch (e, st) {
       logError('Unable to load Drive files.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isLoadingRemoteDriveFiles: false,
           syncError: 'Unable to load remote Drive files.',
@@ -1071,48 +1155,11 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     }
   }
 
-  Future<void> _onLoadDriveRemoteFolders(
-    LoadDriveRemoteFolders event,
-    Emitter<VaultState> emit,
-  ) async {
-    if (!state.isDriveConnected) {
-      emit(
-        state.copyWith(
-          remoteDriveFolders: const [],
-          isLoadingRemoteDriveFolders: false,
-        ),
-      );
-      return;
-    }
-
-    emit(
-      state.copyWith(isLoadingRemoteDriveFolders: true, clearSyncError: true),
-    );
-    try {
-      final folders = await listDriveRemoteFoldersUseCase(query: event.query);
-      emit(
-        state.copyWith(
-          remoteDriveFolders: folders,
-          isLoadingRemoteDriveFolders: false,
-          clearSyncError: true,
-        ),
-      );
-    } catch (e, st) {
-      logError('Unable to load Drive folders.', e, st);
-      emit(
-        state.copyWith(
-          isLoadingRemoteDriveFolders: false,
-          syncError: 'Unable to load Drive folders.',
-          syncStatus: DatabaseSyncStatus.error,
-        ),
-      );
-    }
-  }
-
   Future<void> _refreshSyncState(Emitter<VaultState> emit) async {
     final connected = await getDriveConnectionStatusUseCase();
     final mapping = await databaseSyncRepository.getMapping(state.databasePath);
-    emit(
+    _safeEmit(
+      emit,
       state.copyWith(
         isDriveConnected: connected,
         isDriveLinked: mapping != null,
@@ -1136,8 +1183,18 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
 
     _autoSyncDebounce?.cancel();
     _autoSyncDebounce = Timer(const Duration(seconds: 2), () async {
+      if (isClosed || emit.isDone) {
+        return;
+      }
       await _performSync(emit, silentIfConflict: true);
     });
+  }
+
+  void _safeEmit(Emitter<VaultState> emit, VaultState nextState) {
+    if (isClosed || emit.isDone) {
+      return;
+    }
+    emit(nextState);
   }
 
   Future<void> _performSync(
@@ -1149,7 +1206,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       return;
     }
 
-    emit(
+    _safeEmit(
+      emit,
       state.copyWith(
         syncStatus: DatabaseSyncStatus.syncing,
         clearSyncError: true,
@@ -1163,7 +1221,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       );
 
       if (result is SyncNowConflict) {
-        emit(
+        _safeEmit(
+          emit,
           state.copyWith(
             syncStatus: DatabaseSyncStatus.conflict,
             pendingSyncConflict: result.conflict,
@@ -1171,7 +1230,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         );
 
         if (!silentIfConflict) {
-          emit(
+          _safeEmit(
+            emit,
             state.copyWith(
               syncError: 'Sync conflict detected. Choose how to proceed.',
             ),
@@ -1184,7 +1244,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         state.databasePath,
       );
 
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           syncStatus: DatabaseSyncStatus.success,
           linkedDriveFileName: mapping?.driveFileName,
@@ -1195,7 +1256,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       );
     } catch (e, st) {
       logError('Drive sync failed.', e, st);
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           syncStatus: DatabaseSyncStatus.error,
           syncError: 'Unable to sync with Google Drive.',
@@ -1252,6 +1314,31 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     });
 
     return filtered;
+  }
+
+  List<String> _normalizeExpandedGroupIds({
+    required List<VaultGroup> groups,
+    required String rootGroupId,
+    required String currentGroupId,
+    required List<String> previousExpanded,
+  }) {
+    final existingIds = groups.map((group) => group.id).toSet();
+    final byId = {for (final group in groups) group.id: group};
+
+    final expanded = <String>{
+      for (final id in previousExpanded)
+        if (existingIds.contains(id)) id,
+      rootGroupId,
+    };
+
+    VaultGroup? cursor = byId[currentGroupId];
+    while (cursor != null) {
+      expanded.add(cursor.id);
+      final parentId = cursor.parentId;
+      cursor = parentId == null ? null : byId[parentId];
+    }
+
+    return expanded.toList()..sort();
   }
 }
 

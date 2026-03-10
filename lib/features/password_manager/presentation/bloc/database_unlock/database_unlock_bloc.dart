@@ -39,7 +39,7 @@ class DatabaseUnlockBloc
     InitializeDatabaseUnlock event,
     Emitter<DatabaseUnlockState> emit,
   ) async {
-    emit(state.copyWith(isLoading: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
     try {
       final savedKeyFilePath = await getSelectedKeyFilePathUseCase();
       final isBiometricEnabled = await getBiometricProtectionEnabledUseCase();
@@ -63,13 +63,14 @@ class DatabaseUnlockBloc
           biometricVerified: biometricsOk,
           clearError: true,
         );
-        emit(nextState);
+        _safeEmit(emit, nextState);
 
         if (biometricsOk) {
           await _tryStoredCredentialsUnlock(emit);
         } else {
           logWarning('Initial biometric authentication failed.');
-          emit(
+          _safeEmit(
+            emit,
             nextState.copyWith(
               errorMessage:
                   'Biometric authentication failed. Retry or unlock manually.',
@@ -79,7 +80,8 @@ class DatabaseUnlockBloc
         return;
       }
 
-      emit(
+      _safeEmit(
+        emit,
         nextState.copyWith(
           biometricPrompted: isBiometricEnabled,
           biometricVerified: !isBiometricEnabled || !biometricsAvailable,
@@ -90,7 +92,10 @@ class DatabaseUnlockBloc
       );
     } catch (e, st) {
       logError('Failed to initialize database unlock state.', e, st);
-      emit(state.copyWith(isLoading: false, errorMessage: e.toString()));
+      _safeEmit(
+        emit,
+        state.copyWith(isLoading: false, errorMessage: e.toString()),
+      );
     }
   }
 
@@ -98,7 +103,7 @@ class DatabaseUnlockBloc
     RetryBiometricAuthentication event,
     Emitter<DatabaseUnlockState> emit,
   ) async {
-    emit(state.copyWith(isLoading: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
     final isOk = await biometricDataSource.authenticate(
       reason: 'Authenticate to unlock your password database',
     );
@@ -107,7 +112,8 @@ class DatabaseUnlockBloc
       logWarning('Biometric retry authentication failed.');
     }
 
-    emit(
+    _safeEmit(
+      emit,
       state.copyWith(
         isLoading: false,
         biometricPrompted: true,
@@ -133,7 +139,7 @@ class DatabaseUnlockBloc
       return;
     }
 
-    emit(state.copyWith(isLoading: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
 
     try {
       await unlockDatabaseUseCase(
@@ -145,7 +151,8 @@ class DatabaseUnlockBloc
       await saveSelectedKeyFilePathUseCase(event.keyFilePath);
       await secureDataSource.saveMasterPassword(event.password);
 
-      emit(
+      _safeEmit(
+        emit,
         state.copyWith(
           isLoading: false,
           keyFilePath: event.keyFilePath,
@@ -168,13 +175,16 @@ class DatabaseUnlockBloc
     Emitter<DatabaseUnlockState> emit,
   ) async {
     await saveSelectedKeyFilePathUseCase(event.keyFilePath);
-    emit(state.copyWith(keyFilePath: event.keyFilePath, clearError: true));
+    _safeEmit(
+      emit,
+      state.copyWith(keyFilePath: event.keyFilePath, clearError: true),
+    );
   }
 
   Future<void> _tryStoredCredentialsUnlock(
     Emitter<DatabaseUnlockState> emit,
   ) async {
-    emit(state.copyWith(isLoading: true, clearError: true));
+    _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
     final storedPassword = await secureDataSource.getMasterPassword();
 
     if ((storedPassword == null || storedPassword.isEmpty) &&
@@ -193,7 +203,10 @@ class DatabaseUnlockBloc
         password: storedPassword ?? '',
         keyFilePath: state.keyFilePath,
       );
-      emit(state.copyWith(isLoading: false, unlocked: true, clearError: true));
+      _safeEmit(
+        emit,
+        state.copyWith(isLoading: false, unlocked: true, clearError: true),
+      );
     } catch (e, st) {
       logError(
         'Stored credentials unlock failed after biometric success.',
@@ -212,11 +225,24 @@ class DatabaseUnlockBloc
     return state.biometricAvailable && !state.biometricVerified;
   }
 
+  void _safeEmit(
+    Emitter<DatabaseUnlockState> emit,
+    DatabaseUnlockState nextState,
+  ) {
+    if (isClosed || emit.isDone) {
+      return;
+    }
+    emit(nextState);
+  }
+
   void _emitError(
     Emitter<DatabaseUnlockState> emit,
     String message, {
     bool? isLoading,
   }) {
-    emit(state.copyWith(isLoading: isLoading, errorMessage: message));
+    _safeEmit(
+      emit,
+      state.copyWith(isLoading: isLoading, errorMessage: message),
+    );
   }
 }

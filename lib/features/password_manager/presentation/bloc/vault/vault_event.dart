@@ -28,6 +28,15 @@ class OpenParentGroup extends VaultEvent {
   const OpenParentGroup();
 }
 
+class ToggleVaultGroupExpanded extends VaultEvent {
+  const ToggleVaultGroupExpanded(this.groupId);
+
+  final String groupId;
+
+  @override
+  List<Object?> get props => [groupId];
+}
+
 class RefreshVault extends VaultEvent {
   const RefreshVault();
 }
@@ -277,18 +286,13 @@ class DisconnectGoogleDrive extends VaultEvent {
 }
 
 class LinkCurrentDatabaseToDrive extends VaultEvent {
-  const LinkCurrentDatabaseToDrive({
-    this.remoteFileId,
-    this.remoteFileName,
-    this.remoteFolderId,
-  });
+  const LinkCurrentDatabaseToDrive({this.remoteFileId, this.remoteFileName});
 
   final String? remoteFileId;
   final String? remoteFileName;
-  final String? remoteFolderId;
 
   @override
-  List<Object?> get props => [remoteFileId, remoteFileName, remoteFolderId];
+  List<Object?> get props => [remoteFileId, remoteFileName];
 }
 
 class SyncCurrentDatabaseNow extends VaultEvent {
@@ -314,11 +318,7 @@ class ClearVaultSyncFeedback extends VaultEvent {
 }
 
 class LoadDriveRemoteFiles extends VaultEvent {
-  const LoadDriveRemoteFiles();
-}
-
-class LoadDriveRemoteFolders extends VaultEvent {
-  const LoadDriveRemoteFolders({this.query});
+  const LoadDriveRemoteFiles({this.query});
 
   final String? query;
 

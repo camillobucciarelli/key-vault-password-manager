@@ -5,9 +5,6 @@ class _VaultLayoutBreakpoints {
 
   static const double tabletMax = Breakpoints.tablet;
   static const double compactPhone = 380;
-  static const double searchSortStack = 620;
-  static const double breadcrumbBarHeight = 40;
-  static const double syncStripHeight = 44;
 }
 
 class _VaultUiTokens {
@@ -15,6 +12,7 @@ class _VaultUiTokens {
 
   static const double cardPadding = 14;
   static const double cardRadius = 18;
+  static const double panelGap = 12;
   static const double folderIconContainerSize = 32;
   static const double recordItemRadius = 12;
   static const double recordItemHeight = 62;
@@ -42,18 +40,21 @@ class VaultScreen extends StatelessWidget {
 
 class _VaultLayoutSpec {
   const _VaultLayoutSpec({
+    required this.isMobile,
     required this.isCompact,
     required this.isTablet,
     required this.horizontalPadding,
     required this.contentTopPadding,
   });
 
+  final bool isMobile;
   final bool isCompact;
   final bool isTablet;
   final double horizontalPadding;
   final double contentTopPadding;
 
   static _VaultLayoutSpec fromWidth(double width) {
+    final isMobile = width < Breakpoints.mobile;
     final isCompact = width < _VaultLayoutBreakpoints.tabletMax;
     final isTablet =
         width >= Breakpoints.mobile &&
@@ -63,6 +64,7 @@ class _VaultLayoutSpec {
         : 16.0;
 
     return _VaultLayoutSpec(
+      isMobile: isMobile,
       isCompact: isCompact,
       isTablet: isTablet,
       horizontalPadding: horizontalPadding,
@@ -81,11 +83,15 @@ class _VaultView extends StatefulWidget {
 class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   DateTime? _backgroundedAt;
   bool _isLockNavigationInProgress = false;
+  bool _autofillPromptChecked = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _maybeShowAutofillOnboardingDialog();
+    });
   }
 
   @override
@@ -134,16 +140,89 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     );
   }
 
+  Future<void> _maybeShowAutofillOnboardingDialog() async {
+    if (_autofillPromptChecked || !mounted) {
+      return;
+    }
+    _autofillPromptChecked = true;
+
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return;
+    }
+
+    final localDataSource = di.sl<LocalDataSource>();
+    final seen = await localDataSource.getAutofillPromptSeen();
+    if (seen || !mounted) {
+      return;
+    }
+
+    final autofillService = di.sl<AutofillService>();
+    final status = await autofillService.status;
+    await localDataSource.setAutofillPromptSeen(true);
+
+    if (!mounted ||
+        status == AutofillServiceStatus.enabled ||
+        status == AutofillServiceStatus.unsupported) {
+      return;
+    }
+
+    final shouldEnable = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Attiva Autofill su Android'),
+          insetPadding: _dialogInsetPadding(dialogContext),
+          contentPadding: _dialogContentPadding(dialogContext),
+          actionsOverflowDirection: VerticalDirection.down,
+          actionsOverflowButtonSpacing: 8,
+          content: const Text(
+            'Usa questa app per compilare automaticamente accessi in app e siti su Android.',
+          ),
+          actions: _adaptiveDialogActions(dialogContext, [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Non ora'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Attiva adesso'),
+            ),
+          ]),
+        );
+      },
+    );
+
+    if (shouldEnable != true || !mounted) {
+      return;
+    }
+
+    await autofillService.requestSetAutofillService();
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Seleziona questa app come servizio Autofill di Android.',
+        ),
+      ),
+    );
+  }
+
   Future<void> _closeCurrentDatabaseAndSelectAnother() async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Close database'),
+          insetPadding: _dialogInsetPadding(dialogContext),
+          contentPadding: _dialogContentPadding(dialogContext),
+          actionsOverflowDirection: VerticalDirection.down,
+          actionsOverflowButtonSpacing: 8,
           content: const Text(
             'Close this database and return to file selection? Saved credentials for the current database will be removed.',
           ),
-          actions: [
+          actions: _adaptiveDialogActions(dialogContext, [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
               child: const Text('Cancel'),
@@ -152,7 +231,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
               onPressed: () => Navigator.of(dialogContext).pop(true),
               child: const Text('Close database'),
             ),
-          ],
+          ]),
         );
       },
     );
@@ -187,207 +266,10 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final appBarOverlayHeight =
-        MediaQuery.paddingOf(context).top +
-        kToolbarHeight +
-        _VaultLayoutBreakpoints.breadcrumbBarHeight +
-        _VaultLayoutBreakpoints.syncStripHeight;
+    final topInset = MediaQuery.paddingOf(context).top;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        surfaceTintColor: Colors.transparent,
-        leading: BlocBuilder<VaultBloc, VaultState>(
-          builder: (context, state) {
-            final current = state.currentGroup;
-            if (current?.parentId == null) {
-              return const SizedBox.shrink();
-            }
-
-            return IconButton(
-              tooltip: 'Go to parent folder',
-              onPressed: () {
-                context.read<VaultBloc>().add(const OpenParentGroup());
-              },
-              icon: const Icon(AppIcons.back),
-            );
-          },
-        ),
-        title: BlocBuilder<VaultBloc, VaultState>(
-          builder: (context, state) {
-            final colorScheme = Theme.of(context).colorScheme;
-            final title = state.currentGroup?.name;
-            final resolvedTitle = (title == null || title.trim().isEmpty)
-                ? 'Vault'
-                : title;
-            return Row(
-              children: [
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _syncStatusColor(state.syncStatus, colorScheme),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(resolvedTitle, overflow: TextOverflow.ellipsis),
-                ),
-              ],
-            );
-          },
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(
-            _VaultLayoutBreakpoints.breadcrumbBarHeight +
-                _VaultLayoutBreakpoints.syncStripHeight,
-          ),
-          child: BlocBuilder<VaultBloc, VaultState>(
-            builder: (context, state) {
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _BreadcrumbsBar(
-                    groups: state.breadcrumbs(),
-                    rootGroupId: state.rootGroupId,
-                    childGroups: state.currentChildGroups,
-                    allGroups: state.groups,
-                  ),
-                  _SyncStatusStrip(state: state),
-                ],
-              );
-            },
-          ),
-        ),
-        actions: [
-          const AndroidAutofillAction(),
-          PopupMenuButton<String>(
-            tooltip: 'Vault options',
-            icon: const Icon(AppIcons.more),
-            onSelected: (value) async {
-              if (value == 'switchDatabase') {
-                await _closeCurrentDatabaseAndSelectAnother();
-              }
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem<String>(
-                value: 'switchDatabase',
-                child: Text('Switch database'),
-              ),
-            ],
-          ),
-          IconButton(
-            tooltip: 'Open recycle bin',
-            onPressed: () => _showRecycleBinDialog(context),
-            icon: const Icon(AppIcons.delete),
-          ),
-          IconButton(
-            tooltip: 'Refresh',
-            onPressed: () {
-              context.read<VaultBloc>().add(const RefreshVault());
-            },
-            icon: const Icon(AppIcons.refresh),
-          ),
-          BlocBuilder<VaultBloc, VaultState>(
-            builder: (context, state) {
-              final icon = switch (state.syncStatus) {
-                DatabaseSyncStatus.syncing => AppIcons.sync,
-                DatabaseSyncStatus.success => AppIcons.cloudDone,
-                DatabaseSyncStatus.error => AppIcons.cloudOff,
-                DatabaseSyncStatus.conflict => AppIcons.warning,
-                DatabaseSyncStatus.disconnected => AppIcons.cloudOff,
-                DatabaseSyncStatus.idle => AppIcons.cloud,
-              };
-              return PopupMenuButton<String>(
-                tooltip: 'Drive sync',
-                icon: Icon(icon),
-                onSelected: (value) async {
-                  switch (value) {
-                    case 'connect':
-                      context.read<VaultBloc>().add(const ConnectGoogleDrive());
-                      break;
-                    case 'disconnect':
-                      context.read<VaultBloc>().add(
-                        const DisconnectGoogleDrive(),
-                      );
-                      break;
-                    case 'link':
-                      await _startDriveLinkFlow(context);
-                      break;
-                    case 'syncNow':
-                      context.read<VaultBloc>().add(
-                        const SyncCurrentDatabaseNow(),
-                      );
-                      break;
-                    case 'toggleAutoSync':
-                      context.read<VaultBloc>().add(
-                        ToggleCurrentDatabaseAutoSync(!state.autoSyncEnabled),
-                      );
-                      break;
-                  }
-                },
-                itemBuilder: (context) => [
-                  PopupMenuItem(
-                    enabled: false,
-                    child: Text(
-                      'Status: ${_syncStatusLabel(state.syncStatus)}',
-                    ),
-                  ),
-                  PopupMenuItem(
-                    enabled: false,
-                    child: Text(
-                      state.linkedDriveFileName == null
-                          ? 'Linked file: -'
-                          : 'Linked file: ${state.linkedDriveFileName}',
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  PopupMenuItem(
-                    enabled: false,
-                    child: Text(
-                      state.lastSyncAt == null
-                          ? 'Last sync: never'
-                          : 'Last sync: ${_formatSyncDateTime(state.lastSyncAt!)}',
-                    ),
-                  ),
-                  const PopupMenuDivider(),
-                  PopupMenuItem(
-                    value: state.isDriveConnected ? 'disconnect' : 'connect',
-                    child: Text(
-                      state.isDriveConnected
-                          ? 'Disconnect Google Drive'
-                          : 'Step 1/2: Connect Google Drive',
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: 'link',
-                    enabled: state.isDriveConnected,
-                    child: const Text('Step 2/2: Link this database'),
-                  ),
-                  PopupMenuItem(
-                    value: 'syncNow',
-                    enabled: state.isDriveConnected && state.isDriveLinked,
-                    child: const Text('Sync now'),
-                  ),
-                  PopupMenuItem(
-                    value: 'toggleAutoSync',
-                    child: Text(
-                      state.autoSyncEnabled
-                          ? 'Disable auto-sync'
-                          : 'Enable auto-sync',
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ],
-      ),
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -447,21 +329,41 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                         constraints.maxWidth,
                       );
 
-                      if (spec.isCompact) {
+                      if (spec.isMobile) {
                         return SingleChildScrollView(
                           padding: EdgeInsets.fromLTRB(
                             spec.horizontalPadding,
-                            appBarOverlayHeight + spec.contentTopPadding,
+                            topInset + spec.contentTopPadding,
                             spec.horizontalPadding,
                             spec.horizontalPadding,
                           ),
-                          child: _EntriesCard(
-                            entries: state.visibleEntries,
-                            groups: state.groups,
-                            searchQuery: state.searchQuery,
-                            sortBy: state.sortBy,
-                            keepSearchSortInline: spec.isTablet,
-                            isScrollablePage: true,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _SyncStatusStrip(
+                                state: state,
+                                onRefresh: () {
+                                  context.read<VaultBloc>().add(
+                                    const RefreshVault(),
+                                  );
+                                },
+                                onOpenRecycleBin: () {
+                                  _showRecycleBinDialog(context);
+                                },
+                                onSwitchDatabase:
+                                    _closeCurrentDatabaseAndSelectAnother,
+                              ),
+                              const SizedBox(height: _VaultUiTokens.panelGap),
+                              _EntriesCard(
+                                entries: state.visibleEntries,
+                                groups: state.groups,
+                                rootGroupId: state.rootGroupId,
+                                currentGroupId: state.currentGroupId,
+                                expandedGroupIds: state.expandedGroupIds,
+                                searchQuery: state.searchQuery,
+                                isScrollablePage: true,
+                              ),
+                            ],
                           ),
                         );
                       }
@@ -469,19 +371,35 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                       return Padding(
                         padding: EdgeInsets.fromLTRB(
                           spec.horizontalPadding,
-                          appBarOverlayHeight + spec.contentTopPadding,
+                          topInset + spec.contentTopPadding,
                           spec.horizontalPadding,
                           spec.horizontalPadding,
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            _SyncStatusStrip(
+                              state: state,
+                              onRefresh: () {
+                                context.read<VaultBloc>().add(
+                                  const RefreshVault(),
+                                );
+                              },
+                              onOpenRecycleBin: () {
+                                _showRecycleBinDialog(context);
+                              },
+                              onSwitchDatabase:
+                                  _closeCurrentDatabaseAndSelectAnother,
+                            ),
+                            const SizedBox(height: _VaultUiTokens.panelGap),
                             Expanded(
                               child: _EntriesCard(
                                 entries: state.visibleEntries,
                                 groups: state.groups,
+                                rootGroupId: state.rootGroupId,
+                                currentGroupId: state.currentGroupId,
+                                expandedGroupIds: state.expandedGroupIds,
                                 searchQuery: state.searchQuery,
-                                sortBy: state.sortBy,
                               ),
                             ),
                           ],

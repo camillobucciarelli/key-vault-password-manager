@@ -7,10 +7,12 @@ class VaultSnapshot {
     required this.currentGroupId,
     required this.groups,
     required this.entries,
+    required this.allEntries,
   });
 
   final String rootGroupId;
   final String currentGroupId;
   final List<VaultGroup> groups;
   final List<VaultEntry> entries;
+  final List<VaultEntry> allEntries;
 }

@@ -173,6 +173,9 @@ class _InteractiveItemSurfaceState extends State<_InteractiveItemSurface> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final itemAnimationDuration = MediaQuery.of(context).disableAnimations
+        ? Duration.zero
+        : _VaultUiTokens.itemTransitionDuration;
     final highlight = _isHovered || _isFocused;
     final backgroundColor = highlight
         ? (widget.hoveredColor ?? colorScheme.surface.withValues(alpha: 0.82))
@@ -184,7 +187,7 @@ class _InteractiveItemSurfaceState extends State<_InteractiveItemSurface> {
               colorScheme.outlineVariant.withValues(alpha: 0.7));
 
     final body = AnimatedContainer(
-      duration: _VaultUiTokens.itemTransitionDuration,
+      duration: itemAnimationDuration,
       curve: Curves.easeOutCubic,
       constraints: widget.minHeight == null
           ? null

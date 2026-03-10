@@ -15,11 +15,12 @@ class DatabaseSelectionUnselected extends DatabaseSelectionState {}
 
 class DatabaseSelectionSuccess extends DatabaseSelectionState {
   final String path;
+  final String? userMessage;
 
-  const DatabaseSelectionSuccess(this.path);
+  const DatabaseSelectionSuccess(this.path, {this.userMessage});
 
   @override
-  List<Object?> get props => [path];
+  List<Object?> get props => [path, userMessage];
 }
 
 class DatabaseSelectionError extends DatabaseSelectionState {

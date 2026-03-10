@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
-import '../../domain/models/drive_remote_folder.dart';
 import '../../domain/models/drive_remote_file.dart';
 import 'drive_auth_service.dart';
 
@@ -20,12 +19,42 @@ class GoogleDriveApiService {
   final DriveAuthService _driveAuthService;
   final http.Client _httpClient;
 
-  Future<List<DriveRemoteFile>> listKdbxFilesInDrive() async {
+  Future<List<DriveRemoteFile>> listKdbxFilesInDrive({String? query}) async {
+    const baseQuery =
+        "mimeType != 'application/vnd.google-apps.folder' and trashed = false and name contains '.kdbx'";
+    final normalizedQuery = query?.trim() ?? '';
+    if (normalizedQuery.isEmpty) {
+      return _fetchKdbxFiles(driveQuery: baseQuery);
+    }
+
+    final queryTerms = normalizedQuery
+        .split(RegExp(r'\s+'))
+        .where((term) => term.isNotEmpty)
+        .toList(growable: false);
+
+    final serverQuery = queryTerms.isEmpty
+        ? baseQuery
+        : '$baseQuery and ${queryTerms.map((term) => "name contains '${_escapeDriveQueryLiteral(term)}'").join(' and ')}';
+
+    final serverResults = await _fetchKdbxFiles(driveQuery: serverQuery);
+    if (serverResults.isNotEmpty) {
+      return serverResults;
+    }
+
+    final fallbackResults = await _fetchKdbxFiles(driveQuery: baseQuery);
+    final normalizedLower = normalizedQuery.toLowerCase();
+    return fallbackResults
+        .where((file) => file.name.toLowerCase().contains(normalizedLower))
+        .toList(growable: false);
+  }
+
+  Future<List<DriveRemoteFile>> _fetchKdbxFiles({
+    required String driveQuery,
+  }) async {
     final uri = Uri.parse('$_apiBase/files').replace(
       queryParameters: {
         'spaces': 'drive',
-        'q':
-            "mimeType != 'application/vnd.google-apps.folder' and trashed = false and name contains '.kdbx'",
+        'q': driveQuery,
         'fields': 'files(id,name,modifiedTime,md5Checksum)',
         'pageSize': '200',
         'orderBy': 'modifiedTime desc',
@@ -47,44 +76,6 @@ class GoogleDriveApiService {
         .toList(growable: false);
   }
 
-  Future<List<DriveRemoteFolder>> listFoldersInDrive({String? query}) async {
-    const baseQuery =
-        "mimeType = 'application/vnd.google-apps.folder' and trashed = false";
-    final normalizedQuery = query?.trim();
-    final driveQuery = normalizedQuery == null || normalizedQuery.isEmpty
-        ? baseQuery
-        : "$baseQuery and name contains '${_escapeDriveQueryLiteral(normalizedQuery)}'";
-
-    final uri = Uri.parse('$_apiBase/files').replace(
-      queryParameters: {
-        'spaces': 'drive',
-        'q': driveQuery,
-        'fields': 'files(id,name)',
-        'pageSize': '200',
-        'orderBy': 'name',
-      },
-    );
-
-    final response = await _authedGet(uri);
-    _ensureSuccess(response, 'Unable to list Drive folders');
-
-    final payload = jsonDecode(response.body) as Map<String, dynamic>;
-    final files = payload['files'];
-    if (files is! List) {
-      return const [];
-    }
-
-    return files
-        .whereType<Map<String, dynamic>>()
-        .map(
-          (map) => DriveRemoteFolder(
-            id: map['id'] as String,
-            name: map['name'] as String,
-          ),
-        )
-        .toList(growable: false);
-  }
-
   Future<DriveRemoteFile> getFileMetadata(String fileId) async {
     final uri = Uri.parse(
       '$_apiBase/files/$fileId',
@@ -98,18 +89,13 @@ class GoogleDriveApiService {
   Future<DriveRemoteFile> createFile({
     required String fileName,
     required Uint8List bytes,
-    String? parentFolderId,
   }) async {
     final boundary = _generateBoundary();
     final uri = Uri.parse(
       '$_uploadBase/files',
     ).replace(queryParameters: {'uploadType': 'multipart'});
 
-    final metadata = jsonEncode({
-      'name': fileName,
-      if (parentFolderId != null && parentFolderId.trim().isNotEmpty)
-        'parents': [parentFolderId.trim()],
-    });
+    final metadata = jsonEncode({'name': fileName});
     final body = _buildMultipartBody(
       boundary: boundary,
       metadataJson: metadata,
