@@ -923,6 +923,29 @@ class _EntryFieldCard extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final resolved = value.isEmpty ? emptyLabel : value;
 
+    final textColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: colorScheme.onSurface.withValues(alpha: 0.76),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 4),
+        SelectableText(
+          resolved,
+          maxLines: maxLines,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: value.isEmpty
+                ? colorScheme.onSurface.withValues(alpha: 0.62)
+                : colorScheme.onSurface,
+          ),
+        ),
+      ],
+    );
+
     final content = Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
       decoration: BoxDecoration(
@@ -932,35 +955,16 @@ class _EntryFieldCard extends StatelessWidget {
           color: colorScheme.outlineVariant.withValues(alpha: 0.65),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  label,
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: colorScheme.onSurface.withValues(alpha: 0.76),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              trailing ?? const SizedBox.shrink(),
-            ],
-          ),
-          const SizedBox(height: 4),
-          SelectableText(
-            resolved,
-            maxLines: maxLines,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: value.isEmpty
-                  ? colorScheme.onSurface.withValues(alpha: 0.62)
-                  : colorScheme.onSurface,
+      child: trailing == null
+          ? textColumn
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(child: textColumn),
+                const SizedBox(width: 8),
+                trailing!,
+              ],
             ),
-          ),
-        ],
-      ),
     );
 
     if (onCopy == null) {
@@ -1028,23 +1032,14 @@ class _EntryFieldsWrap extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        const spacing = 8.0;
-        final useTwoColumns = constraints.maxWidth >= 520;
-        final itemWidth = useTwoColumns
-            ? (constraints.maxWidth - spacing) / 2
-            : constraints.maxWidth;
-
-        return Wrap(
-          spacing: spacing,
-          runSpacing: spacing,
-          children: [
-            for (final child in children)
-              SizedBox(width: itemWidth, child: child),
-          ],
-        );
-      },
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < children.length; i++) ...[
+          children[i],
+          if (i < children.length - 1) const SizedBox(height: 8),
+        ],
+      ],
     );
   }
 }

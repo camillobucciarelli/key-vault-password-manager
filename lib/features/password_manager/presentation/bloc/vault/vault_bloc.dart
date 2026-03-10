@@ -5,6 +5,7 @@ import 'package:loggy/loggy.dart';
 import 'package:stream_transform/stream_transform.dart';
 
 import '../../../data/datasources/secure_data_source.dart';
+import '../../../data/services/vault_csv_import_service.dart';
 import '../../../data/services/vault_kdbx_service.dart';
 import '../../../domain/models/database_sync_status.dart';
 import '../../../domain/models/sync_conflict.dart';
@@ -29,6 +30,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     required this.secureDataSource,
     required this.getSelectedKeyFilePathUseCase,
     required this.vaultKdbxService,
+    required this.vaultCsvImportService,
     required this.getDriveConnectionStatusUseCase,
     required this.connectGoogleAccountUseCase,
     required this.disconnectGoogleAccountUseCase,
@@ -72,6 +74,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<AddVaultAttachment>(_onAddVaultAttachment);
     on<RemoveVaultAttachment>(_onRemoveVaultAttachment);
     on<ExportVaultAttachment>(_onExportVaultAttachment);
+    on<ImportVaultEntriesFromCsv>(_onImportVaultEntriesFromCsv);
     on<ClearVaultInfo>(_onClearVaultInfo);
     on<ConnectGoogleDrive>(_onConnectGoogleDrive);
     on<DisconnectGoogleDrive>(_onDisconnectGoogleDrive);
@@ -93,6 +96,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   final SecureDataSource secureDataSource;
   final GetSelectedKeyFilePathUseCase getSelectedKeyFilePathUseCase;
   final VaultKdbxService vaultKdbxService;
+  final VaultCsvImportService vaultCsvImportService;
   final GetDriveConnectionStatusUseCase getDriveConnectionStatusUseCase;
   final ConnectGoogleAccountUseCase connectGoogleAccountUseCase;
   final DisconnectGoogleAccountUseCase disconnectGoogleAccountUseCase;
@@ -945,6 +949,109 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     }
   }
 
+  Future<void> _onImportVaultEntriesFromCsv(
+    ImportVaultEntriesFromCsv event,
+    Emitter<VaultState> emit,
+  ) async {
+    final targetGroupId = state.currentGroupId;
+    if (targetGroupId == null) {
+      _safeEmit(
+        emit,
+        state.copyWith(
+          errorMessage: 'Unable to import: no target folder selected.',
+        ),
+      );
+      return;
+    }
+
+    _safeEmit(
+      emit,
+      state.copyWith(isSaving: true, clearError: true, clearInfo: true),
+    );
+
+    try {
+      final parsed = await vaultCsvImportService.parseFile(event.filePath);
+      if (parsed.items.isEmpty) {
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            errorMessage: 'No valid records found in CSV.',
+          ),
+        );
+        return;
+      }
+
+      var importedCount = 0;
+      var failedCount = 0;
+      var duplicateCount = 0;
+      final existingEntryKeys = event.avoidDuplicates
+          ? _buildDuplicateKeys(state.allEntries)
+          : <String>{};
+      for (final item in parsed.items) {
+        final duplicateKey = _entryDuplicateKey(
+          title: item.title,
+          username: item.username,
+          url: item.url,
+        );
+        if (event.avoidDuplicates && existingEntryKeys.contains(duplicateKey)) {
+          duplicateCount += 1;
+          continue;
+        }
+
+        try {
+          await vaultKdbxService.createEntry(
+            databasePath: state.databasePath,
+            password: _password,
+            keyFilePath: _keyFilePath,
+            groupId: targetGroupId,
+            title: item.title,
+            username: item.username,
+            entryPassword: item.password,
+            url: item.url,
+            notes: item.notes,
+            customFields: item.customFields,
+          );
+          if (event.avoidDuplicates) {
+            existingEntryKeys.add(duplicateKey);
+          }
+          importedCount += 1;
+        } catch (_) {
+          failedCount += 1;
+        }
+      }
+
+      await _reload(
+        emit,
+        currentGroupId: targetGroupId,
+        keepLoadingFlag: false,
+      );
+      await _scheduleAutoSync(emit);
+
+      final skippedTotal = parsed.skippedRows + failedCount + duplicateCount;
+      _safeEmit(
+        emit,
+        state.copyWith(
+          isSaving: false,
+          infoMessage: _buildCsvImportMessage(
+            importedCount: importedCount,
+            skippedTotal: skippedTotal,
+            duplicateCount: duplicateCount,
+          ),
+        ),
+      );
+    } catch (e, st) {
+      logError('Failed importing CSV entries.', e, st);
+      _safeEmit(
+        emit,
+        state.copyWith(
+          isSaving: false,
+          errorMessage: 'Unable to import CSV file.',
+        ),
+      );
+    }
+  }
+
   void _onClearVaultInfo(ClearVaultInfo event, Emitter<VaultState> emit) {
     _safeEmit(emit, state.copyWith(clearInfo: true));
   }
@@ -1314,6 +1421,44 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     });
 
     return filtered;
+  }
+
+  Set<String> _buildDuplicateKeys(List<VaultEntry> entries) {
+    return entries
+        .map(
+          (entry) => _entryDuplicateKey(
+            title: entry.title,
+            username: entry.username,
+            url: entry.url,
+          ),
+        )
+        .toSet();
+  }
+
+  String _entryDuplicateKey({
+    required String title,
+    required String username,
+    required String url,
+  }) {
+    String normalize(String value) {
+      return value.trim().toLowerCase();
+    }
+
+    return '${normalize(title)}|${normalize(username)}|${normalize(url)}';
+  }
+
+  String _buildCsvImportMessage({
+    required int importedCount,
+    required int skippedTotal,
+    required int duplicateCount,
+  }) {
+    if (skippedTotal == 0) {
+      return 'Imported $importedCount records from CSV.';
+    }
+    if (duplicateCount == 0) {
+      return 'Imported $importedCount records from CSV. Skipped $skippedTotal.';
+    }
+    return 'Imported $importedCount records from CSV. Skipped $skippedTotal ($duplicateCount duplicates).';
   }
 
   List<String> _normalizeExpandedGroupIds({

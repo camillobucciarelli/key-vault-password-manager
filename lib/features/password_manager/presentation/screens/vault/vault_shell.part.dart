@@ -170,22 +170,22 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Attiva Autofill su Android'),
+          title: const Text('Enable Android Autofill'),
           insetPadding: _dialogInsetPadding(dialogContext),
           contentPadding: _dialogContentPadding(dialogContext),
           actionsOverflowDirection: VerticalDirection.down,
           actionsOverflowButtonSpacing: 8,
           content: const Text(
-            'Usa questa app per compilare automaticamente accessi in app e siti su Android.',
+            'Use this app to autofill credentials in apps and websites on Android.',
           ),
           actions: _adaptiveDialogActions(dialogContext, [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Non ora'),
+              child: const Text('Not now'),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Attiva adesso'),
+              child: const Text('Enable now'),
             ),
           ]),
         );
@@ -202,9 +202,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     }
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text(
-          'Seleziona questa app come servizio Autofill di Android.',
-        ),
+        content: Text('Select this app as your Android Autofill service.'),
       ),
     );
   }

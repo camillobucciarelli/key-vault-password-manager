@@ -10,6 +10,12 @@ class SyncConflict extends Equatable {
     required this.localChecksum,
     required this.remoteChecksum,
     this.remoteModifiedTime,
+    this.previousLocalChecksum,
+    this.previousRemoteChecksum,
+    this.localChanged,
+    this.remoteChanged,
+    this.firstSyncWithoutBaseline,
+    this.remoteChecksumComputedFromDownload,
   });
 
   final String databasePath;
@@ -18,6 +24,12 @@ class SyncConflict extends Equatable {
   final String localChecksum;
   final String remoteChecksum;
   final DateTime? remoteModifiedTime;
+  final String? previousLocalChecksum;
+  final String? previousRemoteChecksum;
+  final bool? localChanged;
+  final bool? remoteChanged;
+  final bool? firstSyncWithoutBaseline;
+  final bool? remoteChecksumComputedFromDownload;
 
   @override
   List<Object?> get props => [
@@ -27,5 +39,11 @@ class SyncConflict extends Equatable {
     localChecksum,
     remoteChecksum,
     remoteModifiedTime,
+    previousLocalChecksum,
+    previousRemoteChecksum,
+    localChanged,
+    remoteChanged,
+    firstSyncWithoutBaseline,
+    remoteChecksumComputedFromDownload,
   ];
 }

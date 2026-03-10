@@ -219,3 +219,126 @@ String _formatSyncDateTime(DateTime value) {
   final mm = local.minute.toString().padLeft(2, '0');
   return '$y-$m-$d $hh:$mm';
 }
+
+String _csvSourceFormatLabel(VaultCsvSourceFormat format) {
+  return switch (format) {
+    VaultCsvSourceFormat.bitwarden => 'Bitwarden',
+    VaultCsvSourceFormat.onePassword => '1Password',
+    VaultCsvSourceFormat.lastPass => 'LastPass',
+    VaultCsvSourceFormat.chrome => 'Chrome',
+    VaultCsvSourceFormat.applePasswords => 'Apple Passwords',
+    VaultCsvSourceFormat.generic => 'Generic CSV',
+  };
+}
+
+Future<void> _startCsvImportFlow(BuildContext context) async {
+  final picked = await FilePicker.platform.pickFiles(
+    allowMultiple: false,
+    type: FileType.custom,
+    allowedExtensions: const ['csv'],
+    withData: false,
+  );
+  final filePath = picked?.files.single.path;
+  if (filePath == null || !context.mounted) {
+    return;
+  }
+
+  final importService = di.sl<VaultCsvImportService>();
+  final messenger = ScaffoldMessenger.of(context);
+
+  VaultCsvParseResult preview;
+  try {
+    preview = await importService.parseFile(filePath);
+  } catch (e) {
+    if (!context.mounted) {
+      return;
+    }
+    messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+    return;
+  }
+
+  if (!context.mounted) {
+    return;
+  }
+
+  final avoidDuplicatesChoice = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      final formatLabel = _csvSourceFormatLabel(preview.format);
+      final skipped = preview.skippedRows;
+      final valid = preview.items.length;
+      final total = preview.totalRows;
+      var avoidDuplicates = true;
+
+      return StatefulBuilder(
+        builder: (dialogContext, setState) {
+          return AlertDialog(
+            title: const Text('Import CSV'),
+            insetPadding: _dialogInsetPadding(dialogContext),
+            contentPadding: _dialogContentPadding(dialogContext),
+            actionsOverflowDirection: VerticalDirection.down,
+            actionsOverflowButtonSpacing: 8,
+            content: SizedBox(
+              width: _dialogContentWidth(dialogContext, 500),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Detected format: $formatLabel'),
+                  const SizedBox(height: 6),
+                  Text('Rows found: $total'),
+                  Text('Valid records: $valid'),
+                  Text('Skipped rows: $skipped'),
+                  const SizedBox(height: 8),
+                  CheckboxListTile(
+                    value: avoidDuplicates,
+                    onChanged: preview.items.isEmpty
+                        ? null
+                        : (value) {
+                            setState(() {
+                              avoidDuplicates = value ?? true;
+                            });
+                          },
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    title: const Text('Avoid duplicates'),
+                    subtitle: const Text(
+                      'Uses title + username + URL comparison.',
+                    ),
+                  ),
+                  if (preview.items.isNotEmpty)
+                    Text(
+                      'This will add records to the current folder.',
+                      style: Theme.of(dialogContext).textTheme.bodySmall,
+                    ),
+                ],
+              ),
+            ),
+            actions: _adaptiveDialogActions(dialogContext, [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: preview.items.isEmpty
+                    ? null
+                    : () => Navigator.of(dialogContext).pop(avoidDuplicates),
+                child: const Text('Import'),
+              ),
+            ]),
+          );
+        },
+      );
+    },
+  );
+
+  if (avoidDuplicatesChoice != null && context.mounted) {
+    context.read<VaultBloc>().add(
+      ImportVaultEntriesFromCsv(
+        filePath: filePath,
+        avoidDuplicates: avoidDuplicatesChoice,
+      ),
+    );
+  }
+}

@@ -35,6 +35,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       secureDataSource: sl(),
       getSelectedKeyFilePathUseCase: sl(),
       vaultKdbxService: sl(),
+      vaultCsvImportService: sl(),
       getDriveConnectionStatusUseCase: sl(),
       connectGoogleAccountUseCase: sl(),
       disconnectGoogleAccountUseCase: sl(),

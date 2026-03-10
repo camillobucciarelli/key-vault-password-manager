@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:loggy/loggy.dart';
 
 import '../../domain/models/database_sync_mapping.dart';
 import '../../domain/models/drive_remote_file.dart';
@@ -92,17 +93,47 @@ class DatabaseSyncOrchestrator {
     final remote = await _googleDriveApiService.getFileMetadata(
       mapping.driveFileId,
     );
-    final remoteChecksum = remote.md5Checksum ?? '';
+    final remoteChecksumSnapshot = await _resolveRemoteChecksum(
+      remoteFileId: mapping.driveFileId,
+      metadataChecksum: remote.md5Checksum,
+    );
+    final remoteChecksum = remoteChecksumSnapshot.value;
 
     final previousLocal = mapping.lastSyncedLocalChecksum;
     final previousRemote = mapping.lastSyncedRemoteChecksum;
 
-    final localChanged =
-        previousLocal == null || previousLocal != localChecksum;
-    final remoteChanged =
-        previousRemote == null || previousRemote != remoteChecksum;
+    final firstSyncWithoutBaseline =
+        previousLocal == null && previousRemote == null;
 
-    if (localChanged && remoteChanged) {
+    if (firstSyncWithoutBaseline) {
+      final checksumsMatch = localChecksum == remoteChecksum;
+      if (checksumsMatch) {
+        await _syncMetadataDataSource.upsertMapping(
+          mapping.copyWith(
+            lastSyncedLocalChecksum: localChecksum,
+            lastSyncedRemoteChecksum: remoteChecksum,
+            lastSyncedRemoteModifiedTime: remote.modifiedTime,
+            lastSyncAt: DateTime.now(),
+            clearError: true,
+          ),
+        );
+        return const SyncNowSuccess();
+      }
+
+      _logSyncConflict(
+        databasePath: databasePath,
+        driveFileName: mapping.driveFileName,
+        localChecksum: localChecksum,
+        remoteChecksum: remoteChecksum,
+        previousLocalChecksum: previousLocal,
+        previousRemoteChecksum: previousRemote,
+        localChanged: true,
+        remoteChanged: true,
+        firstSyncWithoutBaseline: true,
+        remoteChecksumComputedFromDownload:
+            remoteChecksumSnapshot.computedFromDownload,
+      );
+
       if (resolution == null || resolution == SyncConflictResolution.cancel) {
         return SyncNowConflict(
           SyncConflict(
@@ -112,6 +143,13 @@ class DatabaseSyncOrchestrator {
             localChecksum: localChecksum,
             remoteChecksum: remoteChecksum,
             remoteModifiedTime: remote.modifiedTime,
+            previousLocalChecksum: previousLocal,
+            previousRemoteChecksum: previousRemote,
+            localChanged: true,
+            remoteChanged: true,
+            firstSyncWithoutBaseline: true,
+            remoteChecksumComputedFromDownload:
+                remoteChecksumSnapshot.computedFromDownload,
           ),
         );
       }
@@ -143,9 +181,83 @@ class DatabaseSyncOrchestrator {
       await _syncMetadataDataSource.upsertMapping(
         mapping.copyWith(
           lastSyncedLocalChecksum: refreshedLocal,
-          lastSyncedRemoteChecksum: remoteChecksum.isEmpty
-              ? refreshedLocal
-              : remoteChecksum,
+          lastSyncedRemoteChecksum: remoteChecksum,
+          lastSyncedRemoteModifiedTime: remote.modifiedTime,
+          lastSyncAt: DateTime.now(),
+          clearError: true,
+        ),
+      );
+      return const SyncNowSuccess();
+    }
+
+    final localChanged =
+        previousLocal == null || previousLocal != localChecksum;
+    final remoteChanged =
+        previousRemote == null || previousRemote != remoteChecksum;
+
+    if (localChanged && remoteChanged) {
+      _logSyncConflict(
+        databasePath: databasePath,
+        driveFileName: mapping.driveFileName,
+        localChecksum: localChecksum,
+        remoteChecksum: remoteChecksum,
+        previousLocalChecksum: previousLocal,
+        previousRemoteChecksum: previousRemote,
+        localChanged: localChanged,
+        remoteChanged: remoteChanged,
+        firstSyncWithoutBaseline: false,
+        remoteChecksumComputedFromDownload:
+            remoteChecksumSnapshot.computedFromDownload,
+      );
+
+      if (resolution == null || resolution == SyncConflictResolution.cancel) {
+        return SyncNowConflict(
+          SyncConflict(
+            databasePath: databasePath,
+            driveFileId: mapping.driveFileId,
+            driveFileName: mapping.driveFileName,
+            localChecksum: localChecksum,
+            remoteChecksum: remoteChecksum,
+            remoteModifiedTime: remote.modifiedTime,
+            previousLocalChecksum: previousLocal,
+            previousRemoteChecksum: previousRemote,
+            localChanged: localChanged,
+            remoteChanged: remoteChanged,
+            firstSyncWithoutBaseline: false,
+            remoteChecksumComputedFromDownload:
+                remoteChecksumSnapshot.computedFromDownload,
+          ),
+        );
+      }
+
+      if (resolution == SyncConflictResolution.keepLocal) {
+        final updated = await _googleDriveApiService.updateFile(
+          fileId: mapping.driveFileId,
+          bytes: localBytes,
+        );
+        await _syncMetadataDataSource.upsertMapping(
+          mapping.copyWith(
+            lastSyncedLocalChecksum: localChecksum,
+            lastSyncedRemoteChecksum: updated.md5Checksum ?? localChecksum,
+            lastSyncedRemoteModifiedTime: updated.modifiedTime,
+            lastSyncAt: DateTime.now(),
+            clearError: true,
+          ),
+        );
+        return const SyncNowSuccess();
+      }
+
+      await _backupFile(databasePath);
+      final downloaded = await _googleDriveApiService.downloadFile(
+        mapping.driveFileId,
+      );
+      await dbFile.writeAsBytes(downloaded, flush: true);
+      final refreshedLocal = md5.convert(downloaded).toString();
+
+      await _syncMetadataDataSource.upsertMapping(
+        mapping.copyWith(
+          lastSyncedLocalChecksum: refreshedLocal,
+          lastSyncedRemoteChecksum: remoteChecksum,
           lastSyncedRemoteModifiedTime: remote.modifiedTime,
           lastSyncAt: DateTime.now(),
           clearError: true,
@@ -182,9 +294,7 @@ class DatabaseSyncOrchestrator {
       await _syncMetadataDataSource.upsertMapping(
         mapping.copyWith(
           lastSyncedLocalChecksum: refreshedLocal,
-          lastSyncedRemoteChecksum: remoteChecksum.isEmpty
-              ? refreshedLocal
-              : remoteChecksum,
+          lastSyncedRemoteChecksum: remoteChecksum,
           lastSyncedRemoteModifiedTime: remote.modifiedTime,
           lastSyncAt: DateTime.now(),
           clearError: true,
@@ -243,4 +353,57 @@ class DatabaseSyncOrchestrator {
     final backupPath = '$databasePath.$timestamp.bak';
     await source.copy(backupPath);
   }
+
+  Future<_RemoteChecksumSnapshot> _resolveRemoteChecksum({
+    required String remoteFileId,
+    required String? metadataChecksum,
+  }) async {
+    final normalizedMetadataChecksum = metadataChecksum?.trim();
+    if (normalizedMetadataChecksum != null &&
+        normalizedMetadataChecksum.isNotEmpty) {
+      return _RemoteChecksumSnapshot(
+        value: normalizedMetadataChecksum,
+        computedFromDownload: false,
+      );
+    }
+
+    final downloaded = await _googleDriveApiService.downloadFile(remoteFileId);
+    final checksum = md5.convert(downloaded).toString();
+    return _RemoteChecksumSnapshot(value: checksum, computedFromDownload: true);
+  }
+
+  void _logSyncConflict({
+    required String databasePath,
+    required String driveFileName,
+    required String localChecksum,
+    required String remoteChecksum,
+    required String? previousLocalChecksum,
+    required String? previousRemoteChecksum,
+    required bool localChanged,
+    required bool remoteChanged,
+    required bool firstSyncWithoutBaseline,
+    required bool remoteChecksumComputedFromDownload,
+  }) {
+    logWarning(
+      'Sync conflict details '
+      '(db: $databasePath, file: $driveFileName, '
+      'localChanged: $localChanged, remoteChanged: $remoteChanged, '
+      'firstSyncWithoutBaseline: $firstSyncWithoutBaseline, '
+      'remoteChecksumComputedFromDownload: '
+      '$remoteChecksumComputedFromDownload, '
+      'previousLocalChecksum: ${previousLocalChecksum ?? 'null'}, '
+      'previousRemoteChecksum: ${previousRemoteChecksum ?? 'null'}, '
+      'localChecksum: $localChecksum, remoteChecksum: $remoteChecksum)',
+    );
+  }
+}
+
+class _RemoteChecksumSnapshot {
+  const _RemoteChecksumSnapshot({
+    required this.value,
+    required this.computedFromDownload,
+  });
+
+  final String value;
+  final bool computedFromDownload;
 }

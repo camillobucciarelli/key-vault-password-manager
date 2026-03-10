@@ -1,0 +1,18 @@
+{
+    "sourceFile": ".vscode/settings.json",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 0,
+            "patches": [
+                {
+                    "date": 1773151301328,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                }
+            ],
+            "date": 1773151301328,
+            "name": "Commit-0",
+            "content": "{\n  \"dart.flutterSdkPath\": \".fvm/versions/stable\",\n  \"atlascode.bitbucket.enabled\": false\n}"
+        }
+    ]
+}

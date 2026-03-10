@@ -114,7 +114,7 @@ class DatabaseSelectionBloc
             DatabaseSelectionSuccess(
               path,
               userMessage: _isMobilePlatform
-                  ? 'Database importato nella memoria interna dell\'app per garantire accesso affidabile.'
+                  ? 'Database imported to app internal storage for reliable access.'
                   : null,
             ),
           );
@@ -168,7 +168,7 @@ class DatabaseSelectionBloc
           DatabaseSelectionSuccess(
             outputFile,
             userMessage: _isMobilePlatform
-                ? 'Nuovo database salvato nella memoria interna dell\'app.'
+                ? 'New database saved to app internal storage.'
                 : null,
           ),
         );
