@@ -321,137 +321,164 @@ class _SyncStripMenuButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final themeMode = context.select((ThemeCubit cubit) => cubit.state);
 
-    return PopupMenuButton<String>(
+    Future<void> handleSelection(String value) async {
+      switch (value) {
+        case 'connect':
+          context.read<VaultBloc>().add(const ConnectGoogleDrive());
+          break;
+        case 'disconnect':
+          context.read<VaultBloc>().add(const DisconnectGoogleDrive());
+          break;
+        case 'link':
+          await _startDriveLinkFlow(context);
+          break;
+        case 'toggleAutoSync':
+          context.read<VaultBloc>().add(
+            ToggleCurrentDatabaseAutoSync(!state.autoSyncEnabled),
+          );
+          break;
+        case 'recycleBin':
+          onOpenRecycleBin();
+          break;
+        case 'switchDatabase':
+          await onSwitchDatabase();
+          break;
+        case 'importCsv':
+          await _startCsvImportFlow(context);
+          break;
+        case 'androidAutofill':
+          await _openAndroidAutofillSettings(context);
+          break;
+        case 'themeSystem':
+          context.read<ThemeCubit>().setTheme(ThemeMode.system);
+          break;
+        case 'themeLight':
+          context.read<ThemeCubit>().setTheme(ThemeMode.light);
+          break;
+        case 'themeDark':
+          context.read<ThemeCubit>().setTheme(ThemeMode.dark);
+          break;
+      }
+    }
+
+    return IconButton(
       tooltip: 'Settings',
-      icon: const _SyncStripActionIcon(icon: AppIcons.more),
-      onSelected: (value) async {
-        switch (value) {
-          case 'connect':
-            context.read<VaultBloc>().add(const ConnectGoogleDrive());
-            break;
-          case 'disconnect':
-            context.read<VaultBloc>().add(const DisconnectGoogleDrive());
-            break;
-          case 'link':
-            await _startDriveLinkFlow(context);
-            break;
-          case 'toggleAutoSync':
-            context.read<VaultBloc>().add(
-              ToggleCurrentDatabaseAutoSync(!state.autoSyncEnabled),
+      style: IconButton.styleFrom(visualDensity: VisualDensity.compact),
+      onPressed: () {
+        showModalBottomSheet<void>(
+          context: context,
+          showDragHandle: true,
+          isScrollControlled: true,
+          builder: (sheetContext) {
+            final currentDriveStepAction = !state.isDriveConnected
+                ? 'connect'
+                : !state.isDriveLinked
+                ? 'link'
+                : null;
+            final currentDriveStepLabel = !state.isDriveConnected
+                ? 'Connect Google Drive'
+                : !state.isDriveLinked
+                ? 'Link this database'
+                : null;
+
+            Future<void> closeAndSelect(String value) async {
+              Navigator.of(sheetContext).pop();
+              await handleSelection(value);
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ExpansionTile(
+                        title: const Text('Google Drive'),
+                        initiallyExpanded: true,
+                        children: [
+                          if (currentDriveStepAction != null &&
+                              currentDriveStepLabel != null)
+                            ListTile(
+                              onTap: () =>
+                                  closeAndSelect(currentDriveStepAction),
+                              title: Text(currentDriveStepLabel),
+                            ),
+                          ListTile(
+                            enabled: state.isDriveConnected,
+                            onTap: state.isDriveConnected
+                                ? () => closeAndSelect('disconnect')
+                                : null,
+                            title: const Text('Disconnect Google Drive'),
+                          ),
+                        ],
+                      ),
+                      ExpansionTile(
+                        title: const Text('Vault'),
+                        initiallyExpanded: true,
+                        children: [
+                          ListTile(
+                            onTap: () => closeAndSelect('toggleAutoSync'),
+                            title: Text(
+                              state.autoSyncEnabled
+                                  ? 'Disable auto-sync'
+                                  : 'Enable auto-sync',
+                            ),
+                          ),
+                          ListTile(
+                            onTap: () => closeAndSelect('switchDatabase'),
+                            title: const Text('Switch database'),
+                          ),
+                          ListTile(
+                            onTap: () => closeAndSelect('importCsv'),
+                            title: const Text('Import from CSV'),
+                          ),
+                          if (canConfigureAndroidAutofill)
+                            ListTile(
+                              onTap: () => closeAndSelect('androidAutofill'),
+                              title: const Text('Autofill Android'),
+                            ),
+                          ListTile(
+                            onTap: () => closeAndSelect('recycleBin'),
+                            title: const Text('Open recycle bin'),
+                          ),
+                        ],
+                      ),
+                      ExpansionTile(
+                        title: const Text('Theme'),
+                        children: [
+                          ListTile(
+                            onTap: () => closeAndSelect('themeSystem'),
+                            title: const Text('System'),
+                            trailing: themeMode == ThemeMode.system
+                                ? const Icon(AppIcons.check, size: 16)
+                                : null,
+                          ),
+                          ListTile(
+                            onTap: () => closeAndSelect('themeLight'),
+                            title: const Text('Light'),
+                            trailing: themeMode == ThemeMode.light
+                                ? const Icon(AppIcons.check, size: 16)
+                                : null,
+                          ),
+                          ListTile(
+                            onTap: () => closeAndSelect('themeDark'),
+                            title: const Text('Dark'),
+                            trailing: themeMode == ThemeMode.dark
+                                ? const Icon(AppIcons.check, size: 16)
+                                : null,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             );
-            break;
-          case 'recycleBin':
-            onOpenRecycleBin();
-            break;
-          case 'switchDatabase':
-            await onSwitchDatabase();
-            break;
-          case 'androidAutofill':
-            await _openAndroidAutofillSettings(context);
-            break;
-          case 'themeSystem':
-            context.read<ThemeCubit>().setTheme(ThemeMode.system);
-            break;
-          case 'themeLight':
-            context.read<ThemeCubit>().setTheme(ThemeMode.light);
-            break;
-          case 'themeDark':
-            context.read<ThemeCubit>().setTheme(ThemeMode.dark);
-            break;
-        }
+          },
+        );
       },
-      itemBuilder: (context) => [
-        const PopupMenuItem(enabled: false, child: Text('Google Drive')),
-        PopupMenuItem(
-          enabled: false,
-          child: Text('Status: ${_syncStatusLabel(state.syncStatus)}'),
-        ),
-        PopupMenuItem(
-          enabled: false,
-          child: Text(
-            state.linkedDriveFileName == null
-                ? 'Linked file: -'
-                : 'Linked file: ${state.linkedDriveFileName}',
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-        PopupMenuItem(
-          enabled: false,
-          child: Text(
-            state.lastSyncAt == null
-                ? 'Last sync: never'
-                : 'Last sync: ${_formatSyncDateTime(state.lastSyncAt!)}',
-          ),
-        ),
-        const PopupMenuDivider(),
-        PopupMenuItem(
-          value: state.isDriveConnected ? 'disconnect' : 'connect',
-          child: Text(
-            state.isDriveConnected
-                ? 'Disconnect Google Drive'
-                : 'Step 1/2: Connect Google Drive',
-          ),
-        ),
-        PopupMenuItem(
-          value: 'link',
-          enabled: state.isDriveConnected,
-          child: const Text('Step 2/2: Link this database'),
-        ),
-        const PopupMenuDivider(),
-        const PopupMenuItem(enabled: false, child: Text('Vault')),
-        PopupMenuItem(
-          value: 'toggleAutoSync',
-          child: Text(
-            state.autoSyncEnabled ? 'Disable auto-sync' : 'Enable auto-sync',
-          ),
-        ),
-        const PopupMenuItem(
-          value: 'switchDatabase',
-          child: Text('Switch database'),
-        ),
-        if (canConfigureAndroidAutofill)
-          const PopupMenuItem(
-            value: 'androidAutofill',
-            child: Text('Autofill Android'),
-          ),
-        const PopupMenuDivider(),
-        const PopupMenuItem(enabled: false, child: Text('Theme')),
-        PopupMenuItem(
-          value: 'themeSystem',
-          child: Row(
-            children: [
-              const Expanded(child: Text('System')),
-              if (themeMode == ThemeMode.system)
-                const Icon(AppIcons.check, size: 16),
-            ],
-          ),
-        ),
-        PopupMenuItem(
-          value: 'themeLight',
-          child: Row(
-            children: [
-              const Expanded(child: Text('Light')),
-              if (themeMode == ThemeMode.light)
-                const Icon(AppIcons.check, size: 16),
-            ],
-          ),
-        ),
-        PopupMenuItem(
-          value: 'themeDark',
-          child: Row(
-            children: [
-              const Expanded(child: Text('Dark')),
-              if (themeMode == ThemeMode.dark)
-                const Icon(AppIcons.check, size: 16),
-            ],
-          ),
-        ),
-        const PopupMenuDivider(),
-        const PopupMenuItem(
-          value: 'recycleBin',
-          child: Text('Open recycle bin'),
-        ),
-      ],
+      icon: const _SyncStripActionIcon(icon: AppIcons.more),
     );
   }
 }

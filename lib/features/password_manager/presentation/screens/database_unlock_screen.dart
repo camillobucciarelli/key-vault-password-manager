@@ -88,7 +88,7 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
     if (_isMobilePlatform) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Key file importato nella memoria interna dell\'app.'),
+          content: Text('Key file imported to app internal storage.'),
         ),
       );
     }

@@ -16,6 +16,7 @@ import '../data/services/drive_auth_service.dart';
 import '../data/services/google_drive_api_service.dart';
 import '../data/services/google_oauth_config.dart';
 import '../data/services/ios_autofill_snapshot_coordinator.dart';
+import '../data/services/vault_csv_import_service.dart';
 import '../data/services/vault_kdbx_service.dart';
 import '../domain/repositories/database_repository.dart';
 import '../domain/repositories/database_sync_repository.dart';
@@ -52,6 +53,7 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
   );
 
   sl.registerLazySingleton(() => VaultAutofillMatcher());
+  sl.registerLazySingleton(() => VaultCsvImportService());
   sl.registerLazySingleton(() => VaultKdbxService());
   sl.registerLazySingleton(() => GoogleOAuthConfig.fromEnvironment());
   sl.registerLazySingleton(() => DesktopOAuthPkceService(httpClient: sl()));

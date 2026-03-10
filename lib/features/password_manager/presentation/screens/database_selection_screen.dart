@@ -136,7 +136,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
       if (_isMobilePlatform) {
         messenger.showSnackBar(
           const SnackBar(
-            content: Text('Database salvato nella memoria interna dell\'app.'),
+            content: Text('Database saved to app internal storage.'),
           ),
         );
       }

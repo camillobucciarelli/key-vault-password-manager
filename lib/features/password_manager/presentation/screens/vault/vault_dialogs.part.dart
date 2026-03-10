@@ -1518,8 +1518,60 @@ Future<void> _showSyncConflictDialog(
         contentPadding: _dialogContentPadding(dialogContext),
         actionsOverflowDirection: VerticalDirection.down,
         actionsOverflowButtonSpacing: 8,
-        content: Text(
-          'The local database and Drive file "${conflict.driveFileName}" both changed. Choose what to keep.',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'The local database and Drive file "${conflict.driveFileName}" both changed. Choose what to keep.',
+            ),
+            const SizedBox(height: 12),
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: EdgeInsets.zero,
+              title: const Text('Technical details'),
+              children: [
+                _syncConflictDetailRow(
+                  'Local checksum',
+                  _shortChecksum(conflict.localChecksum),
+                ),
+                _syncConflictDetailRow(
+                  'Remote checksum',
+                  _shortChecksum(conflict.remoteChecksum),
+                ),
+                _syncConflictDetailRow(
+                  'Previous local checksum',
+                  _shortChecksumOrDash(conflict.previousLocalChecksum),
+                ),
+                _syncConflictDetailRow(
+                  'Previous remote checksum',
+                  _shortChecksumOrDash(conflict.previousRemoteChecksum),
+                ),
+                _syncConflictDetailRow(
+                  'Remote modified',
+                  conflict.remoteModifiedTime?.toIso8601String() ?? '-',
+                ),
+                _syncConflictDetailRow(
+                  'Local changed',
+                  _boolLabel(conflict.localChanged),
+                ),
+                _syncConflictDetailRow(
+                  'Remote changed',
+                  _boolLabel(conflict.remoteChanged),
+                ),
+                _syncConflictDetailRow(
+                  'First sync no baseline',
+                  _boolLabel(conflict.firstSyncWithoutBaseline),
+                ),
+                _syncConflictDetailRow(
+                  'Remote checksum source',
+                  conflict.remoteChecksumComputedFromDownload == true
+                      ? 'download-fallback'
+                      : 'metadata-md5',
+                ),
+              ],
+            ),
+          ],
         ),
         actions: _adaptiveDialogActions(dialogContext, [
           TextButton(
@@ -1555,4 +1607,38 @@ Future<void> _showSyncConflictDialog(
   }
 
   context.read<VaultBloc>().add(SyncCurrentDatabaseNow(resolution: resolution));
+}
+
+Widget _syncConflictDetailRow(String label, String value) {
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(width: 168, child: Text('$label:')),
+        Expanded(child: SelectableText(value)),
+      ],
+    ),
+  );
+}
+
+String _shortChecksum(String checksum) {
+  if (checksum.length <= 12) {
+    return checksum;
+  }
+  return '${checksum.substring(0, 12)}...';
+}
+
+String _shortChecksumOrDash(String? checksum) {
+  if (checksum == null || checksum.isEmpty) {
+    return '-';
+  }
+  return _shortChecksum(checksum);
+}
+
+String _boolLabel(bool? value) {
+  if (value == null) {
+    return '-';
+  }
+  return value ? 'true' : 'false';
 }

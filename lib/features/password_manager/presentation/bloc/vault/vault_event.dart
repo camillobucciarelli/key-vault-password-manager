@@ -269,6 +269,19 @@ class ExportVaultAttachment extends VaultEvent {
   List<Object?> get props => [entryId, attachmentKey, destinationDirectory];
 }
 
+class ImportVaultEntriesFromCsv extends VaultEvent {
+  const ImportVaultEntriesFromCsv({
+    required this.filePath,
+    this.avoidDuplicates = true,
+  });
+
+  final String filePath;
+  final bool avoidDuplicates;
+
+  @override
+  List<Object?> get props => [filePath, avoidDuplicates];
+}
+
 class ClearVaultError extends VaultEvent {
   const ClearVaultError();
 }
