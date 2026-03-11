@@ -42,7 +42,11 @@ import '../utils/totp_utils.dart';
 
 part 'vault/vault_shell.part.dart';
 part 'vault/vault_navigation.part.dart';
+part 'vault/vault_navigation_support.part.dart';
 part 'vault/vault_recycle_bin.part.dart';
 part 'vault/vault_entries.part.dart';
+part 'vault/vault_entries_details.part.dart';
 part 'vault/vault_dialogs.part.dart';
+part 'vault/vault_dialog_password.part.dart';
+part 'vault/vault_dialog_totp.part.dart';
 part 'vault/vault_shared.part.dart';

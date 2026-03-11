@@ -1,6 +1,4 @@
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart'
-    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:path/path.dart' as p;
@@ -13,6 +11,9 @@ import '../bloc/database_unlock/database_unlock_bloc.dart';
 import '../bloc/database_unlock/database_unlock_event.dart';
 import '../bloc/database_unlock/database_unlock_state.dart';
 import 'coordinators/database_flow_coordinator.dart';
+import '../utils/platform_utils.dart';
+
+part 'database_unlock_widgets.part.dart';
 
 class DatabaseUnlockScreen extends StatelessWidget {
   final String databasePath;
@@ -51,7 +52,7 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
 
   Future<void> _pickKeyFile() async {
     final result = await FilePicker.platform.pickFiles(
-      withData: _isMobilePlatform,
+      withData: isMobilePlatform,
     );
     if (!mounted || result == null) {
       return;
@@ -59,7 +60,7 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
 
     final selected = result.files.single;
     String? path = selected.path;
-    if (_isMobilePlatform) {
+    if (isMobilePlatform) {
       if (path != null && path.isNotEmpty) {
         path = await MobileFileStorage.copyFileToAppDirectory(
           sourcePath: path,
@@ -85,7 +86,7 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
 
     context.read<DatabaseUnlockBloc>().add(UpdateKeyFilePath(path));
 
-    if (_isMobilePlatform) {
+    if (isMobilePlatform) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Key file imported to app internal storage.'),
@@ -182,95 +183,10 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
                               ),
                             ),
                             const SizedBox(height: 16),
-                            if (state.keyFilePath == null)
-                              OutlinedButton.icon(
-                                onPressed: _pickKeyFile,
-                                icon: const Icon(AppIcons.attachment),
-                                label: const Text('Select Key File'),
-                              )
-                            else
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.outlineVariant,
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(AppIcons.fileKey, size: 20),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Text(
-                                        _isMobilePlatform
-                                            ? p.basename(state.keyFilePath!)
-                                            : state.keyFilePath!,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    if (_isMobilePlatform)
-                                      Wrap(
-                                        spacing: 2,
-                                        children: [
-                                          Tooltip(
-                                            message: 'Change key file',
-                                            ignorePointer: true,
-                                            child: IconButton(
-                                              onPressed: _pickKeyFile,
-                                              icon: const Icon(AppIcons.edit),
-                                            ),
-                                          ),
-                                          Tooltip(
-                                            message: 'Remove key file',
-                                            ignorePointer: true,
-                                            child: IconButton(
-                                              onPressed: () {
-                                                context
-                                                    .read<DatabaseUnlockBloc>()
-                                                    .add(
-                                                      const UpdateKeyFilePath(
-                                                        null,
-                                                      ),
-                                                    );
-                                              },
-                                              icon: const Icon(AppIcons.close),
-                                            ),
-                                          ),
-                                        ],
-                                      )
-                                    else ...[
-                                      Tooltip(
-                                        message: 'Change key file',
-                                        ignorePointer: true,
-                                        child: IconButton(
-                                          onPressed: _pickKeyFile,
-                                          icon: const Icon(AppIcons.edit),
-                                        ),
-                                      ),
-                                      Tooltip(
-                                        message: 'Remove key file',
-                                        ignorePointer: true,
-                                        child: IconButton(
-                                          onPressed: () {
-                                            context
-                                                .read<DatabaseUnlockBloc>()
-                                                .add(
-                                                  const UpdateKeyFilePath(null),
-                                                );
-                                          },
-                                          icon: const Icon(AppIcons.close),
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
+                            _KeyFileSelector(
+                              keyFilePath: state.keyFilePath,
+                              onPickKeyFile: _pickKeyFile,
+                            ),
                             const SizedBox(height: 16),
                             FilledButton(
                               onPressed: () {
@@ -296,17 +212,4 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
       ),
     );
   }
-}
-
-bool get _isMobilePlatform {
-  if (kIsWeb) {
-    return false;
-  }
-  return switch (defaultTargetPlatform) {
-    TargetPlatform.android || TargetPlatform.iOS => true,
-    TargetPlatform.fuchsia ||
-    TargetPlatform.linux ||
-    TargetPlatform.macOS ||
-    TargetPlatform.windows => false,
-  };
 }

@@ -1,10 +1,9 @@
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart'
-    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 
 import '../../../../../core/theme/app_icons.dart';
+import '../utils/platform_utils.dart';
 
 /// A dialog that collects a Master Password (and confirm) plus an optional Key File
 /// before creating a new KDBX database.
@@ -59,7 +58,7 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
   }
 
   Future<void> _pickGeneratedKeyFilePath() async {
-    if (_isMobilePlatform) {
+    if (isMobilePlatform) {
       setState(() {
         _generatedKeyFilePath = 'database.key';
       });
@@ -271,7 +270,7 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
                           onPressed: _pickGeneratedKeyFilePath,
                           icon: const Icon(AppIcons.save),
                           label: Text(
-                            _isMobilePlatform
+                            isMobilePlatform
                                 ? 'Prepare generated key file'
                                 : 'Choose key file destination',
                           ),
@@ -284,7 +283,7 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
                           contentPadding: EdgeInsets.zero,
                           leading: const Icon(AppIcons.fileKey),
                           title: Text(
-                            _isMobilePlatform
+                            isMobilePlatform
                                 ? 'Generated key file will be saved in app internal storage'
                                 : _generatedKeyFilePath!,
                             overflow: TextOverflow.ellipsis,
@@ -374,19 +373,6 @@ EdgeInsets _dialogContentPadding(BuildContext context) {
     return const EdgeInsets.fromLTRB(12, 10, 12, 6);
   }
   return const EdgeInsets.fromLTRB(20, 18, 20, 12);
-}
-
-bool get _isMobilePlatform {
-  if (kIsWeb) {
-    return false;
-  }
-  return switch (defaultTargetPlatform) {
-    TargetPlatform.android || TargetPlatform.iOS => true,
-    TargetPlatform.fuchsia ||
-    TargetPlatform.linux ||
-    TargetPlatform.macOS ||
-    TargetPlatform.windows => false,
-  };
 }
 
 class CreateDatabaseCredentials {
