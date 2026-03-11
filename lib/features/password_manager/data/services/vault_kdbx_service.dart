@@ -144,7 +144,7 @@ class VaultKdbxService {
         .toList(growable: false);
   }
 
-  Future<void> createEntry({
+  Future<String> createEntry({
     required String databasePath,
     required String password,
     String? keyFilePath,
@@ -177,6 +177,7 @@ class VaultKdbxService {
     group.addEntry(entry);
 
     await _save(databasePath, file);
+    return entry.uuid.uuid;
   }
 
   Future<void> updateEntry({
@@ -208,6 +209,34 @@ class VaultKdbxService {
     entry.setString(_notesKey, PlainValue(notes));
     _setCustomFields(entry, customFields);
 
+    await _save(databasePath, file);
+  }
+
+  Future<void> changeMasterPassword({
+    required String databasePath,
+    required String currentPassword,
+    String? keyFilePath,
+    required String newPassword,
+  }) async {
+    final file = await _openFile(
+      databasePath: databasePath,
+      password: currentPassword,
+      keyFilePath: keyFilePath,
+    );
+
+    Uint8List? keyFileBytes;
+    if (keyFilePath != null && keyFilePath.trim().isNotEmpty) {
+      final keyFile = File(keyFilePath);
+      if (!await keyFile.exists()) {
+        throw Exception('Key file not found.');
+      }
+      keyFileBytes = await keyFile.readAsBytes();
+    }
+
+    file.credentials = Credentials.composite(
+      ProtectedValue.fromString(newPassword),
+      keyFileBytes,
+    );
     await _save(databasePath, file);
   }
 
@@ -663,6 +692,8 @@ class VaultKdbxService {
         .toList(growable: false);
 
     final otpUri = _resolveOtpUri(customFields);
+    final createdAt = entry.times.creationTime.get()?.toLocal();
+    final updatedAt = entry.times.lastModificationTime.get()?.toLocal();
 
     return VaultEntry(
       id: entry.uuid.uuid,
@@ -675,7 +706,60 @@ class VaultKdbxService {
       customFields: customFields,
       attachments: attachments,
       otpUri: otpUri,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      lastPasswordChangedAt: _resolveLastPasswordChangedAt(
+        entry,
+        fallbackCreatedAt: createdAt,
+      ),
     );
+  }
+
+  DateTime? _resolveLastPasswordChangedAt(
+    KdbxEntry entry, {
+    DateTime? fallbackCreatedAt,
+  }) {
+    final revisions = <KdbxEntry>[...entry.history, entry]
+      ..sort((left, right) {
+        final leftTime =
+            left.times.lastModificationTime.get() ??
+            left.times.creationTime.get() ??
+            DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+        final rightTime =
+            right.times.lastModificationTime.get() ??
+            right.times.creationTime.get() ??
+            DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+        return leftTime.compareTo(rightTime);
+      });
+
+    if (revisions.isEmpty) {
+      return fallbackCreatedAt;
+    }
+
+    var previousPassword = _passwordOf(revisions.first);
+    DateTime? lastChangedUtc;
+
+    for (var i = 1; i < revisions.length; i++) {
+      final current = revisions[i];
+      final currentPassword = _passwordOf(current);
+      if (currentPassword != previousPassword) {
+        lastChangedUtc =
+            current.times.lastModificationTime.get() ??
+            current.times.creationTime.get();
+      }
+      previousPassword = currentPassword;
+    }
+
+    if (lastChangedUtc != null) {
+      return lastChangedUtc.toLocal();
+    }
+
+    return fallbackCreatedAt ??
+        revisions.first.times.creationTime.get()?.toLocal();
+  }
+
+  String _passwordOf(KdbxEntry entry) {
+    return entry.getString(KdbxKeyCommon.PASSWORD)?.getText() ?? '';
   }
 
   String? _resolveOtpUri(List<VaultCustomField> customFields) {

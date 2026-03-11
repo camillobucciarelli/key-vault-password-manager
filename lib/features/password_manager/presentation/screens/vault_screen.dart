@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
@@ -20,13 +21,18 @@ import '../../../../../injection_container.dart' as di;
 import '../../data/datasources/local_data_source.dart';
 import '../../data/datasources/secure_data_source.dart';
 import '../../data/services/vault_csv_import_service.dart';
+import '../../data/services/vault_kdbx_service.dart';
 import '../../domain/models/database_sync_status.dart';
 import '../../domain/models/sync_conflict.dart';
 import '../../domain/models/vault_custom_field.dart';
 import '../../domain/models/vault_entry.dart';
 import '../../domain/models/vault_group.dart';
 import '../../domain/usecases/save_selected_database_path_usecase.dart';
+import '../../domain/usecases/add_recent_database_path_usecase.dart';
+import '../../domain/usecases/get_selected_key_file_path_usecase.dart';
+import '../../domain/usecases/get_biometric_protection_enabled_usecase.dart';
 import '../../domain/usecases/save_selected_key_file_path_usecase.dart';
+import '../../domain/usecases/set_biometric_protection_enabled_usecase.dart';
 import '../bloc/vault/vault_bloc.dart';
 import '../bloc/vault/vault_event.dart';
 import '../bloc/vault/vault_state.dart';

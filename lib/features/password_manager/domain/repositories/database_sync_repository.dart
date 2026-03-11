@@ -21,6 +21,7 @@ abstract class DatabaseSyncRepository {
   Future<bool> isConnected();
   Future<void> connect();
   Future<void> disconnect();
+  Future<void> removeMapping(String databasePath);
 
   Future<DatabaseSyncMapping?> getMapping(String databasePath);
   Future<void> setAutoSync(String databasePath, bool enabled);

@@ -49,7 +49,8 @@ class DesktopOAuthPkceService {
 
   static const _authEndpoint = 'https://accounts.google.com/o/oauth2/v2/auth';
   static const _tokenEndpoint = 'https://oauth2.googleapis.com/token';
-  static const _scope = 'https://www.googleapis.com/auth/drive.file';
+  static const _tokenInfoEndpoint = 'https://oauth2.googleapis.com/tokeninfo';
+  static const _scope = 'https://www.googleapis.com/auth/drive';
   static const _loopbackHost = '127.0.0.1';
 
   final http.Client _httpClient;
@@ -155,6 +156,31 @@ class DesktopOAuthPkceService {
       refreshToken: refreshToken,
       expiresAt: DateTime.now().add(Duration(seconds: expiresIn - 30)),
     );
+  }
+
+  Future<bool> tokenContainsScope({
+    required String accessToken,
+    required String requiredScope,
+  }) async {
+    final uri = Uri.parse(
+      _tokenInfoEndpoint,
+    ).replace(queryParameters: {'access_token': accessToken});
+    final response = await _httpClient.get(uri);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('Unable to validate Google token scope.');
+    }
+
+    final payload = jsonDecode(response.body) as Map<String, dynamic>;
+    final scopeValue = payload['scope'];
+    if (scopeValue is! String || scopeValue.trim().isEmpty) {
+      return false;
+    }
+
+    final scopes = scopeValue
+        .split(RegExp(r'\s+'))
+        .where((scope) => scope.isNotEmpty)
+        .toSet();
+    return scopes.contains(requiredScope);
   }
 
   Future<DesktopOAuthTokenSet> _exchangeCodeForToken({

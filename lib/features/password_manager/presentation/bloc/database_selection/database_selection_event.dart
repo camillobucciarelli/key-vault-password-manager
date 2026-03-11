@@ -11,23 +11,38 @@ class CheckInitialDatabase extends DatabaseSelectionEvent {}
 
 class SelectExistingDatabase extends DatabaseSelectionEvent {}
 
+class OpenRecentDatabase extends DatabaseSelectionEvent {
+  const OpenRecentDatabase(this.path);
+
+  final String path;
+
+  @override
+  List<Object> get props => [path];
+}
+
 class CreateNewDatabase extends DatabaseSelectionEvent {
+  final String databaseFileName;
   final String password;
   final String? keyFilePath;
+  final bool biometricProtectionEnabled;
   final bool generateKeyFile;
   final String? generatedKeyFilePath;
 
   const CreateNewDatabase({
+    required this.databaseFileName,
     required this.password,
     this.keyFilePath,
+    this.biometricProtectionEnabled = false,
     this.generateKeyFile = false,
     this.generatedKeyFilePath,
   });
 
   @override
   List<Object> get props => [
+    databaseFileName,
     password,
     keyFilePath ?? '',
+    biometricProtectionEnabled,
     generateKeyFile,
     generatedKeyFilePath ?? '',
   ];
@@ -44,4 +59,16 @@ class SelectDriveDatabaseLocalCopy extends DatabaseSelectionEvent {
 
   @override
   List<Object> get props => [localPath, remoteFileId];
+}
+
+enum RecentDatabaseRemovalMode { removeOnly, removeAndDeleteFile }
+
+class RemoveRecentDatabase extends DatabaseSelectionEvent {
+  const RemoveRecentDatabase({required this.path, required this.mode});
+
+  final String path;
+  final RecentDatabaseRemovalMode mode;
+
+  @override
+  List<Object> get props => [path, mode];
 }

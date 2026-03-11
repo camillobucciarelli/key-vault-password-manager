@@ -1,32 +1,32 @@
 name: password_manager
 description: "A new Flutter project."
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.2.0+1
 
 environment:
   sdk: ^3.11.1
 
 dependencies:
+  flutter:
+    sdk: flutter
   bloc: ^9.2.0
   catch_and_flow: ^1.2.1
   equatable: ^2.0.8
   file_picker: ^10.3.10
-  flutter:
-    sdk: flutter
   flutter_bloc: ^9.1.1
   flutter_autofill_service: ^0.21.0
-  flutter_secure_storage: ^9.2.4
-  google_sign_in: ^6.2.1
+  flutter_secure_storage: ^10.0.0
+  google_sign_in: ^7.2.0
   get_it: ^9.2.1
   google_fonts: ^8.0.2
-  crypto: ^3.0.6
-  http: ^1.5.0
+  crypto: ^3.0.7
+  http: ^1.6.0
   kdbx: ^2.4.2
-  local_auth: ^2.3.0
+  local_auth: ^3.0.1
   loggy: ^2.0.3
-  otp: ^3.1.4
-  mobile_scanner: ^7.1.3
-  oauth2: ^2.0.3
+  otp: ^3.2.0
+  mobile_scanner: ^7.2.0
+  oauth2: ^2.0.5
   path: ^1.9.1
   path_provider: ^2.1.5
   shared_preferences: ^2.5.4
@@ -38,6 +38,19 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
+
+flutter_launcher_icons:
+  image_path: assets/logo/keyvault-source.png
+  android: true
+  ios: true
+  web:
+    generate: true
+  windows:
+    generate: true
+  macos:
+    generate: true
+  remove_alpha_ios: true

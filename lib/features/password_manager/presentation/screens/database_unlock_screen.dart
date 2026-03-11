@@ -140,7 +140,7 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Text(
-                              'Access to this app is protected by biometric authentication.',
+                              'Unlock this vault with password and optional key file. Biometric authentication is only required when enabled for this database.',
                               style: Theme.of(context).textTheme.bodyMedium,
                               textAlign: TextAlign.center,
                             ),
@@ -218,42 +218,54 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
                                       Wrap(
                                         spacing: 2,
                                         children: [
-                                          IconButton(
-                                            tooltip: 'Change key file',
-                                            onPressed: _pickKeyFile,
-                                            icon: const Icon(AppIcons.edit),
+                                          Tooltip(
+                                            message: 'Change key file',
+                                            ignorePointer: true,
+                                            child: IconButton(
+                                              onPressed: _pickKeyFile,
+                                              icon: const Icon(AppIcons.edit),
+                                            ),
                                           ),
-                                          IconButton(
-                                            tooltip: 'Remove key file',
-                                            onPressed: () {
-                                              context
-                                                  .read<DatabaseUnlockBloc>()
-                                                  .add(
-                                                    const UpdateKeyFilePath(
-                                                      null,
-                                                    ),
-                                                  );
-                                            },
-                                            icon: const Icon(AppIcons.close),
+                                          Tooltip(
+                                            message: 'Remove key file',
+                                            ignorePointer: true,
+                                            child: IconButton(
+                                              onPressed: () {
+                                                context
+                                                    .read<DatabaseUnlockBloc>()
+                                                    .add(
+                                                      const UpdateKeyFilePath(
+                                                        null,
+                                                      ),
+                                                    );
+                                              },
+                                              icon: const Icon(AppIcons.close),
+                                            ),
                                           ),
                                         ],
                                       )
                                     else ...[
-                                      IconButton(
-                                        tooltip: 'Change key file',
-                                        onPressed: _pickKeyFile,
-                                        icon: const Icon(AppIcons.edit),
+                                      Tooltip(
+                                        message: 'Change key file',
+                                        ignorePointer: true,
+                                        child: IconButton(
+                                          onPressed: _pickKeyFile,
+                                          icon: const Icon(AppIcons.edit),
+                                        ),
                                       ),
-                                      IconButton(
-                                        tooltip: 'Remove key file',
-                                        onPressed: () {
-                                          context
-                                              .read<DatabaseUnlockBloc>()
-                                              .add(
-                                                const UpdateKeyFilePath(null),
-                                              );
-                                        },
-                                        icon: const Icon(AppIcons.close),
+                                      Tooltip(
+                                        message: 'Remove key file',
+                                        ignorePointer: true,
+                                        child: IconButton(
+                                          onPressed: () {
+                                            context
+                                                .read<DatabaseUnlockBloc>()
+                                                .add(
+                                                  const UpdateKeyFilePath(null),
+                                                );
+                                          },
+                                          icon: const Icon(AppIcons.close),
+                                        ),
                                       ),
                                     ],
                                   ],

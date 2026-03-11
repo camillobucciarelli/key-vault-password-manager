@@ -188,7 +188,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
         return StatefulBuilder(
           builder: (context, setState) {
             return AlertDialog(
-              title: const Text('Step 2/2: Select Drive database'),
+              title: const Text('Select Drive database'),
               insetPadding: _dialogInsetPadding(dialogContext),
               contentPadding: _dialogContentPadding(dialogContext),
               actionsOverflowDirection: VerticalDirection.down,
@@ -342,7 +342,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
     final day = local.day.toString().padLeft(2, '0');
     final hour = local.hour.toString().padLeft(2, '0');
     final minute = local.minute.toString().padLeft(2, '0');
-    return '$year-$month-$day $hour:$minute';
+    return '$day-$month-$year $hour:$minute';
   }
 
   double _dialogContentWidth(BuildContext context, double preferredWidth) {
@@ -385,13 +385,172 @@ class DatabaseSelectionScreen extends StatelessWidget {
         .toList(growable: false);
   }
 
+  Future<void> _onOpenRecentDatabase(BuildContext context, String path) async {
+    context.read<DatabaseSelectionBloc>().add(OpenRecentDatabase(path));
+  }
+
+  Future<void> _onCreateDatabase(BuildContext context) async {
+    final credentials = await showDialog<CreateDatabaseCredentials>(
+      context: context,
+      builder: (_) => const CreateDatabaseDialog(),
+    );
+    if (credentials != null && context.mounted) {
+      context.read<DatabaseSelectionBloc>().add(
+        CreateNewDatabase(
+          databaseFileName: credentials.databaseFileName,
+          password: credentials.password,
+          keyFilePath: credentials.keyFilePath,
+          biometricProtectionEnabled: credentials.biometricProtectionEnabled,
+          generateKeyFile: credentials.generateKeyFile,
+          generatedKeyFilePath: credentials.generatedKeyFilePath,
+        ),
+      );
+    }
+  }
+
+  Future<void> _onRemoveRecentDatabase(
+    BuildContext context,
+    String path,
+  ) async {
+    final mode = await _showRecentDatabaseRemovalDialog(context, path);
+    if (mode == null || !context.mounted) {
+      return;
+    }
+
+    if (mode == RecentDatabaseRemovalMode.removeAndDeleteFile) {
+      final confirmed = await _showDeleteFileConfirmationDialog(context, path);
+      if (confirmed != true || !context.mounted) {
+        return;
+      }
+    }
+
+    context.read<DatabaseSelectionBloc>().add(
+      RemoveRecentDatabase(path: path, mode: mode),
+    );
+  }
+
+  Future<RecentDatabaseRemovalMode?> _showRecentDatabaseRemovalDialog(
+    BuildContext context,
+    String path,
+  ) {
+    final fileName = p.basename(path);
+    return showDialog<RecentDatabaseRemovalMode>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Remove recent database'),
+          insetPadding: _dialogInsetPadding(dialogContext),
+          contentPadding: _dialogContentPadding(dialogContext),
+          actionsOverflowDirection: VerticalDirection.down,
+          actionsOverflowButtonSpacing: 8,
+          content: Text('Choose how to remove "$fileName".'),
+          actions: _adaptiveDialogActions(dialogContext, [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(
+                dialogContext,
+              ).pop(RecentDatabaseRemovalMode.removeOnly),
+              child: const Text('Remove from list'),
+            ),
+            FilledButton.tonal(
+              onPressed: kIsWeb
+                  ? null
+                  : () => Navigator.of(
+                      dialogContext,
+                    ).pop(RecentDatabaseRemovalMode.removeAndDeleteFile),
+              child: const Text('Remove and delete file'),
+            ),
+          ]),
+        );
+      },
+    );
+  }
+
+  Future<bool?> _showDeleteFileConfirmationDialog(
+    BuildContext context,
+    String path,
+  ) {
+    final fileName = p.basename(path);
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete file?'),
+          insetPadding: _dialogInsetPadding(dialogContext),
+          contentPadding: _dialogContentPadding(dialogContext),
+          actionsOverflowDirection: VerticalDirection.down,
+          actionsOverflowButtonSpacing: 8,
+          content: Text(
+            'This will try to permanently delete "$fileName" from disk.',
+          ),
+          actions: _adaptiveDialogActions(dialogContext, [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Delete file'),
+            ),
+          ]),
+        );
+      },
+    );
+  }
+
+  Widget _buildRecentDatabasesSection(
+    BuildContext context,
+    List<String> recentDatabasePaths,
+  ) {
+    return _RecentDatabasesSection(
+      recentDatabasePaths: recentDatabasePaths,
+      onOpen: (path) => _onOpenRecentDatabase(context, path),
+      onRemove: (path) => _onRemoveRecentDatabase(context, path),
+    );
+  }
+
+  Widget _buildPrimaryActions(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SelectionActionTile(
+          icon: AppIcons.folderOpen,
+          title: 'Open existing database',
+          subtitle: 'Choose a .kdbx file from your device',
+          onTap: () {
+            context.read<DatabaseSelectionBloc>().add(SelectExistingDatabase());
+          },
+        ),
+        const SizedBox(height: 10),
+        _SelectionActionTile(
+          icon: AppIcons.add,
+          title: 'Create new database',
+          subtitle: 'Create a protected vault with password and key file',
+          onTap: () => _onCreateDatabase(context),
+        ),
+        const SizedBox(height: 10),
+        _SelectionActionTile(
+          icon: AppIcons.cloud,
+          title: 'Open from Google Drive',
+          subtitle: 'Download a .kdbx and open a local copy',
+          onTap: () => _openFromGoogleDrive(context),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final topInset = MediaQuery.paddingOf(context).top + kToolbarHeight;
+    final viewportWidth = MediaQuery.sizeOf(context).width;
+    final horizontalPadding = viewportWidth < 420 ? 16.0 : 24.0;
+    final cardPadding = viewportWidth < 420 ? 18.0 : 24.0;
 
     return Scaffold(
       extendBodyBehindAppBar: true,
-      appBar: AppBar(title: const Text('Select Database')),
       body: Container(
         decoration: BoxDecoration(gradient: AppBackgrounds.gradient(context)),
         child: BlocConsumer<DatabaseSelectionBloc, DatabaseSelectionState>(
@@ -406,7 +565,12 @@ class DatabaseSelectionScreen extends StatelessWidget {
 
             return Center(
               child: SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(32, topInset + 24, 32, 32),
+                padding: EdgeInsets.fromLTRB(
+                  horizontalPadding,
+                  topInset + 20,
+                  horizontalPadding,
+                  24,
+                ),
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 560),
                   child: TweenAnimationBuilder<double>(
@@ -423,82 +587,78 @@ class DatabaseSelectionScreen extends StatelessWidget {
                     },
                     child: Card(
                       child: Padding(
-                        padding: const EdgeInsets.all(24),
+                        padding: EdgeInsets.all(cardPadding),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
                               AppIcons.lock,
-                              size: 72,
+                              size: 64,
                               color: Theme.of(
                                 context,
                               ).colorScheme.onSurface.withValues(alpha: 0.55),
                             ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 14),
                             Text(
-                              'No database selected',
+                              'Vault setup',
+                              style: Theme.of(context).textTheme.labelLarge
+                                  ?.copyWith(
+                                    letterSpacing: 0.2,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              state.recentDatabasePaths.length > 1
+                                  ? 'Choose a database to continue'
+                                  : 'Welcome to your vault',
                               style: Theme.of(context).textTheme.headlineSmall
                                   ?.copyWith(fontWeight: FontWeight.w700),
                               textAlign: TextAlign.center,
                             ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 8),
                             Text(
-                              'Please select an existing KDBX database or create a new one to continue.',
+                              state.recentDatabasePaths.length > 1
+                                  ? 'Multiple databases are available. Pick one from recent list or open another file.'
+                                  : 'Open an existing KDBX database or create a new one to start securely storing your credentials.',
                               textAlign: TextAlign.center,
-                              style: Theme.of(context).textTheme.bodyLarge,
+                              style: Theme.of(context).textTheme.bodyMedium,
                             ),
-                            const SizedBox(height: 32),
-                            FilledButton.icon(
-                              onPressed: () {
-                                context.read<DatabaseSelectionBloc>().add(
-                                  SelectExistingDatabase(),
-                                );
-                              },
-                              icon: const Icon(AppIcons.folderOpen),
-                              label: const Text('Open Existing Database'),
-                              style: FilledButton.styleFrom(
-                                minimumSize: const Size(double.infinity, 48),
+                            const SizedBox(height: 20),
+                            _buildRecentDatabasesSection(
+                              context,
+                              state.recentDatabasePaths,
+                            ),
+                            const SizedBox(height: 6),
+                            _buildPrimaryActions(context),
+                            if (_isMobilePlatform) ...[
+                              const SizedBox(height: 18),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .surfaceContainerHighest
+                                      .withValues(alpha: 0.45),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.outlineVariant,
+                                  ),
+                                ),
+                                child: Text(
+                                  'On mobile, databases and key files are imported into app internal storage. Keep manual backups in a separate location to avoid data loss after app removal.',
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.labelMedium,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 12),
-                            OutlinedButton.icon(
-                              onPressed: () async {
-                                final credentials =
-                                    await showDialog<CreateDatabaseCredentials>(
-                                      context: context,
-                                      builder: (_) =>
-                                          const CreateDatabaseDialog(),
-                                    );
-                                if (credentials != null && context.mounted) {
-                                  context.read<DatabaseSelectionBloc>().add(
-                                    CreateNewDatabase(
-                                      password: credentials.password,
-                                      keyFilePath: credentials.keyFilePath,
-                                      generateKeyFile:
-                                          credentials.generateKeyFile,
-                                      generatedKeyFilePath:
-                                          credentials.generatedKeyFilePath,
-                                    ),
-                                  );
-                                }
-                              },
-                              icon: const Icon(AppIcons.add),
-                              label: const Text('Create New Database'),
-                              style: OutlinedButton.styleFrom(
-                                minimumSize: const Size(double.infinity, 48),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            FilledButton.tonalIcon(
-                              onPressed: () async {
-                                await _openFromGoogleDrive(context);
-                              },
-                              icon: const Icon(AppIcons.cloud),
-                              label: const Text('Open from Google Drive'),
-                              style: FilledButton.styleFrom(
-                                minimumSize: const Size(double.infinity, 48),
-                              ),
-                            ),
+                            ],
                           ],
                         ),
                       ),
@@ -525,4 +685,383 @@ bool get _isMobilePlatform {
     TargetPlatform.macOS ||
     TargetPlatform.windows => false,
   };
+}
+
+class _SelectionActionTile extends StatelessWidget {
+  const _SelectionActionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: colorScheme.outlineVariant),
+          color: colorScheme.surface.withValues(alpha: 0.72),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: colorScheme.primaryContainer.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: colorScheme.primary),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      height: 1.1,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              AppIcons.chevronRight,
+              size: 18,
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RecentDatabasesSection extends StatefulWidget {
+  const _RecentDatabasesSection({
+    required this.recentDatabasePaths,
+    required this.onOpen,
+    required this.onRemove,
+  });
+
+  final List<String> recentDatabasePaths;
+  final Future<void> Function(String path) onOpen;
+  final Future<void> Function(String path) onRemove;
+
+  @override
+  State<_RecentDatabasesSection> createState() =>
+      _RecentDatabasesSectionState();
+}
+
+class _RecentDatabasesSectionState extends State<_RecentDatabasesSection> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.recentDatabasePaths.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final normalizedQuery = _query.trim().toLowerCase();
+    var filtered = widget.recentDatabasePaths
+        .where((path) {
+          if (normalizedQuery.isEmpty) {
+            return true;
+          }
+          final fileName = p.basename(path).toLowerCase();
+          return fileName.contains(normalizedQuery) ||
+              path.toLowerCase().contains(normalizedQuery);
+        })
+        .toList(growable: false);
+
+    filtered = filtered.reversed.toList(growable: false);
+
+    final showSearch = widget.recentDatabasePaths.length > 5;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Icon(AppIcons.refresh, size: 18),
+            const SizedBox(width: 8),
+            Text(
+              'Recent databases',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (showSearch) ...[
+          TextFormField(
+            decoration: const InputDecoration(
+              labelText: 'Search recent databases',
+              prefixIcon: Icon(AppIcons.search),
+            ),
+            onChanged: (value) {
+              setState(() {
+                _query = value;
+              });
+            },
+          ),
+          const SizedBox(height: 8),
+        ],
+        ...filtered.asMap().entries.map((entry) {
+          final index = entry.key;
+          final pathValue = entry.value;
+          final fileName = p.basename(pathValue);
+          final isMostRecent = index == 0;
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: _RecentDatabaseTile(
+              path: pathValue,
+              fileName: fileName,
+              isMostRecent: isMostRecent,
+              onOpen: () => widget.onOpen(pathValue),
+              onRemove: () => widget.onRemove(pathValue),
+            ),
+          );
+        }),
+        if (filtered.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Text(
+              'No recent database matches your search.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+}
+
+class _RecentDatabaseTile extends StatefulWidget {
+  const _RecentDatabaseTile({
+    required this.path,
+    required this.fileName,
+    required this.isMostRecent,
+    required this.onOpen,
+    required this.onRemove,
+  });
+
+  final String path;
+  final String fileName;
+  final bool isMostRecent;
+  final Future<void> Function() onOpen;
+  final Future<void> Function() onRemove;
+
+  @override
+  State<_RecentDatabaseTile> createState() => _RecentDatabaseTileState();
+}
+
+class _RecentDatabaseTileState extends State<_RecentDatabaseTile> {
+  bool _isDriveLinked = false;
+  bool _loadingDriveState = true;
+  int? _sizeBytes;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMetadata();
+  }
+
+  Future<void> _loadMetadata() async {
+    try {
+      final mapping = await di.sl<DatabaseSyncRepository>().getMapping(
+        widget.path,
+      );
+
+      int? sizeBytes;
+      if (!kIsWeb) {
+        final file = File(widget.path);
+        if (await file.exists()) {
+          sizeBytes = await file.length();
+        }
+      }
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isDriveLinked = mapping != null;
+        _sizeBytes = sizeBytes;
+        _loadingDriveState = false;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _loadingDriveState = false;
+      });
+    }
+  }
+
+  String _formatSize(int bytes) {
+    if (bytes < 1024) {
+      return '$bytes B';
+    }
+    final kb = bytes / 1024;
+    if (kb < 1024) {
+      return '${kb.toStringAsFixed(1)} KB';
+    }
+    final mb = kb / 1024;
+    return '${mb.toStringAsFixed(1)} MB';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: widget.onOpen,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+        ),
+        child: Row(
+          children: [
+            const Icon(AppIcons.file),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.fileName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      if (widget.isMostRecent)
+                        Container(
+                          margin: const EdgeInsets.only(left: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primaryContainer
+                                .withValues(alpha: 0.55),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            'Most recent',
+                            style: Theme.of(context).textTheme.labelSmall,
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    widget.path,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      if (_sizeBytes != null)
+                        Text(
+                          _formatSize(_sizeBytes!),
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                      if (_sizeBytes != null)
+                        Text(
+                          '  •  ',
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                      if (_loadingDriveState)
+                        Text(
+                          'Checking Drive link...',
+                          style: Theme.of(context).textTheme.labelSmall,
+                        )
+                      else if (_isDriveLinked)
+                        Row(
+                          children: [
+                            const Icon(AppIcons.cloud, size: 14),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Linked to Drive',
+                              style: Theme.of(context).textTheme.labelSmall,
+                            ),
+                          ],
+                        )
+                      else
+                        Text(
+                          'Local only',
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (!_isMobilePlatform)
+              FilledButton.tonalIcon(
+                onPressed: widget.onOpen,
+                icon: const Icon(AppIcons.folderOpen),
+                label: const Text('Open'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(0, 38),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                ),
+              ),
+            PopupMenuButton<String>(
+              tooltip: 'More actions',
+              onSelected: (value) {
+                if (value == 'remove') {
+                  widget.onRemove();
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem<String>(value: 'remove', child: Text('Remove')),
+              ],
+              child: const Padding(
+                padding: EdgeInsets.all(8),
+                child: Icon(AppIcons.more),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

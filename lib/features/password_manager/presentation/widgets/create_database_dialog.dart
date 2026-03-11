@@ -19,11 +19,13 @@ class CreateDatabaseDialog extends StatefulWidget {
 
 class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
   final _formKey = GlobalKey<FormState>();
+  final _databaseNameCtrl = TextEditingController(text: 'new_database.kdbx');
   final _passwordCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
 
   bool _passwordVisible = false;
   bool _confirmVisible = false;
+  bool _biometricProtectionEnabled = false;
   bool _generateKeyFile = false;
   String? _keyFilePath;
   String? _keyFileName;
@@ -31,6 +33,7 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
 
   @override
   void dispose() {
+    _databaseNameCtrl.dispose();
     _passwordCtrl.dispose();
     _confirmCtrl.dispose();
     super.dispose();
@@ -109,8 +112,10 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
 
     Navigator.of(context).pop(
       CreateDatabaseCredentials(
+        databaseFileName: _databaseNameCtrl.text.trim(),
         password: _passwordCtrl.text,
         keyFilePath: _keyFilePath,
+        biometricProtectionEnabled: _biometricProtectionEnabled,
         generateKeyFile: _generateKeyFile,
         generatedKeyFilePath: _generatedKeyFilePath,
       ),
@@ -138,12 +143,32 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Set a Master Password to protect your database. You may also add a Key File for extra security.',
+                  'Choose the database file name and security options. On Android/iOS the database and generated key file are saved in app internal storage, so export manual backups regularly.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
                 const SizedBox(height: 20),
+
+                TextFormField(
+                  controller: _databaseNameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Database file name',
+                    prefixIcon: Icon(AppIcons.file),
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (value) {
+                    final raw = value?.trim() ?? '';
+                    if (raw.isEmpty) {
+                      return 'Enter a database file name.';
+                    }
+                    if (raw.contains(RegExp(r'[\\/:*?"<>|]'))) {
+                      return 'Invalid characters in file name.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
 
                 // Master Password
                 TextFormField(
@@ -200,6 +225,21 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
                 ),
                 const SizedBox(height: 20),
 
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Enable biometric protection'),
+                  subtitle: const Text(
+                    'If enabled, unlock requires biometric authentication when available.',
+                  ),
+                  value: _biometricProtectionEnabled,
+                  onChanged: (value) {
+                    setState(() {
+                      _biometricProtectionEnabled = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 8),
+
                 // Key File section
                 Text('Key File (optional)', style: theme.textTheme.labelLarge),
                 const SizedBox(height: 8),
@@ -249,10 +289,13 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
                                 : _generatedKeyFilePath!,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          trailing: IconButton(
-                            icon: const Icon(AppIcons.close),
-                            tooltip: 'Remove generated key file path',
-                            onPressed: _clearGeneratedKeyFilePath,
+                          trailing: Tooltip(
+                            message: 'Remove generated key file path',
+                            ignorePointer: true,
+                            child: IconButton(
+                              icon: const Icon(AppIcons.close),
+                              onPressed: _clearGeneratedKeyFilePath,
+                            ),
                           ),
                         ),
                     ],
@@ -274,10 +317,13 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
                       _keyFileName ?? _keyFilePath!,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    trailing: IconButton(
-                      icon: const Icon(AppIcons.close),
-                      tooltip: 'Remove key file',
-                      onPressed: _clearKeyFile,
+                    trailing: Tooltip(
+                      message: 'Remove key file',
+                      ignorePointer: true,
+                      child: IconButton(
+                        icon: const Icon(AppIcons.close),
+                        onPressed: _clearKeyFile,
+                      ),
                     ),
                   ),
               ],
@@ -345,14 +391,18 @@ bool get _isMobilePlatform {
 
 class CreateDatabaseCredentials {
   const CreateDatabaseCredentials({
+    required this.databaseFileName,
     required this.password,
     this.keyFilePath,
+    this.biometricProtectionEnabled = false,
     this.generateKeyFile = false,
     this.generatedKeyFilePath,
   });
 
+  final String databaseFileName;
   final String password;
   final String? keyFilePath;
+  final bool biometricProtectionEnabled;
   final bool generateKeyFile;
   final String? generatedKeyFilePath;
 }

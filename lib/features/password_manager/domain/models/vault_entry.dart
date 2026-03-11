@@ -15,6 +15,9 @@ class VaultEntry extends Equatable {
     this.customFields = const [],
     this.attachments = const [],
     this.otpUri,
+    this.createdAt,
+    this.updatedAt,
+    this.lastPasswordChangedAt,
   });
 
   final String id;
@@ -27,6 +30,9 @@ class VaultEntry extends Equatable {
   final List<VaultCustomField> customFields;
   final List<VaultAttachment> attachments;
   final String? otpUri;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final DateTime? lastPasswordChangedAt;
 
   @override
   List<Object?> get props => [
@@ -40,5 +46,8 @@ class VaultEntry extends Equatable {
     customFields,
     attachments,
     otpUri,
+    createdAt,
+    updatedAt,
+    lastPasswordChangedAt,
   ];
 }

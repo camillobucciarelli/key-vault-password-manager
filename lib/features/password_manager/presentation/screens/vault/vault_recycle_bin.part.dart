@@ -44,12 +44,15 @@ class _RecycleBinDialog extends StatelessWidget {
       title: Row(
         children: [
           const Expanded(child: Text('Recycle bin')),
-          IconButton(
-            tooltip: 'Refresh recycle bin',
-            onPressed: () {
-              context.read<VaultBloc>().add(const LoadRecycleBinEntries());
-            },
-            icon: const Icon(AppIcons.refresh),
+          Tooltip(
+            message: 'Refresh recycle bin',
+            ignorePointer: true,
+            child: IconButton(
+              onPressed: () {
+                context.read<VaultBloc>().add(const LoadRecycleBinEntries());
+              },
+              icon: const Icon(AppIcons.refresh),
+            ),
           ),
         ],
       ),
@@ -302,19 +305,22 @@ class _RecycleBinEntryListItem extends StatelessWidget {
                 ],
               ),
             ),
-            PopupMenuButton<_RecycleBinEntryAction>(
-              tooltip: 'Recycle bin actions',
-              onSelected: onSelectedAction,
-              itemBuilder: (context) => const [
-                PopupMenuItem(
-                  value: _RecycleBinEntryAction.restore,
-                  child: Text('Restore'),
-                ),
-                PopupMenuItem(
-                  value: _RecycleBinEntryAction.deletePermanently,
-                  child: Text('Delete permanently'),
-                ),
-              ],
+            Tooltip(
+              message: 'Recycle bin actions',
+              ignorePointer: true,
+              child: PopupMenuButton<_RecycleBinEntryAction>(
+                onSelected: onSelectedAction,
+                itemBuilder: (context) => const [
+                  PopupMenuItem(
+                    value: _RecycleBinEntryAction.restore,
+                    child: Text('Restore'),
+                  ),
+                  PopupMenuItem(
+                    value: _RecycleBinEntryAction.deletePermanently,
+                    child: Text('Delete permanently'),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

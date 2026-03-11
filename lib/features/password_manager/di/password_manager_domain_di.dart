@@ -1,13 +1,16 @@
 import 'package:get_it/get_it.dart';
 
+import '../domain/usecases/add_recent_database_path_usecase.dart';
 import '../domain/usecases/connect_google_account_usecase.dart';
 import '../domain/usecases/disconnect_google_account_usecase.dart';
 import '../domain/usecases/get_biometric_protection_enabled_usecase.dart';
 import '../domain/usecases/get_drive_connection_status_usecase.dart';
+import '../domain/usecases/get_recent_database_paths_usecase.dart';
 import '../domain/usecases/get_selected_database_path_usecase.dart';
 import '../domain/usecases/get_selected_key_file_path_usecase.dart';
 import '../domain/usecases/link_database_to_drive_usecase.dart';
 import '../domain/usecases/list_drive_remote_files_usecase.dart';
+import '../domain/usecases/remove_recent_database_path_usecase.dart';
 import '../domain/usecases/save_selected_database_path_usecase.dart';
 import '../domain/usecases/save_selected_key_file_path_usecase.dart';
 import '../domain/usecases/set_biometric_protection_enabled_usecase.dart';
@@ -19,6 +22,9 @@ import '../domain/usecases/validate_database_usecase.dart';
 void registerPasswordManagerDomainDependencies(GetIt sl) {
   sl.registerLazySingleton(() => GetSelectedDatabasePathUseCase(sl()));
   sl.registerLazySingleton(() => SaveSelectedDatabasePathUseCase(sl()));
+  sl.registerLazySingleton(() => GetRecentDatabasePathsUseCase(sl()));
+  sl.registerLazySingleton(() => AddRecentDatabasePathUseCase(sl()));
+  sl.registerLazySingleton(() => RemoveRecentDatabasePathUseCase(sl()));
   sl.registerLazySingleton(() => GetSelectedKeyFilePathUseCase(sl()));
   sl.registerLazySingleton(() => SaveSelectedKeyFilePathUseCase(sl()));
   sl.registerLazySingleton(() => GetBiometricProtectionEnabledUseCase(sl()));
