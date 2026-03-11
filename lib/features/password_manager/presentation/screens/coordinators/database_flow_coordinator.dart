@@ -27,6 +27,10 @@ class DatabaseFlowCoordinator {
     if (state is DatabaseSelectionError) {
       _showSnackBar(context, state.message);
     }
+
+    if (state is DatabaseSelectionInfo) {
+      _showSnackBar(context, state.message);
+    }
   }
 
   void onDatabaseUnlockState(BuildContext context, DatabaseUnlockState state) {

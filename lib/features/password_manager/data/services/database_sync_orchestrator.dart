@@ -327,6 +327,10 @@ class DatabaseSyncOrchestrator {
     );
   }
 
+  Future<void> removeMapping(String databasePath) {
+    return _syncMetadataDataSource.removeMapping(databasePath);
+  }
+
   Future<DatabaseSyncMapping?> getMapping(String databasePath) {
     return _syncMetadataDataSource.getMapping(databasePath);
   }

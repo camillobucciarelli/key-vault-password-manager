@@ -28,11 +28,8 @@ class BiometricDataSourceImpl implements BiometricDataSource {
     try {
       return await localAuthentication.authenticate(
         localizedReason: reason,
-        options: const AuthenticationOptions(
-          biometricOnly: true,
-          stickyAuth: true,
-          useErrorDialogs: true,
-        ),
+        biometricOnly: true,
+        persistAcrossBackgrounding: true,
       );
     } catch (e, st) {
       logError('Biometric authentication request failed.', e, st);

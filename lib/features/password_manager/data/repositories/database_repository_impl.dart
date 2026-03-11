@@ -17,6 +17,21 @@ class DatabaseRepositoryImpl implements DatabaseRepository {
   }
 
   @override
+  Future<List<String>> getRecentDatabasePaths() async {
+    return await localDataSource.getRecentDatabasePaths();
+  }
+
+  @override
+  Future<void> addRecentDatabasePath(String path) async {
+    await localDataSource.addRecentDatabasePath(path);
+  }
+
+  @override
+  Future<void> removeRecentDatabasePath(String path) async {
+    await localDataSource.removeRecentDatabasePath(path);
+  }
+
+  @override
   Future<String?> getSelectedKeyFilePath() async {
     return await localDataSource.getCachedKeyFilePath();
   }

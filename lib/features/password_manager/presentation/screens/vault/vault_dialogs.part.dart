@@ -9,6 +9,7 @@ class _EntryDialogPayload {
     required this.notes,
     required this.otpUri,
     required this.customFields,
+    required this.attachmentPaths,
   });
 
   final String title;
@@ -18,6 +19,7 @@ class _EntryDialogPayload {
   final String notes;
   final String otpUri;
   final List<VaultCustomField> customFields;
+  final List<String> attachmentPaths;
 }
 
 class _CustomFieldFormRow {
@@ -63,6 +65,7 @@ class _EntryDialogState extends State<_EntryDialog> {
   var _passwordVisible = false;
   var _nextCustomFieldId = 0;
   late List<_CustomFieldFormRow> _customFieldRows;
+  final List<String> _attachmentPaths = [];
 
   @override
   void initState() {
@@ -245,28 +248,124 @@ class _EntryDialogState extends State<_EntryDialog> {
                   decoration: InputDecoration(
                     labelText: 'OTP URI (otpauth://...)',
                     suffixIcon: _supportsOtpQrScan()
-                        ? IconButton(
-                            tooltip: 'Scan QR',
-                            onPressed: () async {
-                              final scannedOtpUri = await _scanOtpUriFromQr(
-                                context,
-                              );
-                              if (scannedOtpUri == null) {
-                                return;
-                              }
-                              if (!mounted) {
-                                return;
-                              }
-                              setState(() {
-                                _otpUri = scannedOtpUri;
-                              });
-                            },
-                            icon: const Icon(AppIcons.qrCode),
+                        ? Tooltip(
+                            message: 'Scan QR',
+                            ignorePointer: true,
+                            child: IconButton(
+                              onPressed: () async {
+                                final scannedOtpUri = await _scanOtpUriFromQr(
+                                  context,
+                                );
+                                if (scannedOtpUri == null) {
+                                  return;
+                                }
+                                if (!mounted) {
+                                  return;
+                                }
+                                setState(() {
+                                  _otpUri = scannedOtpUri;
+                                });
+                              },
+                              icon: const Icon(AppIcons.qrCode),
+                            ),
                           )
                         : null,
                   ),
                   onChanged: (value) => _otpUri = value,
                   validator: (value) => _validateOtpUri(value ?? ''),
+                ),
+                const SizedBox(height: 10),
+                FormField<void>(
+                  validator: (_) {
+                    for (final value in _attachmentPaths) {
+                      if (value.trim().isEmpty) {
+                        return 'One attachment path is invalid.';
+                      }
+                    }
+                    return null;
+                  },
+                  builder: (fieldState) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Attachments',
+                                style: Theme.of(context).textTheme.labelLarge,
+                              ),
+                            ),
+                            TextButton.icon(
+                              onPressed: () async {
+                                final result = await FilePicker.platform
+                                    .pickFiles(allowMultiple: false);
+                                final filePath = result?.files.single.path;
+                                if (filePath == null || filePath.isEmpty) {
+                                  return;
+                                }
+                                if (!mounted) {
+                                  return;
+                                }
+                                setState(() {
+                                  _attachmentPaths.add(filePath);
+                                });
+                                fieldState.didChange(null);
+                              },
+                              icon: const Icon(AppIcons.add, size: 16),
+                              label: const Text('Add'),
+                            ),
+                          ],
+                        ),
+                        if (_attachmentPaths.isEmpty)
+                          Text(
+                            'No attachments selected.',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          )
+                        else
+                          ..._attachmentPaths.map((filePath) {
+                            return ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(AppIcons.attachment),
+                              title: Text(
+                                path.basename(filePath),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Text(
+                                filePath,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              trailing: Tooltip(
+                                message: 'Remove attachment',
+                                ignorePointer: true,
+                                child: IconButton(
+                                  onPressed: () {
+                                    setState(() {
+                                      _attachmentPaths.remove(filePath);
+                                    });
+                                    fieldState.didChange(null);
+                                  },
+                                  icon: const Icon(AppIcons.close),
+                                ),
+                              ),
+                            );
+                          }),
+                        if (fieldState.hasError)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              fieldState.errorText!,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(context).colorScheme.error,
+                                  ),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 10),
                 FormField<void>(
@@ -334,17 +433,20 @@ class _EntryDialogState extends State<_EntryDialog> {
                                   ),
                                 ),
                                 const SizedBox(width: 4),
-                                IconButton(
-                                  tooltip: 'Remove field',
-                                  onPressed: () {
-                                    setState(() {
-                                      _customFieldRows.removeWhere(
-                                        (candidate) => candidate.id == row.id,
-                                      );
-                                    });
-                                    fieldState.didChange(null);
-                                  },
-                                  icon: const Icon(AppIcons.deleteSweep),
+                                Tooltip(
+                                  message: 'Remove field',
+                                  ignorePointer: true,
+                                  child: IconButton(
+                                    onPressed: () {
+                                      setState(() {
+                                        _customFieldRows.removeWhere(
+                                          (candidate) => candidate.id == row.id,
+                                        );
+                                      });
+                                      fieldState.didChange(null);
+                                    },
+                                    icon: const Icon(AppIcons.deleteSweep),
+                                  ),
                                 ),
                               ],
                             ),
@@ -392,6 +494,7 @@ class _EntryDialogState extends State<_EntryDialog> {
                   customFieldRows: _customFieldRows,
                   otpUri: _otpUri,
                 ),
+                attachmentPaths: List<String>.unmodifiable(_attachmentPaths),
               ),
             );
           },
@@ -1172,6 +1275,15 @@ class _TotpDialogContentState extends State<_TotpDialogContent> {
   late Timer _timer;
   DateTime _nowUtc = DateTime.now().toUtc();
 
+  int get _periodSeconds {
+    final parsed = Uri.tryParse(widget.otpUri);
+    final period = int.tryParse(parsed?.queryParameters['period'] ?? '');
+    if (period == null || period <= 0) {
+      return 30;
+    }
+    return period;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1198,19 +1310,119 @@ class _TotpDialogContentState extends State<_TotpDialogContent> {
       return const Text('Invalid OTP URI.');
     }
 
+    final colorScheme = Theme.of(context).colorScheme;
+    final periodSeconds = _periodSeconds;
+    final remainingRatio = (totpData.remainingSeconds / periodSeconds)
+        .clamp(0.0, 1.0)
+        .toDouble();
+    final previousRatio = totpData.remainingSeconds == periodSeconds
+        ? 1.0
+        : ((totpData.remainingSeconds + 1) / periodSeconds)
+              .clamp(0.0, 1.0)
+              .toDouble();
+    final isExpiringSoon =
+        totpData.remainingSeconds <= math.max(5, periodSeconds ~/ 5);
+    final accentColor = isExpiringSoon
+        ? AppColors.warning
+        : colorScheme.secondary;
+    final onAccentColor = isExpiringSoon
+        ? (ThemeData.estimateBrightnessForColor(AppColors.warning) ==
+                  Brightness.dark
+              ? Colors.white
+              : Colors.black87)
+        : colorScheme.onSecondaryContainer;
+
     return SizedBox(
       width: _dialogContentWidth(context, 280),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            totpData.code,
-            style: Theme.of(
-              context,
-            ).textTheme.headlineMedium?.copyWith(fontFeatures: const []),
+          Container(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+            decoration: BoxDecoration(
+              color: colorScheme.secondaryContainer.withValues(alpha: 0.45),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: accentColor.withValues(alpha: 0.35)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  totpData.code,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontFeatures: const [],
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  isExpiringSoon
+                      ? 'Code in scadenza: ${totpData.remainingSeconds}s'
+                      : 'Scade tra ${totpData.remainingSeconds}s',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: onAccentColor.withValues(alpha: 0.92),
+                    fontWeight: isExpiringSoon
+                        ? FontWeight.w600
+                        : FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Center(
+                  child: SizedBox(
+                    width: 54,
+                    height: 54,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        TweenAnimationBuilder<double>(
+                          key: ValueKey<int>(totpData.remainingSeconds),
+                          tween: Tween<double>(
+                            begin: previousRatio,
+                            end: remainingRatio,
+                          ),
+                          duration: const Duration(milliseconds: 940),
+                          curve: Curves.linear,
+                          builder: (context, animatedRatio, _) {
+                            return CircularProgressIndicator(
+                              value: animatedRatio,
+                              strokeWidth: 4,
+                              strokeCap: StrokeCap.round,
+                              backgroundColor: accentColor.withValues(
+                                alpha: 0.15,
+                              ),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                accentColor,
+                              ),
+                            );
+                          },
+                        ),
+                        AnimatedSwitcher(
+                          duration: _VaultUiTokens.chipTransitionDuration,
+                          switchInCurve: Curves.easeOut,
+                          switchOutCurve: Curves.easeIn,
+                          transitionBuilder: (child, animation) =>
+                              FadeTransition(opacity: animation, child: child),
+                          child: Text(
+                            '${totpData.remainingSeconds}s',
+                            key: ValueKey<int>(totpData.remainingSeconds),
+                            style: Theme.of(context).textTheme.labelLarge
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: onAccentColor,
+                                ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 8),
-          Text('Expires in ${totpData.remainingSeconds}s'),
           const SizedBox(height: 12),
           FilledButton.icon(
             style: FilledButton.styleFrom(
@@ -1289,7 +1501,7 @@ Future<_LinkDatabaseChoice?> _showLinkDatabaseDialog(
                 !useExisting || (selectedExistingId?.isNotEmpty ?? false);
 
             return AlertDialog(
-              title: const Text('Step 2/2: Link database to Drive'),
+              title: const Text('Link database to Drive'),
               insetPadding: _dialogInsetPadding(dialogInnerContext),
               contentPadding: _dialogContentPadding(dialogInnerContext),
               actionsOverflowDirection: VerticalDirection.down,
@@ -1549,7 +1761,9 @@ Future<void> _showSyncConflictDialog(
                 ),
                 _syncConflictDetailRow(
                   'Remote modified',
-                  conflict.remoteModifiedTime?.toIso8601String() ?? '-',
+                  conflict.remoteModifiedTime == null
+                      ? '-'
+                      : _formatSyncDateTime(conflict.remoteModifiedTime!),
                 ),
                 _syncConflictDetailRow(
                   'Local changed',

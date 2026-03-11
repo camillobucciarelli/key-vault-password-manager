@@ -310,7 +310,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
 
     _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
     try {
-      await vaultKdbxService.createEntry(
+      final createdEntryId = await vaultKdbxService.createEntry(
         databasePath: state.databasePath,
         password: _password,
         keyFilePath: _keyFilePath,
@@ -322,6 +322,15 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         notes: event.notes,
         customFields: event.customFields,
       );
+      for (final attachmentPath in event.attachmentPaths) {
+        await vaultKdbxService.addAttachment(
+          databasePath: state.databasePath,
+          password: _password,
+          keyFilePath: _keyFilePath,
+          entryId: createdEntryId,
+          filePath: attachmentPath,
+        );
+      }
       await _reload(
         emit,
         currentGroupId: currentGroupId,
@@ -1250,6 +1259,41 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         ),
       );
     } catch (e, st) {
+      if (_requiresDrivePermissionReauth(e)) {
+        try {
+          await connectGoogleAccountUseCase();
+          await _refreshSyncState(emit);
+          final files = await listDriveRemoteFilesUseCase(query: event.query);
+          _safeEmit(
+            emit,
+            state.copyWith(
+              remoteDriveFiles: files,
+              isLoadingRemoteDriveFiles: false,
+              syncStatus: DatabaseSyncStatus.success,
+              infoMessage: 'Google Drive permissions updated.',
+              clearSyncError: true,
+            ),
+          );
+          return;
+        } catch (reauthError, reauthSt) {
+          logError(
+            'Google Drive re-authentication failed while loading files.',
+            reauthError,
+            reauthSt,
+          );
+          _safeEmit(
+            emit,
+            state.copyWith(
+              isLoadingRemoteDriveFiles: false,
+              syncError:
+                  'Google authorization is required to load Drive files.',
+              syncStatus: DatabaseSyncStatus.error,
+            ),
+          );
+          return;
+        }
+      }
+
       logError('Unable to load Drive files.', e, st);
       _safeEmit(
         emit,
@@ -1260,6 +1304,13 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         ),
       );
     }
+  }
+
+  bool _requiresDrivePermissionReauth(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('authorization is outdated') ||
+        message.contains('authorization needs to be renewed') ||
+        message.contains('full drive access');
   }
 
   Future<void> _refreshSyncState(Emitter<VaultState> emit) async {

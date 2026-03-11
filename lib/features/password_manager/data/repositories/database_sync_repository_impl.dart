@@ -27,6 +27,11 @@ class DatabaseSyncRepositoryImpl implements DatabaseSyncRepository {
   }
 
   @override
+  Future<void> removeMapping(String databasePath) {
+    return _databaseSyncOrchestrator.removeMapping(databasePath);
+  }
+
+  @override
   Future<DatabaseSyncMapping?> getMapping(String databasePath) {
     return _databaseSyncOrchestrator.getMapping(databasePath);
   }

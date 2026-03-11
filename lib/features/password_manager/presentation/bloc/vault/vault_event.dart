@@ -75,6 +75,7 @@ class CreateVaultEntry extends VaultEvent {
     required this.url,
     required this.notes,
     this.customFields = const [],
+    this.attachmentPaths = const [],
   });
 
   final String title;
@@ -83,6 +84,7 @@ class CreateVaultEntry extends VaultEvent {
   final String url;
   final String notes;
   final List<VaultCustomField> customFields;
+  final List<String> attachmentPaths;
 
   @override
   List<Object?> get props => [
@@ -92,6 +94,7 @@ class CreateVaultEntry extends VaultEvent {
     url,
     notes,
     customFields,
+    attachmentPaths,
   ];
 }
 

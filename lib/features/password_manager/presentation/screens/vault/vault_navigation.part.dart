@@ -5,13 +5,13 @@ class _SyncStatusStrip extends StatelessWidget {
     required this.state,
     required this.onRefresh,
     required this.onOpenRecycleBin,
-    required this.onSwitchDatabase,
+    required this.onChangeDatabase,
   });
 
   final VaultState state;
   final VoidCallback onRefresh;
   final VoidCallback onOpenRecycleBin;
-  final Future<void> Function() onSwitchDatabase;
+  final Future<void> Function() onChangeDatabase;
 
   @override
   Widget build(BuildContext context) {
@@ -52,9 +52,9 @@ class _SyncStatusStrip extends StatelessWidget {
         ? _syncStatusLabel(state.syncStatus)
         : '${_syncStatusLabel(state.syncStatus)} • ${_formatSyncDateTime(state.lastSyncAt!)}';
     final details = !state.isDriveConnected
-        ? 'Step 1/2: connect Google Drive'
+        ? 'Connect Google Drive'
         : !state.isDriveLinked
-        ? 'Step 2/2: link this database to a Drive .kdbx file'
+        ? 'Link this database to a Drive .kdbx file'
         : state.linkedDriveFileName == null
         ? label
         : '$label • ${state.linkedDriveFileName}';
@@ -94,6 +94,7 @@ class _SyncStatusStrip extends StatelessWidget {
                         Expanded(
                           child: Tooltip(
                             message: state.databasePath,
+                            ignorePointer: true,
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,
@@ -126,26 +127,29 @@ class _SyncStatusStrip extends StatelessWidget {
                       ],
                     ),
                   ),
-                  IconButton(
-                    tooltip: effectivePrimaryTooltip,
-                    style: IconButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                    ),
-                    onPressed: isPrimaryActionBusy
-                        ? null
-                        : () {
-                            if (isDriveSyncReady) {
-                              context.read<VaultBloc>().add(
-                                const SyncCurrentDatabaseNow(),
-                              );
-                              return;
-                            }
-                            onRefresh();
-                          },
-                    icon: _SyncStripActionIcon(
-                      icon: primaryActionIcon,
-                      highlighted: isDriveSyncReady,
-                      spinning: isSyncInProgress,
+                  Tooltip(
+                    message: effectivePrimaryTooltip,
+                    ignorePointer: true,
+                    child: IconButton(
+                      style: IconButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      onPressed: isPrimaryActionBusy
+                          ? null
+                          : () {
+                              if (isDriveSyncReady) {
+                                context.read<VaultBloc>().add(
+                                  const SyncCurrentDatabaseNow(),
+                                );
+                                return;
+                              }
+                              onRefresh();
+                            },
+                      icon: _SyncStripActionIcon(
+                        icon: primaryActionIcon,
+                        highlighted: isDriveSyncReady,
+                        spinning: isSyncInProgress,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 2),
@@ -153,7 +157,7 @@ class _SyncStatusStrip extends StatelessWidget {
                     state: state,
                     canConfigureAndroidAutofill: canConfigureAndroidAutofill,
                     onOpenRecycleBin: onOpenRecycleBin,
-                    onSwitchDatabase: onSwitchDatabase,
+                    onChangeDatabase: onChangeDatabase,
                   ),
                 ],
               )
@@ -183,6 +187,7 @@ class _SyncStatusStrip extends StatelessWidget {
                       Expanded(
                         child: Tooltip(
                           message: state.databasePath,
+                          ignorePointer: true,
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
@@ -218,26 +223,29 @@ class _SyncStatusStrip extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      IconButton(
-                        tooltip: effectivePrimaryTooltip,
-                        style: IconButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        onPressed: isPrimaryActionBusy
-                            ? null
-                            : () {
-                                if (isDriveSyncReady) {
-                                  context.read<VaultBloc>().add(
-                                    const SyncCurrentDatabaseNow(),
-                                  );
-                                  return;
-                                }
-                                onRefresh();
-                              },
-                        icon: _SyncStripActionIcon(
-                          icon: primaryActionIcon,
-                          highlighted: isDriveSyncReady,
-                          spinning: isSyncInProgress,
+                      Tooltip(
+                        message: effectivePrimaryTooltip,
+                        ignorePointer: true,
+                        child: IconButton(
+                          style: IconButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          onPressed: isPrimaryActionBusy
+                              ? null
+                              : () {
+                                  if (isDriveSyncReady) {
+                                    context.read<VaultBloc>().add(
+                                      const SyncCurrentDatabaseNow(),
+                                    );
+                                    return;
+                                  }
+                                  onRefresh();
+                                },
+                          icon: _SyncStripActionIcon(
+                            icon: primaryActionIcon,
+                            highlighted: isDriveSyncReady,
+                            spinning: isSyncInProgress,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 2),
@@ -246,7 +254,7 @@ class _SyncStatusStrip extends StatelessWidget {
                         canConfigureAndroidAutofill:
                             canConfigureAndroidAutofill,
                         onOpenRecycleBin: onOpenRecycleBin,
-                        onSwitchDatabase: onSwitchDatabase,
+                        onChangeDatabase: onChangeDatabase,
                       ),
                     ],
                   ),
@@ -309,13 +317,407 @@ class _SyncStripMenuButton extends StatelessWidget {
     required this.state,
     required this.canConfigureAndroidAutofill,
     required this.onOpenRecycleBin,
-    required this.onSwitchDatabase,
+    required this.onChangeDatabase,
   });
 
   final VaultState state;
   final bool canConfigureAndroidAutofill;
   final VoidCallback onOpenRecycleBin;
-  final Future<void> Function() onSwitchDatabase;
+  final Future<void> Function() onChangeDatabase;
+
+  Future<void> _exportCurrentDatabaseBackup(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final databasePath = state.databasePath;
+    if (databasePath.trim().isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('No active database to export.')),
+      );
+      return;
+    }
+
+    final source = File(databasePath);
+    if (!await source.exists()) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Current database file not found.')),
+      );
+      return;
+    }
+
+    final defaultName = path.basename(databasePath);
+    final savePath = await FilePicker.platform.saveFile(
+      dialogTitle: 'Export database backup',
+      fileName: defaultName,
+      type: FileType.custom,
+      allowedExtensions: const ['kdbx'],
+    );
+    if (savePath == null || savePath.trim().isEmpty) {
+      return;
+    }
+
+    final resolvedPath = savePath.toLowerCase().endsWith('.kdbx')
+        ? savePath
+        : '$savePath.kdbx';
+    await source.copy(resolvedPath);
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Database backup exported.')),
+    );
+  }
+
+  Future<void> _exportCurrentKeyFile(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final keyPath = await di.sl<GetSelectedKeyFilePathUseCase>()();
+    if (keyPath == null || keyPath.trim().isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('No key file configured for this vault.')),
+      );
+      return;
+    }
+
+    final source = File(keyPath);
+    if (!await source.exists()) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Configured key file was not found.')),
+      );
+      return;
+    }
+
+    final defaultName = path.basename(keyPath);
+    final savePath = await FilePicker.platform.saveFile(
+      dialogTitle: 'Export key file backup',
+      fileName: defaultName,
+      type: FileType.custom,
+      allowedExtensions: const ['key'],
+    );
+    if (savePath == null || savePath.trim().isEmpty) {
+      return;
+    }
+
+    await source.copy(savePath);
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Key file backup exported.')),
+    );
+  }
+
+  Future<void> _showDatabaseSettings(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final currentDatabasePath = state.databasePath;
+    if (currentDatabasePath.trim().isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('No active database selected.')),
+      );
+      return;
+    }
+
+    final currentDatabaseFile = File(currentDatabasePath);
+    final titleCtrl = TextEditingController(
+      text: path.basenameWithoutExtension(currentDatabasePath),
+    );
+    final currentKeyPath = await di.sl<GetSelectedKeyFilePathUseCase>()();
+    if (!context.mounted) {
+      titleCtrl.dispose();
+      return;
+    }
+    var selectedKeyPath = currentKeyPath;
+    final currentPasswordCtrl = TextEditingController();
+    final newPasswordCtrl = TextEditingController();
+    final confirmNewPasswordCtrl = TextEditingController();
+    var changePassword = false;
+    var biometricEnabled = await di
+        .sl<GetBiometricProtectionEnabledUseCase>()();
+    if (!context.mounted) {
+      titleCtrl.dispose();
+      currentPasswordCtrl.dispose();
+      newPasswordCtrl.dispose();
+      confirmNewPasswordCtrl.dispose();
+      return;
+    }
+    final formKey = GlobalKey<FormState>();
+
+    final shouldApply = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setState) {
+            return AlertDialog(
+              title: const Text('Database settings'),
+              insetPadding: _dialogInsetPadding(dialogContext),
+              contentPadding: _dialogContentPadding(dialogContext),
+              actionsOverflowDirection: VerticalDirection.down,
+              actionsOverflowButtonSpacing: 8,
+              content: SizedBox(
+                width: _dialogContentWidth(dialogContext, 520),
+                child: Form(
+                  key: formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextFormField(
+                          controller: titleCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Database file name',
+                            prefixIcon: Icon(AppIcons.file),
+                          ),
+                          validator: (value) {
+                            final raw = value?.trim() ?? '';
+                            if (raw.isEmpty) {
+                              return 'Database file name is required.';
+                            }
+                            if (raw.contains(RegExp(r'[\\/:*?"<>|]'))) {
+                              return 'Invalid characters in file name.';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 10),
+                        SwitchListTile.adaptive(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Enable biometric protection'),
+                          value: biometricEnabled,
+                          onChanged: (value) {
+                            setState(() {
+                              biometricEnabled = value;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 4),
+                        ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(AppIcons.fileKey),
+                          title: Text(
+                            selectedKeyPath == null ||
+                                    selectedKeyPath!.trim().isEmpty
+                                ? 'No key file selected'
+                                : path.basename(selectedKeyPath!),
+                          ),
+                          subtitle: selectedKeyPath == null
+                              ? null
+                              : Text(
+                                  selectedKeyPath!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                          trailing: Wrap(
+                            spacing: 2,
+                            children: [
+                              Tooltip(
+                                message: 'Change key file',
+                                ignorePointer: true,
+                                child: IconButton(
+                                  onPressed: () async {
+                                    final picked = await FilePicker.platform
+                                        .pickFiles(allowMultiple: false);
+                                    final selected = picked?.files.single.path;
+                                    if (selected == null || selected.isEmpty) {
+                                      return;
+                                    }
+                                    setState(() {
+                                      selectedKeyPath = selected;
+                                    });
+                                  },
+                                  icon: const Icon(AppIcons.edit),
+                                ),
+                              ),
+                              Tooltip(
+                                message: 'Remove key file',
+                                ignorePointer: true,
+                                child: IconButton(
+                                  onPressed: () {
+                                    setState(() {
+                                      selectedKeyPath = null;
+                                    });
+                                  },
+                                  icon: const Icon(AppIcons.close),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SwitchListTile.adaptive(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Change master password'),
+                          subtitle: const Text(
+                            'Re-encrypts the current database with a new password.',
+                          ),
+                          value: changePassword,
+                          onChanged: (value) {
+                            setState(() {
+                              changePassword = value;
+                            });
+                          },
+                        ),
+                        if (changePassword) ...[
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: currentPasswordCtrl,
+                            obscureText: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Current master password',
+                            ),
+                            validator: (value) {
+                              if (!changePassword) {
+                                return null;
+                              }
+                              if ((value ?? '').isEmpty) {
+                                return 'Current password is required.';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: newPasswordCtrl,
+                            obscureText: true,
+                            decoration: const InputDecoration(
+                              labelText: 'New master password',
+                            ),
+                            validator: (value) {
+                              if (!changePassword) {
+                                return null;
+                              }
+                              if ((value ?? '').isEmpty) {
+                                return 'New password is required.';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: confirmNewPasswordCtrl,
+                            obscureText: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Confirm new password',
+                            ),
+                            validator: (value) {
+                              if (!changePassword) {
+                                return null;
+                              }
+                              if ((value ?? '') != newPasswordCtrl.text) {
+                                return 'Passwords do not match.';
+                              }
+                              return null;
+                            },
+                          ),
+                        ],
+                        const SizedBox(height: 8),
+                        Text(
+                          'Google Drive sync stores only the .kdbx database. Keep key file backups in a separate location.',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              actions: _adaptiveDialogActions(dialogContext, [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    if (!formKey.currentState!.validate()) {
+                      return;
+                    }
+                    Navigator.of(dialogContext).pop(true);
+                  },
+                  child: const Text('Save'),
+                ),
+              ]),
+            );
+          },
+        );
+      },
+    );
+
+    if (!context.mounted) {
+      titleCtrl.dispose();
+      currentPasswordCtrl.dispose();
+      newPasswordCtrl.dispose();
+      confirmNewPasswordCtrl.dispose();
+      return;
+    }
+
+    if (shouldApply != true) {
+      titleCtrl.dispose();
+      currentPasswordCtrl.dispose();
+      newPasswordCtrl.dispose();
+      confirmNewPasswordCtrl.dispose();
+      return;
+    }
+
+    try {
+      final updatedName = titleCtrl.text.trim().toLowerCase().endsWith('.kdbx')
+          ? titleCtrl.text.trim()
+          : '${titleCtrl.text.trim()}.kdbx';
+      final parentDir = path.dirname(currentDatabasePath);
+      final targetPath = path.join(parentDir, updatedName);
+      var effectivePath = currentDatabasePath;
+
+      if (targetPath != currentDatabasePath) {
+        if (await File(targetPath).exists()) {
+          messenger.showSnackBar(
+            const SnackBar(
+              content: Text('A database file with this name already exists.'),
+            ),
+          );
+          titleCtrl.dispose();
+          return;
+        }
+        await currentDatabaseFile.rename(targetPath);
+        effectivePath = targetPath;
+      }
+
+      await di.sl<SaveSelectedDatabasePathUseCase>()(effectivePath);
+      await di.sl<AddRecentDatabasePathUseCase>()(effectivePath);
+      await di.sl<SaveSelectedKeyFilePathUseCase>()(selectedKeyPath);
+      await di.sl<SetBiometricProtectionEnabledUseCase>()(biometricEnabled);
+
+      var passwordChanged = false;
+      if (changePassword) {
+        await di.sl<VaultKdbxService>().changeMasterPassword(
+          databasePath: effectivePath,
+          currentPassword: currentPasswordCtrl.text,
+          keyFilePath: selectedKeyPath,
+          newPassword: newPasswordCtrl.text,
+        );
+        await di.sl<SecureDataSource>().saveMasterPassword(
+          newPasswordCtrl.text,
+        );
+        passwordChanged = true;
+      }
+
+      if (!context.mounted) {
+        return;
+      }
+
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            passwordChanged
+                ? 'Database settings updated. Master password changed successfully.'
+                : 'Database settings updated.',
+          ),
+        ),
+      );
+      await AppNavigation.pushFadeReplacement(
+        context,
+        VaultScreen(databasePath: effectivePath),
+      );
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Unable to update database settings.')),
+      );
+    } finally {
+      titleCtrl.dispose();
+      currentPasswordCtrl.dispose();
+      newPasswordCtrl.dispose();
+      confirmNewPasswordCtrl.dispose();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -340,11 +742,26 @@ class _SyncStripMenuButton extends StatelessWidget {
         case 'recycleBin':
           onOpenRecycleBin();
           break;
-        case 'switchDatabase':
-          await onSwitchDatabase();
+        case 'changeDatabase':
+          await onChangeDatabase();
           break;
         case 'importCsv':
           await _startCsvImportFlow(context);
+          break;
+        case 'lockVault':
+          final databasePath = state.databasePath;
+          if (databasePath.trim().isNotEmpty) {
+            await AppNavigation.pushFadeReplacement(
+              context,
+              DatabaseUnlockScreen(databasePath: databasePath),
+            );
+          }
+          break;
+        case 'exportDatabaseBackup':
+          await _exportCurrentDatabaseBackup(context);
+          break;
+        case 'exportKeyFile':
+          await _exportCurrentKeyFile(context);
           break;
         case 'androidAutofill':
           await _openAndroidAutofillSettings(context);
@@ -358,127 +775,156 @@ class _SyncStripMenuButton extends StatelessWidget {
         case 'themeDark':
           context.read<ThemeCubit>().setTheme(ThemeMode.dark);
           break;
+        case 'databaseSettings':
+          await _showDatabaseSettings(context);
+          break;
       }
     }
 
-    return IconButton(
-      tooltip: 'Settings',
-      style: IconButton.styleFrom(visualDensity: VisualDensity.compact),
-      onPressed: () {
-        showModalBottomSheet<void>(
-          context: context,
-          showDragHandle: true,
-          isScrollControlled: true,
-          builder: (sheetContext) {
-            final currentDriveStepAction = !state.isDriveConnected
-                ? 'connect'
-                : !state.isDriveLinked
-                ? 'link'
-                : null;
-            final currentDriveStepLabel = !state.isDriveConnected
-                ? 'Connect Google Drive'
-                : !state.isDriveLinked
-                ? 'Link this database'
-                : null;
+    return Tooltip(
+      message: 'Settings',
+      ignorePointer: true,
+      child: IconButton(
+        style: IconButton.styleFrom(visualDensity: VisualDensity.compact),
+        onPressed: () {
+          showModalBottomSheet<void>(
+            context: context,
+            showDragHandle: true,
+            isScrollControlled: true,
+            builder: (sheetContext) {
+              final maxSheetHeight =
+                  MediaQuery.sizeOf(sheetContext).height * 0.82;
+              final currentDriveStepAction = !state.isDriveConnected
+                  ? 'connect'
+                  : !state.isDriveLinked
+                  ? 'link'
+                  : null;
+              final currentDriveStepLabel = !state.isDriveConnected
+                  ? 'Connect Google Drive'
+                  : !state.isDriveLinked
+                  ? 'Link this database'
+                  : null;
 
-            Future<void> closeAndSelect(String value) async {
-              Navigator.of(sheetContext).pop();
-              await handleSelection(value);
-            }
+              Future<void> closeAndSelect(String value) async {
+                Navigator.of(sheetContext).pop();
+                await handleSelection(value);
+              }
 
-            return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      ExpansionTile(
-                        title: const Text('Google Drive'),
-                        initiallyExpanded: true,
+              return SafeArea(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: maxSheetHeight),
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (currentDriveStepAction != null &&
-                              currentDriveStepLabel != null)
-                            ListTile(
-                              onTap: () =>
-                                  closeAndSelect(currentDriveStepAction),
-                              title: Text(currentDriveStepLabel),
-                            ),
-                          ListTile(
-                            enabled: state.isDriveConnected,
-                            onTap: state.isDriveConnected
-                                ? () => closeAndSelect('disconnect')
-                                : null,
-                            title: const Text('Disconnect Google Drive'),
+                          ExpansionTile(
+                            title: const Text('Google Drive'),
+                            initiallyExpanded: true,
+                            children: [
+                              if (currentDriveStepAction != null &&
+                                  currentDriveStepLabel != null)
+                                ListTile(
+                                  onTap: () =>
+                                      closeAndSelect(currentDriveStepAction),
+                                  title: Text(currentDriveStepLabel),
+                                ),
+                              ListTile(
+                                enabled: state.isDriveConnected,
+                                onTap: state.isDriveConnected
+                                    ? () => closeAndSelect('disconnect')
+                                    : null,
+                                title: const Text('Disconnect Google Drive'),
+                              ),
+                            ],
+                          ),
+                          ExpansionTile(
+                            title: const Text('Vault'),
+                            initiallyExpanded: true,
+                            children: [
+                              ListTile(
+                                onTap: () => closeAndSelect('toggleAutoSync'),
+                                title: Text(
+                                  state.autoSyncEnabled
+                                      ? 'Disable auto-sync'
+                                      : 'Enable auto-sync',
+                                ),
+                              ),
+                              ListTile(
+                                onTap: () => closeAndSelect('changeDatabase'),
+                                title: const Text('Change database'),
+                              ),
+                              ListTile(
+                                onTap: () => closeAndSelect('databaseSettings'),
+                                title: const Text('Database settings'),
+                              ),
+                              ListTile(
+                                onTap: () => closeAndSelect('lockVault'),
+                                title: const Text('Lock vault'),
+                              ),
+                              ListTile(
+                                onTap: () =>
+                                    closeAndSelect('exportDatabaseBackup'),
+                                title: const Text('Export database backup'),
+                              ),
+                              ListTile(
+                                onTap: () => closeAndSelect('exportKeyFile'),
+                                title: const Text('Export key file'),
+                              ),
+                              ListTile(
+                                onTap: () => closeAndSelect('importCsv'),
+                                title: const Text('Import from CSV'),
+                              ),
+                              if (canConfigureAndroidAutofill)
+                                ListTile(
+                                  onTap: () =>
+                                      closeAndSelect('androidAutofill'),
+                                  title: const Text('Autofill Android'),
+                                ),
+                              ListTile(
+                                onTap: () => closeAndSelect('recycleBin'),
+                                title: const Text('Open recycle bin'),
+                              ),
+                            ],
+                          ),
+                          ExpansionTile(
+                            title: const Text('Theme'),
+                            children: [
+                              ListTile(
+                                onTap: () => closeAndSelect('themeSystem'),
+                                title: const Text('System'),
+                                trailing: themeMode == ThemeMode.system
+                                    ? const Icon(AppIcons.check, size: 16)
+                                    : null,
+                              ),
+                              ListTile(
+                                onTap: () => closeAndSelect('themeLight'),
+                                title: const Text('Light'),
+                                trailing: themeMode == ThemeMode.light
+                                    ? const Icon(AppIcons.check, size: 16)
+                                    : null,
+                              ),
+                              ListTile(
+                                onTap: () => closeAndSelect('themeDark'),
+                                title: const Text('Dark'),
+                                trailing: themeMode == ThemeMode.dark
+                                    ? const Icon(AppIcons.check, size: 16)
+                                    : null,
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                      ExpansionTile(
-                        title: const Text('Vault'),
-                        initiallyExpanded: true,
-                        children: [
-                          ListTile(
-                            onTap: () => closeAndSelect('toggleAutoSync'),
-                            title: Text(
-                              state.autoSyncEnabled
-                                  ? 'Disable auto-sync'
-                                  : 'Enable auto-sync',
-                            ),
-                          ),
-                          ListTile(
-                            onTap: () => closeAndSelect('switchDatabase'),
-                            title: const Text('Switch database'),
-                          ),
-                          ListTile(
-                            onTap: () => closeAndSelect('importCsv'),
-                            title: const Text('Import from CSV'),
-                          ),
-                          if (canConfigureAndroidAutofill)
-                            ListTile(
-                              onTap: () => closeAndSelect('androidAutofill'),
-                              title: const Text('Autofill Android'),
-                            ),
-                          ListTile(
-                            onTap: () => closeAndSelect('recycleBin'),
-                            title: const Text('Open recycle bin'),
-                          ),
-                        ],
-                      ),
-                      ExpansionTile(
-                        title: const Text('Theme'),
-                        children: [
-                          ListTile(
-                            onTap: () => closeAndSelect('themeSystem'),
-                            title: const Text('System'),
-                            trailing: themeMode == ThemeMode.system
-                                ? const Icon(AppIcons.check, size: 16)
-                                : null,
-                          ),
-                          ListTile(
-                            onTap: () => closeAndSelect('themeLight'),
-                            title: const Text('Light'),
-                            trailing: themeMode == ThemeMode.light
-                                ? const Icon(AppIcons.check, size: 16)
-                                : null,
-                          ),
-                          ListTile(
-                            onTap: () => closeAndSelect('themeDark'),
-                            title: const Text('Dark'),
-                            trailing: themeMode == ThemeMode.dark
-                                ? const Icon(AppIcons.check, size: 16)
-                                : null,
-                          ),
-                        ],
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            );
-          },
-        );
-      },
-      icon: const _SyncStripActionIcon(icon: AppIcons.more),
+              );
+            },
+          );
+        },
+        icon: const _SyncStripActionIcon(icon: AppIcons.more),
+      ),
     );
   }
 }
@@ -610,8 +1056,9 @@ class _DriveSetupProgressIndicator extends StatelessWidget {
       message: linked
           ? 'Drive setup complete'
           : connected
-          ? 'Setup step 2/2: link this database'
-          : 'Setup step 1/2: connect Google Drive',
+          ? 'Link this database'
+          : 'Connect Google Drive',
+      ignorePointer: true,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [

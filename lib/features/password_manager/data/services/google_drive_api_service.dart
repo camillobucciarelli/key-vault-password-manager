@@ -51,29 +51,41 @@ class GoogleDriveApiService {
   Future<List<DriveRemoteFile>> _fetchKdbxFiles({
     required String driveQuery,
   }) async {
-    final uri = Uri.parse('$_apiBase/files').replace(
-      queryParameters: {
+    final collected = <DriveRemoteFile>[];
+    String? nextPageToken;
+
+    do {
+      final queryParameters = <String, String>{
         'spaces': 'drive',
         'q': driveQuery,
-        'fields': 'files(id,name,modifiedTime,md5Checksum)',
-        'pageSize': '200',
+        'fields': 'nextPageToken,files(id,name,modifiedTime,md5Checksum)',
+        'pageSize': '1000',
         'orderBy': 'modifiedTime desc',
-      },
-    );
+        'supportsAllDrives': 'true',
+        'includeItemsFromAllDrives': 'true',
+      };
+      if (nextPageToken != null) {
+        queryParameters['pageToken'] = nextPageToken;
+      }
 
-    final response = await _authedGet(uri);
-    _ensureSuccess(response, 'Unable to list Drive files');
+      final uri = Uri.parse(
+        '$_apiBase/files',
+      ).replace(queryParameters: queryParameters);
 
-    final payload = jsonDecode(response.body) as Map<String, dynamic>;
-    final files = payload['files'];
-    if (files is! List) {
-      return const [];
-    }
+      final response = await _authedGet(uri);
+      _ensureSuccess(response, 'Unable to list Drive files');
 
-    return files
-        .whereType<Map<String, dynamic>>()
-        .map(_mapRemoteFile)
-        .toList(growable: false);
+      final payload = jsonDecode(response.body) as Map<String, dynamic>;
+      final files = payload['files'];
+      if (files is List) {
+        collected.addAll(
+          files.whereType<Map<String, dynamic>>().map(_mapRemoteFile),
+        );
+      }
+      nextPageToken = payload['nextPageToken'] as String?;
+    } while (nextPageToken != null && nextPageToken.isNotEmpty);
+
+    return List<DriveRemoteFile>.unmodifiable(collected);
   }
 
   Future<DriveRemoteFile> getFileMetadata(String fileId) async {

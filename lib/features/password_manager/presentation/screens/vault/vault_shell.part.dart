@@ -239,9 +239,11 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     }
 
     try {
+      final databasePath = context.read<VaultBloc>().state.databasePath;
       await di.sl<SaveSelectedDatabasePathUseCase>()('');
       await di.sl<SaveSelectedKeyFilePathUseCase>()(null);
       await di.sl<SecureDataSource>().clearMasterPassword();
+      await di.sl<AddRecentDatabasePathUseCase>()(databasePath);
 
       if (!mounted) {
         return;
@@ -348,7 +350,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                                 onOpenRecycleBin: () {
                                   _showRecycleBinDialog(context);
                                 },
-                                onSwitchDatabase:
+                                onChangeDatabase:
                                     _closeCurrentDatabaseAndSelectAnother,
                               ),
                               const SizedBox(height: _VaultUiTokens.panelGap),
@@ -386,7 +388,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                               onOpenRecycleBin: () {
                                 _showRecycleBinDialog(context);
                               },
-                              onSwitchDatabase:
+                              onChangeDatabase:
                                   _closeCurrentDatabaseAndSelectAnother,
                             ),
                             const SizedBox(height: _VaultUiTokens.panelGap),

@@ -25,6 +25,22 @@ class _EntriesCard extends StatefulWidget {
 
 class _EntriesCardState extends State<_EntriesCard> {
   String? _selectedEntryId;
+  late final ScrollController _entriesScrollController;
+  late final TextEditingController _searchController;
+
+  @override
+  void initState() {
+    super.initState();
+    _entriesScrollController = ScrollController();
+    _searchController = TextEditingController(text: widget.searchQuery);
+  }
+
+  @override
+  void dispose() {
+    _entriesScrollController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
 
   VaultEntry? get _selectedEntry {
     if (_selectedEntryId == null) {
@@ -42,6 +58,13 @@ class _EntriesCardState extends State<_EntriesCard> {
   @override
   void didUpdateWidget(covariant _EntriesCard oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.searchQuery != _searchController.text) {
+      _searchController.value = TextEditingValue(
+        text: widget.searchQuery,
+        selection: TextSelection.collapsed(offset: widget.searchQuery.length),
+      );
+    }
+
     if (widget.entries.isEmpty) {
       if (_selectedEntryId != null) {
         _selectedEntryId = null;
@@ -79,6 +102,7 @@ class _EntriesCardState extends State<_EntriesCard> {
           url: payload.url,
           notes: payload.notes,
           customFields: payload.customFields,
+          attachmentPaths: payload.attachmentPaths,
         ),
       );
     }
@@ -360,6 +384,23 @@ class _EntriesCardState extends State<_EntriesCard> {
       }
     }
 
+    if (treeItems.isEmpty && widget.entries.isNotEmpty) {
+      for (final entry in widget.entries) {
+        final isSelected = showInlineDetail && _selectedEntryId == entry.id;
+        treeItems.add(
+          _RecordListItem(
+            entry: entry,
+            isSelected: isSelected,
+            onOpen: () =>
+                _openEntry(context, entry, showInlineDetail: showInlineDetail),
+            onSelectedAction: (action) {
+              _handleEntryAction(context, entry, action);
+            },
+          ),
+        );
+      }
+    }
+
     if (treeItems.isEmpty) {
       final emptyState = _RecordsEmptyState(
         searchQuery: widget.searchQuery,
@@ -394,6 +435,7 @@ class _EntriesCardState extends State<_EntriesCard> {
     }
 
     final list = ListView.separated(
+      controller: widget.isScrollablePage ? null : _entriesScrollController,
       padding: EdgeInsets.zero,
       shrinkWrap: widget.isScrollablePage,
       physics: widget.isScrollablePage
@@ -409,7 +451,7 @@ class _EntriesCardState extends State<_EntriesCard> {
       return list;
     }
 
-    return Scrollbar(child: list);
+    return Scrollbar(controller: _entriesScrollController, child: list);
   }
 
   @override
@@ -424,20 +466,22 @@ class _EntriesCardState extends State<_EntriesCard> {
           LayoutBuilder(
             builder: (context, constraints) {
               final searchField = TextFormField(
-                key: ValueKey('vault-search-${widget.searchQuery}'),
-                initialValue: widget.searchQuery,
+                controller: _searchController,
                 decoration: InputDecoration(
                   labelText: 'Search records',
                   prefixIcon: const Icon(AppIcons.search),
                   suffixIcon: widget.searchQuery.isNotEmpty
-                      ? IconButton(
-                          tooltip: 'Clear search',
-                          onPressed: () {
-                            context.read<VaultBloc>().add(
-                              const ClearVaultSearchQuery(),
-                            );
-                          },
-                          icon: const Icon(AppIcons.close),
+                      ? Tooltip(
+                          message: 'Clear search',
+                          ignorePointer: true,
+                          child: IconButton(
+                            onPressed: () {
+                              context.read<VaultBloc>().add(
+                                const ClearVaultSearchQuery(),
+                              );
+                            },
+                            icon: const Icon(AppIcons.close),
+                          ),
                         )
                       : null,
                 ),
@@ -573,33 +617,36 @@ class _EntryDetailsPage extends StatelessWidget {
       appBar: AppBar(
         title: Text(entry.title.isEmpty ? '(Untitled)' : entry.title),
         actions: [
-          PopupMenuButton<_EntryAction>(
-            tooltip: 'Record actions',
-            onSelected: onSelectedAction,
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: _EntryAction.edit,
-                child: Text('Edit'),
-              ),
-              const PopupMenuItem(
-                value: _EntryAction.move,
-                child: Text('Move'),
-              ),
-              const PopupMenuItem(
-                value: _EntryAction.attachments,
-                child: Text('Attachments'),
-              ),
-              PopupMenuItem(
-                value: _EntryAction.showTotp,
-                child: Text(
-                  entry.otpUri == null ? 'OTP unavailable' : 'Show OTP',
+          Tooltip(
+            message: 'Record actions',
+            ignorePointer: true,
+            child: PopupMenuButton<_EntryAction>(
+              onSelected: onSelectedAction,
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: _EntryAction.edit,
+                  child: Text('Edit'),
                 ),
-              ),
-              const PopupMenuItem(
-                value: _EntryAction.delete,
-                child: Text('Delete'),
-              ),
-            ],
+                const PopupMenuItem(
+                  value: _EntryAction.move,
+                  child: Text('Move'),
+                ),
+                const PopupMenuItem(
+                  value: _EntryAction.attachments,
+                  child: Text('Attachments'),
+                ),
+                PopupMenuItem(
+                  value: _EntryAction.showTotp,
+                  child: Text(
+                    entry.otpUri == null ? 'OTP unavailable' : 'Show OTP',
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: _EntryAction.delete,
+                  child: Text('Delete'),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -709,18 +756,21 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
         value: resolvedPassword,
         emptyLabel: 'Password not set',
         maxLines: 1,
-        trailing: IconButton(
-          tooltip: _passwordVisible ? 'Hide password' : 'Show password',
-          onPressed: entry.password.isEmpty
-              ? null
-              : () {
-                  setState(() {
-                    _passwordVisible = !_passwordVisible;
-                  });
-                },
-          icon: Icon(
-            _passwordVisible ? AppIcons.eyeOff : AppIcons.eye,
-            size: 18,
+        trailing: Tooltip(
+          message: _passwordVisible ? 'Hide password' : 'Show password',
+          ignorePointer: true,
+          child: IconButton(
+            onPressed: entry.password.isEmpty
+                ? null
+                : () {
+                    setState(() {
+                      _passwordVisible = !_passwordVisible;
+                    });
+                  },
+            icon: Icon(
+              _passwordVisible ? AppIcons.eyeOff : AppIcons.eye,
+              size: 18,
+            ),
           ),
         ),
         onCopy: entry.password.isEmpty
@@ -841,33 +891,38 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                   ),
                 ),
                 if (widget.onSelectedAction != null)
-                  PopupMenuButton<_EntryAction>(
-                    tooltip: 'Record actions',
-                    onSelected: widget.onSelectedAction,
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: _EntryAction.edit,
-                        child: Text('Edit'),
-                      ),
-                      const PopupMenuItem(
-                        value: _EntryAction.move,
-                        child: Text('Move'),
-                      ),
-                      const PopupMenuItem(
-                        value: _EntryAction.attachments,
-                        child: Text('Attachments'),
-                      ),
-                      PopupMenuItem(
-                        value: _EntryAction.showTotp,
-                        child: Text(
-                          entry.otpUri == null ? 'OTP unavailable' : 'Show OTP',
+                  Tooltip(
+                    message: 'Record actions',
+                    ignorePointer: true,
+                    child: PopupMenuButton<_EntryAction>(
+                      onSelected: widget.onSelectedAction,
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(
+                          value: _EntryAction.edit,
+                          child: Text('Edit'),
                         ),
-                      ),
-                      const PopupMenuItem(
-                        value: _EntryAction.delete,
-                        child: Text('Delete'),
-                      ),
-                    ],
+                        const PopupMenuItem(
+                          value: _EntryAction.move,
+                          child: Text('Move'),
+                        ),
+                        const PopupMenuItem(
+                          value: _EntryAction.attachments,
+                          child: Text('Attachments'),
+                        ),
+                        PopupMenuItem(
+                          value: _EntryAction.showTotp,
+                          child: Text(
+                            entry.otpUri == null
+                                ? 'OTP unavailable'
+                                : 'Show OTP',
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: _EntryAction.delete,
+                          child: Text('Delete'),
+                        ),
+                      ],
+                    ),
                   ),
               ],
             ),
@@ -885,6 +940,30 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
             ),
             const SizedBox(height: 6),
             _EntryFieldsWrap(children: standardFields),
+            const SizedBox(height: 10),
+            _EntryDetailsSection(
+              title: 'Metadata',
+              caption: 'KDBX record timestamps.',
+              child: _EntryFieldsWrap(
+                children: [
+                  _EntryFieldCard(
+                    label: 'Created',
+                    value: _formatEntryDateTime(entry.createdAt),
+                    maxLines: 1,
+                  ),
+                  _EntryFieldCard(
+                    label: 'Last modified',
+                    value: _formatEntryDateTime(entry.updatedAt),
+                    maxLines: 1,
+                  ),
+                  _EntryFieldCard(
+                    label: 'Last password change',
+                    value: _formatEntryDateTime(entry.lastPasswordChangedAt),
+                    maxLines: 1,
+                  ),
+                ],
+              ),
+            ),
             if (customFields.isNotEmpty) ...[
               const SizedBox(height: 10),
               _EntryDetailsSection(
@@ -1189,10 +1268,13 @@ class _FolderListItem extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 4),
-            IconButton(
-              tooltip: isExpanded ? 'Collapse folder' : 'Expand folder',
-              onPressed: hasChildren ? onToggleExpand : null,
-              icon: Icon(caretIcon, size: 16),
+            Tooltip(
+              message: isExpanded ? 'Collapse folder' : 'Expand folder',
+              ignorePointer: true,
+              child: IconButton(
+                onPressed: hasChildren ? onToggleExpand : null,
+                icon: Icon(caretIcon, size: 16),
+              ),
             ),
             Container(
               width: _VaultUiTokens.folderIconContainerSize,
@@ -1269,31 +1351,37 @@ class _FolderListItem extends StatelessWidget {
                 ),
               ),
             ],
-            PopupMenuButton<_FolderAction>(
-              tooltip: 'Folder actions',
-              onSelected: onSelectedAction,
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: _FolderAction.addRecord,
-                  child: const Text('Add record'),
-                ),
-                PopupMenuItem(
-                  value: _FolderAction.addSubfolder,
-                  child: const Text('Add subfolder'),
-                ),
-                if (!isRoot) ...const [
-                  PopupMenuDivider(),
+            Tooltip(
+              message: 'Folder actions',
+              ignorePointer: true,
+              child: PopupMenuButton<_FolderAction>(
+                onSelected: onSelectedAction,
+                itemBuilder: (context) => [
                   PopupMenuItem(
-                    value: _FolderAction.rename,
-                    child: Text('Rename'),
+                    value: _FolderAction.addRecord,
+                    child: const Text('Add record'),
                   ),
-                  PopupMenuItem(value: _FolderAction.move, child: Text('Move')),
                   PopupMenuItem(
-                    value: _FolderAction.delete,
-                    child: Text('Delete'),
+                    value: _FolderAction.addSubfolder,
+                    child: const Text('Add subfolder'),
                   ),
+                  if (!isRoot) ...const [
+                    PopupMenuDivider(),
+                    PopupMenuItem(
+                      value: _FolderAction.rename,
+                      child: Text('Rename'),
+                    ),
+                    PopupMenuItem(
+                      value: _FolderAction.move,
+                      child: Text('Move'),
+                    ),
+                    PopupMenuItem(
+                      value: _FolderAction.delete,
+                      child: Text('Delete'),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ],
         ),
@@ -1318,111 +1406,157 @@ class _RecordListItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isPasswordWarning = _isPasswordUpdateOverdue(entry, DateTime.now());
+    final warningForeground =
+        ThemeData.estimateBrightnessForColor(AppColors.warning) ==
+            Brightness.dark
+        ? Colors.white
+        : Colors.black87;
+    final metadataTooltip =
+        'Created: ${_formatEntryDateTime(entry.createdAt)}\n'
+        'Last modified: ${_formatEntryDateTime(entry.updatedAt)}\n'
+        'Last password change: ${_formatEntryDateTime(entry.lastPasswordChangedAt)}'
+        '${isPasswordWarning ? '\nPassword warning: updated more than 3 months ago' : ''}';
 
-    return _InteractiveItemSurface(
-      radius: _VaultUiTokens.recordItemRadius,
-      minHeight: _VaultUiTokens.recordItemHeight,
-      onTap: onOpen,
-      baseColor: isSelected
-          ? colorScheme.secondaryContainer.withValues(alpha: 0.52)
-          : colorScheme.surface.withValues(alpha: 0.74),
-      hoveredColor: isSelected
-          ? colorScheme.secondaryContainer.withValues(alpha: 0.68)
-          : colorScheme.surface.withValues(alpha: 0.85),
-      baseBorderColor: isSelected
-          ? colorScheme.secondary.withValues(alpha: 0.44)
-          : colorScheme.outlineVariant.withValues(alpha: 0.7),
-      hoveredBorderColor: colorScheme.secondary.withValues(alpha: 0.33),
-      child: Padding(
-        padding: const EdgeInsets.only(left: 10, right: 6, top: 8, bottom: 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: _VaultUiTokens.folderIconContainerSize,
-              height: _VaultUiTokens.folderIconContainerSize,
-              decoration: BoxDecoration(
-                color: colorScheme.secondaryContainer.withValues(alpha: 0.48),
-                borderRadius: BorderRadius.circular(10),
+    return Tooltip(
+      message: metadataTooltip,
+      ignorePointer: true,
+      waitDuration: const Duration(milliseconds: 900),
+      child: _InteractiveItemSurface(
+        radius: _VaultUiTokens.recordItemRadius,
+        minHeight: _VaultUiTokens.recordItemHeight,
+        onTap: onOpen,
+        baseColor: isSelected
+            ? colorScheme.secondaryContainer.withValues(alpha: 0.52)
+            : colorScheme.surface.withValues(alpha: 0.74),
+        hoveredColor: isSelected
+            ? colorScheme.secondaryContainer.withValues(alpha: 0.68)
+            : colorScheme.surface.withValues(alpha: 0.85),
+        baseBorderColor: isSelected
+            ? colorScheme.secondary.withValues(alpha: 0.44)
+            : colorScheme.outlineVariant.withValues(alpha: 0.7),
+        hoveredBorderColor: colorScheme.secondary.withValues(alpha: 0.33),
+        child: Padding(
+          padding: const EdgeInsets.only(left: 10, right: 6, top: 8, bottom: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: _VaultUiTokens.folderIconContainerSize,
+                height: _VaultUiTokens.folderIconContainerSize,
+                decoration: BoxDecoration(
+                  color: isPasswordWarning
+                      ? AppColors.warning.withValues(alpha: 0.78)
+                      : colorScheme.secondaryContainer.withValues(alpha: 0.48),
+                  borderRadius: BorderRadius.circular(10),
+                  border: isPasswordWarning
+                      ? Border.all(color: AppColors.warning, width: 1.1)
+                      : null,
+                ),
+                child: Icon(
+                  AppIcons.key,
+                  size: 18,
+                  color: isPasswordWarning
+                      ? warningForeground
+                      : colorScheme.onSecondaryContainer,
+                ),
               ),
-              child: Icon(
-                AppIcons.key,
-                size: 18,
-                color: colorScheme.onSecondaryContainer,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    entry.title.isEmpty ? '(Untitled)' : entry.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: isSelected
-                          ? colorScheme.onSecondaryContainer
-                          : null,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      entry.title.isEmpty ? '(Untitled)' : entry.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: isSelected
+                            ? colorScheme.onSecondaryContainer
+                            : null,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    entry.username.isEmpty
-                        ? (entry.url.isEmpty ? 'No username' : entry.url)
-                        : entry.username,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: isSelected
-                          ? colorScheme.onSecondaryContainer.withValues(
-                              alpha: 0.82,
-                            )
-                          : null,
+                    const SizedBox(height: 3),
+                    Text(
+                      entry.username.isEmpty
+                          ? (entry.url.isEmpty ? 'No username' : entry.url)
+                          : entry.username,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: isSelected
+                            ? colorScheme.onSecondaryContainer.withValues(
+                                alpha: 0.82,
+                              )
+                            : null,
+                      ),
                     ),
-                  ),
-                  if (entry.otpUri != null) ...[
-                    const SizedBox(height: 7),
-                    _TotpChip(otpUri: entry.otpUri!),
+                    if (entry.otpUri != null) ...[
+                      const SizedBox(height: 7),
+                      _TotpChip(otpUri: entry.otpUri!),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-            PopupMenuButton<_EntryAction>(
-              tooltip: 'Record actions',
-              onSelected: onSelectedAction,
-              itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: _EntryAction.edit,
-                  child: Text('Edit'),
+              Tooltip(
+                message: 'Record actions',
+                ignorePointer: true,
+                child: PopupMenuButton<_EntryAction>(
+                  onSelected: onSelectedAction,
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: _EntryAction.edit,
+                      child: Text('Edit'),
+                    ),
+                    const PopupMenuItem(
+                      value: _EntryAction.move,
+                      child: Text('Move'),
+                    ),
+                    const PopupMenuItem(
+                      value: _EntryAction.attachments,
+                      child: Text('Attachments'),
+                    ),
+                    PopupMenuItem(
+                      value: _EntryAction.showTotp,
+                      child: Text(
+                        entry.otpUri == null ? 'OTP unavailable' : 'Show OTP',
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: _EntryAction.delete,
+                      child: Text('Delete'),
+                    ),
+                  ],
                 ),
-                const PopupMenuItem(
-                  value: _EntryAction.move,
-                  child: Text('Move'),
-                ),
-                const PopupMenuItem(
-                  value: _EntryAction.attachments,
-                  child: Text('Attachments'),
-                ),
-                PopupMenuItem(
-                  value: _EntryAction.showTotp,
-                  child: Text(
-                    entry.otpUri == null ? 'OTP unavailable' : 'Show OTP',
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: _EntryAction.delete,
-                  child: Text('Delete'),
-                ),
-              ],
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
+}
+
+bool _isPasswordUpdateOverdue(VaultEntry entry, DateTime now) {
+  final reference = entry.lastPasswordChangedAt ?? entry.updatedAt;
+  if (reference == null) {
+    return false;
+  }
+
+  final cutoff = DateTime(
+    now.year,
+    now.month - 3,
+    now.day,
+    now.hour,
+    now.minute,
+    now.second,
+    now.millisecond,
+    now.microsecond,
+  );
+
+  return reference.isBefore(cutoff);
 }
 
 class _RecordsEmptyState extends StatelessWidget {
@@ -1508,6 +1642,15 @@ class _TotpChipState extends State<_TotpChip> {
   bool _isHovered = false;
   bool _isFocused = false;
 
+  int get _periodSeconds {
+    final parsed = Uri.tryParse(widget.otpUri);
+    final period = int.tryParse(parsed?.queryParameters['period'] ?? '');
+    if (period == null || period <= 0) {
+      return 30;
+    }
+    return period;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1539,53 +1682,158 @@ class _TotpChipState extends State<_TotpChip> {
         ? Duration.zero
         : _VaultUiTokens.chipTransitionDuration;
     final highlighted = _isHovered || _isFocused;
+    final periodSeconds = _periodSeconds;
+    final remainingRatio = (data.remainingSeconds / periodSeconds)
+        .clamp(0.0, 1.0)
+        .toDouble();
+    final previousRatio = data.remainingSeconds == periodSeconds
+        ? 1.0
+        : ((data.remainingSeconds + 1) / periodSeconds)
+              .clamp(0.0, 1.0)
+              .toDouble();
+    final isExpiringSoon =
+        data.remainingSeconds <= math.max(5, periodSeconds ~/ 5);
+    final accentColor = isExpiringSoon
+        ? AppColors.warning
+        : colorScheme.secondary;
+    final onAccentColor = isExpiringSoon
+        ? (ThemeData.estimateBrightnessForColor(AppColors.warning) ==
+                  Brightness.dark
+              ? Colors.white
+              : Colors.black87)
+        : colorScheme.onSecondaryContainer;
 
-    return FocusableActionDetector(
-      onShowFocusHighlight: (value) {
-        if (_isFocused != value) {
-          setState(() {
-            _isFocused = value;
-          });
-        }
-      },
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) {
-          setState(() {
-            _isHovered = true;
-          });
+    return Tooltip(
+      message: 'Show OTP code',
+      ignorePointer: true,
+      child: FocusableActionDetector(
+        onShowFocusHighlight: (value) {
+          if (_isFocused != value) {
+            setState(() {
+              _isFocused = value;
+            });
+          }
         },
-        onExit: (_) {
-          setState(() {
-            _isHovered = false;
-          });
-        },
-        child: AnimatedScale(
-          duration: animationDuration,
-          curve: Curves.easeOutCubic,
-          scale: highlighted ? 1.02 : 1,
-          child: InkWell(
-            onTap: () async {
-              await _showTotpUriDialog(context, widget.otpUri);
-            },
-            borderRadius: BorderRadius.circular(999),
-            child: AnimatedContainer(
-              duration: animationDuration,
-              curve: Curves.easeInOutCubic,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: highlighted
-                      ? colorScheme.secondary.withValues(alpha: 0.35)
-                      : colorScheme.outlineVariant.withValues(alpha: 0.65),
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          onEnter: (_) {
+            setState(() {
+              _isHovered = true;
+            });
+          },
+          onExit: (_) {
+            setState(() {
+              _isHovered = false;
+            });
+          },
+          child: AnimatedScale(
+            duration: animationDuration,
+            curve: Curves.easeOutCubic,
+            scale: highlighted ? 1.02 : 1,
+            child: InkWell(
+              onTap: () async {
+                await _showTotpUriDialog(context, widget.otpUri);
+              },
+              borderRadius: BorderRadius.circular(14),
+              child: AnimatedContainer(
+                duration: animationDuration,
+                curve: Curves.easeInOutCubic,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
                 ),
-              ),
-              child: Chip(
-                side: BorderSide.none,
-                backgroundColor: highlighted
-                    ? colorScheme.secondaryContainer.withValues(alpha: 0.75)
-                    : colorScheme.secondaryContainer.withValues(alpha: 0.55),
-                label: Text('Show OTP (${data.remainingSeconds}s)'),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: highlighted
+                        ? accentColor.withValues(alpha: 0.5)
+                        : colorScheme.outlineVariant.withValues(alpha: 0.65),
+                  ),
+                  color: highlighted
+                      ? colorScheme.secondaryContainer.withValues(alpha: 0.8)
+                      : colorScheme.secondaryContainer.withValues(alpha: 0.58),
+                  boxShadow: highlighted
+                      ? [
+                          BoxShadow(
+                            color: accentColor.withValues(alpha: 0.16),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(AppIcons.key, size: 14, color: onAccentColor),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Show OTP',
+                          style: Theme.of(context).textTheme.labelLarge
+                              ?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: onAccentColor,
+                              ),
+                        ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 28,
+                          height: 28,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              TweenAnimationBuilder<double>(
+                                key: ValueKey<int>(data.remainingSeconds),
+                                tween: Tween<double>(
+                                  begin: previousRatio,
+                                  end: remainingRatio,
+                                ),
+                                duration: const Duration(milliseconds: 940),
+                                curve: Curves.linear,
+                                builder: (context, animatedRatio, _) {
+                                  return CircularProgressIndicator(
+                                    value: animatedRatio,
+                                    strokeWidth: 2.6,
+                                    strokeCap: StrokeCap.round,
+                                    backgroundColor: accentColor.withValues(
+                                      alpha: 0.15,
+                                    ),
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      accentColor,
+                                    ),
+                                  );
+                                },
+                              ),
+                              AnimatedSwitcher(
+                                duration: animationDuration,
+                                switchInCurve: Curves.easeOut,
+                                switchOutCurve: Curves.easeIn,
+                                transitionBuilder: (child, animation) =>
+                                    FadeTransition(
+                                      opacity: animation,
+                                      child: child,
+                                    ),
+                                child: Text(
+                                  '${data.remainingSeconds}',
+                                  key: ValueKey<int>(data.remainingSeconds),
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        color: onAccentColor,
+                                        fontSize: 10,
+                                      ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

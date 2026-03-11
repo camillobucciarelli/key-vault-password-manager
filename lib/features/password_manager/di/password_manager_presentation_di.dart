@@ -10,10 +10,14 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       getSelectedDatabasePathUseCase: sl(),
       saveSelectedDatabasePathUseCase: sl(),
       saveSelectedKeyFilePathUseCase: sl(),
+      getRecentDatabasePathsUseCase: sl(),
+      addRecentDatabasePathUseCase: sl(),
+      removeRecentDatabasePathUseCase: sl(),
       setBiometricProtectionEnabledUseCase: sl(),
       secureDataSource: sl(),
       validateDatabaseUseCase: sl(),
       linkDatabaseToDriveUseCase: sl(),
+      databaseSyncRepository: sl(),
     ),
   );
 

@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:loggy/loggy.dart';
 
@@ -44,6 +45,9 @@ void _configureLogging() {
   );
 
   FlutterError.onError = (details) {
+    if (_isKnownKeyboardRepeatAssertion(details)) {
+      return;
+    }
     FlutterError.presentError(details);
     logError(
       'Unhandled Flutter framework error',
@@ -56,6 +60,12 @@ void _configureLogging() {
     logError('Unhandled platform error', error, stack);
     return true;
   };
+}
+
+bool _isKnownKeyboardRepeatAssertion(FlutterErrorDetails details) {
+  final message = details.exceptionAsString();
+  return message.contains('A KeyDownEvent is dispatched') &&
+      message.contains('physical key is already pressed');
 }
 
 class PasswordManagerApp extends StatelessWidget {
@@ -79,6 +89,16 @@ class PasswordManagerApp extends StatelessWidget {
             darkTheme: AppTheme.darkTheme,
             themeMode: themeMode,
             home: const DatabaseSelectionScreen(),
+            builder: (context, child) {
+              final brightness = Theme.of(context).brightness;
+              final overlayStyle = brightness == Brightness.light
+                  ? SystemUiOverlayStyle.dark
+                  : SystemUiOverlayStyle.light;
+              return AnnotatedRegion<SystemUiOverlayStyle>(
+                value: overlayStyle,
+                child: child ?? const SizedBox.shrink(),
+              );
+            },
           );
         },
       ),

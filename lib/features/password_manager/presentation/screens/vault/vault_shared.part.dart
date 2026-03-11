@@ -217,7 +217,14 @@ String _formatSyncDateTime(DateTime value) {
   final d = local.day.toString().padLeft(2, '0');
   final hh = local.hour.toString().padLeft(2, '0');
   final mm = local.minute.toString().padLeft(2, '0');
-  return '$y-$m-$d $hh:$mm';
+  return '$d-$m-$y $hh:$mm';
+}
+
+String _formatEntryDateTime(DateTime? value) {
+  if (value == null) {
+    return 'Not available';
+  }
+  return _formatSyncDateTime(value);
 }
 
 String _csvSourceFormatLabel(VaultCsvSourceFormat format) {
