@@ -31,11 +31,11 @@ class _KeyFileSelector extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              isMobilePlatform ? p.basename(keyFilePath!) : keyFilePath!,
+              isManagedStoragePlatform ? p.basename(keyFilePath!) : keyFilePath!,
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          if (isMobilePlatform)
+          if (isManagedStoragePlatform)
             Wrap(
               spacing: 2,
               children: [

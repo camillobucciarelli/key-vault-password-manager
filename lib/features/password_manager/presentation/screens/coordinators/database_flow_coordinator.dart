@@ -19,7 +19,10 @@ class DatabaseFlowCoordinator {
       }
       AppNavigation.pushFadeReplacement(
         context,
-        DatabaseUnlockScreen(databasePath: state.path),
+        DatabaseUnlockScreen(
+          databasePath: state.path,
+          promptBiometricSetup: state.promptBiometricSetup,
+        ),
       );
       return;
     }

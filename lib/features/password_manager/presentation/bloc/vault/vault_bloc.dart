@@ -1092,7 +1092,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         emit,
         state.copyWith(
           syncStatus: DatabaseSyncStatus.error,
-          syncError: 'Unable to connect Google Drive.',
+          syncError: _buildDriveConnectErrorMessage(e),
         ),
       );
     }
@@ -1311,6 +1311,26 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     return message.contains('authorization is outdated') ||
         message.contains('authorization needs to be renewed') ||
         message.contains('full drive access');
+  }
+
+  String _buildDriveConnectErrorMessage(Object error) {
+    final message = error.toString().toLowerCase();
+    if (message.contains('google sign-in cancelled')) {
+      return 'Google sign-in cancelled.';
+    }
+    if (message.contains('android google sign-in is not configured') ||
+        message.contains('ios google sign-in is not configured')) {
+      return error.toString();
+    }
+    if (message.contains('authorization was not granted')) {
+      return 'Google Drive permission not granted.';
+    }
+    if (message.contains(
+      'google account selected, but drive permission was not granted',
+    )) {
+      return 'Google account selected, but Drive permission not granted.';
+    }
+    return 'Unable to connect Google Drive.';
   }
 
   Future<void> _refreshSyncState(Emitter<VaultState> emit) async {

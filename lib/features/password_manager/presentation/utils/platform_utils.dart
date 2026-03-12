@@ -13,3 +13,10 @@ bool get isMobilePlatform {
     TargetPlatform.windows => false,
   };
 }
+
+bool get isManagedStoragePlatform {
+  if (kIsWeb) {
+    return false;
+  }
+  return isMobilePlatform || defaultTargetPlatform == TargetPlatform.macOS;
+}

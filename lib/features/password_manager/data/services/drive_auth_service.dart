@@ -35,6 +35,9 @@ class DriveAuthService {
 
     await _googleSignIn.initialize(
       clientId: !kIsWeb && Platform.isIOS ? _config.mobileClientId : null,
+      serverClientId: !kIsWeb && Platform.isAndroid
+          ? _config.androidServerClientId
+          : null,
     );
     _googleSignInInitialized = true;
   }
@@ -72,25 +75,8 @@ class DriveAuthService {
 
     await _ensureGoogleSignInInitialized();
 
-    try {
-      await _googleSignIn.authenticate(scopeHint: const [_requiredDriveScope]);
-    } on GoogleSignInException catch (e) {
-      if (e.code == GoogleSignInExceptionCode.canceled) {
-        throw Exception('Google sign-in cancelled.');
-      }
-      rethrow;
-    }
-
-    final authz =
-        await _googleSignIn.authorizationClient.authorizationForScopes(const [
-          _requiredDriveScope,
-        ]) ??
-        await _googleSignIn.authorizationClient.authorizeScopes(const [
-          _requiredDriveScope,
-        ]);
-    if (authz.accessToken.isEmpty) {
-      throw Exception('Google sign-in cancelled.');
-    }
+    final signedInUser = await _authenticateForDriveScopes();
+    await _ensureDriveScopeAuthorization(signedInUser);
   }
 
   Future<void> disconnect() async {
@@ -165,21 +151,90 @@ class DriveAuthService {
     final lightweightAttempt = _googleSignIn.attemptLightweightAuthentication();
     var user = lightweightAttempt == null ? null : await lightweightAttempt;
 
-    user ??= await _googleSignIn.authenticate(
-      scopeHint: const [_requiredDriveScope],
-    );
+    user ??= await _authenticateForDriveScopes();
 
-    final authz =
-        await user.authorizationClient.authorizationForScopes(const [
-          _requiredDriveScope,
-        ]) ??
-        await user.authorizationClient.authorizeScopes(const [
-          _requiredDriveScope,
-        ]);
+    final authz = await _ensureDriveScopeAuthorization(user);
     final accessToken = authz.accessToken;
     if (accessToken.isEmpty) {
       throw Exception('Unable to obtain a valid Google access token.');
     }
     return accessToken;
+  }
+
+  Future<GoogleSignInAccount> _authenticateForDriveScopes() async {
+    try {
+      return await _googleSignIn.authenticate(
+        scopeHint: const [_requiredDriveScope],
+      );
+    } on GoogleSignInException catch (e) {
+      if (e.code == GoogleSignInExceptionCode.canceled) {
+        final lightweightAttempt = _googleSignIn
+            .attemptLightweightAuthentication();
+        final user = lightweightAttempt == null ? null : await lightweightAttempt;
+        if (user != null) {
+          return user;
+        }
+      }
+      throw _mapGoogleSignInException(e);
+    }
+  }
+
+  Future<GoogleSignInClientAuthorization> _ensureDriveScopeAuthorization(
+    GoogleSignInAccount user,
+  ) async {
+    try {
+      final existing = await user.authorizationClient.authorizationForScopes(
+        const [_requiredDriveScope],
+      );
+      if (existing != null) {
+        return existing;
+      }
+      final granted = await user.authorizationClient.authorizeScopes(
+        const [_requiredDriveScope],
+      );
+      return granted;
+    } on GoogleSignInException catch (e) {
+      if (e.code == GoogleSignInExceptionCode.canceled) {
+        final rehydratedUser = await _tryRecoverSignedInUser();
+        if (rehydratedUser != null) {
+          final recoveredAuthz = await rehydratedUser.authorizationClient
+              .authorizationForScopes(const [_requiredDriveScope]);
+          if (recoveredAuthz != null) {
+            return recoveredAuthz;
+          }
+          throw Exception(
+            'Google account selected, but Drive permission was not granted.',
+          );
+        }
+      }
+      throw _mapGoogleSignInException(e);
+    }
+  }
+
+  Future<GoogleSignInAccount?> _tryRecoverSignedInUser() async {
+    final lightweightAttempt = _googleSignIn.attemptLightweightAuthentication();
+    if (lightweightAttempt != null) {
+      return lightweightAttempt;
+    }
+    return null;
+  }
+
+  Exception _mapGoogleSignInException(GoogleSignInException exception) {
+    if (exception.code == GoogleSignInExceptionCode.canceled) {
+      return Exception('Google sign-in cancelled.');
+    }
+    if (exception.code == GoogleSignInExceptionCode.clientConfigurationError) {
+      if (!kIsWeb && Platform.isAndroid) {
+        return Exception(
+          'Android Google Sign-In is not configured. Set GOOGLE_ANDROID_SERVER_CLIENT_ID (or GOOGLE_WEB_CLIENT_ID) in --dart-define-from-file.',
+        );
+      }
+      if (!kIsWeb && Platform.isIOS) {
+        return Exception(
+          'iOS Google Sign-In is not configured. Set GOOGLE_MOBILE_CLIENT_ID in --dart-define-from-file.',
+        );
+      }
+    }
+    return Exception('Google sign-in failed: ${exception.toString()}');
   }
 }
