@@ -1,4 +1,6 @@
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 
@@ -30,6 +32,13 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
   String? _keyFileName;
   String? _generatedKeyFilePath;
 
+  bool get _usesManagedStorage {
+    if (kIsWeb) {
+      return false;
+    }
+    return isMobilePlatform || defaultTargetPlatform == TargetPlatform.macOS;
+  }
+
   @override
   void dispose() {
     _databaseNameCtrl.dispose();
@@ -58,7 +67,7 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
   }
 
   Future<void> _pickGeneratedKeyFilePath() async {
-    if (isMobilePlatform) {
+    if (_usesManagedStorage) {
       setState(() {
         _generatedKeyFilePath = 'database.key';
       });
@@ -103,7 +112,7 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
         (_generatedKeyFilePath == null || _generatedKeyFilePath!.isEmpty)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Choose where to save the generated key file.'),
+          content: Text('Choose the generated key file option to continue.'),
         ),
       );
       return;
@@ -142,7 +151,7 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Choose the database file name and security options. On Android/iOS the database and generated key file are saved in app internal storage, so export manual backups regularly.',
+                  'Choose the database file name and security options. On Android/iOS/macOS the database and generated key file are saved in app internal storage, so export manual backups regularly.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -246,7 +255,7 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Generate key file automatically'),
                   subtitle: const Text(
-                    'On Android/iOS it will be saved in app internal storage.',
+                    'On Android/iOS/macOS it will be saved in app internal storage.',
                   ),
                   value: _generateKeyFile,
                   onChanged: (value) {
@@ -270,7 +279,7 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
                           onPressed: _pickGeneratedKeyFilePath,
                           icon: const Icon(AppIcons.save),
                           label: Text(
-                            isMobilePlatform
+                            _usesManagedStorage
                                 ? 'Prepare generated key file'
                                 : 'Choose key file destination',
                           ),
@@ -283,7 +292,7 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
                           contentPadding: EdgeInsets.zero,
                           leading: const Icon(AppIcons.fileKey),
                           title: Text(
-                            isMobilePlatform
+                            _usesManagedStorage
                                 ? 'Generated key file will be saved in app internal storage'
                                 : _generatedKeyFilePath!,
                             overflow: TextOverflow.ellipsis,

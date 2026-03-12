@@ -1,4 +1,6 @@
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:path/path.dart' as p;
@@ -10,6 +12,7 @@ import '../../../../../injection_container.dart' as di;
 import '../bloc/database_unlock/database_unlock_bloc.dart';
 import '../bloc/database_unlock/database_unlock_event.dart';
 import '../bloc/database_unlock/database_unlock_state.dart';
+import '../../domain/usecases/set_biometric_protection_enabled_usecase.dart';
 import 'coordinators/database_flow_coordinator.dart';
 import '../utils/platform_utils.dart';
 
@@ -17,10 +20,15 @@ part 'database_unlock_widgets.part.dart';
 
 class DatabaseUnlockScreen extends StatelessWidget {
   final String databasePath;
+  final bool promptBiometricSetup;
   static const DatabaseFlowCoordinator _flowCoordinator =
       DatabaseFlowCoordinator();
 
-  const DatabaseUnlockScreen({super.key, required this.databasePath});
+  const DatabaseUnlockScreen({
+    super.key,
+    required this.databasePath,
+    this.promptBiometricSetup = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -28,13 +36,15 @@ class DatabaseUnlockScreen extends StatelessWidget {
       create: (_) =>
           di.sl<DatabaseUnlockBloc>(param1: databasePath)
             ..add(const InitializeDatabaseUnlock()),
-      child: const _DatabaseUnlockView(),
+      child: _DatabaseUnlockView(promptBiometricSetup: promptBiometricSetup),
     );
   }
 }
 
 class _DatabaseUnlockView extends StatefulWidget {
-  const _DatabaseUnlockView();
+  const _DatabaseUnlockView({required this.promptBiometricSetup});
+
+  final bool promptBiometricSetup;
 
   @override
   State<_DatabaseUnlockView> createState() => _DatabaseUnlockViewState();
@@ -43,6 +53,14 @@ class _DatabaseUnlockView extends StatefulWidget {
 class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
   final _passwordCtrl = TextEditingController();
   bool _passwordVisible = false;
+  bool _biometricPromptHandled = false;
+
+  bool get _usesManagedStorage {
+    if (kIsWeb) {
+      return false;
+    }
+    return isMobilePlatform || defaultTargetPlatform == TargetPlatform.macOS;
+  }
 
   @override
   void dispose() {
@@ -52,7 +70,7 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
 
   Future<void> _pickKeyFile() async {
     final result = await FilePicker.platform.pickFiles(
-      withData: isMobilePlatform,
+      withData: _usesManagedStorage,
     );
     if (!mounted || result == null) {
       return;
@@ -60,7 +78,7 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
 
     final selected = result.files.single;
     String? path = selected.path;
-    if (isMobilePlatform) {
+    if (_usesManagedStorage) {
       if (path != null && path.isNotEmpty) {
         path = await MobileFileStorage.copyFileToAppDirectory(
           sourcePath: path,
@@ -86,7 +104,7 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
 
     context.read<DatabaseUnlockBloc>().add(UpdateKeyFilePath(path));
 
-    if (isMobilePlatform) {
+    if (_usesManagedStorage) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Key file imported to app internal storage.'),
@@ -106,6 +124,17 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
         decoration: BoxDecoration(gradient: AppBackgrounds.gradient(context)),
         child: BlocConsumer<DatabaseUnlockBloc, DatabaseUnlockState>(
           listener: (context, state) {
+            if (widget.promptBiometricSetup &&
+                !_biometricPromptHandled &&
+                !state.isLoading) {
+              _biometricPromptHandled = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) {
+                  return;
+                }
+                _showBiometricSetupPrompt();
+              });
+            }
             DatabaseUnlockScreen._flowCoordinator.onDatabaseUnlockState(
               context,
               state,
@@ -211,5 +240,52 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
         ),
       ),
     );
+  }
+
+  Future<void> _showBiometricSetupPrompt() async {
+    final shouldEnable = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Enable biometric protection?'),
+          content: const Text(
+            'This database came from Google Drive. Do you want to require biometric authentication before unlock when available?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Not now'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Enable'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldEnable == null || !mounted) {
+      return;
+    }
+
+    await di.sl<SetBiometricProtectionEnabledUseCase>()(shouldEnable);
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          shouldEnable
+              ? 'Biometric protection enabled for this database.'
+              : 'Biometric protection remains disabled for this database.',
+        ),
+      ),
+    );
+
+    if (shouldEnable) {
+      context.read<DatabaseUnlockBloc>().add(const InitializeDatabaseUnlock());
+    }
   }
 }

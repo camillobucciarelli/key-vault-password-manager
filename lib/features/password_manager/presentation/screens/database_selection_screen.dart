@@ -91,7 +91,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
       }
 
       String? savePath;
-      if (isMobilePlatform) {
+      if (isManagedStoragePlatform) {
         savePath = selected.name;
       } else {
         savePath = await FilePicker.platform.saveFile(
@@ -118,7 +118,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
       final bytes = await di.sl<DatabaseSyncRepository>().downloadRemoteFile(
         selected.id,
       );
-      final localPath = isMobilePlatform
+      final localPath = isManagedStoragePlatform
           ? await MobileFileStorage.saveBytesToAppDirectory(
               bytes: bytes,
               fileName: p.basename(savePath),
@@ -126,7 +126,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
             )
           : savePath;
 
-      if (!isMobilePlatform) {
+      if (!isManagedStoragePlatform) {
         await File(localPath).writeAsBytes(bytes, flush: true);
       }
       hideProgressIfNeeded();
@@ -135,7 +135,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
         return;
       }
 
-      if (isMobilePlatform) {
+      if (isManagedStoragePlatform) {
         messenger.showSnackBar(
           const SnackBar(
             content: Text('Database saved to app internal storage.'),
@@ -152,9 +152,31 @@ class DatabaseSelectionScreen extends StatelessWidget {
     } catch (e) {
       hideProgressIfNeeded();
       messenger.showSnackBar(
-        SnackBar(content: Text('Unable to open database from Drive. $e')),
+        SnackBar(content: Text(_buildDriveOpenErrorMessage(e))),
       );
     }
+  }
+
+  String _buildDriveOpenErrorMessage(Object error) {
+    final message = error.toString();
+    final normalized = message.toLowerCase();
+
+    if (normalized.contains('google sign-in cancelled')) {
+      return 'Accesso Google annullato durante l’autorizzazione. Riprova e conferma i permessi Drive.';
+    }
+    if (normalized.contains('google account selected, but drive permission was not granted')) {
+      return 'Account selezionato, ma permesso Drive non concesso. Riprova e accetta i permessi richiesti.';
+    }
+    if (normalized.contains('android google sign-in is not configured')) {
+      return 'Google Sign-In Android non configurato. Controlla GOOGLE_ANDROID_SERVER_CLIENT_ID.';
+    }
+    if (normalized.contains('ios google sign-in is not configured')) {
+      return 'Google Sign-In iOS non configurato. Controlla GOOGLE_MOBILE_CLIENT_ID.';
+    }
+    if (normalized.contains('authorization was not granted')) {
+      return 'Permesso Google Drive non concesso. Abilita l’accesso a Drive e riprova.';
+    }
+    return 'Impossibile aprire il database da Google Drive. $message';
   }
 
   void _showBlockingProgress(BuildContext context, String message) {
@@ -633,7 +655,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
                             ),
                             const SizedBox(height: 6),
                             _buildPrimaryActions(context),
-                            if (isMobilePlatform) ...[
+                            if (isManagedStoragePlatform) ...[
                               const SizedBox(height: 18),
                               Container(
                                 width: double.infinity,
@@ -654,7 +676,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
                                   ),
                                 ),
                                 child: Text(
-                                  'On mobile, databases and key files are imported into app internal storage. Keep manual backups in a separate location to avoid data loss after app removal.',
+                                  'On Android/iOS/macOS, databases and key files are imported into app internal storage. Keep manual backups in a separate location to avoid data loss after app removal.',
                                   style: Theme.of(
                                     context,
                                   ).textTheme.labelMedium,

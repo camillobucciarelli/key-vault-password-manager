@@ -163,7 +163,7 @@ class DatabaseSelectionBloc
             emit,
             DatabaseSelectionSuccess(
               path,
-              userMessage: _isMobilePlatform
+              userMessage: _usesManagedStorage
                   ? 'Database imported to app internal storage for reliable access.'
                   : null,
               recentDatabasePaths: updatedRecent,
@@ -312,12 +312,12 @@ class DatabaseSelectionBloc
     required String databasePath,
     required String? keyFilePath,
   }) {
-    final databaseMessage = _isMobilePlatform
+    final databaseMessage = _usesManagedStorage
         ? 'Database saved in app internal storage.'
         : 'Database saved to: $databasePath';
     final keyMessage = keyFilePath == null || keyFilePath.trim().isEmpty
         ? 'No key file configured.'
-        : _isMobilePlatform
+        : _usesManagedStorage
         ? 'Key file saved in app internal storage.'
         : 'Key file path: $keyFilePath';
     return '$databaseMessage $keyMessage';
@@ -346,15 +346,16 @@ class DatabaseSelectionBloc
         return;
       }
 
-      await saveSelectedDatabasePathUseCase(event.localPath);
-      await addRecentDatabasePathUseCase(event.localPath);
+      final managedLocalPath = await _ensureManagedDatabasePath(event.localPath);
+      await saveSelectedDatabasePathUseCase(managedLocalPath);
+      await addRecentDatabasePathUseCase(managedLocalPath);
       await saveSelectedKeyFilePathUseCase(null);
       await secureDataSource.clearMasterPassword();
       await setBiometricProtectionEnabledUseCase(false);
 
       try {
         await linkDatabaseToDriveUseCase(
-          databasePath: event.localPath,
+          databasePath: managedLocalPath,
           remoteFileId: event.remoteFileId,
         );
       } catch (e, st) {
@@ -371,7 +372,8 @@ class DatabaseSelectionBloc
       _safeEmit(
         emit,
         DatabaseSelectionSuccess(
-          event.localPath,
+          managedLocalPath,
+          promptBiometricSetup: true,
           recentDatabasePaths: updatedRecent,
         ),
       );
@@ -507,7 +509,7 @@ class DatabaseSelectionBloc
     }
 
     final selectedFile = result.files.single;
-    if (!_isMobilePlatform) {
+    if (!_usesManagedStorage) {
       return selectedFile.path;
     }
 
@@ -536,7 +538,7 @@ class DatabaseSelectionBloc
     if (kIsWeb) {
       return normalizedFileName;
     }
-    if (_isMobilePlatform) {
+    if (_usesManagedStorage) {
       return normalizedFileName;
     }
     return FilePicker.platform.saveFile(
@@ -570,7 +572,7 @@ class DatabaseSelectionBloc
   ) async {
     if (event.generateKeyFile) {
       final keyFileBytes = _generateRandomKeyFileBytes();
-      if (_isMobilePlatform) {
+      if (_usesManagedStorage) {
         final fileName = event.generatedKeyFilePath == null
             ? 'database.key'
             : p.basename(event.generatedKeyFilePath!);
@@ -601,7 +603,7 @@ class DatabaseSelectionBloc
     if (selectedPath == null || selectedPath.isEmpty) {
       return null;
     }
-    if (_isMobilePlatform) {
+    if (_usesManagedStorage) {
       return MobileFileStorage.copyFileToAppDirectory(
         sourcePath: selectedPath,
         fallbackFileName: 'database.key',
@@ -629,7 +631,7 @@ class DatabaseSelectionBloc
 
     final kdbx = KdbxFormat().create(credentials, 'New Database');
     final savedBytes = await kdbx.save();
-    final finalOutputPath = _isMobilePlatform
+    final finalOutputPath = _usesManagedStorage
         ? await MobileFileStorage.saveBytesToAppDirectory(
             bytes: savedBytes,
             fileName: p.basename(outputFile),
@@ -637,7 +639,7 @@ class DatabaseSelectionBloc
           )
         : outputFile;
 
-    if (!_isMobilePlatform) {
+    if (!_usesManagedStorage) {
       await File(finalOutputPath).writeAsBytes(savedBytes);
     }
 
@@ -658,6 +660,27 @@ class DatabaseSelectionBloc
       TargetPlatform.macOS ||
       TargetPlatform.windows => false,
     };
+  }
+
+  bool get _isMacOsPlatform {
+    if (kIsWeb) {
+      return false;
+    }
+    return defaultTargetPlatform == TargetPlatform.macOS;
+  }
+
+  bool get _usesManagedStorage => _isMobilePlatform || _isMacOsPlatform;
+
+  Future<String> _ensureManagedDatabasePath(String path) async {
+    if (!_usesManagedStorage) {
+      return path;
+    }
+
+    return MobileFileStorage.copyFileToAppDirectory(
+      sourcePath: path,
+      fallbackFileName: 'database.kdbx',
+      subdirectory: 'databases',
+    );
   }
 
   void _safeEmit(

@@ -24,15 +24,22 @@ class DatabaseSelectionUnselected extends DatabaseSelectionState {
 class DatabaseSelectionSuccess extends DatabaseSelectionState {
   final String path;
   final String? userMessage;
+  final bool promptBiometricSetup;
 
   const DatabaseSelectionSuccess(
     this.path, {
     this.userMessage,
+    this.promptBiometricSetup = false,
     super.recentDatabasePaths,
   });
 
   @override
-  List<Object?> get props => [path, userMessage, recentDatabasePaths];
+  List<Object?> get props => [
+    path,
+    userMessage,
+    promptBiometricSetup,
+    recentDatabasePaths,
+  ];
 }
 
 class DatabaseSelectionError extends DatabaseSelectionState {
