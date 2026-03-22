@@ -74,7 +74,7 @@ function attachKeyVaultUI() {
                     }
 
                     // Optional visual feedback
-                    vaultButton.style.color = '#4CAF50';
+                    vaultButton.style.color = '#818cf8';
                     setTimeout(() => vaultButton.style.color = '', 2000);
                 } else {
                     console.log("[KeyVault] No credentials found or error:", response?.error);

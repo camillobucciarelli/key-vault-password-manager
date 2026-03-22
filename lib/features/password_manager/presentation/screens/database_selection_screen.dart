@@ -11,6 +11,7 @@ import '../../../../../core/theme/app_icons.dart';
 import '../../../../../core/utils/mobile_file_storage.dart';
 import '../../../../../injection_container.dart' as di;
 import '../../domain/repositories/database_sync_repository.dart';
+import '../../domain/models/database_dedup_result.dart';
 import '../../domain/usecases/connect_google_account_usecase.dart';
 import '../../domain/usecases/get_drive_connection_status_usecase.dart';
 import '../../domain/usecases/list_drive_remote_files_usecase.dart';
@@ -20,9 +21,9 @@ import '../bloc/database_selection/database_selection_event.dart';
 import '../bloc/database_selection/database_selection_state.dart';
 import 'coordinators/database_flow_coordinator.dart';
 import '../widgets/create_database_dialog.dart';
+import '../widgets/database/database_action_tile.dart';
+import '../widgets/database/recent_databases_section.dart';
 import '../utils/platform_utils.dart';
-
-part 'database_selection_widgets.part.dart';
 
 class DatabaseSelectionScreen extends StatelessWidget {
   const DatabaseSelectionScreen({super.key});
@@ -263,6 +264,8 @@ class DatabaseSelectionScreen extends StatelessWidget {
                         itemBuilder: (_, index) {
                           final file = files[index];
                           final selected = selectedId == file.id;
+                          final isDark =
+                              Theme.of(context).brightness == Brightness.dark;
                           final modifiedAt = file.modifiedTime == null
                               ? 'Unknown date'
                               : _formatDriveFileDate(file.modifiedTime!);
@@ -289,14 +292,17 @@ class DatabaseSelectionScreen extends StatelessWidget {
                                         ).colorScheme.outlineVariant,
                                 ),
                                 color: selected
-                                    ? Theme.of(context)
-                                          .colorScheme
-                                          .primaryContainer
-                                          .withValues(alpha: 0.28)
+                                    ? Theme.of(
+                                        context,
+                                      ).colorScheme.primaryContainer.withValues(
+                                        alpha: isDark ? 0.28 : 0.52,
+                                      )
                                     : Theme.of(context)
                                           .colorScheme
                                           .surfaceContainerHighest
-                                          .withValues(alpha: 0.24),
+                                          .withValues(
+                                            alpha: isDark ? 0.24 : 0.62,
+                                          ),
                               ),
                               child: Row(
                                 children: [
@@ -440,6 +446,59 @@ class DatabaseSelectionScreen extends StatelessWidget {
 
   Future<void> _onOpenRecentDatabase(BuildContext context, String path) async {
     context.read<DatabaseSelectionBloc>().add(OpenRecentDatabase(path));
+  }
+
+  Future<void> _onExportRecentDatabase(
+    BuildContext context,
+    String path,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+
+    if (kIsWeb) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Export is currently available on desktop/mobile only.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final source = File(path);
+    if (!await source.exists()) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Selected database file was not found.')),
+      );
+      return;
+    }
+
+    final defaultName = p.basename(path);
+    final savePath = await FilePicker.platform.saveFile(
+      dialogTitle: 'Export database backup',
+      fileName: defaultName,
+      type: FileType.custom,
+      allowedExtensions: const ['kdbx'],
+    );
+
+    if (savePath == null || savePath.trim().isEmpty) {
+      return;
+    }
+
+    final resolvedPath = savePath.toLowerCase().endsWith('.kdbx')
+        ? savePath
+        : '$savePath.kdbx';
+
+    try {
+      await source.copy(resolvedPath);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Database backup exported.')),
+      );
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Unable to export selected database.')),
+      );
+    }
   }
 
   Future<void> _onSelectExistingDatabase(BuildContext context) async {
@@ -641,9 +700,10 @@ class DatabaseSelectionScreen extends StatelessWidget {
     BuildContext context,
     List<String> recentDatabasePaths,
   ) {
-    return _RecentDatabasesSection(
+    return RecentDatabasesSection(
       recentDatabasePaths: recentDatabasePaths,
       onOpen: (path) => _onOpenRecentDatabase(context, path),
+      onExport: (path) => _onExportRecentDatabase(context, path),
       onRemove: (path) => _onRemoveRecentDatabase(context, path),
     );
   }
@@ -652,21 +712,21 @@ class DatabaseSelectionScreen extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _SelectionActionTile(
+        DatabaseActionTile(
           icon: AppIcons.folderOpen,
           title: 'Open existing database',
           subtitle: 'Choose a .kdbx file from your device',
           onTap: () => _onSelectExistingDatabase(context),
         ),
         const SizedBox(height: 10),
-        _SelectionActionTile(
+        DatabaseActionTile(
           icon: AppIcons.add,
           title: 'Create new database',
           subtitle: 'Create a protected vault with password and key file',
           onTap: () => _onCreateDatabase(context),
         ),
         const SizedBox(height: 10),
-        _SelectionActionTile(
+        DatabaseActionTile(
           icon: AppIcons.cloud,
           title: 'Open from Google Drive',
           subtitle: 'Download a .kdbx and open a local copy',
@@ -676,11 +736,66 @@ class DatabaseSelectionScreen extends StatelessWidget {
     );
   }
 
+  Future<void> _handleDuplicateDecisionPrompt(
+    BuildContext context,
+    DatabaseSelectionDuplicateDecisionRequired state,
+  ) async {
+    final decision = await showDialog<DatabaseDuplicateResolution>(
+      context: context,
+      builder: (dialogContext) {
+        final imported = state.duplicatePrompt.imported.fileName;
+        final existing = state.duplicatePrompt.existingRecord.displayName;
+        return AlertDialog(
+          title: const Text('Duplicate database detected'),
+          content: Text(
+            'Imported: $imported\nExisting: $existing\n\nChoose how to continue.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(
+                dialogContext,
+              ).pop(DatabaseDuplicateResolution.cancel),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(
+                dialogContext,
+              ).pop(DatabaseDuplicateResolution.keepBoth),
+              child: const Text('Keep both'),
+            ),
+            FilledButton.tonal(
+              onPressed: () => Navigator.of(
+                dialogContext,
+              ).pop(DatabaseDuplicateResolution.replaceExisting),
+              child: const Text('Replace existing'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(
+                dialogContext,
+              ).pop(DatabaseDuplicateResolution.useExisting),
+              child: const Text('Use existing'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!context.mounted || decision == null) {
+      return;
+    }
+
+    context.read<DatabaseSelectionBloc>().add(
+      ResolveDuplicateDecision(decision),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final topInset = MediaQuery.paddingOf(context).top + kToolbarHeight;
     final viewportWidth = MediaQuery.sizeOf(context).width;
-    final horizontalPadding = viewportWidth < 420 ? 16.0 : 24.0;
+    final horizontalPadding = viewportWidth < 420
+        ? 16.0
+        : (viewportWidth - 600) * 0.5;
     final cardPadding = viewportWidth < 420 ? 18.0 : 24.0;
 
     return Scaffold(
@@ -689,6 +804,10 @@ class DatabaseSelectionScreen extends StatelessWidget {
         decoration: BoxDecoration(gradient: AppBackgrounds.gradient(context)),
         child: BlocConsumer<DatabaseSelectionBloc, DatabaseSelectionState>(
           listener: (context, state) {
+            if (state is DatabaseSelectionDuplicateDecisionRequired) {
+              _handleDuplicateDecisionPrompt(context, state);
+              return;
+            }
             _flowCoordinator.onDatabaseSelectionState(context, state);
           },
           builder: (context, state) {
@@ -705,96 +824,54 @@ class DatabaseSelectionScreen extends StatelessWidget {
                   horizontalPadding,
                   24,
                 ),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 560),
-                  child: TweenAnimationBuilder<double>(
-                    duration: MediaQuery.of(context).disableAnimations
-                        ? Duration.zero
-                        : const Duration(milliseconds: 300),
-                    curve: Curves.easeOutCubic,
-                    tween: Tween(begin: 0.98, end: 1),
-                    builder: (context, value, child) {
-                      return Transform.scale(
-                        scale: value,
-                        child: Opacity(opacity: value, child: child),
-                      );
-                    },
-                    child: Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(cardPadding),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              AppIcons.lock,
-                              size: 64,
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurface.withValues(alpha: 0.55),
-                            ),
-                            const SizedBox(height: 14),
-                            Text(
-                              'Vault setup',
-                              style: Theme.of(context).textTheme.labelLarge
-                                  ?.copyWith(
-                                    letterSpacing: 0.2,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              state.recentDatabasePaths.length > 1
-                                  ? 'Choose a database to continue'
-                                  : 'Welcome to your vault',
-                              style: Theme.of(context).textTheme.headlineSmall
-                                  ?.copyWith(fontWeight: FontWeight.w700),
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              state.recentDatabasePaths.length > 1
-                                  ? 'Multiple databases are available. Pick one from recent list or open another file.'
-                                  : 'Open an existing KDBX database or create a new one to start securely storing your credentials.',
-                              textAlign: TextAlign.center,
-                              style: Theme.of(context).textTheme.bodyMedium,
-                            ),
-                            const SizedBox(height: 20),
-                            _buildRecentDatabasesSection(
-                              context,
-                              state.recentDatabasePaths,
-                            ),
-                            const SizedBox(height: 6),
-                            _buildPrimaryActions(context),
-                            if (isManagedStoragePlatform) ...[
-                              const SizedBox(height: 18),
-                              Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 10,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .surfaceContainerHighest
-                                      .withValues(alpha: 0.45),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.outlineVariant,
-                                  ),
-                                ),
-                                child: Text(
-                                  'On Android/iOS/macOS, databases and key files are imported into app internal storage. Keep manual backups in a separate location to avoid data loss after app removal.',
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.labelMedium,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
+                child: TweenAnimationBuilder<double>(
+                  duration: MediaQuery.of(context).disableAnimations
+                      ? Duration.zero
+                      : const Duration(milliseconds: 300),
+                  curve: Curves.easeOutCubic,
+                  tween: Tween(begin: 0.98, end: 1),
+                  builder: (context, value, child) {
+                    return Transform.scale(
+                      scale: value,
+                      child: Opacity(opacity: value, child: child),
+                    );
+                  },
+                  child: Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(cardPadding),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Image.asset(
+                            'assets/logo/keyvault-source.png',
+                            width: 120,
+                            height: 120,
+                          ),
+                          const SizedBox(height: 20),
+                          Text(
+                            state.recentDatabasePaths.length > 1
+                                ? 'Choose a database to continue'
+                                : 'Welcome to your vault',
+                            style: Theme.of(context).textTheme.headlineSmall
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            state.recentDatabasePaths.length > 1
+                                ? 'Multiple databases are available. Pick one from recent list or open another file.'
+                                : 'Open an existing KDBX database or create a new one to start securely storing your credentials.',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                          const SizedBox(height: 20),
+                          _buildRecentDatabasesSection(
+                            context,
+                            state.recentDatabasePaths,
+                          ),
+                          const SizedBox(height: 6),
+                          _buildPrimaryActions(context),
+                        ],
                       ),
                     ),
                   ),

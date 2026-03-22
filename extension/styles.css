@@ -39,7 +39,7 @@
     width: 16px !important;
     height: 16px !important;
     fill: currentColor !important;
-    color: #4CAF50 !important; /* Usa il colore principale della tua app */
+    color: #818cf8 !important;
 }
 
 /* Disabilita i popup nativi dei browser per evitare sovrapposizioni (funziona soprattutto su Chrome/Edge) */

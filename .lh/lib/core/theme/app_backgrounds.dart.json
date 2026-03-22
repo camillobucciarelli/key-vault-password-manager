@@ -1,0 +1,26 @@
+{
+    "sourceFile": "lib/core/theme/app_backgrounds.dart",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 2,
+            "patches": [
+                {
+                    "date": 1774204060830,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                },
+                {
+                    "date": 1774204167763,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -7,20 +7,11 @@\n \n   static LinearGradient gradient(BuildContext context) {\n     final isDark = Theme.of(context).brightness == Brightness.dark;\n     final colors = isDark\n-        ? [\n-            const Color(0xFF020617), AppColors.primary.withValues(alpha: 0.018)]\n-        : [\n-            AppColors.lightGradientFrom,\n-            const Color(0xFFEDF1F9),\n-            const Color(0xFFEAEFF8),\n-            AppColors.lightGradientTo,\n-            AppColors.primary.withValues(alpha: 0.06),\n-          ];\n-    final stops = isDark\n-        ? const [0.0, 0.18, 0.36, 0.56, 0.78, 0.94, 1.0]\n-        : const [0.0, 0.32, 0.58, 0.86, 1.0];\n+        ? [AppColors.darkGradientFrom, AppColors.darkGradientTo]\n+        : [AppColors.lightGradientFrom, AppColors.lightGradientTo];\n+    final stops = isDark ? const [0.0, 1.0] : const [0.0, 1.0];\n \n     return LinearGradient(\n       begin: isDark ? const Alignment(0, -1) : const Alignment(-0.9, -0.85),\n       end: isDark ? const Alignment(0, 1) : const Alignment(0.9, 0.95),\n"
+                },
+                {
+                    "date": 1774204278139,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -12,10 +12,10 @@\n         : [AppColors.lightGradientFrom, AppColors.lightGradientTo];\n     final stops = isDark ? const [0.0, 1.0] : const [0.0, 1.0];\n \n     return LinearGradient(\n-      begin: isDark ? const Alignment(0, -1) : const Alignment(-0.9, -0.85),\n-      end: isDark ? const Alignment(0, 1) : const Alignment(0.9, 0.95),\n+      begin: Alignment.topLeft,\n+      end: Alignment.bottomRight,\n       colors: colors,\n       stops: stops,\n     );\n   }\n"
+                }
+            ],
+            "date": 1774204060830,
+            "name": "Commit-0",
+            "content": "import 'package:flutter/material.dart';\n\nimport 'app_colors.dart';\n\nclass AppBackgrounds {\n  AppBackgrounds._();\n\n  static LinearGradient gradient(BuildContext context) {\n    final isDark = Theme.of(context).brightness == Brightness.dark;\n    final colors = isDark\n        ? [\n            const Color(0xFF020617),\n            AppColors.primary.withValues(alpha: 0.018),\n          ]\n        : [\n            AppColors.lightGradientFrom,\n            const Color(0xFFEDF1F9),\n            const Color(0xFFEAEFF8),\n            AppColors.lightGradientTo,\n            AppColors.primary.withValues(alpha: 0.06),\n          ];\n    final stops = isDark\n        ? const [0.0, 0.18, 0.36, 0.56, 0.78, 0.94, 1.0]\n        : const [0.0, 0.32, 0.58, 0.86, 1.0];\n\n    return LinearGradient(\n      begin: isDark ? const Alignment(0, -1) : const Alignment(-0.9, -0.85),\n      end: isDark ? const Alignment(0, 1) : const Alignment(0.9, 0.95),\n      colors: colors,\n      stops: stops,\n    );\n  }\n}\n"
+        }
+    ]
+}

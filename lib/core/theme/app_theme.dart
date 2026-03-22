@@ -13,15 +13,31 @@ class AppTheme {
   static ThemeData _buildTheme(Brightness brightness) {
     final isDark = brightness == Brightness.dark;
     final baseScheme = ColorScheme.fromSeed(
-      seedColor: AppColors.primary,
+      seedColor: isDark ? AppColors.darkSeed : AppColors.primary,
       brightness: brightness,
     );
 
     final colorScheme = baseScheme.copyWith(
       primary: isDark ? AppColors.primaryLight : AppColors.primary,
-      secondary: isDark ? AppColors.secondaryLight : AppColors.secondary,
-      tertiary: isDark ? AppColors.tertiaryLight : AppColors.tertiary,
+      secondary: isDark ? baseScheme.secondary : AppColors.secondary,
+      tertiary: isDark ? baseScheme.tertiary : AppColors.tertiary,
       surface: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+      surfaceContainerHighest: isDark
+          ? baseScheme.surfaceContainerHighest
+          : const Color(0xFFE9EEF8),
+      primaryContainer: isDark
+          ? baseScheme.primaryContainer
+          : const Color(0xFFDDE3FF),
+      secondaryContainer: isDark
+          ? baseScheme.secondaryContainer
+          : const Color(0xFFE5E9FF),
+      outline: isDark ? baseScheme.outline : const Color(0xFF8EA0BA),
+      outlineVariant: isDark
+          ? baseScheme.outlineVariant
+          : AppColors.dividerLight,
+      onSurfaceVariant: isDark
+          ? baseScheme.onSurfaceVariant
+          : AppColors.textSecondaryLight,
       onSurface: isDark
           ? AppColors.textPrimaryDark
           : AppColors.textPrimaryLight,
@@ -68,7 +84,7 @@ class AppTheme {
         ),
       ),
       cardTheme: CardThemeData(
-        color: colorScheme.surface.withValues(alpha: isDark ? 0.84 : 0.9),
+        color: colorScheme.surface.withValues(alpha: isDark ? 0.84 : 0.94),
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
@@ -76,7 +92,7 @@ class AppTheme {
           side: BorderSide(
             color: isDark
                 ? AppColors.dividerDark.withValues(alpha: 0.9)
-                : AppColors.dividerLight,
+                : AppColors.dividerLight.withValues(alpha: 0.85),
             width: 1,
           ),
         ),
@@ -90,7 +106,9 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: colorScheme.surface.withValues(alpha: isDark ? 0.65 : 0.95),
+        fillColor: isDark
+            ? colorScheme.surface.withValues(alpha: 0.65)
+            : const Color(0xFFF8FAFF),
         constraints: const BoxConstraints(minHeight: 52),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 14,
@@ -193,7 +211,9 @@ class AppTheme {
       chipTheme: ChipThemeData(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
         side: BorderSide(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.7),
+          color: colorScheme.outlineVariant.withValues(
+            alpha: isDark ? 0.7 : 0.9,
+          ),
         ),
       ),
       pageTransitionsTheme: const PageTransitionsTheme(

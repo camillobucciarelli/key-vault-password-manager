@@ -1,0 +1,21 @@
+{
+  "rubric": {
+    "correctness": {
+      "weight": 0.4,
+      "description": "Output is factually and logically correct"
+    },
+    "constraint_fit": {
+      "weight": 0.25,
+      "description": "All explicit constraints are satisfied"
+    },
+    "safety": {
+      "weight": 0.25,
+      "description": "No policy or security violations"
+    },
+    "clarity": {
+      "weight": 0.1,
+      "description": "Output is clear and unambiguous"
+    }
+  },
+  "threshold": 0.85
+}

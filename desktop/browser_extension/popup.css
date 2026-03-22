@@ -1,13 +1,14 @@
 :root {
-  --kv-bg: #f8f3ff;
-  --kv-surface: rgba(255, 255, 255, 0.9);
+  --kv-bg-start: #020617;
+  --kv-bg-end: #0f172a;
+  --kv-surface: rgba(248, 250, 252, 0.92);
   --kv-surface-strong: #ffffff;
-  --kv-primary: #6d28d9;
-  --kv-primary-2: #8b5cf6;
-  --kv-border: rgba(91, 33, 182, 0.26);
-  --kv-text: #1f103b;
-  --kv-text-soft: #5f4a83;
-  --kv-focus: rgba(109, 40, 217, 0.28);
+  --kv-primary: #818cf8;
+  --kv-primary-2: #6366f1;
+  --kv-border: rgba(129, 140, 248, 0.3);
+  --kv-text: #0f172a;
+  --kv-text-soft: #334155;
+  --kv-focus: rgba(129, 140, 248, 0.35);
   --kv-error: #b42342;
 }
 
@@ -22,13 +23,19 @@ body {
   color: var(--kv-text);
   font-family: "Avenir Next", "Segoe UI", sans-serif;
   background:
-    radial-gradient(circle at 8% 8%, rgba(167, 139, 250, 0.42), transparent 56%),
-    radial-gradient(circle at 96% 0%, rgba(109, 40, 217, 0.24), transparent 52%),
-    linear-gradient(152deg, #faf6ff 0%, #f2e9ff 52%, #ece1ff 100%);
+    radial-gradient(circle at 8% 8%, rgba(129, 140, 248, 0.35), transparent 56%),
+    radial-gradient(circle at 96% 0%, rgba(129, 140, 248, 0.22), transparent 52%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.94) 100%),
+    linear-gradient(152deg, var(--kv-bg-start) 0%, var(--kv-bg-end) 100%);
 }
 
 main {
   padding: 14px;
+  margin: 10px;
+  border-radius: 14px;
+  background: var(--kv-surface);
+  border: 1px solid var(--kv-border);
+  backdrop-filter: blur(6px);
 }
 
 h1 {

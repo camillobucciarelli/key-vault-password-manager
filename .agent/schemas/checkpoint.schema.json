@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "checkpoint.schema.json",
+  "title": "Checkpoint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "iteration",
+    "phase",
+    "status",
+    "candidate_summary",
+    "critic_score",
+    "issues_open",
+    "next_action",
+    "timestamp"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "iteration": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "phase": {
+      "type": "string",
+      "enum": [
+        "staging",
+        "input_guardrail",
+        "producer",
+        "critic",
+        "output_guardrail",
+        "finalizer",
+        "completed",
+        "blocked"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["in_progress", "accurate", "best_effort", "blocked"]
+    },
+    "candidate_summary": {
+      "type": "string"
+    },
+    "critic_score": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "issues_open": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "next_action": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

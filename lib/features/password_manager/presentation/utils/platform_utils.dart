@@ -18,5 +18,5 @@ bool get isManagedStoragePlatform {
   if (kIsWeb) {
     return false;
   }
-  return isMobilePlatform || defaultTargetPlatform == TargetPlatform.macOS;
+  return true;
 }

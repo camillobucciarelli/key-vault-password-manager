@@ -174,8 +174,7 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
               'Assicurati che l\'app KeyVault sia aperta.';
         case BridgeCheckResult.notRunning:
           _connectionStatus = _StepStatus.error;
-          _errorMessage =
-              'Bridge non raggiungibile. Riavvia l\'app e riprova.';
+          _errorMessage = 'Bridge non raggiungibile. Riavvia l\'app e riprova.';
       }
     });
   }
@@ -217,8 +216,10 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                   duration: const Duration(milliseconds: 280),
                   curve: Curves.easeOutCubic,
                   tween: Tween(begin: 0.97, end: 1),
-                  builder: (context, v, child) =>
-                      Transform.scale(scale: v, child: Opacity(opacity: v, child: child)),
+                  builder: (context, v, child) => Transform.scale(
+                    scale: v,
+                    child: Opacity(opacity: v, child: child),
+                  ),
                   child: Card(
                     child: Padding(
                       padding: EdgeInsets.all(cardPadding),
@@ -244,12 +245,16 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                                       style: Theme.of(context)
                                           .textTheme
                                           .titleMedium
-                                          ?.copyWith(fontWeight: FontWeight.w700),
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w700,
+                                          ),
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
                                       'Abilita l\'autofill one-click su Chrome, Brave ed Edge',
-                                      style: Theme.of(context).textTheme.bodySmall,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
                                     ),
                                   ],
                                 ),
@@ -309,9 +314,9 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                                 : 'Verifica',
                             onAction:
                                 _extensionStatus == _StepStatus.done &&
-                                        !_isCheckingConnection
-                                    ? _checkConnection
-                                    : null,
+                                    !_isCheckingConnection
+                                ? _checkConnection
+                                : null,
                           ),
 
                           // Error message
@@ -327,7 +332,9 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                                     .withValues(alpha: 0.3),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
-                                  color: Theme.of(context).colorScheme.error.withValues(alpha: 0.4),
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.error.withValues(alpha: 0.4),
                                 ),
                               ),
                               child: Row(
@@ -346,9 +353,9 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                                           .textTheme
                                           .bodySmall
                                           ?.copyWith(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .onErrorContainer,
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onErrorContainer,
                                           ),
                                     ),
                                   ),
@@ -448,6 +455,7 @@ class _SetupStep extends StatelessWidget {
     final isLoading = status == _StepStatus.loading;
     final isError = status == _StepStatus.error;
     final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     Color iconBgColor = colorScheme.surfaceContainerHighest;
     Color iconFgColor = colorScheme.onSurfaceVariant;
@@ -474,10 +482,7 @@ class _SetupStep extends StatelessWidget {
       stepIcon = SizedBox(
         width: 16,
         height: 16,
-        child: CircularProgressIndicator(
-          strokeWidth: 2,
-          color: iconFgColor,
-        ),
+        child: CircularProgressIndicator(strokeWidth: 2, color: iconFgColor),
       );
     } else if (!isDisabled) {
       iconBgColor = colorScheme.primaryContainer.withValues(alpha: 0.35);
@@ -500,12 +505,16 @@ class _SetupStep extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isDone
-                ? Colors.green.withValues(alpha: 0.3)
-                : colorScheme.outlineVariant,
+                ? Colors.green.withValues(alpha: isDark ? 0.3 : 0.42)
+                : colorScheme.outlineVariant.withValues(
+                    alpha: isDark ? 1 : 0.9,
+                  ),
           ),
           color: isDone
-              ? Colors.green.withValues(alpha: 0.04)
-              : colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
+              ? Colors.green.withValues(alpha: isDark ? 0.04 : 0.07)
+              : colorScheme.surfaceContainerHighest.withValues(
+                  alpha: isDark ? 0.25 : 0.62,
+                ),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -530,15 +539,15 @@ class _SetupStep extends StatelessWidget {
                   Text(
                     title,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     description,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
+                      color: colorScheme.onSurfaceVariant,
+                    ),
                   ),
                   if (!isDone && !isDisabled) ...[
                     const SizedBox(height: 10),
@@ -578,19 +587,14 @@ class _CopyableCodeRow extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: Theme.of(context).colorScheme.outlineVariant,
-        ),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
       ),
       child: Row(
         children: [
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 12,
-              ),
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
               overflow: TextOverflow.ellipsis,
             ),
           ),

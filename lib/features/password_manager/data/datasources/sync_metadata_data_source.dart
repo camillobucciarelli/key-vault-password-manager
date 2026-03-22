@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../../domain/models/database_sync_mapping.dart';
 
@@ -8,15 +10,18 @@ abstract class SyncMetadataDataSource {
   Future<DatabaseSyncMapping?> getMapping(String databasePath);
   Future<void> upsertMapping(DatabaseSyncMapping mapping);
   Future<void> removeMapping(String databasePath);
+  Future<void> moveMappingPath({
+    required String fromDatabasePath,
+    required String toDatabasePath,
+  });
   Future<List<DatabaseSyncMapping>> getAllMappings();
 }
 
 class SyncMetadataDataSourceImpl implements SyncMetadataDataSource {
-  SyncMetadataDataSourceImpl({required this.sharedPreferences});
+  SyncMetadataDataSourceImpl();
 
-  static const _syncMappingsKey = 'SYNC_MAPPINGS';
-
-  final SharedPreferences sharedPreferences;
+  static const _syncSubdirectory = 'metadata';
+  static const _syncFileName = 'sync_mappings.json';
 
   @override
   Future<DatabaseSyncMapping?> getMapping(String databasePath) async {
@@ -59,9 +64,38 @@ class SyncMetadataDataSourceImpl implements SyncMetadataDataSource {
   }
 
   @override
+  Future<void> moveMappingPath({
+    required String fromDatabasePath,
+    required String toDatabasePath,
+  }) async {
+    if (fromDatabasePath.trim().isEmpty || toDatabasePath.trim().isEmpty) {
+      return;
+    }
+    if (fromDatabasePath == toDatabasePath) {
+      return;
+    }
+
+    final mappings = await getAllMappings();
+    final next = <DatabaseSyncMapping>[];
+    for (final mapping in mappings) {
+      if (mapping.databasePath == fromDatabasePath) {
+        next.add(mapping.copyWith(databasePath: toDatabasePath));
+      } else if (mapping.databasePath != toDatabasePath) {
+        next.add(mapping);
+      }
+    }
+    await _saveMappings(next);
+  }
+
+  @override
   Future<List<DatabaseSyncMapping>> getAllMappings() async {
-    final raw = sharedPreferences.getString(_syncMappingsKey);
-    if (raw == null || raw.trim().isEmpty) {
+    final file = await _syncMappingsFile();
+    if (!await file.exists()) {
+      return const [];
+    }
+
+    final raw = await file.readAsString();
+    if (raw.trim().isEmpty) {
       return const [];
     }
 
@@ -80,8 +114,18 @@ class SyncMetadataDataSourceImpl implements SyncMetadataDataSource {
         .toList(growable: false);
   }
 
-  Future<void> _saveMappings(List<DatabaseSyncMapping> mappings) {
+  Future<void> _saveMappings(List<DatabaseSyncMapping> mappings) async {
     final encoded = jsonEncode(mappings.map((m) => m.toMap()).toList());
-    return sharedPreferences.setString(_syncMappingsKey, encoded);
+    final file = await _syncMappingsFile();
+    await file.writeAsString(encoded, flush: true);
+  }
+
+  Future<File> _syncMappingsFile() async {
+    final root = await getApplicationDocumentsDirectory();
+    final directory = Directory(p.join(root.path, _syncSubdirectory));
+    if (!await directory.exists()) {
+      await directory.create(recursive: true);
+    }
+    return File(p.join(directory.path, _syncFileName));
   }
 }

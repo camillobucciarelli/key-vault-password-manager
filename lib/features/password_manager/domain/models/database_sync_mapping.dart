@@ -26,6 +26,7 @@ class DatabaseSyncMapping extends Equatable {
   final String? lastError;
 
   DatabaseSyncMapping copyWith({
+    String? databasePath,
     String? driveFileId,
     String? driveFileName,
     String? lastSyncedLocalChecksum,
@@ -37,7 +38,7 @@ class DatabaseSyncMapping extends Equatable {
     bool clearError = false,
   }) {
     return DatabaseSyncMapping(
-      databasePath: databasePath,
+      databasePath: databasePath ?? this.databasePath,
       driveFileId: driveFileId ?? this.driveFileId,
       driveFileName: driveFileName ?? this.driveFileName,
       lastSyncedLocalChecksum:

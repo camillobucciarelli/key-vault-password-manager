@@ -3,7 +3,7 @@
     "activeCommit": 0,
     "commits": [
         {
-            "activePatchIndex": 1,
+            "activePatchIndex": 2,
             "patches": [
                 {
                     "date": 1773158655418,
@@ -12,6 +12,10 @@
                 {
                     "date": 1773213038471,
                     "content": "Index: \n===================================================================\n--- \n+++ \n@@ -1,19 +1,19 @@\n name: password_manager\n description: \"A new Flutter project.\"\n publish_to: 'none'\n-version: 0.1.0+1\n+version: 0.2.0+1\n \n environment:\n   sdk: ^3.11.1\n \n dependencies:\n+  flutter:\n+    sdk: flutter\n   bloc: ^9.2.0\n   catch_and_flow: ^1.2.1\n   equatable: ^2.0.8\n   file_picker: ^10.3.10\n-  flutter:\n-    sdk: flutter\n   flutter_bloc: ^9.1.1\n   flutter_autofill_service: ^0.21.0\n   flutter_secure_storage: ^10.0.0\n   google_sign_in: ^7.2.0\n"
+                },
+                {
+                    "date": 1774200848457,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -41,8 +41,10 @@\n   flutter_launcher_icons: ^0.14.4\n \n flutter:\n   uses-material-design: true\n+  assets:\n+    - assets/logo/keyvault-source.png\n \n flutter_launcher_icons:\n   image_path: assets/logo/keyvault-source.png\n   android: true\n"
                 }
             ],
             "date": 1773158655418,

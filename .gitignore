@@ -50,3 +50,8 @@ app.*.map.json
 
 # Local OAuth dart-define values
 .env.dart.define.json
+
+# OpenCode runtime state
+.agent/state/current_task.json
+.agent/state/decision_log.jsonl
+.agent/state/checkpoints/

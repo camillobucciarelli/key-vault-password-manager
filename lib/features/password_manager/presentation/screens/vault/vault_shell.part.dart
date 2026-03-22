@@ -28,7 +28,6 @@ class _VaultUiTokens {
   static const double recordListSpacing = 8;
   static const Duration itemTransitionDuration = Duration(milliseconds: 190);
   static const Duration buttonTransitionDuration = Duration(milliseconds: 220);
-  static const Duration chipTransitionDuration = Duration(milliseconds: 180);
   static const Duration backgroundLockTimeout = Duration(seconds: 30);
 }
 
@@ -143,6 +142,9 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     }
 
     _isLockNavigationInProgress = true;
+    di.sl<VaultSessionCoordinator>().lockVault(
+      currentDatabasePath: databasePath,
+    );
     AppNavigation.pushFadeReplacement(
       context,
       DatabaseUnlockScreen(databasePath: databasePath),
@@ -249,10 +251,9 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
 
     try {
       final databasePath = context.read<VaultBloc>().state.databasePath;
-      await di.sl<SaveSelectedDatabasePathUseCase>()('');
-      await di.sl<SaveSelectedKeyFilePathUseCase>()(null);
-      await di.sl<SecureDataSource>().clearMasterPassword();
-      await di.sl<AddRecentDatabasePathUseCase>()(databasePath);
+      await di.sl<VaultSessionCoordinator>().changeDatabase(
+        currentDatabasePath: databasePath,
+      );
 
       if (!mounted) {
         return;

@@ -176,18 +176,23 @@ class _InteractiveItemSurfaceState extends State<_InteractiveItemSurface> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final itemAnimationDuration = MediaQuery.of(context).disableAnimations
         ? Duration.zero
         : _VaultUiTokens.itemTransitionDuration;
     final highlight = _isHovered || _isFocused;
     final backgroundColor = highlight
-        ? (widget.hoveredColor ?? colorScheme.surface.withValues(alpha: 0.82))
-        : (widget.baseColor ?? colorScheme.surface.withValues(alpha: 0.74));
+        ? (widget.hoveredColor ??
+              colorScheme.surface.withValues(alpha: isDark ? 0.82 : 0.97))
+        : (widget.baseColor ??
+              colorScheme.surface.withValues(alpha: isDark ? 0.74 : 0.91));
     final borderColor = highlight
         ? (widget.hoveredBorderColor ??
-              colorScheme.primary.withValues(alpha: 0.32))
+              colorScheme.primary.withValues(alpha: isDark ? 0.32 : 0.4))
         : (widget.baseBorderColor ??
-              colorScheme.outlineVariant.withValues(alpha: 0.7));
+              colorScheme.outlineVariant.withValues(
+                alpha: isDark ? 0.7 : 0.88,
+              ));
 
     final body = AnimatedContainer(
       duration: itemAnimationDuration,
@@ -254,14 +259,19 @@ class _RecycleBinEntryListItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return _InteractiveItemSurface(
       radius: _VaultUiTokens.recordItemRadius,
       minHeight: _VaultUiTokens.recordItemHeight,
-      baseColor: colorScheme.surface.withValues(alpha: 0.72),
-      hoveredColor: colorScheme.surface.withValues(alpha: 0.84),
-      baseBorderColor: colorScheme.outlineVariant.withValues(alpha: 0.7),
-      hoveredBorderColor: colorScheme.error.withValues(alpha: 0.35),
+      baseColor: colorScheme.surface.withValues(alpha: isDark ? 0.72 : 0.9),
+      hoveredColor: colorScheme.surface.withValues(alpha: isDark ? 0.84 : 0.97),
+      baseBorderColor: colorScheme.outlineVariant.withValues(
+        alpha: isDark ? 0.7 : 0.88,
+      ),
+      hoveredBorderColor: colorScheme.error.withValues(
+        alpha: isDark ? 0.35 : 0.42,
+      ),
       child: Padding(
         padding: const EdgeInsets.only(left: 10, right: 6, top: 8, bottom: 8),
         child: Row(
@@ -270,7 +280,9 @@ class _RecycleBinEntryListItem extends StatelessWidget {
               width: _VaultUiTokens.folderIconContainerSize,
               height: _VaultUiTokens.folderIconContainerSize,
               decoration: BoxDecoration(
-                color: colorScheme.errorContainer.withValues(alpha: 0.5),
+                color: colorScheme.errorContainer.withValues(
+                  alpha: isDark ? 0.5 : 0.62,
+                ),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(
@@ -335,15 +347,18 @@ class _RecycleBinEmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Center(
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
         decoration: BoxDecoration(
-          color: colorScheme.surface.withValues(alpha: 0.68),
+          color: colorScheme.surface.withValues(alpha: isDark ? 0.68 : 0.9),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: colorScheme.outlineVariant.withValues(alpha: 0.65),
+            color: colorScheme.outlineVariant.withValues(
+              alpha: isDark ? 0.65 : 0.86,
+            ),
           ),
         ),
         child: Column(
@@ -353,7 +368,9 @@ class _RecycleBinEmptyState extends StatelessWidget {
               width: 46,
               height: 46,
               decoration: BoxDecoration(
-                color: colorScheme.errorContainer.withValues(alpha: 0.45),
+                color: colorScheme.errorContainer.withValues(
+                  alpha: isDark ? 0.45 : 0.58,
+                ),
                 shape: BoxShape.circle,
               ),
               child: Icon(

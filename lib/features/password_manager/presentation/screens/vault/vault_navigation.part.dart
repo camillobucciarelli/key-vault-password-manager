@@ -415,7 +415,6 @@ class _SyncStripMenuButton extends StatelessWidget {
       return;
     }
 
-    final currentDatabaseFile = File(currentDatabasePath);
     final titleCtrl = TextEditingController(
       text: path.basenameWithoutExtension(currentDatabasePath),
     );
@@ -430,7 +429,15 @@ class _SyncStripMenuButton extends StatelessWidget {
     final confirmNewPasswordCtrl = TextEditingController();
     var changePassword = false;
     var biometricEnabled = await di
-        .sl<GetBiometricProtectionEnabledUseCase>()();
+        .sl<VaultSessionCoordinator>()
+        .getBiometricProtectionEnabledForPath(
+          databasePath: currentDatabasePath,
+        );
+    final initialBiometricEnabled = biometricEnabled;
+    final initialFileName = path.basename(currentDatabasePath);
+    final normalizedCurrentKeyPath = _normalizeKeyPathForComparison(
+      currentKeyPath,
+    );
     if (!context.mounted) {
       titleCtrl.dispose();
       currentPasswordCtrl.dispose();
@@ -445,6 +452,22 @@ class _SyncStripMenuButton extends StatelessWidget {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (dialogContext, setState) {
+            final normalizedSelectedKeyPath = _normalizeKeyPathForComparison(
+              selectedKeyPath,
+            );
+            final keyFileChanged =
+                normalizedSelectedKeyPath != normalizedCurrentKeyPath;
+            final fileNameChanged =
+                _normalizeDatabaseFileName(titleCtrl.text) != initialFileName;
+            final biometricChanged =
+                biometricEnabled != initialBiometricEnabled;
+            final pendingChanges = <String>[
+              if (fileNameChanged) 'Database file name',
+              if (biometricChanged) 'Biometric protection',
+              if (keyFileChanged) 'Key file',
+              if (changePassword) 'Master password',
+            ];
+
             return AlertDialog(
               title: const Text('Database settings'),
               insetPadding: _dialogInsetPadding(dialogContext),
@@ -460,12 +483,18 @@ class _SyncStripMenuButton extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        Text(
+                          'General',
+                          style: Theme.of(dialogContext).textTheme.labelLarge,
+                        ),
+                        const SizedBox(height: 8),
                         TextFormField(
                           controller: titleCtrl,
                           decoration: const InputDecoration(
                             labelText: 'Database file name',
                             prefixIcon: Icon(AppIcons.file),
                           ),
+                          onChanged: (_) => setState(() {}),
                           validator: (value) {
                             final raw = value?.trim() ?? '';
                             if (raw.isEmpty) {
@@ -488,9 +517,13 @@ class _SyncStripMenuButton extends StatelessWidget {
                             });
                           },
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Key file',
+                          style: Theme.of(dialogContext).textTheme.labelLarge,
+                        ),
+                        const SizedBox(height: 6),
                         ListTile(
-                          dense: true,
                           contentPadding: EdgeInsets.zero,
                           leading: const Icon(AppIcons.fileKey),
                           title: Text(
@@ -509,40 +542,90 @@ class _SyncStripMenuButton extends StatelessWidget {
                           trailing: Wrap(
                             spacing: 2,
                             children: [
-                              Tooltip(
-                                message: 'Change key file',
-                                ignorePointer: true,
-                                child: IconButton(
-                                  onPressed: () async {
-                                    final picked = await FilePicker.platform
-                                        .pickFiles(allowMultiple: false);
-                                    final selected = picked?.files.single.path;
-                                    if (selected == null || selected.isEmpty) {
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  final usesManagedStorage =
+                                      !kIsWeb &&
+                                      (defaultTargetPlatform ==
+                                              TargetPlatform.android ||
+                                          defaultTargetPlatform ==
+                                              TargetPlatform.iOS ||
+                                          defaultTargetPlatform ==
+                                              TargetPlatform.macOS);
+                                  if (usesManagedStorage) {
+                                    final currentSelectedPath = selectedKeyPath;
+                                    final result =
+                                        await showInternalKeyFileManagerDialog(
+                                          dialogContext,
+                                          initiallySelectedPath:
+                                              currentSelectedPath,
+                                        );
+                                    if (result == null) {
                                       return;
                                     }
                                     setState(() {
-                                      selectedKeyPath = selected;
+                                      if (result.selectedPath != null) {
+                                        selectedKeyPath = result.selectedPath;
+                                        return;
+                                      }
+                                      if (result.currentSelectionDeleted &&
+                                          currentSelectedPath != null &&
+                                          currentSelectedPath
+                                              .trim()
+                                              .isNotEmpty) {
+                                        selectedKeyPath = null;
+                                      }
                                     });
-                                  },
-                                  icon: const Icon(AppIcons.edit),
-                                ),
+                                    return;
+                                  }
+
+                                  final picked = await FilePicker.platform
+                                      .pickFiles(
+                                        allowMultiple: false,
+                                        withData: false,
+                                      );
+                                  final selectedFile = picked?.files.single;
+                                  if (selectedFile == null) {
+                                    return;
+                                  }
+
+                                  final selectedPath = selectedFile.path;
+                                  if (selectedPath == null ||
+                                      selectedPath.isEmpty) {
+                                    return;
+                                  }
+
+                                  setState(() {
+                                    selectedKeyPath = selectedPath;
+                                  });
+                                },
+                                icon: const Icon(AppIcons.edit),
+                                label: const Text('Change key file'),
                               ),
-                              Tooltip(
-                                message: 'Remove key file',
-                                ignorePointer: true,
-                                child: IconButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      selectedKeyPath = null;
-                                    });
-                                  },
-                                  icon: const Icon(AppIcons.close),
-                                ),
+                              OutlinedButton.icon(
+                                onPressed: selectedKeyPath == null
+                                    ? null
+                                    : () {
+                                        setState(() {
+                                          selectedKeyPath = null;
+                                        });
+                                      },
+                                icon: const Icon(AppIcons.close),
+                                label: const Text('Remove key file'),
                               ),
                             ],
                           ),
                         ),
-                        const SizedBox(height: 8),
+                        Text(
+                          'Changing key file updates the unlock credentials for this vault. Keep a backup in a separate location.',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Master password',
+                          style: Theme.of(dialogContext).textTheme.labelLarge,
+                        ),
+                        const SizedBox(height: 6),
                         SwitchListTile.adaptive(
                           contentPadding: EdgeInsets.zero,
                           title: const Text('Change master password'),
@@ -557,7 +640,7 @@ class _SyncStripMenuButton extends StatelessWidget {
                           },
                         ),
                         if (changePassword) ...[
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 4),
                           TextFormField(
                             controller: currentPasswordCtrl,
                             obscureText: true,
@@ -608,8 +691,28 @@ class _SyncStripMenuButton extends StatelessWidget {
                               return null;
                             },
                           ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'After saving, use the new master password the next time you unlock this vault.',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
                         ],
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 12),
+                        if (pendingChanges.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Theme.of(
+                                dialogContext,
+                              ).colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              'Changes to apply: ${pendingChanges.join(', ')}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                        const SizedBox(height: 10),
                         Text(
                           'Google Drive sync stores only the .kdbx database. Keep key file backups in a separate location.',
                           style: Theme.of(context).textTheme.bodySmall,
@@ -625,8 +728,44 @@ class _SyncStripMenuButton extends StatelessWidget {
                   child: const Text('Cancel'),
                 ),
                 FilledButton(
-                  onPressed: () {
+                  onPressed: () async {
                     if (!formKey.currentState!.validate()) {
+                      return;
+                    }
+                    if (changePassword) {
+                      final securityChanges = <String>[
+                        'Master password',
+                        if (keyFileChanged) 'Key file',
+                      ];
+                      final confirmed = await showDialog<bool>(
+                        context: dialogContext,
+                        builder: (confirmContext) {
+                          return AlertDialog(
+                            title: const Text('Confirm security changes'),
+                            content: Text(
+                              'You are about to update: ${securityChanges.join(' + ')}. '
+                              'Use the new credentials to unlock this vault after saving.',
+                            ),
+                            actions: _adaptiveDialogActions(confirmContext, [
+                              TextButton(
+                                onPressed: () =>
+                                    Navigator.of(confirmContext).pop(false),
+                                child: const Text('Cancel'),
+                              ),
+                              FilledButton(
+                                onPressed: () =>
+                                    Navigator.of(confirmContext).pop(true),
+                                child: const Text('Confirm and apply'),
+                              ),
+                            ]),
+                          );
+                        },
+                      );
+                      if (confirmed != true) {
+                        return;
+                      }
+                    }
+                    if (!dialogContext.mounted) {
                       return;
                     }
                     Navigator.of(dialogContext).pop(true);
@@ -656,46 +795,25 @@ class _SyncStripMenuButton extends StatelessWidget {
       return;
     }
 
-    try {
-      final updatedName = titleCtrl.text.trim().toLowerCase().endsWith('.kdbx')
-          ? titleCtrl.text.trim()
-          : '${titleCtrl.text.trim()}.kdbx';
-      final parentDir = path.dirname(currentDatabasePath);
-      final targetPath = path.join(parentDir, updatedName);
-      var effectivePath = currentDatabasePath;
+    final keyFileChanged =
+        _normalizeKeyPathForComparison(currentKeyPath) !=
+        _normalizeKeyPathForComparison(selectedKeyPath);
+    final requestedPasswordChange = changePassword;
 
-      if (targetPath != currentDatabasePath) {
-        if (await File(targetPath).exists()) {
-          messenger.showSnackBar(
-            const SnackBar(
-              content: Text('A database file with this name already exists.'),
+    try {
+      final result = await di
+          .sl<VaultSessionCoordinator>()
+          .updateDatabaseSettings(
+            DatabaseSettingsUpdateRequest(
+              currentDatabasePath: currentDatabasePath,
+              fileName: titleCtrl.text.trim(),
+              keyFilePath: selectedKeyPath,
+              biometricProtectionEnabled: biometricEnabled,
+              changePassword: changePassword,
+              currentPassword: currentPasswordCtrl.text,
+              newPassword: newPasswordCtrl.text,
             ),
           );
-          titleCtrl.dispose();
-          return;
-        }
-        await currentDatabaseFile.rename(targetPath);
-        effectivePath = targetPath;
-      }
-
-      await di.sl<SaveSelectedDatabasePathUseCase>()(effectivePath);
-      await di.sl<AddRecentDatabasePathUseCase>()(effectivePath);
-      await di.sl<SaveSelectedKeyFilePathUseCase>()(selectedKeyPath);
-      await di.sl<SetBiometricProtectionEnabledUseCase>()(biometricEnabled);
-
-      var passwordChanged = false;
-      if (changePassword) {
-        await di.sl<VaultKdbxService>().changeMasterPassword(
-          databasePath: effectivePath,
-          currentPassword: currentPasswordCtrl.text,
-          keyFilePath: selectedKeyPath,
-          newPassword: newPasswordCtrl.text,
-        );
-        await di.sl<SecureDataSource>().saveMasterPassword(
-          newPasswordCtrl.text,
-        );
-        passwordChanged = true;
-      }
 
       if (!context.mounted) {
         return;
@@ -704,19 +822,25 @@ class _SyncStripMenuButton extends StatelessWidget {
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            passwordChanged
+            result.passwordChanged && keyFileChanged
+                ? 'Database settings updated. Master password and key file changed successfully.'
+                : result.passwordChanged
                 ? 'Database settings updated. Master password changed successfully.'
+                : keyFileChanged
+                ? 'Database settings updated. Key file updated successfully.'
+                : requestedPasswordChange
+                ? 'Database settings updated.'
                 : 'Database settings updated.',
           ),
         ),
       );
       await AppNavigation.pushFadeReplacement(
         context,
-        VaultScreen(databasePath: effectivePath),
+        VaultScreen(databasePath: result.databasePath),
       );
-    } catch (_) {
+    } catch (e) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('Unable to update database settings.')),
+        SnackBar(content: Text('Unable to update database settings. $e')),
       );
     } finally {
       titleCtrl.dispose();
@@ -724,6 +848,22 @@ class _SyncStripMenuButton extends StatelessWidget {
       newPasswordCtrl.dispose();
       confirmNewPasswordCtrl.dispose();
     }
+  }
+
+  String _normalizeDatabaseFileName(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return '';
+    }
+    return trimmed.toLowerCase().endsWith('.kdbx') ? trimmed : '$trimmed.kdbx';
+  }
+
+  String? _normalizeKeyPathForComparison(String? value) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      return null;
+    }
+    return trimmed;
   }
 
   @override
@@ -758,6 +898,11 @@ class _SyncStripMenuButton extends StatelessWidget {
         case 'lockVault':
           final databasePath = state.databasePath;
           if (databasePath.trim().isNotEmpty) {
+            unawaited(
+              di.sl<VaultSessionCoordinator>().lockVault(
+                currentDatabasePath: databasePath,
+              ),
+            );
             await AppNavigation.pushFadeReplacement(
               context,
               DatabaseUnlockScreen(databasePath: databasePath),
@@ -783,10 +928,7 @@ class _SyncStripMenuButton extends StatelessWidget {
           context.read<ThemeCubit>().setTheme(ThemeMode.dark);
           break;
         case 'browserSetup':
-          await AppNavigation.pushFade(
-            context,
-            const BrowserSetupScreen(),
-          );
+          await AppNavigation.pushFade(context, const BrowserSetupScreen());
           break;
         case 'databaseSettings':
           await _showDatabaseSettings(context);
@@ -897,10 +1039,11 @@ class _SyncStripMenuButton extends StatelessWidget {
                                 ),
                               if (canConfigureBrowserAutofill)
                                 ListTile(
-                                  onTap: () =>
-                                      closeAndSelect('browserSetup'),
+                                  onTap: () => closeAndSelect('browserSetup'),
                                   title: const Text('Connetti Browser'),
-                                  subtitle: const Text('Chrome, Brave, Edge — One-click autofill'),
+                                  subtitle: const Text(
+                                    'Chrome, Brave, Edge — One-click autofill',
+                                  ),
                                 ),
                               ListTile(
                                 onTap: () => closeAndSelect('recycleBin'),

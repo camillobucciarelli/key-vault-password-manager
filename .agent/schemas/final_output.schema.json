@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "final_output.schema.json",
+  "title": "FinalOutput",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "status",
+    "final_data",
+    "quality",
+    "safety",
+    "unresolved_issues"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["accurate", "best_effort", "blocked"]
+    },
+    "final_data": {
+      "type": "object"
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdict", "final_score", "iterations_used"],
+      "properties": {
+        "verdict": {
+          "type": "string",
+          "enum": ["ACCURATE", "INACCURATE"]
+        },
+        "final_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "iterations_used": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_pass", "output_pass", "violations"],
+      "properties": {
+        "input_pass": {
+          "type": "boolean"
+        },
+        "output_pass": {
+          "type": "boolean"
+        },
+        "violations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "unresolved_issues": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

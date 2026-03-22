@@ -4,6 +4,20 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+class AppStorageFileEntry {
+  const AppStorageFileEntry({
+    required this.name,
+    required this.path,
+    required this.sizeBytes,
+    required this.modifiedAt,
+  });
+
+  final String name;
+  final String path;
+  final int sizeBytes;
+  final DateTime modifiedAt;
+}
+
 class MobileFileStorage {
   static bool get isMobilePlatform {
     if (kIsWeb) {
@@ -70,6 +84,62 @@ class MobileFileStorage {
       subdirectory: subdirectory,
     );
     return File(filePath).exists();
+  }
+
+  static Future<List<AppStorageFileEntry>> listFilesInAppDirectory({
+    required String subdirectory,
+  }) async {
+    final directory = await _ensureSubdirectory(subdirectory);
+    final entries = await directory.list(followLinks: false).toList();
+    final files = <AppStorageFileEntry>[];
+
+    for (final entry in entries) {
+      if (entry is! File) {
+        continue;
+      }
+      final stat = await entry.stat();
+      files.add(
+        AppStorageFileEntry(
+          name: p.basename(entry.path),
+          path: entry.path,
+          sizeBytes: stat.size,
+          modifiedAt: stat.modified,
+        ),
+      );
+    }
+
+    files.sort((a, b) => b.modifiedAt.compareTo(a.modifiedAt));
+    return files;
+  }
+
+  static Future<bool> isPathInAppDirectory({
+    required String filePath,
+    required String subdirectory,
+  }) async {
+    final directory = await _ensureSubdirectory(subdirectory);
+    final normalizedDirectoryPath = p.normalize(directory.path);
+    final normalizedTargetPath = p.normalize(filePath);
+    return p.isWithin(normalizedDirectoryPath, normalizedTargetPath) ||
+        normalizedDirectoryPath == normalizedTargetPath;
+  }
+
+  static Future<void> deleteFileFromAppDirectory({
+    required String filePath,
+    required String subdirectory,
+  }) async {
+    final directory = await _ensureSubdirectory(subdirectory);
+    final target = File(filePath);
+    final normalizedDirectoryPath = p.normalize(directory.path);
+    final normalizedTargetPath = p.normalize(target.path);
+
+    if (!p.isWithin(normalizedDirectoryPath, normalizedTargetPath) &&
+        normalizedDirectoryPath != normalizedTargetPath) {
+      throw Exception('Cannot delete file outside app storage directory.');
+    }
+
+    if (await target.exists()) {
+      await target.delete();
+    }
   }
 
   static Future<Directory> _ensureSubdirectory(String subdirectory) async {
