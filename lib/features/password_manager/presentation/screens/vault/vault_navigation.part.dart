@@ -415,18 +415,15 @@ class _SyncStripMenuButton extends StatelessWidget {
       return;
     }
 
-    final titleCtrl = TextEditingController(
-      text: path.basenameWithoutExtension(currentDatabasePath),
-    );
+    var databaseTitle = path.basenameWithoutExtension(currentDatabasePath);
     final currentKeyPath = await di.sl<GetSelectedKeyFilePathUseCase>()();
     if (!context.mounted) {
-      titleCtrl.dispose();
       return;
     }
     var selectedKeyPath = currentKeyPath;
-    final currentPasswordCtrl = TextEditingController();
-    final newPasswordCtrl = TextEditingController();
-    final confirmNewPasswordCtrl = TextEditingController();
+    var currentPassword = '';
+    var newPassword = '';
+    var confirmNewPassword = '';
     var changePassword = false;
     var biometricEnabled = await di
         .sl<VaultSessionCoordinator>()
@@ -439,10 +436,6 @@ class _SyncStripMenuButton extends StatelessWidget {
       currentKeyPath,
     );
     if (!context.mounted) {
-      titleCtrl.dispose();
-      currentPasswordCtrl.dispose();
-      newPasswordCtrl.dispose();
-      confirmNewPasswordCtrl.dispose();
       return;
     }
     final formKey = GlobalKey<FormState>();
@@ -458,7 +451,7 @@ class _SyncStripMenuButton extends StatelessWidget {
             final keyFileChanged =
                 normalizedSelectedKeyPath != normalizedCurrentKeyPath;
             final fileNameChanged =
-                _normalizeDatabaseFileName(titleCtrl.text) != initialFileName;
+                _normalizeDatabaseFileName(databaseTitle) != initialFileName;
             final biometricChanged =
                 biometricEnabled != initialBiometricEnabled;
             final pendingChanges = <String>[
@@ -489,12 +482,15 @@ class _SyncStripMenuButton extends StatelessWidget {
                         ),
                         const SizedBox(height: 8),
                         TextFormField(
-                          controller: titleCtrl,
+                          initialValue: databaseTitle,
                           decoration: const InputDecoration(
                             labelText: 'Database file name',
                             prefixIcon: Icon(AppIcons.file),
                           ),
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (value) {
+                            databaseTitle = value;
+                            setState(() {});
+                          },
                           validator: (value) {
                             final raw = value?.trim() ?? '';
                             if (raw.isEmpty) {
@@ -642,11 +638,14 @@ class _SyncStripMenuButton extends StatelessWidget {
                         if (changePassword) ...[
                           const SizedBox(height: 4),
                           TextFormField(
-                            controller: currentPasswordCtrl,
+                            initialValue: currentPassword,
                             obscureText: true,
                             decoration: const InputDecoration(
                               labelText: 'Current master password',
                             ),
+                            onChanged: (value) {
+                              currentPassword = value;
+                            },
                             validator: (value) {
                               if (!changePassword) {
                                 return null;
@@ -659,11 +658,14 @@ class _SyncStripMenuButton extends StatelessWidget {
                           ),
                           const SizedBox(height: 8),
                           TextFormField(
-                            controller: newPasswordCtrl,
+                            initialValue: newPassword,
                             obscureText: true,
                             decoration: const InputDecoration(
                               labelText: 'New master password',
                             ),
+                            onChanged: (value) {
+                              newPassword = value;
+                            },
                             validator: (value) {
                               if (!changePassword) {
                                 return null;
@@ -676,16 +678,19 @@ class _SyncStripMenuButton extends StatelessWidget {
                           ),
                           const SizedBox(height: 8),
                           TextFormField(
-                            controller: confirmNewPasswordCtrl,
+                            initialValue: confirmNewPassword,
                             obscureText: true,
                             decoration: const InputDecoration(
                               labelText: 'Confirm new password',
                             ),
+                            onChanged: (value) {
+                              confirmNewPassword = value;
+                            },
                             validator: (value) {
                               if (!changePassword) {
                                 return null;
                               }
-                              if ((value ?? '') != newPasswordCtrl.text) {
+                              if ((value ?? '') != newPassword) {
                                 return 'Passwords do not match.';
                               }
                               return null;
@@ -780,18 +785,10 @@ class _SyncStripMenuButton extends StatelessWidget {
     );
 
     if (!context.mounted) {
-      titleCtrl.dispose();
-      currentPasswordCtrl.dispose();
-      newPasswordCtrl.dispose();
-      confirmNewPasswordCtrl.dispose();
       return;
     }
 
     if (shouldApply != true) {
-      titleCtrl.dispose();
-      currentPasswordCtrl.dispose();
-      newPasswordCtrl.dispose();
-      confirmNewPasswordCtrl.dispose();
       return;
     }
 
@@ -806,12 +803,12 @@ class _SyncStripMenuButton extends StatelessWidget {
           .updateDatabaseSettings(
             DatabaseSettingsUpdateRequest(
               currentDatabasePath: currentDatabasePath,
-              fileName: titleCtrl.text.trim(),
+              fileName: databaseTitle.trim(),
               keyFilePath: selectedKeyPath,
               biometricProtectionEnabled: biometricEnabled,
               changePassword: changePassword,
-              currentPassword: currentPasswordCtrl.text,
-              newPassword: newPasswordCtrl.text,
+              currentPassword: currentPassword,
+              newPassword: newPassword,
             ),
           );
 
@@ -842,11 +839,6 @@ class _SyncStripMenuButton extends StatelessWidget {
       messenger.showSnackBar(
         SnackBar(content: Text('Unable to update database settings. $e')),
       );
-    } finally {
-      titleCtrl.dispose();
-      currentPasswordCtrl.dispose();
-      newPasswordCtrl.dispose();
-      confirmNewPasswordCtrl.dispose();
     }
   }
 

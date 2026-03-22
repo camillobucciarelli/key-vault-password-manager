@@ -23,19 +23,15 @@ class _KeyFileSelector extends StatelessWidget {
       );
     }
 
-    return Container(
+    return StyledInfoContainer(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: Theme.of(
-          context,
-        ).colorScheme.surface.withValues(alpha: isDark ? 0.72 : 0.92),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Theme.of(
-            context,
-          ).colorScheme.outlineVariant.withValues(alpha: isDark ? 1 : 0.9),
-        ),
-      ),
+      borderRadius: 12,
+      backgroundColor: Theme.of(
+        context,
+      ).colorScheme.surface.withValues(alpha: isDark ? 0.72 : 0.92),
+      borderColor: Theme.of(
+        context,
+      ).colorScheme.outlineVariant.withValues(alpha: isDark ? 1 : 0.9),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

@@ -1473,21 +1473,44 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     required String searchQuery,
     required VaultEntrySort sortBy,
   }) {
-    final normalizedQuery = searchQuery.trim().toLowerCase();
+    final normalizedQuery = _normalizeSearchText(searchQuery);
+    final compactQuery = normalizedQuery.replaceAll(' ', '');
 
     var filtered = entries
         .where((entry) {
           if (normalizedQuery.isNotEmpty) {
-            final inTitle = entry.title.toLowerCase().contains(normalizedQuery);
-            final inUser = entry.username.toLowerCase().contains(
+            final inTitle = _matchesSearchValue(
+              entry.title,
               normalizedQuery,
+              compactQuery,
             );
-            final inUrl = entry.url.toLowerCase().contains(normalizedQuery);
-            final inNotes = entry.notes.toLowerCase().contains(normalizedQuery);
+            final inUser = _matchesSearchValue(
+              entry.username,
+              normalizedQuery,
+              compactQuery,
+            );
+            final inUrl = _matchesSearchValue(
+              entry.url,
+              normalizedQuery,
+              compactQuery,
+            );
+            final inNotes = _matchesSearchValue(
+              entry.notes,
+              normalizedQuery,
+              compactQuery,
+            );
             final inCustom = entry.customFields.any(
               (field) =>
-                  field.key.toLowerCase().contains(normalizedQuery) ||
-                  field.value.toLowerCase().contains(normalizedQuery),
+                  _matchesSearchValue(
+                    field.key,
+                    normalizedQuery,
+                    compactQuery,
+                  ) ||
+                  _matchesSearchValue(
+                    field.value,
+                    normalizedQuery,
+                    compactQuery,
+                  ),
             );
             if (!(inTitle || inUser || inUrl || inNotes || inCustom)) {
               return false;
@@ -1510,6 +1533,57 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     });
 
     return filtered;
+  }
+
+  bool _matchesSearchValue(
+    String value,
+    String normalizedQuery,
+    String compactQuery,
+  ) {
+    final normalizedValue = _normalizeSearchText(value);
+    if (normalizedValue.contains(normalizedQuery)) {
+      return true;
+    }
+
+    if (compactQuery.isEmpty) {
+      return false;
+    }
+
+    final compactValue = normalizedValue.replaceAll(' ', '');
+    return compactValue.contains(compactQuery);
+  }
+
+  String _normalizeSearchText(String value) {
+    final lowered = value.toLowerCase();
+    final folded = _foldAccents(lowered);
+    final normalized = folded
+        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .trim()
+        .replaceAll(RegExp(r'\s+'), ' ');
+    return normalized;
+  }
+
+  String _foldAccents(String value) {
+    return value
+        .replaceAll(RegExp(r'[àáâãäåāăą]'), 'a')
+        .replaceAll(RegExp(r'[çćĉċč]'), 'c')
+        .replaceAll(RegExp(r'[ďđ]'), 'd')
+        .replaceAll(RegExp(r'[èéêëēĕėęě]'), 'e')
+        .replaceAll(RegExp(r'[ĝğġģ]'), 'g')
+        .replaceAll(RegExp(r'[ĥħ]'), 'h')
+        .replaceAll(RegExp(r'[ìíîïĩīĭįı]'), 'i')
+        .replaceAll(RegExp(r'[ĵ]'), 'j')
+        .replaceAll(RegExp(r'[ķ]'), 'k')
+        .replaceAll(RegExp(r'[ĺļľŀł]'), 'l')
+        .replaceAll(RegExp(r'[ñńņňŉŋ]'), 'n')
+        .replaceAll(RegExp(r'[òóôõöøōŏő]'), 'o')
+        .replaceAll(RegExp(r'[ŕŗř]'), 'r')
+        .replaceAll(RegExp(r'[śŝşš]'), 's')
+        .replaceAll(RegExp(r'[ţťŧ]'), 't')
+        .replaceAll(RegExp(r'[ùúûüũūŭůűų]'), 'u')
+        .replaceAll(RegExp(r'[ŵ]'), 'w')
+        .replaceAll(RegExp(r'[ýÿŷ]'), 'y')
+        .replaceAll(RegExp(r'[źżž]'), 'z');
   }
 
   Set<String> _buildDuplicateKeys(List<VaultEntry> entries) {

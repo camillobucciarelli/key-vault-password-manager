@@ -236,6 +236,10 @@ class _EntriesCardState extends State<_EntriesCard> {
     BuildContext context, {
     required bool showInlineDetail,
   }) {
+    final normalizedQuery = _normalizeSearchText(widget.searchQuery);
+    final compactQuery = normalizedQuery.replaceAll(' ', '');
+    final isSearchActive = normalizedQuery.isNotEmpty;
+
     final groups = widget.groups
         .where((group) => !group.isRecycleBin)
         .toList(growable: false);
@@ -258,7 +262,26 @@ class _EntriesCardState extends State<_EntriesCard> {
     }
 
     final autoExpanded = <String>{};
-    if (widget.searchQuery.trim().isNotEmpty) {
+    bool groupMatchesQuery(VaultGroup group) {
+      return isSearchActive &&
+          _matchesSearchValue(group.name, normalizedQuery, compactQuery);
+    }
+
+    if (isSearchActive) {
+      for (final group in groups) {
+        if (!groupMatchesQuery(group)) {
+          continue;
+        }
+
+        autoExpanded.add(group.id);
+        var cursorId = group.parentId;
+        while (cursorId != null) {
+          autoExpanded.add(cursorId);
+          final parent = byId[cursorId];
+          cursorId = parent?.parentId;
+        }
+      }
+
       for (final entry in widget.entries) {
         var cursorId = entry.groupId;
         while (true) {
@@ -290,6 +313,12 @@ class _EntriesCardState extends State<_EntriesCard> {
         return true;
       }
 
+      final group = byId[groupId];
+      if (group != null && groupMatchesQuery(group)) {
+        visibleGroupMemo[groupId] = true;
+        return true;
+      }
+
       final children = byParent[groupId] ?? const <VaultGroup>[];
       for (final child in children) {
         if (groupHasVisibleContent(child.id)) {
@@ -307,8 +336,7 @@ class _EntriesCardState extends State<_EntriesCard> {
     final manualExpanded = widget.expandedGroupIds.toSet();
 
     void appendGroup(VaultGroup group, int depth) {
-      if (widget.searchQuery.trim().isNotEmpty &&
-          !groupHasVisibleContent(group.id)) {
+      if (isSearchActive && !groupHasVisibleContent(group.id)) {
         return;
       }
 
@@ -465,7 +493,7 @@ class _EntriesCardState extends State<_EntriesCard> {
               final searchField = TextFormField(
                 controller: _searchController,
                 decoration: InputDecoration(
-                  labelText: 'Search records',
+                  labelText: 'Search records and folders',
                   prefixIcon: const Icon(AppIcons.search),
                   suffixIcon: widget.searchQuery.isNotEmpty
                       ? Tooltip(
@@ -560,6 +588,57 @@ enum _EntryAction { edit, move, attachments, delete }
 
 enum _FolderAction { addRecord, addSubfolder, rename, move, delete }
 
+bool _matchesSearchValue(
+  String value,
+  String normalizedQuery,
+  String compactQuery,
+) {
+  final normalizedValue = _normalizeSearchText(value);
+  if (normalizedValue.contains(normalizedQuery)) {
+    return true;
+  }
+
+  if (compactQuery.isEmpty) {
+    return false;
+  }
+
+  final compactValue = normalizedValue.replaceAll(' ', '');
+  return compactValue.contains(compactQuery);
+}
+
+String _normalizeSearchText(String value) {
+  final lowered = value.toLowerCase();
+  final folded = _foldAccents(lowered);
+  final normalized = folded
+      .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+      .trim()
+      .replaceAll(RegExp(r'\s+'), ' ');
+  return normalized;
+}
+
+String _foldAccents(String value) {
+  return value
+      .replaceAll(RegExp(r'[àáâãäåāăą]'), 'a')
+      .replaceAll(RegExp(r'[çćĉċč]'), 'c')
+      .replaceAll(RegExp(r'[ďđ]'), 'd')
+      .replaceAll(RegExp(r'[èéêëēĕėęě]'), 'e')
+      .replaceAll(RegExp(r'[ĝğġģ]'), 'g')
+      .replaceAll(RegExp(r'[ĥħ]'), 'h')
+      .replaceAll(RegExp(r'[ìíîïĩīĭįı]'), 'i')
+      .replaceAll(RegExp(r'[ĵ]'), 'j')
+      .replaceAll(RegExp(r'[ķ]'), 'k')
+      .replaceAll(RegExp(r'[ĺļľŀł]'), 'l')
+      .replaceAll(RegExp(r'[ñńņňŉŋ]'), 'n')
+      .replaceAll(RegExp(r'[òóôõöøōŏő]'), 'o')
+      .replaceAll(RegExp(r'[ŕŗř]'), 'r')
+      .replaceAll(RegExp(r'[śŝşš]'), 's')
+      .replaceAll(RegExp(r'[ţťŧ]'), 't')
+      .replaceAll(RegExp(r'[ùúûüũūŭůűų]'), 'u')
+      .replaceAll(RegExp(r'[ŵ]'), 'w')
+      .replaceAll(RegExp(r'[ýÿŷ]'), 'y')
+      .replaceAll(RegExp(r'[źżž]'), 'z');
+}
+
 Future<void> _copyTextToClipboard(
   BuildContext context, {
   required String text,
@@ -577,21 +656,6 @@ Future<void> _copyTextToClipboard(
   ).showSnackBar(SnackBar(content: Text(successMessage)));
 }
 
-bool _useLongPressCopy() {
-  switch (defaultTargetPlatform) {
-    case TargetPlatform.android:
-    case TargetPlatform.iOS:
-      return true;
-    case TargetPlatform.fuchsia:
-    case TargetPlatform.linux:
-    case TargetPlatform.macOS:
-    case TargetPlatform.windows:
-      return false;
-  }
-}
-
 String _copyHintLabel() {
-  return _useLongPressCopy()
-      ? 'Long press a field to copy'
-      : 'Click a field to copy';
+  return 'Tap a field to open copy action';
 }

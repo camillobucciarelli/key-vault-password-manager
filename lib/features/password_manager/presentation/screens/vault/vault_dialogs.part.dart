@@ -896,7 +896,7 @@ Future<_LinkDatabaseChoice?> _showLinkDatabaseDialog(
       localDatabaseName.toLowerCase().endsWith('.kdbx')
       ? localDatabaseName
       : '$localDatabaseName.kdbx';
-  final fileSearchController = TextEditingController();
+  var searchQuery = '';
   var useExisting = false;
   String? selectedExistingId;
 
@@ -911,8 +911,7 @@ Future<_LinkDatabaseChoice?> _showLinkDatabaseDialog(
             final remoteFiles = state.remoteDriveFiles;
             final compactWidth =
                 MediaQuery.sizeOf(dialogInnerContext).width < 380;
-            final searchQuery = fileSearchController.text.trim();
-            final isSearchingFiles = searchQuery.isNotEmpty;
+            final isSearchingFiles = searchQuery.trim().isNotEmpty;
 
             if (selectedExistingId == null && remoteFiles.isNotEmpty) {
               selectedExistingId = remoteFiles.first.id;
@@ -1005,13 +1004,15 @@ Future<_LinkDatabaseChoice?> _showLinkDatabaseDialog(
                             ),
                             const SizedBox(height: 8),
                             TextField(
-                              controller: fileSearchController,
                               decoration: const InputDecoration(
                                 prefixIcon: Icon(AppIcons.search),
                                 labelText: 'Search .kdbx file',
                                 hintText: 'Type file name',
                               ),
                               onChanged: (value) {
+                                setState(() {
+                                  searchQuery = value;
+                                });
                                 vaultBloc.add(
                                   LoadDriveRemoteFiles(query: value),
                                 );
@@ -1139,7 +1140,6 @@ Future<_LinkDatabaseChoice?> _showLinkDatabaseDialog(
       );
     },
   );
-  fileSearchController.dispose();
   return result;
 }
 

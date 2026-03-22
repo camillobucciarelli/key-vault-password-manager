@@ -15,6 +15,7 @@ import '../coordinators/database_session_coordinator.dart';
 import 'coordinators/database_flow_coordinator.dart';
 import 'database_selection_screen.dart';
 import '../widgets/internal_key_file_manager_dialog.dart';
+import '../widgets/styled_info_container.dart';
 
 part 'database_unlock_widgets.part.dart';
 
@@ -146,7 +147,6 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
             final hasKeyFile =
                 state.keyFilePath != null &&
                 state.keyFilePath!.trim().isNotEmpty;
-            final isDark = Theme.of(context).brightness == Brightness.dark;
             final requiresBiometricGate =
                 state.biometricAvailable && !state.biometricVerified;
             final canUnlockManually =
@@ -223,24 +223,7 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                           ] else
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 10,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .surfaceContainerHighest
-                                    .withValues(alpha: isDark ? 1 : 0.86),
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .outlineVariant
-                                      .withValues(alpha: isDark ? 0.75 : 0.9),
-                                ),
-                              ),
+                            StyledInfoContainer(
                               child: Text(
                                 state.biometricAvailable
                                     ? 'Biometric check completed.'
@@ -290,21 +273,8 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
                             },
                           ),
                           const SizedBox(height: 16),
-                          Container(
+                          StyledInfoContainer(
                             padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .surfaceContainerHighest
-                                  .withValues(alpha: isDark ? 1 : 0.86),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .outlineVariant
-                                    .withValues(alpha: isDark ? 0.75 : 0.9),
-                              ),
-                            ),
                             child: Text(
                               'Ready to unlock with: '
                               '${hasPassword ? 'master password' : ''}'

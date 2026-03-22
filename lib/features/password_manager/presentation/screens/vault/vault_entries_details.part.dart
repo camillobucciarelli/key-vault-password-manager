@@ -400,9 +400,10 @@ class _EntryFieldCard extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 4),
-        SelectableText(
+        Text(
           resolved,
           maxLines: maxLines,
+          overflow: maxLines == null ? null : TextOverflow.ellipsis,
           style: theme.textTheme.bodyMedium?.copyWith(
             color: value.isEmpty
                 ? colorScheme.onSurface.withValues(alpha: 0.62)
@@ -412,15 +413,13 @@ class _EntryFieldCard extends StatelessWidget {
       ],
     );
 
-    final content = Container(
+    final content = StyledInfoContainer(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.34),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.65),
-        ),
+      borderRadius: 10,
+      backgroundColor: colorScheme.surfaceContainerHighest.withValues(
+        alpha: 0.34,
       ),
+      borderColor: colorScheme.outlineVariant.withValues(alpha: 0.65),
       child: trailing == null
           ? textColumn
           : Row(
@@ -440,12 +439,56 @@ class _EntryFieldCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: _useLongPressCopy() ? null : onCopy,
-        onLongPress: _useLongPressCopy() ? onCopy : null,
+        onTap: () => _showCopyFieldMenu(context, onCopy!),
+        onSecondaryTap: () => _showCopyFieldMenu(context, onCopy!),
         borderRadius: BorderRadius.circular(10),
         child: content,
       ),
     );
+  }
+}
+
+enum _EntryFieldMenuAction { copy }
+
+Future<void> _showCopyFieldMenu(
+  BuildContext context,
+  VoidCallback onCopy,
+) async {
+  final fieldRenderObject = context.findRenderObject();
+  if (fieldRenderObject is! RenderBox) {
+    return;
+  }
+  final overlay = Overlay.of(context).context.findRenderObject();
+  if (overlay is! RenderBox) {
+    return;
+  }
+
+  final fieldTopLeft = fieldRenderObject.localToGlobal(Offset.zero);
+  final fieldRect = Rect.fromLTWH(
+    fieldTopLeft.dx,
+    fieldTopLeft.dy,
+    fieldRenderObject.size.width,
+    fieldRenderObject.size.height,
+  );
+  final selectedAction = await showMenu<_EntryFieldMenuAction>(
+    context: context,
+    position: RelativeRect.fromRect(fieldRect, Offset.zero & overlay.size),
+    items: const [
+      PopupMenuItem<_EntryFieldMenuAction>(
+        value: _EntryFieldMenuAction.copy,
+        child: Row(
+          children: [
+            Icon(AppIcons.copy, size: 16),
+            SizedBox(width: 8),
+            Text('Copy'),
+          ],
+        ),
+      ),
+    ],
+  );
+
+  if (selectedAction == _EntryFieldMenuAction.copy) {
+    onCopy();
   }
 }
 
@@ -962,7 +1005,7 @@ class _RecordsEmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            isSearchActive ? 'No records found' : 'No records yet',
+            isSearchActive ? 'No records or folders found' : 'No records yet',
             style: Theme.of(
               context,
             ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
