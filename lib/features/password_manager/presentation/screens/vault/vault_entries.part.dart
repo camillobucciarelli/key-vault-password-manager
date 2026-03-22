@@ -8,7 +8,6 @@ class _EntriesCard extends StatefulWidget {
     required this.currentGroupId,
     required this.expandedGroupIds,
     required this.searchQuery,
-    this.isScrollablePage = false,
   });
 
   final List<VaultEntry> entries;
@@ -17,7 +16,6 @@ class _EntriesCard extends StatefulWidget {
   final String? currentGroupId;
   final List<String> expandedGroupIds;
   final String searchQuery;
-  final bool isScrollablePage;
 
   @override
   State<_EntriesCard> createState() => _EntriesCardState();
@@ -220,14 +218,13 @@ class _EntriesCardState extends State<_EntriesCard> {
       return;
     }
 
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => _EntryDetailsPage(
-          entry: entry,
-          onSelectedAction: (action) async {
-            await _handleEntryAction(context, entry, action);
-          },
-        ),
+    await AppNavigation.pushFade<void>(
+      context,
+      _EntryDetailsPage(
+        entry: entry,
+        onSelectedAction: (action) async {
+          await _handleEntryAction(context, entry, action);
+        },
       ),
     );
   }
@@ -332,7 +329,7 @@ class _EntriesCardState extends State<_EntriesCard> {
     }
 
     final rootId = widget.rootGroupId;
-    final treeItems = <Widget>[];
+    final treeItems = <_EntryTreeNode>[];
     final manualExpanded = widget.expandedGroupIds.toSet();
 
     void appendGroup(VaultGroup group, int depth) {
@@ -347,25 +344,14 @@ class _EntriesCardState extends State<_EntriesCard> {
       final records = entriesByGroup[group.id] ?? const <VaultEntry>[];
 
       treeItems.add(
-        Padding(
-          padding: EdgeInsets.only(left: depth * 14.0),
-          child: _FolderListItem(
-            group: group,
-            isExpanded: isExpanded,
-            isCurrent: isCurrent,
-            isRoot: group.id == rootId,
-            childGroupsCount: children.length,
-            recordsCount: records.length,
-            onOpen: () {
-              context.read<VaultBloc>().add(ToggleVaultGroupExpanded(group.id));
-            },
-            onToggleExpand: () {
-              context.read<VaultBloc>().add(ToggleVaultGroupExpanded(group.id));
-            },
-            onSelectedAction: (action) async {
-              await _handleFolderAction(context, group: group, action: action);
-            },
-          ),
+        _EntryTreeNode.group(
+          group: group,
+          depth: depth,
+          isExpanded: isExpanded,
+          isCurrent: isCurrent,
+          isRoot: group.id == rootId,
+          childGroupsCount: children.length,
+          recordsCount: records.length,
         ),
       );
 
@@ -380,20 +366,10 @@ class _EntriesCardState extends State<_EntriesCard> {
       for (final entry in records) {
         final isSelected = showInlineDetail && _selectedEntryId == entry.id;
         treeItems.add(
-          Padding(
-            padding: EdgeInsets.only(left: (depth + 1) * 14.0),
-            child: _RecordListItem(
-              entry: entry,
-              isSelected: isSelected,
-              onOpen: () => _openEntry(
-                context,
-                entry,
-                showInlineDetail: showInlineDetail,
-              ),
-              onSelectedAction: (action) {
-                _handleEntryAction(context, entry, action);
-              },
-            ),
+          _EntryTreeNode.entry(
+            entry: entry,
+            depth: depth + 1,
+            isSelected: isSelected,
           ),
         );
       }
@@ -413,15 +389,7 @@ class _EntriesCardState extends State<_EntriesCard> {
       for (final entry in widget.entries) {
         final isSelected = showInlineDetail && _selectedEntryId == entry.id;
         treeItems.add(
-          _RecordListItem(
-            entry: entry,
-            isSelected: isSelected,
-            onOpen: () =>
-                _openEntry(context, entry, showInlineDetail: showInlineDetail),
-            onSelectedAction: (action) {
-              _handleEntryAction(context, entry, action);
-            },
-          ),
+          _EntryTreeNode.entry(entry: entry, depth: 0, isSelected: isSelected),
         );
       }
     }
@@ -435,13 +403,6 @@ class _EntriesCardState extends State<_EntriesCard> {
               }
             : null,
       );
-
-      if (widget.isScrollablePage) {
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: emptyState,
-        );
-      }
 
       return LayoutBuilder(
         builder: (context, constraints) {
@@ -459,22 +420,76 @@ class _EntriesCardState extends State<_EntriesCard> {
       );
     }
 
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom + 12;
     final list = ListView.separated(
-      controller: widget.isScrollablePage ? null : _entriesScrollController,
-      padding: EdgeInsets.zero,
-      shrinkWrap: widget.isScrollablePage,
-      physics: widget.isScrollablePage
-          ? const NeverScrollableScrollPhysics()
-          : const AlwaysScrollableScrollPhysics(),
+      controller: _entriesScrollController,
+      padding: EdgeInsets.only(bottom: bottomInset),
+      physics: const AlwaysScrollableScrollPhysics(),
       itemCount: treeItems.length,
       separatorBuilder: (_, _) =>
           const SizedBox(height: _VaultUiTokens.recordListSpacing),
-      itemBuilder: (context, index) => treeItems[index],
+      itemBuilder: (context, index) {
+        final node = treeItems[index];
+        return node.when(
+          group:
+              (
+                group,
+                depth,
+                isExpanded,
+                isCurrent,
+                isRoot,
+                childGroupsCount,
+                recordsCount,
+              ) {
+                return Padding(
+                  padding: EdgeInsets.only(left: depth * 14.0),
+                  child: _FolderListItem(
+                    group: group,
+                    isExpanded: isExpanded,
+                    isCurrent: isCurrent,
+                    isRoot: isRoot,
+                    childGroupsCount: childGroupsCount,
+                    recordsCount: recordsCount,
+                    onOpen: () {
+                      context.read<VaultBloc>().add(
+                        ToggleVaultGroupExpanded(group.id),
+                      );
+                    },
+                    onToggleExpand: () {
+                      context.read<VaultBloc>().add(
+                        ToggleVaultGroupExpanded(group.id),
+                      );
+                    },
+                    onSelectedAction: (action) async {
+                      await _handleFolderAction(
+                        context,
+                        group: group,
+                        action: action,
+                      );
+                    },
+                  ),
+                );
+              },
+          entry: (entry, depth, isSelected) {
+            return Padding(
+              padding: EdgeInsets.only(left: depth * 14.0),
+              child: _RecordListItem(
+                entry: entry,
+                isSelected: isSelected,
+                onOpen: () => _openEntry(
+                  context,
+                  entry,
+                  showInlineDetail: showInlineDetail,
+                ),
+                onSelectedAction: (action) {
+                  _handleEntryAction(context, entry, action);
+                },
+              ),
+            );
+          },
+        );
+      },
     );
-
-    if (widget.isScrollablePage) {
-      return list;
-    }
 
     return Scrollbar(controller: _entriesScrollController, child: list);
   }
@@ -519,58 +534,55 @@ class _EntriesCardState extends State<_EntriesCard> {
             },
           ),
           const SizedBox(height: 10),
-          if (widget.isScrollablePage)
-            _buildEntriesList(context, showInlineDetail: false)
-          else
-            Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final showInlineDetail =
-                      constraints.maxWidth >= Breakpoints.mobile;
-                  if (!showInlineDetail) {
-                    return _buildEntriesList(context, showInlineDetail: false);
-                  }
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final showInlineDetail =
+                    constraints.maxWidth >= Breakpoints.mobile;
+                if (!showInlineDetail) {
+                  return _buildEntriesList(context, showInlineDetail: false);
+                }
 
-                  final selected = _selectedEntry;
-                  return Row(
-                    children: [
-                      SizedBox(
-                        width: math.max(260, constraints.maxWidth * 0.42),
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            border: Border(
-                              right: BorderSide(
-                                color: colorScheme.outlineVariant.withValues(
-                                  alpha: 0.58,
-                                ),
+                final selected = _selectedEntry;
+                return Row(
+                  children: [
+                    SizedBox(
+                      width: math.max(260, constraints.maxWidth * 0.42),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          border: Border(
+                            right: BorderSide(
+                              color: colorScheme.outlineVariant.withValues(
+                                alpha: 0.58,
                               ),
-                            ),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.only(right: 10),
-                            child: _buildEntriesList(
-                              context,
-                              showInlineDetail: true,
                             ),
                           ),
                         ),
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 10),
+                          child: _buildEntriesList(
+                            context,
+                            showInlineDetail: true,
+                          ),
+                        ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: selected == null
-                            ? const _EntryDetailEmptyState()
-                            : _EntryDetailPanel(
-                                entry: selected,
-                                onSelectedAction: (action) {
-                                  _handleEntryAction(context, selected, action);
-                                },
-                              ),
-                      ),
-                    ],
-                  );
-                },
-              ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: selected == null
+                          ? const _EntryDetailEmptyState()
+                          : _EntryDetailPanel(
+                              entry: selected,
+                              onSelectedAction: (action) {
+                                _handleEntryAction(context, selected, action);
+                              },
+                            ),
+                    ),
+                  ],
+                );
+              },
             ),
+          ),
         ],
       ),
     );
@@ -581,6 +593,99 @@ class _EntriesCardState extends State<_EntriesCard> {
       ),
       child: content,
     );
+  }
+}
+
+class _EntryTreeNode {
+  const _EntryTreeNode._({
+    required this.group,
+    required this.entry,
+    required this.depth,
+    required this.isExpanded,
+    required this.isCurrent,
+    required this.isRoot,
+    required this.childGroupsCount,
+    required this.recordsCount,
+    required this.isSelected,
+  });
+
+  factory _EntryTreeNode.group({
+    required VaultGroup group,
+    required int depth,
+    required bool isExpanded,
+    required bool isCurrent,
+    required bool isRoot,
+    required int childGroupsCount,
+    required int recordsCount,
+  }) {
+    return _EntryTreeNode._(
+      group: group,
+      entry: null,
+      depth: depth,
+      isExpanded: isExpanded,
+      isCurrent: isCurrent,
+      isRoot: isRoot,
+      childGroupsCount: childGroupsCount,
+      recordsCount: recordsCount,
+      isSelected: false,
+    );
+  }
+
+  factory _EntryTreeNode.entry({
+    required VaultEntry entry,
+    required int depth,
+    required bool isSelected,
+  }) {
+    return _EntryTreeNode._(
+      group: null,
+      entry: entry,
+      depth: depth,
+      isExpanded: false,
+      isCurrent: false,
+      isRoot: false,
+      childGroupsCount: 0,
+      recordsCount: 0,
+      isSelected: isSelected,
+    );
+  }
+
+  final VaultGroup? group;
+  final VaultEntry? entry;
+  final int depth;
+  final bool isExpanded;
+  final bool isCurrent;
+  final bool isRoot;
+  final int childGroupsCount;
+  final int recordsCount;
+  final bool isSelected;
+
+  T when<T>({
+    required T Function(
+      VaultGroup group,
+      int depth,
+      bool isExpanded,
+      bool isCurrent,
+      bool isRoot,
+      int childGroupsCount,
+      int recordsCount,
+    )
+    group,
+    required T Function(VaultEntry entry, int depth, bool isSelected) entry,
+  }) {
+    final resolvedGroup = this.group;
+    if (resolvedGroup != null) {
+      return group(
+        resolvedGroup,
+        depth,
+        isExpanded,
+        isCurrent,
+        isRoot,
+        childGroupsCount,
+        recordsCount,
+      );
+    }
+
+    return entry(this.entry!, depth, isSelected);
   }
 }
 

@@ -288,7 +288,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
               gradient: AppBackgrounds.gradient(context),
             ),
           ),
-          BlocConsumer<VaultBloc, VaultState>(
+          BlocListener<VaultBloc, VaultState>(
             listener: (context, state) {
               if (state.errorMessage != null &&
                   state.errorMessage!.isNotEmpty) {
@@ -339,21 +339,22 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                 _showSyncConflictDialog(context, state.pendingSyncConflict!);
               }
             },
-            builder: (context, state) {
-              if (state.isLoading) {
-                return const Center(child: CircularProgressIndicator());
-              }
+            child: BlocSelector<VaultBloc, VaultState, bool>(
+              selector: (state) => state.isLoading,
+              builder: (context, isLoading) {
+                if (isLoading) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-              return Stack(
-                children: [
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final spec = _VaultLayoutSpec.fromWidth(
-                        constraints.maxWidth,
-                      );
+                return Stack(
+                  children: [
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final spec = _VaultLayoutSpec.fromWidth(
+                          constraints.maxWidth,
+                        );
 
-                      if (spec.isMobile) {
-                        return SingleChildScrollView(
+                        return Padding(
                           padding: EdgeInsets.fromLTRB(
                             spec.horizontalPadding,
                             topInset + spec.contentTopPadding,
@@ -363,13 +364,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              _SyncStatusStrip(
-                                state: state,
-                                onRefresh: () {
-                                  context.read<VaultBloc>().add(
-                                    const RefreshVault(),
-                                  );
-                                },
+                              _VaultSyncStatusStrip(
                                 onOpenRecycleBin: () {
                                   _showRecycleBinDialog(context);
                                 },
@@ -377,70 +372,101 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                                     _closeCurrentDatabaseAndSelectAnother,
                               ),
                               const SizedBox(height: _VaultUiTokens.panelGap),
-                              _EntriesCard(
-                                entries: state.visibleEntries,
-                                groups: state.groups,
-                                rootGroupId: state.rootGroupId,
-                                currentGroupId: state.currentGroupId,
-                                expandedGroupIds: state.expandedGroupIds,
-                                searchQuery: state.searchQuery,
-                                isScrollablePage: true,
-                              ),
+                              const Expanded(child: _VaultEntriesCardSection()),
                             ],
                           ),
                         );
-                      }
-
-                      return Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          spec.horizontalPadding,
-                          topInset + spec.contentTopPadding,
-                          spec.horizontalPadding,
-                          spec.horizontalPadding,
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _SyncStatusStrip(
-                              state: state,
-                              onRefresh: () {
-                                context.read<VaultBloc>().add(
-                                  const RefreshVault(),
-                                );
-                              },
-                              onOpenRecycleBin: () {
-                                _showRecycleBinDialog(context);
-                              },
-                              onChangeDatabase:
-                                  _closeCurrentDatabaseAndSelectAnother,
-                            ),
-                            const SizedBox(height: _VaultUiTokens.panelGap),
-                            Expanded(
-                              child: _EntriesCard(
-                                entries: state.visibleEntries,
-                                groups: state.groups,
-                                rootGroupId: state.rootGroupId,
-                                currentGroupId: state.currentGroupId,
-                                expandedGroupIds: state.expandedGroupIds,
-                                searchQuery: state.searchQuery,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                  if (state.isSaving)
-                    Container(
-                      color: Colors.black.withValues(alpha: 0.15),
-                      child: const Center(child: CircularProgressIndicator()),
+                      },
                     ),
-                ],
-              );
-            },
+                    BlocSelector<VaultBloc, VaultState, bool>(
+                      selector: (state) => state.isSaving,
+                      builder: (context, isSaving) {
+                        if (!isSaving) {
+                          return const SizedBox.shrink();
+                        }
+
+                        return Container(
+                          color: Colors.black.withValues(alpha: 0.15),
+                          child: const Center(
+                            child: CircularProgressIndicator(),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                );
+              },
+            ),
           ),
         ],
       ),
+    );
+  }
+}
+
+bool _syncStatusStripBuildWhen(VaultState previous, VaultState current) {
+  return previous.databasePath != current.databasePath ||
+      previous.isDriveConnected != current.isDriveConnected ||
+      previous.isDriveLinked != current.isDriveLinked ||
+      previous.linkedDriveFileName != current.linkedDriveFileName ||
+      previous.syncStatus != current.syncStatus ||
+      previous.lastSyncAt != current.lastSyncAt ||
+      previous.autoSyncEnabled != current.autoSyncEnabled;
+}
+
+bool _entriesCardBuildWhen(VaultState previous, VaultState current) {
+  return previous.visibleEntries != current.visibleEntries ||
+      previous.groups != current.groups ||
+      previous.rootGroupId != current.rootGroupId ||
+      previous.currentGroupId != current.currentGroupId ||
+      previous.expandedGroupIds != current.expandedGroupIds ||
+      previous.searchQuery != current.searchQuery;
+}
+
+class _VaultSyncStatusStrip extends StatelessWidget {
+  const _VaultSyncStatusStrip({
+    required this.onOpenRecycleBin,
+    required this.onChangeDatabase,
+  });
+
+  final VoidCallback onOpenRecycleBin;
+  final Future<void> Function() onChangeDatabase;
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<VaultBloc, VaultState>(
+      buildWhen: _syncStatusStripBuildWhen,
+      builder: (context, state) {
+        return _SyncStatusStrip(
+          state: state,
+          onRefresh: () {
+            context.read<VaultBloc>().add(const RefreshVault());
+          },
+          onOpenRecycleBin: onOpenRecycleBin,
+          onChangeDatabase: onChangeDatabase,
+        );
+      },
+    );
+  }
+}
+
+class _VaultEntriesCardSection extends StatelessWidget {
+  const _VaultEntriesCardSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<VaultBloc, VaultState>(
+      buildWhen: _entriesCardBuildWhen,
+      builder: (context, state) {
+        return _EntriesCard(
+          entries: state.visibleEntries,
+          groups: state.groups,
+          rootGroupId: state.rootGroupId,
+          currentGroupId: state.currentGroupId,
+          expandedGroupIds: state.expandedGroupIds,
+          searchQuery: state.searchQuery,
+        );
+      },
     );
   }
 }
