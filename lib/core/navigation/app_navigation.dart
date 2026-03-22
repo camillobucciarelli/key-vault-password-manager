@@ -22,4 +22,24 @@ class AppNavigation {
       ),
     );
   }
+
+  static Future<T?> pushFade<T extends Object?>(
+    BuildContext context,
+    Widget page,
+  ) {
+    return Navigator.of(context).push<T>(
+      PageRouteBuilder<T>(
+        transitionDuration: const Duration(milliseconds: 220),
+        reverseTransitionDuration: const Duration(milliseconds: 180),
+        pageBuilder: (_, animation, secondaryAnimation) => page,
+        transitionsBuilder: (context, animation, _, child) {
+          final curve = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          );
+          return FadeTransition(opacity: curve, child: child);
+        },
+      ),
+    );
+  }
 }

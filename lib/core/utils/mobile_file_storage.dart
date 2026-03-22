@@ -22,10 +22,13 @@ class MobileFileStorage {
     required Uint8List bytes,
     required String fileName,
     required String subdirectory,
+    bool overwriteIfExists = false,
   }) async {
     final directory = await _ensureSubdirectory(subdirectory);
     final normalized = _normalizeFileName(fileName);
-    final filePath = await _buildUniquePath(directory.path, normalized);
+    final filePath = overwriteIfExists
+        ? p.join(directory.path, normalized)
+        : await _buildUniquePath(directory.path, normalized);
     final file = File(filePath);
     await file.writeAsBytes(bytes, flush: true);
     return file.path;
@@ -35,6 +38,7 @@ class MobileFileStorage {
     required String sourcePath,
     required String fallbackFileName,
     required String subdirectory,
+    bool overwriteIfExists = false,
   }) async {
     final source = File(sourcePath);
     final bytes = await source.readAsBytes();
@@ -44,7 +48,28 @@ class MobileFileStorage {
           ? fallbackFileName
           : p.basename(sourcePath),
       subdirectory: subdirectory,
+      overwriteIfExists: overwriteIfExists,
     );
+  }
+
+  static Future<String> getPathInAppDirectory({
+    required String fileName,
+    required String subdirectory,
+  }) async {
+    final directory = await _ensureSubdirectory(subdirectory);
+    final normalized = _normalizeFileName(fileName);
+    return p.join(directory.path, normalized);
+  }
+
+  static Future<bool> fileExistsInAppDirectory({
+    required String fileName,
+    required String subdirectory,
+  }) async {
+    final filePath = await getPathInAppDirectory(
+      fileName: fileName,
+      subdirectory: subdirectory,
+    );
+    return File(filePath).exists();
   }
 
   static Future<Directory> _ensureSubdirectory(String subdirectory) async {

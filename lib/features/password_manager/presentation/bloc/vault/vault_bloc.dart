@@ -262,8 +262,26 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   }
 
   Future<void> _onOpenGroup(OpenGroup event, Emitter<VaultState> emit) async {
-    _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
-    await _reload(emit, currentGroupId: event.groupId);
+    final normalizedExpanded = _normalizeExpandedGroupIds(
+      groups: state.groups,
+      rootGroupId: state.rootGroupId ?? '',
+      currentGroupId: event.groupId,
+      previousExpanded: state.expandedGroupIds,
+    );
+
+    _safeEmit(
+      emit,
+      state.copyWith(
+        currentGroupId: event.groupId,
+        expandedGroupIds: normalizedExpanded,
+        visibleEntries: _computeVisibleEntries(
+          entries: state.allEntries,
+          searchQuery: state.searchQuery,
+          sortBy: state.sortBy,
+        ),
+        clearError: true,
+      ),
+    );
   }
 
   Future<void> _onOpenParentGroup(
@@ -275,8 +293,26 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       return;
     }
 
-    _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
-    await _reload(emit, currentGroupId: current!.parentId);
+    final normalizedExpanded = _normalizeExpandedGroupIds(
+      groups: state.groups,
+      rootGroupId: state.rootGroupId ?? '',
+      currentGroupId: current!.parentId!,
+      previousExpanded: state.expandedGroupIds,
+    );
+
+    _safeEmit(
+      emit,
+      state.copyWith(
+        currentGroupId: current.parentId,
+        expandedGroupIds: normalizedExpanded,
+        visibleEntries: _computeVisibleEntries(
+          entries: state.allEntries,
+          searchQuery: state.searchQuery,
+          sortBy: state.sortBy,
+        ),
+        clearError: true,
+      ),
+    );
   }
 
   void _onToggleVaultGroupExpanded(
@@ -1260,38 +1296,16 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       );
     } catch (e, st) {
       if (_requiresDrivePermissionReauth(e)) {
-        try {
-          await connectGoogleAccountUseCase();
-          await _refreshSyncState(emit);
-          final files = await listDriveRemoteFilesUseCase(query: event.query);
-          _safeEmit(
-            emit,
-            state.copyWith(
-              remoteDriveFiles: files,
-              isLoadingRemoteDriveFiles: false,
-              syncStatus: DatabaseSyncStatus.success,
-              infoMessage: 'Google Drive permissions updated.',
-              clearSyncError: true,
-            ),
-          );
-          return;
-        } catch (reauthError, reauthSt) {
-          logError(
-            'Google Drive re-authentication failed while loading files.',
-            reauthError,
-            reauthSt,
-          );
-          _safeEmit(
-            emit,
-            state.copyWith(
-              isLoadingRemoteDriveFiles: false,
-              syncError:
-                  'Google authorization is required to load Drive files.',
-              syncStatus: DatabaseSyncStatus.error,
-            ),
-          );
-          return;
-        }
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isLoadingRemoteDriveFiles: false,
+            syncError:
+                'Google authorization expired. Reconnect Google Drive to continue.',
+            syncStatus: DatabaseSyncStatus.error,
+          ),
+        );
+        return;
       }
 
       logError('Unable to load Drive files.', e, st);
@@ -1310,7 +1324,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     final message = error.toString().toLowerCase();
     return message.contains('authorization is outdated') ||
         message.contains('authorization needs to be renewed') ||
-        message.contains('full drive access');
+        message.contains('full drive access') ||
+        message.contains('google account not connected');
   }
 
   String _buildDriveConnectErrorMessage(Object error) {
@@ -1329,6 +1344,9 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       'google account selected, but drive permission was not granted',
     )) {
       return 'Google account selected, but Drive permission not granted.';
+    }
+    if (message.contains('google account not connected')) {
+      return 'Google account not connected. Reconnect Google Drive.';
     }
     return 'Unable to connect Google Drive.';
   }

@@ -173,7 +173,9 @@ class GoogleDriveApiService {
       return response;
     }
 
-    final refreshedToken = await _driveAuthService.getValidAccessToken();
+    final refreshedToken = await _driveAuthService.getValidAccessToken(
+      forceRefresh: true,
+    );
     response = await request({'Authorization': 'Bearer $refreshedToken'});
     return response;
   }

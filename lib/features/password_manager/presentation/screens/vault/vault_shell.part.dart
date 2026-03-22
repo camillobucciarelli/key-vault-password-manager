@@ -1,5 +1,14 @@
 part of '../vault_screen.dart';
 
+bool _syncErrorNeedsReconnectAction(String message) {
+  final normalized = message.toLowerCase();
+  return normalized.contains('authorization expired') ||
+      normalized.contains('authorization needs to be renewed') ||
+      normalized.contains('authorization is outdated') ||
+      normalized.contains('reconnect google drive') ||
+      normalized.contains('google account not connected');
+}
+
 class _VaultLayoutBreakpoints {
   const _VaultLayoutBreakpoints._();
 
@@ -305,10 +314,23 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                 context.read<VaultBloc>().add(const ClearVaultInfo());
               }
               if (state.syncError != null && state.syncError!.isNotEmpty) {
+                final needsReconnectAction = _syncErrorNeedsReconnectAction(
+                  state.syncError!,
+                );
                 _showSyncSnackBar(
                   context,
                   state.syncError!,
                   status: state.syncStatus,
+                  action: needsReconnectAction
+                      ? SnackBarAction(
+                          label: 'Reconnect',
+                          onPressed: () {
+                            context.read<VaultBloc>().add(
+                              const ConnectGoogleDrive(),
+                            );
+                          },
+                        )
+                      : null,
                 );
                 context.read<VaultBloc>().add(const ClearVaultSyncFeedback());
               }

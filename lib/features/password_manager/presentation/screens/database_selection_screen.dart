@@ -90,6 +90,27 @@ class DatabaseSelectionScreen extends StatelessWidget {
         return;
       }
 
+      var overwriteExisting = false;
+      if (isManagedStoragePlatform) {
+        final exists = await MobileFileStorage.fileExistsInAppDirectory(
+          fileName: selected.name,
+          subdirectory: 'databases',
+        );
+        if (!context.mounted) {
+          return;
+        }
+        if (exists) {
+          final confirm = await _showOverwriteDatabaseDialog(
+            context,
+            selected.name,
+          );
+          if (confirm != true || !context.mounted) {
+            return;
+          }
+          overwriteExisting = true;
+        }
+      }
+
       String? savePath;
       if (isManagedStoragePlatform) {
         savePath = selected.name;
@@ -123,6 +144,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
               bytes: bytes,
               fileName: p.basename(savePath),
               subdirectory: 'databases',
+              overwriteIfExists: overwriteExisting,
             )
           : savePath;
 
@@ -162,21 +184,28 @@ class DatabaseSelectionScreen extends StatelessWidget {
     final normalized = message.toLowerCase();
 
     if (normalized.contains('google sign-in cancelled')) {
-      return 'Accesso Google annullato durante l’autorizzazione. Riprova e conferma i permessi Drive.';
+      return 'Google sign-in was cancelled during authorization. Please try again and grant Drive permissions.';
     }
-    if (normalized.contains('google account selected, but drive permission was not granted')) {
-      return 'Account selezionato, ma permesso Drive non concesso. Riprova e accetta i permessi richiesti.';
+    if (normalized.contains(
+      'google account selected, but drive permission was not granted',
+    )) {
+      return 'Account selected, but Drive permission was not granted. Please try again and accept the requested permissions.';
     }
     if (normalized.contains('android google sign-in is not configured')) {
-      return 'Google Sign-In Android non configurato. Controlla GOOGLE_ANDROID_SERVER_CLIENT_ID.';
+      return 'Android Google Sign-In is not configured. Check GOOGLE_ANDROID_SERVER_CLIENT_ID.';
     }
     if (normalized.contains('ios google sign-in is not configured')) {
-      return 'Google Sign-In iOS non configurato. Controlla GOOGLE_MOBILE_CLIENT_ID.';
+      return 'iOS Google Sign-In is not configured. Check GOOGLE_MOBILE_CLIENT_ID.';
     }
     if (normalized.contains('authorization was not granted')) {
-      return 'Permesso Google Drive non concesso. Abilita l’accesso a Drive e riprova.';
+      return 'Google Drive permission was not granted. Enable Drive access and try again.';
     }
-    return 'Impossibile aprire il database da Google Drive. $message';
+    if (normalized.contains('authorization needs to be renewed') ||
+        normalized.contains('authorization is outdated') ||
+        normalized.contains('google account not connected')) {
+      return 'Google Drive session expired or unavailable. Tap "Open from Google Drive" again and complete reconnection.';
+    }
+    return 'Unable to open database from Google Drive. $message';
   }
 
   void _showBlockingProgress(BuildContext context, String message) {
@@ -413,6 +442,58 @@ class DatabaseSelectionScreen extends StatelessWidget {
     context.read<DatabaseSelectionBloc>().add(OpenRecentDatabase(path));
   }
 
+  Future<void> _onSelectExistingDatabase(BuildContext context) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['kdbx'],
+      withData: kIsWeb || isManagedStoragePlatform,
+    );
+
+    if (result == null || !context.mounted) {
+      return;
+    }
+
+    final selectedFile = result.files.single;
+    final selectedPath = selectedFile.path;
+    final fallbackName = selectedPath == null || selectedPath.trim().isEmpty
+        ? 'database.kdbx'
+        : p.basename(selectedPath);
+    final fileName = selectedFile.name.trim().isEmpty
+        ? fallbackName
+        : selectedFile.name;
+
+    var overwriteExisting = false;
+    if (isManagedStoragePlatform) {
+      final exists = await MobileFileStorage.fileExistsInAppDirectory(
+        fileName: fileName,
+        subdirectory: 'databases',
+      );
+      if (!context.mounted) {
+        return;
+      }
+      if (exists) {
+        final confirm = await _showOverwriteDatabaseDialog(context, fileName);
+        if (confirm != true || !context.mounted) {
+          return;
+        }
+        overwriteExisting = true;
+      }
+    }
+
+    if (!context.mounted) {
+      return;
+    }
+
+    context.read<DatabaseSelectionBloc>().add(
+      SelectExistingDatabase(
+        fileName: fileName,
+        selectedPath: selectedPath,
+        selectedBytes: selectedFile.bytes,
+        overwriteExisting: overwriteExisting,
+      ),
+    );
+  }
+
   Future<void> _onCreateDatabase(BuildContext context) async {
     final credentials = await showDialog<CreateDatabaseCredentials>(
       context: context,
@@ -525,6 +606,37 @@ class DatabaseSelectionScreen extends StatelessWidget {
     );
   }
 
+  Future<bool?> _showOverwriteDatabaseDialog(
+    BuildContext context,
+    String fileName,
+  ) {
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Replace existing database?'),
+          insetPadding: _dialogInsetPadding(dialogContext),
+          contentPadding: _dialogContentPadding(dialogContext),
+          actionsOverflowDirection: VerticalDirection.down,
+          actionsOverflowButtonSpacing: 8,
+          content: Text(
+            'A database named "$fileName" already exists in app storage. Do you want to replace it?',
+          ),
+          actions: _adaptiveDialogActions(dialogContext, [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Replace'),
+            ),
+          ]),
+        );
+      },
+    );
+  }
+
   Widget _buildRecentDatabasesSection(
     BuildContext context,
     List<String> recentDatabasePaths,
@@ -544,9 +656,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
           icon: AppIcons.folderOpen,
           title: 'Open existing database',
           subtitle: 'Choose a .kdbx file from your device',
-          onTap: () {
-            context.read<DatabaseSelectionBloc>().add(SelectExistingDatabase());
-          },
+          onTap: () => _onSelectExistingDatabase(context),
         ),
         const SizedBox(height: 10),
         _SelectionActionTile(

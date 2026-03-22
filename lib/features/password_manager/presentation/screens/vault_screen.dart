@@ -38,6 +38,7 @@ import '../bloc/vault/vault_event.dart';
 import '../bloc/vault/vault_state.dart';
 import 'database_selection_screen.dart';
 import 'database_unlock_screen.dart';
+import 'browser_setup_screen.dart';
 import '../utils/totp_utils.dart';
 
 part 'vault/vault_shell.part.dart';

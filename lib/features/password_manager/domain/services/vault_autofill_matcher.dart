@@ -44,6 +44,14 @@ class VaultAutofillMatcher {
         return byScore;
       }
 
+      final byUpdatedAt = _compareDateDesc(
+        a.entry.updatedAt,
+        b.entry.updatedAt,
+      );
+      if (byUpdatedAt != 0) {
+        return byUpdatedAt;
+      }
+
       final byTitle = a.entry.title.toLowerCase().compareTo(
         b.entry.title.toLowerCase(),
       );
@@ -70,11 +78,17 @@ class VaultAutofillMatcher {
       final entryPackages = _extractPackageIdentifiers(entry);
       for (final expected in packageNames) {
         if (entryPackages.contains(expected)) {
-          score += 120;
+          score += 140;
+          continue;
+        }
+        if (entryPackages.any(
+          (candidate) => _identifiersRelated(candidate, expected),
+        )) {
+          score += 100;
           continue;
         }
         if (entryPackages.any((candidate) => candidate.contains(expected))) {
-          score += 80;
+          score += 70;
         }
       }
     }
@@ -84,12 +98,17 @@ class VaultAutofillMatcher {
       if (entryDomain.isNotEmpty) {
         for (final expected in webDomains) {
           if (entryDomain == expected) {
-            score += 110;
+            score += 140;
             continue;
           }
           if (entryDomain.endsWith('.$expected') ||
               expected.endsWith('.$entryDomain')) {
-            score += 90;
+            score += 110;
+            continue;
+          }
+          if (_registrableDomain(entryDomain).isNotEmpty &&
+              _registrableDomain(entryDomain) == _registrableDomain(expected)) {
+            score += 80;
           }
         }
       }
@@ -97,7 +116,7 @@ class VaultAutofillMatcher {
       final normalizedTitle = _normalize(entry.title);
       for (final expected in webDomains) {
         if (normalizedTitle.contains(expected)) {
-          score += 30;
+          score += 35;
         }
       }
     }
@@ -132,6 +151,12 @@ class VaultAutofillMatcher {
           .where((value) => value.isNotEmpty);
       values.addAll(splitValues);
     }
+
+    final urlDomain = _domainFromUrl(entry.url);
+    if (urlDomain.isNotEmpty && !urlDomain.contains('.')) {
+      values.add(urlDomain);
+    }
+
     return values;
   }
 
@@ -154,7 +179,41 @@ class VaultAutofillMatcher {
     if (normalized.startsWith('www.')) {
       normalized = normalized.substring(4);
     }
+    if (normalized.startsWith('m.')) {
+      normalized = normalized.substring(2);
+    }
+    if (normalized.startsWith('mobile.')) {
+      normalized = normalized.substring(7);
+    }
     return normalized;
+  }
+
+  bool _identifiersRelated(String left, String right) {
+    if (left == right) {
+      return true;
+    }
+    return left.endsWith('.$right') || right.endsWith('.$left');
+  }
+
+  String _registrableDomain(String domain) {
+    final parts = domain.split('.').where((part) => part.isNotEmpty).toList();
+    if (parts.length < 2) {
+      return domain;
+    }
+    return '${parts[parts.length - 2]}.${parts.last}';
+  }
+
+  int _compareDateDesc(DateTime? left, DateTime? right) {
+    if (left == null && right == null) {
+      return 0;
+    }
+    if (left == null) {
+      return 1;
+    }
+    if (right == null) {
+      return -1;
+    }
+    return right.compareTo(left);
   }
 
   String _normalize(String value) {
