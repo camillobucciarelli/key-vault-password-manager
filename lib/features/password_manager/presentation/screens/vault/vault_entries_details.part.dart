@@ -12,6 +12,7 @@ class _EntryDetailsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final topInset = MediaQuery.paddingOf(context).top + kToolbarHeight;
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom + 12;
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -54,7 +55,7 @@ class _EntryDetailsPage extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: EdgeInsets.fromLTRB(12, topInset + 12, 12, 12),
+            padding: EdgeInsets.fromLTRB(12, topInset + 12, 12, bottomInset),
             child: _EntryDetailPanel(entry: entry),
           ),
         ],
@@ -237,7 +238,12 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
         ),
       ),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(14),
+        padding: EdgeInsets.fromLTRB(
+          14,
+          14,
+          14,
+          MediaQuery.viewPaddingOf(context).bottom + 14,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
