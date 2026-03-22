@@ -332,7 +332,7 @@ class _EntriesCardState extends State<_EntriesCard> {
             childGroupsCount: children.length,
             recordsCount: records.length,
             onOpen: () {
-              context.read<VaultBloc>().add(OpenGroup(group.id));
+              context.read<VaultBloc>().add(ToggleVaultGroupExpanded(group.id));
             },
             onToggleExpand: () {
               context.read<VaultBloc>().add(ToggleVaultGroupExpanded(group.id));

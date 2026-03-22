@@ -22,8 +22,11 @@ class DriveAuthService {
   final DesktopOAuthPkceService _desktopOAuthPkceService;
   final GoogleSignIn _googleSignIn;
   bool _googleSignInInitialized = false;
+  String? _cachedAccessToken;
+  DateTime? _cachedAccessTokenAt;
 
   static const _requiredDriveScope = 'https://www.googleapis.com/auth/drive';
+  static const _mobileAccessTokenCacheTtl = Duration(minutes: 5);
 
   bool get _isDesktop =>
       !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
@@ -43,6 +46,8 @@ class DriveAuthService {
   }
 
   Future<void> connect() async {
+    _clearCachedAccessToken();
+
     if (_isDesktop) {
       final clientId = _config.desktopClientId;
       final clientSecret = _config.desktopClientSecret;
@@ -76,10 +81,12 @@ class DriveAuthService {
     await _ensureGoogleSignInInitialized();
 
     final signedInUser = await _authenticateForDriveScopes();
-    await _ensureDriveScopeAuthorization(signedInUser);
+    final authz = await _ensureDriveScopeAuthorization(signedInUser);
+    _cacheAccessToken(authz.accessToken);
   }
 
   Future<void> disconnect() async {
+    _clearCachedAccessToken();
     await _googleTokenDataSource.clearDesktopCredentialsJson();
     await _ensureGoogleSignInInitialized();
 
@@ -103,7 +110,7 @@ class DriveAuthService {
     return current != null;
   }
 
-  Future<String> getValidAccessToken() async {
+  Future<String> getValidAccessToken({bool forceRefresh = false}) async {
     if (_isDesktop) {
       final clientId = _config.desktopClientId;
       final clientSecret = _config.desktopClientSecret;
@@ -148,16 +155,33 @@ class DriveAuthService {
 
     await _ensureGoogleSignInInitialized();
 
+    if (!forceRefresh && _hasFreshCachedAccessToken()) {
+      return _cachedAccessToken!;
+    }
+
     final lightweightAttempt = _googleSignIn.attemptLightweightAuthentication();
     var user = lightweightAttempt == null ? null : await lightweightAttempt;
 
-    user ??= await _authenticateForDriveScopes();
+    if (user == null) {
+      _clearCachedAccessToken();
+      throw Exception('Google account not connected. Please reconnect.');
+    }
 
-    final authz = await _ensureDriveScopeAuthorization(user);
+    final authz = await _getExistingDriveScopeAuthorization(user);
+    if (authz == null) {
+      _clearCachedAccessToken();
+      throw Exception(
+        'Google Drive authorization needs to be renewed with full Drive access.',
+      );
+    }
+
     final accessToken = authz.accessToken;
     if (accessToken.isEmpty) {
+      _clearCachedAccessToken();
       throw Exception('Unable to obtain a valid Google access token.');
     }
+
+    _cacheAccessToken(accessToken);
     return accessToken;
   }
 
@@ -170,7 +194,9 @@ class DriveAuthService {
       if (e.code == GoogleSignInExceptionCode.canceled) {
         final lightweightAttempt = _googleSignIn
             .attemptLightweightAuthentication();
-        final user = lightweightAttempt == null ? null : await lightweightAttempt;
+        final user = lightweightAttempt == null
+            ? null
+            : await lightweightAttempt;
         if (user != null) {
           return user;
         }
@@ -189,9 +215,9 @@ class DriveAuthService {
       if (existing != null) {
         return existing;
       }
-      final granted = await user.authorizationClient.authorizeScopes(
-        const [_requiredDriveScope],
-      );
+      final granted = await user.authorizationClient.authorizeScopes(const [
+        _requiredDriveScope,
+      ]);
       return granted;
     } on GoogleSignInException catch (e) {
       if (e.code == GoogleSignInExceptionCode.canceled) {
@@ -211,12 +237,49 @@ class DriveAuthService {
     }
   }
 
+  Future<GoogleSignInClientAuthorization?> _getExistingDriveScopeAuthorization(
+    GoogleSignInAccount user,
+  ) async {
+    try {
+      return await user.authorizationClient.authorizationForScopes(const [
+        _requiredDriveScope,
+      ]);
+    } on GoogleSignInException catch (e) {
+      throw _mapGoogleSignInException(e);
+    }
+  }
+
   Future<GoogleSignInAccount?> _tryRecoverSignedInUser() async {
     final lightweightAttempt = _googleSignIn.attemptLightweightAuthentication();
     if (lightweightAttempt != null) {
       return lightweightAttempt;
     }
     return null;
+  }
+
+  bool _hasFreshCachedAccessToken() {
+    final token = _cachedAccessToken;
+    final issuedAt = _cachedAccessTokenAt;
+    if (token == null || issuedAt == null || token.isEmpty) {
+      return false;
+    }
+
+    return DateTime.now().difference(issuedAt) < _mobileAccessTokenCacheTtl;
+  }
+
+  void _cacheAccessToken(String token) {
+    if (token.isEmpty) {
+      _clearCachedAccessToken();
+      return;
+    }
+
+    _cachedAccessToken = token;
+    _cachedAccessTokenAt = DateTime.now();
+  }
+
+  void _clearCachedAccessToken() {
+    _cachedAccessToken = null;
+    _cachedAccessTokenAt = null;
   }
 
   Exception _mapGoogleSignInException(GoogleSignInException exception) {

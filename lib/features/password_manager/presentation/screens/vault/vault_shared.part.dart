@@ -148,6 +148,7 @@ void _showSyncSnackBar(
   BuildContext context,
   String message, {
   required DatabaseSyncStatus status,
+  SnackBarAction? action,
 }) {
   final messenger = ScaffoldMessenger.of(context);
   final theme = Theme.of(context);
@@ -184,6 +185,7 @@ void _showSyncSnackBar(
         behavior: SnackBarBehavior.floating,
         showCloseIcon: true,
         closeIconColor: foreground,
+        action: action,
       ),
     );
 }

@@ -128,59 +128,51 @@ class DatabaseSelectionBloc
     Emitter<DatabaseSelectionState> emit,
   ) async {
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['kdbx'],
-        withData: kIsWeb || _isMobilePlatform,
-      );
+      final recent = await _loadRecentDatabasePaths();
+      _safeEmit(emit, DatabaseSelectionLoading(recentDatabasePaths: recent));
 
-      if (result != null) {
-        final recent = await _loadRecentDatabasePaths();
-        _safeEmit(emit, DatabaseSelectionLoading(recentDatabasePaths: recent));
+      final path = await _resolveSelectedDatabasePath(event);
+      if (path == null) {
+        _safeEmit(
+          emit,
+          const DatabaseSelectionError('Could not resolve file path.'),
+        );
+        _safeEmit(
+          emit,
+          DatabaseSelectionUnselected(recentDatabasePaths: recent),
+        );
+        return;
+      }
 
-        final path = await _resolveSelectedDatabasePath(result);
-        if (path == null) {
-          _safeEmit(
-            emit,
-            const DatabaseSelectionError('Could not resolve file path.'),
-          );
-          _safeEmit(
-            emit,
-            DatabaseSelectionUnselected(recentDatabasePaths: recent),
-          );
-          return;
-        }
-
-        final isValid = await validateDatabaseUseCase(path);
-        if (isValid) {
-          await saveSelectedDatabasePathUseCase(path);
-          await addRecentDatabasePathUseCase(path);
-          await saveSelectedKeyFilePathUseCase(null);
-          await secureDataSource.clearMasterPassword();
-          await setBiometricProtectionEnabledUseCase(false);
-          final updatedRecent = await _loadRecentDatabasePaths();
-          _safeEmit(
-            emit,
-            DatabaseSelectionSuccess(
-              path,
-              userMessage: _usesManagedStorage
-                  ? 'Database imported to app internal storage for reliable access.'
-                  : null,
-              recentDatabasePaths: updatedRecent,
-            ),
-          );
-        } else {
-          _safeEmit(
-            emit,
-            const DatabaseSelectionError(
-              'The selected file is not a valid KDBX file.',
-            ),
-          );
-          _safeEmit(
-            emit,
-            DatabaseSelectionUnselected(recentDatabasePaths: recent),
-          );
-        }
+      final isValid = await validateDatabaseUseCase(path);
+      if (isValid) {
+        await saveSelectedDatabasePathUseCase(path);
+        await addRecentDatabasePathUseCase(path);
+        await saveSelectedKeyFilePathUseCase(null);
+        await secureDataSource.clearMasterPassword();
+        await setBiometricProtectionEnabledUseCase(false);
+        final updatedRecent = await _loadRecentDatabasePaths();
+        _safeEmit(
+          emit,
+          DatabaseSelectionSuccess(
+            path,
+            userMessage: _usesManagedStorage
+                ? 'Database imported to app internal storage for reliable access.'
+                : null,
+            recentDatabasePaths: updatedRecent,
+          ),
+        );
+      } else {
+        _safeEmit(
+          emit,
+          const DatabaseSelectionError(
+            'The selected file is not a valid KDBX file.',
+          ),
+        );
+        _safeEmit(
+          emit,
+          DatabaseSelectionUnselected(recentDatabasePaths: recent),
+        );
       }
     } catch (e, st) {
       logError('Failed while selecting an existing database file.', e, st);
@@ -346,7 +338,9 @@ class DatabaseSelectionBloc
         return;
       }
 
-      final managedLocalPath = await _ensureManagedDatabasePath(event.localPath);
+      final managedLocalPath = await _ensureManagedDatabasePath(
+        event.localPath,
+      );
       await saveSelectedDatabasePathUseCase(managedLocalPath);
       await addRecentDatabasePathUseCase(managedLocalPath);
       await saveSelectedKeyFilePathUseCase(null);
@@ -503,33 +497,36 @@ class DatabaseSelectionBloc
     );
   }
 
-  Future<String?> _resolveSelectedDatabasePath(FilePickerResult result) async {
+  Future<String?> _resolveSelectedDatabasePath(
+    SelectExistingDatabase event,
+  ) async {
     if (kIsWeb) {
       return 'web_selected_db.kdbx';
     }
 
-    final selectedFile = result.files.single;
     if (!_usesManagedStorage) {
-      return selectedFile.path;
+      return event.selectedPath;
     }
 
-    final selectedPath = selectedFile.path;
+    final selectedPath = event.selectedPath;
     if (selectedPath != null && selectedPath.isNotEmpty) {
       return MobileFileStorage.copyFileToAppDirectory(
         sourcePath: selectedPath,
-        fallbackFileName: selectedFile.name,
+        fallbackFileName: event.fileName,
         subdirectory: 'databases',
+        overwriteIfExists: event.overwriteExisting,
       );
     }
 
-    final selectedBytes = selectedFile.bytes;
+    final selectedBytes = event.selectedBytes;
     if (selectedBytes == null) {
       return null;
     }
     return MobileFileStorage.saveBytesToAppDirectory(
-      bytes: selectedBytes,
-      fileName: selectedFile.name,
+      bytes: Uint8List.fromList(selectedBytes),
+      fileName: event.fileName,
       subdirectory: 'databases',
+      overwriteIfExists: event.overwriteExisting,
     );
   }
 
@@ -673,6 +670,14 @@ class DatabaseSelectionBloc
 
   Future<String> _ensureManagedDatabasePath(String path) async {
     if (!_usesManagedStorage) {
+      return path;
+    }
+
+    final expectedManagedPath = await MobileFileStorage.getPathInAppDirectory(
+      fileName: p.basename(path),
+      subdirectory: 'databases',
+    );
+    if (p.equals(path, expectedManagedPath)) {
       return path;
     }
 

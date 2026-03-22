@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:loggy/loggy.dart';
 import 'package:path/path.dart' as p;
 
+import 'package:local_auth/local_auth.dart';
+
 import '../../domain/models/vault_entry.dart';
 import '../../domain/services/vault_autofill_matcher.dart';
 import '../../domain/usecases/get_selected_database_path_usecase.dart';
@@ -155,6 +157,28 @@ class DesktopAutofillBridgeService {
         roughMatches,
         host,
       ).take(limit).toList(growable: false);
+
+      if (matches.isNotEmpty) {
+        final auth = LocalAuthentication();
+        final canCheckBiometrics = await auth.canCheckBiometrics;
+        final isDeviceSupported = await auth.isDeviceSupported();
+
+        if (canCheckBiometrics || isDeviceSupported) {
+          final isAuthorized = await auth.authenticate(
+            localizedReason: 'Autenticati per inserire le credenziali in $host',
+            biometricOnly: false,
+            sensitiveTransaction: true,
+          );
+
+          if (!isAuthorized) {
+            _json(request.response, HttpStatus.forbidden, {
+              'ok': false,
+              'error': 'User cancelled biometric authentication',
+            });
+            return;
+          }
+        }
+      }
 
       _json(request.response, HttpStatus.ok, {
         'ok': true,

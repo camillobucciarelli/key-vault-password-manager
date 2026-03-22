@@ -9,7 +9,27 @@ abstract class DatabaseSelectionEvent extends Equatable {
 
 class CheckInitialDatabase extends DatabaseSelectionEvent {}
 
-class SelectExistingDatabase extends DatabaseSelectionEvent {}
+class SelectExistingDatabase extends DatabaseSelectionEvent {
+  const SelectExistingDatabase({
+    required this.fileName,
+    this.selectedPath,
+    this.selectedBytes,
+    this.overwriteExisting = false,
+  });
+
+  final String fileName;
+  final String? selectedPath;
+  final List<int>? selectedBytes;
+  final bool overwriteExisting;
+
+  @override
+  List<Object> get props => [
+    fileName,
+    selectedPath ?? '',
+    selectedBytes?.length ?? -1,
+    overwriteExisting,
+  ];
+}
 
 class OpenRecentDatabase extends DatabaseSelectionEvent {
   const OpenRecentDatabase(this.path);

@@ -20,6 +20,8 @@ class _SyncStatusStrip extends StatelessWidget {
     final compactActions = MediaQuery.sizeOf(context).width < 390;
     final canConfigureAndroidAutofill =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+    final canConfigureBrowserAutofill =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
     final databaseName = state.databasePath.trim().isEmpty
         ? 'Database'
         : path.basenameWithoutExtension(state.databasePath);
@@ -156,6 +158,7 @@ class _SyncStatusStrip extends StatelessWidget {
                   _SyncStripMenuButton(
                     state: state,
                     canConfigureAndroidAutofill: canConfigureAndroidAutofill,
+                    canConfigureBrowserAutofill: canConfigureBrowserAutofill,
                     onOpenRecycleBin: onOpenRecycleBin,
                     onChangeDatabase: onChangeDatabase,
                   ),
@@ -253,6 +256,8 @@ class _SyncStatusStrip extends StatelessWidget {
                         state: state,
                         canConfigureAndroidAutofill:
                             canConfigureAndroidAutofill,
+                        canConfigureBrowserAutofill:
+                            canConfigureBrowserAutofill,
                         onOpenRecycleBin: onOpenRecycleBin,
                         onChangeDatabase: onChangeDatabase,
                       ),
@@ -316,12 +321,14 @@ class _SyncStripMenuButton extends StatelessWidget {
   const _SyncStripMenuButton({
     required this.state,
     required this.canConfigureAndroidAutofill,
+    required this.canConfigureBrowserAutofill,
     required this.onOpenRecycleBin,
     required this.onChangeDatabase,
   });
 
   final VaultState state;
   final bool canConfigureAndroidAutofill;
+  final bool canConfigureBrowserAutofill;
   final VoidCallback onOpenRecycleBin;
   final Future<void> Function() onChangeDatabase;
 
@@ -775,6 +782,12 @@ class _SyncStripMenuButton extends StatelessWidget {
         case 'themeDark':
           context.read<ThemeCubit>().setTheme(ThemeMode.dark);
           break;
+        case 'browserSetup':
+          await AppNavigation.pushFade(
+            context,
+            const BrowserSetupScreen(),
+          );
+          break;
         case 'databaseSettings':
           await _showDatabaseSettings(context);
           break;
@@ -881,6 +894,13 @@ class _SyncStripMenuButton extends StatelessWidget {
                                   onTap: () =>
                                       closeAndSelect('androidAutofill'),
                                   title: const Text('Autofill Android'),
+                                ),
+                              if (canConfigureBrowserAutofill)
+                                ListTile(
+                                  onTap: () =>
+                                      closeAndSelect('browserSetup'),
+                                  title: const Text('Connetti Browser'),
+                                  subtitle: const Text('Chrome, Brave, Edge — One-click autofill'),
                                 ),
                               ListTile(
                                 onTap: () => closeAndSelect('recycleBin'),
