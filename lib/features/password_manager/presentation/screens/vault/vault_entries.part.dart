@@ -756,9 +756,129 @@ Future<void> _copyTextToClipboard(
   if (!context.mounted) {
     return;
   }
-  ScaffoldMessenger.of(
-    context,
-  ).showSnackBar(SnackBar(content: Text(successMessage)));
+  _showCenteredCopyToast(context, successMessage);
+}
+
+OverlayEntry? _activeCopyToastEntry;
+Timer? _activeCopyToastTimer;
+
+void _showCenteredCopyToast(BuildContext context, String message) {
+  _hideCenteredCopyToast();
+
+  final overlay = Overlay.maybeOf(context, rootOverlay: true);
+  if (overlay == null) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+    return;
+  }
+
+  _activeCopyToastEntry = OverlayEntry(
+    builder: (overlayContext) {
+      final theme = Theme.of(overlayContext);
+      final colorScheme = theme.colorScheme;
+      final reduceMotion =
+          MediaQuery.maybeOf(overlayContext)?.disableAnimations ?? false;
+
+      return Positioned.fill(
+        child: IgnorePointer(
+          child: SafeArea(
+            minimum: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+            child: Center(
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.92, end: 1),
+                duration: reduceMotion
+                    ? Duration.zero
+                    : const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                builder: (animationContext, scale, child) {
+                  final opacity = reduceMotion
+                      ? 1.0
+                      : ((scale - 0.92) / 0.08).clamp(0.0, 1.0);
+                  return Opacity(
+                    opacity: opacity,
+                    child: Transform.scale(scale: scale, child: child),
+                  );
+                },
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 320),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: colorScheme.surfaceContainerHigh.withValues(
+                        alpha: 0.96,
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: colorScheme.outlineVariant.withValues(
+                          alpha: 0.58,
+                        ),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: colorScheme.shadow.withValues(alpha: 0.2),
+                          blurRadius: 24,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 24,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              color: colorScheme.primary.withValues(
+                                alpha: 0.14,
+                              ),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              AppIcons.check,
+                              size: 15,
+                              color: colorScheme.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Flexible(
+                            child: Text(
+                              message,
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                color: colorScheme.onSurface,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+
+  overlay.insert(_activeCopyToastEntry!);
+  _activeCopyToastTimer = Timer(const Duration(milliseconds: 1600), () {
+    _hideCenteredCopyToast();
+  });
+}
+
+void _hideCenteredCopyToast() {
+  _activeCopyToastTimer?.cancel();
+  _activeCopyToastTimer = null;
+  _activeCopyToastEntry?.remove();
+  _activeCopyToastEntry = null;
 }
 
 String _copyHintLabel() {
