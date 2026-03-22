@@ -2,32 +2,16 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:loggy/loggy.dart';
 
 import '../../../data/datasources/biometric_data_source.dart';
-import '../../../data/datasources/secure_data_source.dart';
-import '../../../domain/usecases/get_biometric_protection_enabled_usecase.dart';
-import '../../../domain/usecases/get_selected_key_file_path_usecase.dart';
-import '../../../domain/usecases/save_selected_key_file_path_usecase.dart';
-import '../../../domain/usecases/unlock_database_usecase.dart';
+import '../../coordinators/database_session_coordinator.dart';
 import 'database_unlock_event.dart';
 import 'database_unlock_state.dart';
 
 class DatabaseUnlockBloc
     extends Bloc<DatabaseUnlockEvent, DatabaseUnlockState> {
-  final GetSelectedKeyFilePathUseCase getSelectedKeyFilePathUseCase;
-  final SaveSelectedKeyFilePathUseCase saveSelectedKeyFilePathUseCase;
-  final GetBiometricProtectionEnabledUseCase
-  getBiometricProtectionEnabledUseCase;
-  final BiometricDataSource biometricDataSource;
-  final SecureDataSource secureDataSource;
-  final UnlockDatabaseUseCase unlockDatabaseUseCase;
-
   DatabaseUnlockBloc({
     required String databasePath,
-    required this.getSelectedKeyFilePathUseCase,
-    required this.saveSelectedKeyFilePathUseCase,
-    required this.getBiometricProtectionEnabledUseCase,
     required this.biometricDataSource,
-    required this.secureDataSource,
-    required this.unlockDatabaseUseCase,
+    required this.databaseSessionCoordinator,
   }) : super(DatabaseUnlockState.initial(databasePath: databasePath)) {
     on<InitializeDatabaseUnlock>(_onInitializeDatabaseUnlock);
     on<RetryBiometricAuthentication>(_onRetryBiometricAuthentication);
@@ -35,25 +19,31 @@ class DatabaseUnlockBloc
     on<UpdateKeyFilePath>(_onUpdateKeyFilePath);
   }
 
+  final BiometricDataSource biometricDataSource;
+  final DatabaseSessionCoordinatorContract databaseSessionCoordinator;
+
   Future<void> _onInitializeDatabaseUnlock(
     InitializeDatabaseUnlock event,
     Emitter<DatabaseUnlockState> emit,
   ) async {
     _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
     try {
-      final savedKeyFilePath = await getSelectedKeyFilePathUseCase();
-      final isBiometricEnabled = await getBiometricProtectionEnabledUseCase();
-      final biometricsAvailable = await biometricDataSource
+      final biometricAvailable = await biometricDataSource
           .isBiometricAvailable();
+      final bootstrap = await databaseSessionCoordinator.initializeUnlock(
+        databasePath: state.databasePath,
+        biometricAvailable: biometricAvailable,
+      );
 
       var nextState = state.copyWith(
         isLoading: false,
-        keyFilePath: savedKeyFilePath,
-        biometricAvailable: biometricsAvailable,
+        keyFilePath: bootstrap.keyFilePath,
+        clearKeyFilePath: bootstrap.keyFilePath == null,
+        biometricAvailable: bootstrap.biometricAvailable,
         clearError: true,
       );
 
-      if (isBiometricEnabled && biometricsAvailable) {
+      if (bootstrap.biometricRequired && bootstrap.biometricAvailable) {
         final biometricsOk = await biometricDataSource.authenticate(
           reason: 'Authenticate to unlock your password database',
         );
@@ -68,7 +58,6 @@ class DatabaseUnlockBloc
         if (biometricsOk) {
           await _tryStoredCredentialsUnlock(emit);
         } else {
-          logWarning('Initial biometric authentication failed.');
           _safeEmit(
             emit,
             nextState.copyWith(
@@ -83,9 +72,11 @@ class DatabaseUnlockBloc
       _safeEmit(
         emit,
         nextState.copyWith(
-          biometricPrompted: isBiometricEnabled,
-          biometricVerified: !isBiometricEnabled || !biometricsAvailable,
-          errorMessage: isBiometricEnabled && !biometricsAvailable
+          biometricPrompted: bootstrap.biometricRequired,
+          biometricVerified:
+              !bootstrap.biometricRequired || !bootstrap.biometricAvailable,
+          errorMessage:
+              bootstrap.biometricRequired && !bootstrap.biometricAvailable
               ? 'Biometric authentication is not available on this device.'
               : null,
         ),
@@ -107,10 +98,6 @@ class DatabaseUnlockBloc
     final isOk = await biometricDataSource.authenticate(
       reason: 'Authenticate to unlock your password database',
     );
-
-    if (!isOk) {
-      logWarning('Biometric retry authentication failed.');
-    }
 
     _safeEmit(
       emit,
@@ -142,14 +129,11 @@ class DatabaseUnlockBloc
     _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
 
     try {
-      await unlockDatabaseUseCase(
+      await databaseSessionCoordinator.unlockWithManualCredentials(
         databasePath: state.databasePath,
         password: event.password,
         keyFilePath: event.keyFilePath,
       );
-
-      await saveSelectedKeyFilePathUseCase(event.keyFilePath);
-      await secureDataSource.saveMasterPassword(event.password);
 
       _safeEmit(
         emit,
@@ -174,10 +158,22 @@ class DatabaseUnlockBloc
     UpdateKeyFilePath event,
     Emitter<DatabaseUnlockState> emit,
   ) async {
-    await saveSelectedKeyFilePathUseCase(event.keyFilePath);
+    final normalizedKeyFilePath = event.keyFilePath?.trim();
+    final nextKeyFilePath =
+        (normalizedKeyFilePath == null || normalizedKeyFilePath.isEmpty)
+        ? null
+        : normalizedKeyFilePath;
+    await databaseSessionCoordinator.updateKeyFilePath(
+      databasePath: state.databasePath,
+      keyFilePath: nextKeyFilePath,
+    );
     _safeEmit(
       emit,
-      state.copyWith(keyFilePath: event.keyFilePath, clearError: true),
+      state.copyWith(
+        keyFilePath: nextKeyFilePath,
+        clearKeyFilePath: nextKeyFilePath == null,
+        clearError: true,
+      ),
     );
   }
 
@@ -185,10 +181,13 @@ class DatabaseUnlockBloc
     Emitter<DatabaseUnlockState> emit,
   ) async {
     _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
-    final storedPassword = await secureDataSource.getMasterPassword();
 
-    if ((storedPassword == null || storedPassword.isEmpty) &&
-        (state.keyFilePath == null || state.keyFilePath!.isEmpty)) {
+    final hasStoredPassword = await databaseSessionCoordinator
+        .hasStoredMasterPassword();
+    final hasKeyFile =
+        state.keyFilePath != null && state.keyFilePath!.isNotEmpty;
+
+    if (!hasStoredPassword && !hasKeyFile) {
       _emitError(
         emit,
         'No saved credentials found. Insert password or select a key file.',
@@ -198,9 +197,8 @@ class DatabaseUnlockBloc
     }
 
     try {
-      await unlockDatabaseUseCase(
+      await databaseSessionCoordinator.unlockWithStoredCredentials(
         databasePath: state.databasePath,
-        password: storedPassword ?? '',
         keyFilePath: state.keyFilePath,
       );
       _safeEmit(

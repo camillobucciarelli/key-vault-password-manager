@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "critic_report.schema.json",
+  "title": "CriticReport",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "iteration",
+    "verdict",
+    "score",
+    "rubric",
+    "issues",
+    "repair_instructions",
+    "blockers"
+  ],
+  "properties": {
+    "iteration": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["ACCURATE", "INACCURATE"]
+    },
+    "score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "rubric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["correctness", "constraint_fit", "safety", "clarity"],
+      "properties": {
+        "correctness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "constraint_fit": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "safety": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "clarity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "repair_instructions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

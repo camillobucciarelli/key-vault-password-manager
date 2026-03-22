@@ -10,21 +10,21 @@ import 'package:local_auth/local_auth.dart';
 
 import '../../domain/models/vault_entry.dart';
 import '../../domain/services/vault_autofill_matcher.dart';
-import '../../domain/usecases/get_selected_database_path_usecase.dart';
+import '../../domain/usecases/get_active_database_usecase.dart';
 import '../../domain/usecases/get_selected_key_file_path_usecase.dart';
 import '../datasources/secure_data_source.dart';
 import 'vault_kdbx_service.dart';
 
 class DesktopAutofillBridgeService {
   DesktopAutofillBridgeService({
-    required this.getSelectedDatabasePathUseCase,
+    required this.getActiveDatabaseUseCase,
     required this.getSelectedKeyFilePathUseCase,
     required this.secureDataSource,
     required this.vaultKdbxService,
     required this.matcher,
   });
 
-  final GetSelectedDatabasePathUseCase getSelectedDatabasePathUseCase;
+  final GetActiveDatabaseUseCase getActiveDatabaseUseCase;
   final GetSelectedKeyFilePathUseCase getSelectedKeyFilePathUseCase;
   final SecureDataSource secureDataSource;
   final VaultKdbxService vaultKdbxService;
@@ -121,7 +121,8 @@ class DesktopAutofillBridgeService {
           ? requestedLimit.toInt().clamp(1, 10)
           : 5;
 
-      final databasePath = await getSelectedDatabasePathUseCase();
+      final active = await getActiveDatabaseUseCase();
+      final databasePath = active?.canonicalPath;
       final password = await secureDataSource.getMasterPassword() ?? '';
       final keyFilePath = await getSelectedKeyFilePathUseCase();
 

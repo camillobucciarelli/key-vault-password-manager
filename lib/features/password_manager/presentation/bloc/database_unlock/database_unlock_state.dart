@@ -35,10 +35,11 @@ class DatabaseUnlockState extends Equatable {
     bool? unlocked,
     String? errorMessage,
     bool clearError = false,
+    bool clearKeyFilePath = false,
   }) {
     return DatabaseUnlockState(
       databasePath: databasePath ?? this.databasePath,
-      keyFilePath: keyFilePath ?? this.keyFilePath,
+      keyFilePath: clearKeyFilePath ? null : keyFilePath ?? this.keyFilePath,
       isLoading: isLoading ?? this.isLoading,
       biometricAvailable: biometricAvailable ?? this.biometricAvailable,
       biometricPrompted: biometricPrompted ?? this.biometricPrompted,

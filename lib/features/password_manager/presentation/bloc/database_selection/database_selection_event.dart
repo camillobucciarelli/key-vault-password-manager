@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+import '../../../domain/models/database_dedup_result.dart';
+
 abstract class DatabaseSelectionEvent extends Equatable {
   const DatabaseSelectionEvent();
 
@@ -91,4 +93,13 @@ class RemoveRecentDatabase extends DatabaseSelectionEvent {
 
   @override
   List<Object> get props => [path, mode];
+}
+
+class ResolveDuplicateDecision extends DatabaseSelectionEvent {
+  const ResolveDuplicateDecision(this.decision);
+
+  final DatabaseDuplicateResolution decision;
+
+  @override
+  List<Object> get props => [decision];
 }

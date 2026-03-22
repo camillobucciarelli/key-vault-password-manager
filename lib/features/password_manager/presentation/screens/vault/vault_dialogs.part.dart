@@ -529,6 +529,86 @@ Future<String?> _scanOtpUriFromQr(BuildContext context) async {
   );
 }
 
+class _OtpQrScannerDialog extends StatefulWidget {
+  const _OtpQrScannerDialog();
+
+  @override
+  State<_OtpQrScannerDialog> createState() => _OtpQrScannerDialogState();
+}
+
+class _OtpQrScannerDialogState extends State<_OtpQrScannerDialog> {
+  final MobileScannerController _controller = MobileScannerController(
+    detectionSpeed: DetectionSpeed.noDuplicates,
+    formats: const [BarcodeFormat.qrCode],
+  );
+  bool _isHandlingCapture = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Scan OTP QR'),
+      insetPadding: _dialogInsetPadding(context),
+      contentPadding: _dialogContentPadding(context),
+      actionsOverflowDirection: VerticalDirection.down,
+      actionsOverflowButtonSpacing: 8,
+      content: SizedBox(
+        width: _dialogContentWidth(context, 320),
+        child: AspectRatio(
+          aspectRatio: 1,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: MobileScanner(
+              controller: _controller,
+              onDetect: (capture) async {
+                if (_isHandlingCapture) {
+                  return;
+                }
+
+                for (final barcode in capture.barcodes) {
+                  final value = barcode.rawValue?.trim();
+                  if (value == null || value.isEmpty) {
+                    continue;
+                  }
+
+                  _isHandlingCapture = true;
+                  if (value.startsWith('otpauth://')) {
+                    if (context.mounted) {
+                      Navigator.of(context).pop(value);
+                    }
+                    return;
+                  }
+
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('QR does not contain a valid OTP URI.'),
+                      ),
+                    );
+                  }
+                  _isHandlingCapture = false;
+                  return;
+                }
+              },
+            ),
+          ),
+        ),
+      ),
+      actions: _adaptiveDialogActions(context, [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+      ]),
+    );
+  }
+}
+
 Future<String?> _showGroupDialog(
   BuildContext context, {
   String? initialName,

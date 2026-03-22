@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "brief.schema.json",
+  "title": "AgentBrief",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "mission",
+    "constraints",
+    "smart_goals",
+    "expected_output_schema",
+    "context"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "minLength": 3
+    },
+    "mission": {
+      "type": "string",
+      "minLength": 5
+    },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "time_budget_s",
+        "style",
+        "safety_level",
+        "max_iterations",
+        "critic_score_threshold"
+      ],
+      "properties": {
+        "time_budget_s": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "style": {
+          "type": "string",
+          "enum": ["concise", "detailed"]
+        },
+        "safety_level": {
+          "type": "string",
+          "enum": ["strict", "balanced"]
+        },
+        "max_iterations": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "critic_score_threshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "smart_goals": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "specific", "metric", "target", "realistic", "deadline"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "specific": {
+            "type": "string",
+            "minLength": 3
+          },
+          "metric": {
+            "type": "string",
+            "minLength": 2
+          },
+          "target": {
+            "type": "string",
+            "minLength": 1
+          },
+          "realistic": {
+            "type": "boolean"
+          },
+          "deadline": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "expected_output_schema": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inputs", "artifacts", "history_summary"],
+      "properties": {
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "history_summary": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

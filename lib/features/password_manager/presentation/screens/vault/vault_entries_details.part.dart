@@ -36,12 +36,6 @@ class _EntryDetailsPage extends StatelessWidget {
                   value: _EntryAction.attachments,
                   child: Text('Attachments'),
                 ),
-                PopupMenuItem(
-                  value: _EntryAction.showTotp,
-                  child: Text(
-                    entry.otpUri == null ? 'OTP unavailable' : 'Show OTP',
-                  ),
-                ),
                 const PopupMenuItem(
                   value: _EntryAction.delete,
                   child: Text('Delete'),
@@ -309,14 +303,6 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                         const PopupMenuItem(
                           value: _EntryAction.attachments,
                           child: Text('Attachments'),
-                        ),
-                        PopupMenuItem(
-                          value: _EntryAction.showTotp,
-                          child: Text(
-                            entry.otpUri == null
-                                ? 'OTP unavailable'
-                                : 'Show OTP',
-                          ),
                         ),
                         const PopupMenuItem(
                           value: _EntryAction.delete,
@@ -813,127 +799,106 @@ class _RecordListItem extends StatelessWidget {
             Brightness.dark
         ? Colors.white
         : Colors.black87;
-    final metadataTooltip =
-        'Created: ${_formatEntryDateTime(entry.createdAt)}\n'
-        'Last modified: ${_formatEntryDateTime(entry.updatedAt)}\n'
-        'Last password change: ${_formatEntryDateTime(entry.lastPasswordChangedAt)}'
-        '${isPasswordWarning ? '\nPassword warning: updated more than 3 months ago' : ''}';
-
-    return Tooltip(
-      message: metadataTooltip,
-      ignorePointer: true,
-      waitDuration: const Duration(milliseconds: 900),
-      child: _InteractiveItemSurface(
-        radius: _VaultUiTokens.recordItemRadius,
-        minHeight: _VaultUiTokens.recordItemHeight,
-        onTap: onOpen,
-        baseColor: isSelected
-            ? colorScheme.secondaryContainer.withValues(alpha: 0.52)
-            : colorScheme.surface.withValues(alpha: 0.74),
-        hoveredColor: isSelected
-            ? colorScheme.secondaryContainer.withValues(alpha: 0.68)
-            : colorScheme.surface.withValues(alpha: 0.85),
-        baseBorderColor: isSelected
-            ? colorScheme.secondary.withValues(alpha: 0.44)
-            : colorScheme.outlineVariant.withValues(alpha: 0.7),
-        hoveredBorderColor: colorScheme.secondary.withValues(alpha: 0.33),
-        child: Padding(
-          padding: const EdgeInsets.only(left: 10, right: 6, top: 8, bottom: 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: _VaultUiTokens.folderIconContainerSize,
-                height: _VaultUiTokens.folderIconContainerSize,
-                decoration: BoxDecoration(
-                  color: isPasswordWarning
-                      ? AppColors.warning.withValues(alpha: 0.78)
-                      : colorScheme.secondaryContainer.withValues(alpha: 0.48),
-                  borderRadius: BorderRadius.circular(10),
-                  border: isPasswordWarning
-                      ? Border.all(color: AppColors.warning, width: 1.1)
-                      : null,
-                ),
-                child: Icon(
-                  AppIcons.key,
-                  size: 18,
-                  color: isPasswordWarning
-                      ? warningForeground
-                      : colorScheme.onSecondaryContainer,
-                ),
+    return _InteractiveItemSurface(
+      radius: _VaultUiTokens.recordItemRadius,
+      minHeight: _VaultUiTokens.recordItemHeight,
+      onTap: onOpen,
+      baseColor: isSelected
+          ? colorScheme.secondaryContainer.withValues(alpha: 0.52)
+          : colorScheme.surface.withValues(alpha: 0.74),
+      hoveredColor: isSelected
+          ? colorScheme.secondaryContainer.withValues(alpha: 0.68)
+          : colorScheme.surface.withValues(alpha: 0.85),
+      baseBorderColor: isSelected
+          ? colorScheme.secondary.withValues(alpha: 0.44)
+          : colorScheme.outlineVariant.withValues(alpha: 0.7),
+      hoveredBorderColor: colorScheme.secondary.withValues(alpha: 0.33),
+      child: Padding(
+        padding: const EdgeInsets.only(left: 10, right: 6, top: 8, bottom: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: _VaultUiTokens.folderIconContainerSize,
+              height: _VaultUiTokens.folderIconContainerSize,
+              decoration: BoxDecoration(
+                color: isPasswordWarning
+                    ? AppColors.warning.withValues(alpha: 0.78)
+                    : colorScheme.secondaryContainer.withValues(alpha: 0.48),
+                borderRadius: BorderRadius.circular(10),
+                border: isPasswordWarning
+                    ? Border.all(color: AppColors.warning, width: 1.1)
+                    : null,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      entry.title.isEmpty ? '(Untitled)' : entry.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: isSelected
-                            ? colorScheme.onSecondaryContainer
-                            : null,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      entry.username.isEmpty
-                          ? (entry.url.isEmpty ? 'No username' : entry.url)
-                          : entry.username,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: isSelected
-                            ? colorScheme.onSecondaryContainer.withValues(
-                                alpha: 0.82,
-                              )
-                            : null,
-                      ),
-                    ),
-                    if (entry.otpUri != null) ...[
-                      const SizedBox(height: 7),
-                      _TotpChip(otpUri: entry.otpUri!),
-                    ],
-                  ],
-                ),
+              child: Icon(
+                AppIcons.key,
+                size: 18,
+                color: isPasswordWarning
+                    ? warningForeground
+                    : colorScheme.onSecondaryContainer,
               ),
-              Tooltip(
-                message: 'Record actions',
-                ignorePointer: true,
-                child: PopupMenuButton<_EntryAction>(
-                  onSelected: onSelectedAction,
-                  itemBuilder: (context) => [
-                    const PopupMenuItem(
-                      value: _EntryAction.edit,
-                      child: Text('Edit'),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    entry.title.isEmpty ? '(Untitled)' : entry.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: isSelected
+                          ? colorScheme.onSecondaryContainer
+                          : null,
                     ),
-                    const PopupMenuItem(
-                      value: _EntryAction.move,
-                      child: Text('Move'),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    entry.username.isEmpty
+                        ? (entry.url.isEmpty ? 'No username' : entry.url)
+                        : entry.username,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: isSelected
+                          ? colorScheme.onSecondaryContainer.withValues(
+                              alpha: 0.82,
+                            )
+                          : null,
                     ),
-                    const PopupMenuItem(
-                      value: _EntryAction.attachments,
-                      child: Text('Attachments'),
-                    ),
-                    PopupMenuItem(
-                      value: _EntryAction.showTotp,
-                      child: Text(
-                        entry.otpUri == null ? 'OTP unavailable' : 'Show OTP',
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: _EntryAction.delete,
-                      child: Text('Delete'),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+            Tooltip(
+              message: 'Record actions',
+              ignorePointer: true,
+              child: PopupMenuButton<_EntryAction>(
+                onSelected: onSelectedAction,
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: _EntryAction.edit,
+                    child: Text('Edit'),
+                  ),
+                  const PopupMenuItem(
+                    value: _EntryAction.move,
+                    child: Text('Move'),
+                  ),
+                  const PopupMenuItem(
+                    value: _EntryAction.attachments,
+                    child: Text('Attachments'),
+                  ),
+                  const PopupMenuItem(
+                    value: _EntryAction.delete,
+                    child: Text('Delete'),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1023,222 +988,6 @@ class _RecordsEmptyState extends StatelessWidget {
           else
             const SizedBox.shrink(),
         ],
-      ),
-    );
-  }
-}
-
-class _TotpChip extends StatefulWidget {
-  const _TotpChip({required this.otpUri});
-
-  final String otpUri;
-
-  @override
-  State<_TotpChip> createState() => _TotpChipState();
-}
-
-class _TotpChipState extends State<_TotpChip> {
-  late Timer _timer;
-  DateTime _nowUtc = DateTime.now().toUtc();
-  bool _isHovered = false;
-  bool _isFocused = false;
-
-  int get _periodSeconds {
-    final parsed = Uri.tryParse(widget.otpUri);
-    final period = int.tryParse(parsed?.queryParameters['period'] ?? '');
-    if (period == null || period <= 0) {
-      return 30;
-    }
-    return period;
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _nowUtc = DateTime.now().toUtc();
-      });
-    });
-  }
-
-  @override
-  void dispose() {
-    _timer.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final data = TotpUtils.fromOtpAuthUri(widget.otpUri, _nowUtc);
-    if (data == null) {
-      return const SizedBox.shrink();
-    }
-
-    final colorScheme = Theme.of(context).colorScheme;
-    final animationDuration = MediaQuery.of(context).disableAnimations
-        ? Duration.zero
-        : _VaultUiTokens.chipTransitionDuration;
-    final highlighted = _isHovered || _isFocused;
-    final periodSeconds = _periodSeconds;
-    final remainingRatio = (data.remainingSeconds / periodSeconds)
-        .clamp(0.0, 1.0)
-        .toDouble();
-    final previousRatio = data.remainingSeconds == periodSeconds
-        ? 1.0
-        : ((data.remainingSeconds + 1) / periodSeconds)
-              .clamp(0.0, 1.0)
-              .toDouble();
-    final isExpiringSoon =
-        data.remainingSeconds <= math.max(5, periodSeconds ~/ 5);
-    final accentColor = isExpiringSoon
-        ? AppColors.warning
-        : colorScheme.secondary;
-    final onAccentColor = isExpiringSoon
-        ? (ThemeData.estimateBrightnessForColor(AppColors.warning) ==
-                  Brightness.dark
-              ? Colors.white
-              : Colors.black87)
-        : colorScheme.onSecondaryContainer;
-
-    return Tooltip(
-      message: 'Show OTP code',
-      ignorePointer: true,
-      child: FocusableActionDetector(
-        onShowFocusHighlight: (value) {
-          if (_isFocused != value) {
-            setState(() {
-              _isFocused = value;
-            });
-          }
-        },
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          onEnter: (_) {
-            setState(() {
-              _isHovered = true;
-            });
-          },
-          onExit: (_) {
-            setState(() {
-              _isHovered = false;
-            });
-          },
-          child: AnimatedScale(
-            duration: animationDuration,
-            curve: Curves.easeOutCubic,
-            scale: highlighted ? 1.02 : 1,
-            child: InkWell(
-              onTap: () async {
-                await _showTotpUriDialog(context, widget.otpUri);
-              },
-              borderRadius: BorderRadius.circular(14),
-              child: AnimatedContainer(
-                duration: animationDuration,
-                curve: Curves.easeInOutCubic,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: highlighted
-                        ? accentColor.withValues(alpha: 0.5)
-                        : colorScheme.outlineVariant.withValues(alpha: 0.65),
-                  ),
-                  color: highlighted
-                      ? colorScheme.secondaryContainer.withValues(alpha: 0.8)
-                      : colorScheme.secondaryContainer.withValues(alpha: 0.58),
-                  boxShadow: highlighted
-                      ? [
-                          BoxShadow(
-                            color: accentColor.withValues(alpha: 0.16),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ]
-                      : null,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(AppIcons.key, size: 14, color: onAccentColor),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Show OTP',
-                          style: Theme.of(context).textTheme.labelLarge
-                              ?.copyWith(
-                                fontWeight: FontWeight.w600,
-                                color: onAccentColor,
-                              ),
-                        ),
-                        const SizedBox(width: 8),
-                        SizedBox(
-                          width: 28,
-                          height: 28,
-                          child: Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              TweenAnimationBuilder<double>(
-                                key: ValueKey<int>(data.remainingSeconds),
-                                tween: Tween<double>(
-                                  begin: previousRatio,
-                                  end: remainingRatio,
-                                ),
-                                duration: const Duration(milliseconds: 940),
-                                curve: Curves.linear,
-                                builder: (context, animatedRatio, _) {
-                                  return CircularProgressIndicator(
-                                    value: animatedRatio,
-                                    strokeWidth: 2.6,
-                                    strokeCap: StrokeCap.round,
-                                    backgroundColor: accentColor.withValues(
-                                      alpha: 0.15,
-                                    ),
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      accentColor,
-                                    ),
-                                  );
-                                },
-                              ),
-                              AnimatedSwitcher(
-                                duration: animationDuration,
-                                switchInCurve: Curves.easeOut,
-                                switchOutCurve: Curves.easeIn,
-                                transitionBuilder: (child, animation) =>
-                                    FadeTransition(
-                                      opacity: animation,
-                                      child: child,
-                                    ),
-                                child: Text(
-                                  '${data.remainingSeconds}',
-                                  key: ValueKey<int>(data.remainingSeconds),
-                                  style: Theme.of(context).textTheme.labelSmall
-                                      ?.copyWith(
-                                        fontWeight: FontWeight.w700,
-                                        color: onAccentColor,
-                                        fontSize: 10,
-                                      ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
       ),
     );
   }

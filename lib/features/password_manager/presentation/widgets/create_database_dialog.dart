@@ -1,11 +1,9 @@
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart'
-    show TargetPlatform, defaultTargetPlatform, kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 
 import '../../../../../core/theme/app_icons.dart';
-import '../utils/platform_utils.dart';
 
 /// A dialog that collects a Master Password (and confirm) plus an optional Key File
 /// before creating a new KDBX database.
@@ -36,7 +34,7 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
     if (kIsWeb) {
       return false;
     }
-    return isMobilePlatform || defaultTargetPlatform == TargetPlatform.macOS;
+    return true;
   }
 
   @override
@@ -151,7 +149,7 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Choose the database file name and security options. On Android/iOS/macOS the database and generated key file are saved in app internal storage, so export manual backups regularly.',
+                  'Choose the database file name and security options. On native platforms, the database and generated key file are saved in app internal storage, so export manual backups regularly.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -255,7 +253,7 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Generate key file automatically'),
                   subtitle: const Text(
-                    'On Android/iOS/macOS it will be saved in app internal storage.',
+                    'On native platforms it will be saved in app internal storage.',
                   ),
                   value: _generateKeyFile,
                   onChanged: (value) {

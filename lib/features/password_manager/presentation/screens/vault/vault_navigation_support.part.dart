@@ -14,15 +14,18 @@ class _SyncStripActionIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final foreground = highlighted
         ? colorScheme.onPrimaryContainer
         : colorScheme.onSurfaceVariant;
     final background = highlighted
-        ? colorScheme.primaryContainer.withValues(alpha: 0.9)
-        : colorScheme.surfaceContainerHighest.withValues(alpha: 0.84);
+        ? colorScheme.primaryContainer.withValues(alpha: isDark ? 0.9 : 0.96)
+        : colorScheme.surfaceContainerHighest.withValues(
+            alpha: isDark ? 0.84 : 0.94,
+          );
     final borderColor = highlighted
-        ? colorScheme.primary.withValues(alpha: 0.28)
-        : colorScheme.outlineVariant.withValues(alpha: 0.55);
+        ? colorScheme.primary.withValues(alpha: isDark ? 0.28 : 0.36)
+        : colorScheme.outlineVariant.withValues(alpha: isDark ? 0.55 : 0.78);
 
     final iconWidget = Icon(icon, size: 16, color: foreground);
 
@@ -92,13 +95,18 @@ class _DriveSetupProgressIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     Widget step({required int number, required bool done}) {
       final activeColor = colorScheme.primary;
-      final idleColor = colorScheme.outline.withValues(alpha: 0.7);
+      final idleColor = colorScheme.outline.withValues(
+        alpha: isDark ? 0.7 : 0.84,
+      );
       final bg = done
-          ? activeColor.withValues(alpha: 0.18)
-          : colorScheme.surfaceContainerHighest.withValues(alpha: 0.8);
+          ? activeColor.withValues(alpha: isDark ? 0.18 : 0.22)
+          : colorScheme.surfaceContainerHighest.withValues(
+              alpha: isDark ? 0.8 : 0.9,
+            );
       final fg = done ? activeColor : idleColor;
 
       return Container(

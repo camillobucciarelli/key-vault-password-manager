@@ -1,88 +1,37 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 abstract class LocalDataSource {
-  Future<String?> getCachedDatabasePath();
   Future<void> cacheDatabasePath(String path);
-  Future<List<String>> getRecentDatabasePaths();
-  Future<void> addRecentDatabasePath(String path);
-  Future<void> removeRecentDatabasePath(String path);
   Future<String?> getCachedKeyFilePath();
   Future<void> cacheKeyFilePath(String? path);
-  Future<bool> getBiometricProtectionEnabled();
-  Future<void> setBiometricProtectionEnabled(bool enabled);
   Future<bool> getAutofillPromptSeen();
   Future<void> setAutofillPromptSeen(bool seen);
 }
 
 class LocalDataSourceImpl implements LocalDataSource {
-  final SharedPreferences sharedPreferences;
-  static const dbPathKey = 'CACHED_DATABASE_PATH';
-  static const recentDbPathsKey = 'RECENT_DATABASE_PATHS';
-  static const keyFilePathKey = 'CACHED_KEY_FILE_PATH';
-  static const biometricProtectionKey = 'BIOMETRIC_PROTECTION_ENABLED';
-  static const autofillPromptSeenKey = 'AUTOFILL_PROMPT_SEEN';
-  static const maxRecentDatabases = 20;
+  static const dbPathKey = 'cachedDatabasePath';
+  static const keyFilePathKey = 'cachedKeyFilePath';
+  static const autofillPromptSeenKey = 'autofillPromptSeen';
+  static const _localStateSubdirectory = 'metadata';
+  static const _localStateFileName = 'local_state.json';
 
-  LocalDataSourceImpl({required this.sharedPreferences});
-
-  @override
-  Future<String?> getCachedDatabasePath() async {
-    return sharedPreferences.getString(dbPathKey);
-  }
+  LocalDataSourceImpl();
 
   @override
   Future<void> cacheDatabasePath(String path) async {
-    await sharedPreferences.setString(dbPathKey, path);
-  }
-
-  @override
-  Future<List<String>> getRecentDatabasePaths() async {
-    final values =
-        sharedPreferences.getStringList(recentDbPathsKey) ?? const [];
-    return values
-        .map((value) => value.trim())
-        .where((value) => value.isNotEmpty)
-        .toList(growable: false);
-  }
-
-  @override
-  Future<void> addRecentDatabasePath(String path) async {
-    final normalized = path.trim();
-    if (normalized.isEmpty) {
-      return;
-    }
-
-    final current = await getRecentDatabasePaths();
-    final updated = <String>[normalized];
-    for (final item in current) {
-      if (item != normalized) {
-        updated.add(item);
-      }
-      if (updated.length >= maxRecentDatabases) {
-        break;
-      }
-    }
-
-    await sharedPreferences.setStringList(recentDbPathsKey, updated);
-  }
-
-  @override
-  Future<void> removeRecentDatabasePath(String path) async {
-    final normalized = path.trim();
-    if (normalized.isEmpty) {
-      return;
-    }
-
-    final current = await getRecentDatabasePaths();
-    final updated = current
-        .where((item) => item != normalized)
-        .toList(growable: false);
-    await sharedPreferences.setStringList(recentDbPathsKey, updated);
+    final data = await _readState();
+    data[dbPathKey] = path;
+    await _writeState(data);
   }
 
   @override
   Future<String?> getCachedKeyFilePath() async {
-    final value = sharedPreferences.getString(keyFilePathKey);
+    final data = await _readState();
+    final value = data[keyFilePathKey] as String?;
     if (value == null || value.trim().isEmpty) {
       return null;
     }
@@ -91,30 +40,58 @@ class LocalDataSourceImpl implements LocalDataSource {
 
   @override
   Future<void> cacheKeyFilePath(String? path) async {
+    final data = await _readState();
     if (path == null || path.trim().isEmpty) {
-      await sharedPreferences.remove(keyFilePathKey);
+      data.remove(keyFilePathKey);
+      await _writeState(data);
       return;
     }
-    await sharedPreferences.setString(keyFilePathKey, path);
-  }
-
-  @override
-  Future<bool> getBiometricProtectionEnabled() async {
-    return sharedPreferences.getBool(biometricProtectionKey) ?? true;
-  }
-
-  @override
-  Future<void> setBiometricProtectionEnabled(bool enabled) async {
-    await sharedPreferences.setBool(biometricProtectionKey, enabled);
+    data[keyFilePathKey] = path;
+    await _writeState(data);
   }
 
   @override
   Future<bool> getAutofillPromptSeen() async {
-    return sharedPreferences.getBool(autofillPromptSeenKey) ?? false;
+    final data = await _readState();
+    return data[autofillPromptSeenKey] as bool? ?? false;
   }
 
   @override
   Future<void> setAutofillPromptSeen(bool seen) async {
-    await sharedPreferences.setBool(autofillPromptSeenKey, seen);
+    final data = await _readState();
+    data[autofillPromptSeenKey] = seen;
+    await _writeState(data);
+  }
+
+  Future<Map<String, dynamic>> _readState() async {
+    final file = await _stateFile();
+    if (!await file.exists()) {
+      return <String, dynamic>{};
+    }
+
+    final raw = await file.readAsString();
+    if (raw.trim().isEmpty) {
+      return <String, dynamic>{};
+    }
+
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map) {
+      return <String, dynamic>{};
+    }
+    return decoded.map((key, value) => MapEntry(key.toString(), value));
+  }
+
+  Future<void> _writeState(Map<String, dynamic> state) async {
+    final file = await _stateFile();
+    await file.writeAsString(jsonEncode(state), flush: true);
+  }
+
+  Future<File> _stateFile() async {
+    final root = await getApplicationDocumentsDirectory();
+    final directory = Directory(p.join(root.path, _localStateSubdirectory));
+    if (!await directory.exists()) {
+      await directory.create(recursive: true);
+    }
+    return File(p.join(directory.path, _localStateFileName));
   }
 }

@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+import '../../coordinators/database_session_coordinator.dart';
+
 abstract class DatabaseSelectionState extends Equatable {
   const DatabaseSelectionState({this.recentDatabasePaths = const []});
 
@@ -58,4 +60,19 @@ class DatabaseSelectionInfo extends DatabaseSelectionState {
 
   @override
   List<Object?> get props => [message, recentDatabasePaths];
+}
+
+class DatabaseSelectionDuplicateDecisionRequired
+    extends DatabaseSelectionState {
+  const DatabaseSelectionDuplicateDecisionRequired({
+    required this.duplicatePrompt,
+    required this.message,
+    super.recentDatabasePaths,
+  });
+
+  final DatabaseDuplicatePrompt duplicatePrompt;
+  final String message;
+
+  @override
+  List<Object?> get props => [duplicatePrompt, message, recentDatabasePaths];
 }

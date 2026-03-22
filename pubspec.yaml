@@ -42,6 +42,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/logo/keyvault-source.png
 
 flutter_launcher_icons:
   image_path: assets/logo/keyvault-source.png

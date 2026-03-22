@@ -1,0 +1,14 @@
+{
+  "task_id": "task-001",
+  "iteration": 2,
+  "phase": "critic",
+  "status": "in_progress",
+  "candidate_summary": "Candidate updated with critic fixes for schema and safety wording",
+  "critic_score": 0.82,
+  "issues_open": [
+    "Need clearer final format",
+    "One unresolved safety caveat"
+  ],
+  "next_action": "Run producer with repair instructions",
+  "timestamp": "2026-03-22T12:00:00Z"
+}

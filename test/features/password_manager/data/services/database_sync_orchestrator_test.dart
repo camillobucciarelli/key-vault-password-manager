@@ -162,6 +162,21 @@ class _InMemorySyncMetadataDataSource implements SyncMetadataDataSource {
   }
 
   @override
+  Future<void> moveMappingPath({
+    required String fromDatabasePath,
+    required String toDatabasePath,
+  }) async {
+    if (fromDatabasePath == toDatabasePath) {
+      return;
+    }
+    final existing = _mappings.remove(fromDatabasePath);
+    if (existing == null) {
+      return;
+    }
+    _mappings[toDatabasePath] = existing.copyWith(databasePath: toDatabasePath);
+  }
+
+  @override
   Future<void> upsertMapping(DatabaseSyncMapping mapping) async {
     _mappings[mapping.databasePath] = mapping;
   }

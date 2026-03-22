@@ -196,9 +196,6 @@ class _EntriesCardState extends State<_EntriesCard> {
       case _EntryAction.attachments:
         await _showAttachmentsDialog(context, entry);
         break;
-      case _EntryAction.showTotp:
-        await _showTotpDialog(context, entry);
-        break;
       case _EntryAction.delete:
         final confirmed = await _showDeleteConfirm(
           context,
@@ -559,7 +556,7 @@ class _EntriesCardState extends State<_EntriesCard> {
   }
 }
 
-enum _EntryAction { edit, move, attachments, showTotp, delete }
+enum _EntryAction { edit, move, attachments, delete }
 
 enum _FolderAction { addRecord, addSubfolder, rename, move, delete }
 
