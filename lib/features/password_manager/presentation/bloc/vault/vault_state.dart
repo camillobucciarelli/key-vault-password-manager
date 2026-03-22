@@ -24,7 +24,7 @@ class VaultState extends Equatable {
     this.isRecycleBinView = false,
     this.isRecycleBinLoading = false,
     this.searchQuery = '',
-    this.sortBy = VaultEntrySort.titleAsc,
+    this.sortBy = VaultEntrySort.usernameAsc,
     this.errorMessage,
     this.infoMessage,
     this.isDriveConnected = false,

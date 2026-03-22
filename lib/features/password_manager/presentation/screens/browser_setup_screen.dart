@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../../../../../core/theme/app_backgrounds.dart';
 import '../../../../../core/theme/app_icons.dart';
 import '../../data/services/browser_setup_service.dart';
+import '../widgets/styled_info_container.dart';
 
 /// A step-by-step wizard that guides the user through connecting the
 /// KeyVault browser extension to the desktop app.
@@ -582,13 +583,11 @@ class _CopyableCodeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return StyledInfoContainer(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-      ),
+      borderRadius: 8,
+      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+      borderColor: Theme.of(context).colorScheme.outlineVariant,
       child: Row(
         children: [
           Expanded(

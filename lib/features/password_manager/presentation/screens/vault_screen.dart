@@ -31,6 +31,7 @@ import '../bloc/vault/vault_event.dart';
 import '../bloc/vault/vault_state.dart';
 import '../coordinators/vault_session_coordinator.dart';
 import '../widgets/internal_key_file_manager_dialog.dart';
+import '../widgets/styled_info_container.dart';
 import 'database_selection_screen.dart';
 import 'database_unlock_screen.dart';
 import 'browser_setup_screen.dart';
