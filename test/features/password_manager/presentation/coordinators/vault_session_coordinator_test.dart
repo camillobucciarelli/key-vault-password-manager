@@ -180,6 +180,55 @@ void main() {
       expect(secureDataSource.password, isNull);
       expect(registryRepository.activeId, isNull);
     });
+
+    test(
+      'getInactivityLockTimeoutForPath returns correct timeout when database is registered',
+      () async {
+        const databasePath = '/tmp/test.kdbx';
+        registryRepository.records = [
+          DatabaseRecord(
+            databaseId: 'db-1',
+            canonicalPath: databasePath,
+            displayName: 'test.kdbx',
+            sourceType: DatabaseSourceType.local,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          ),
+        ];
+        securityRepository.profiles['db-1'] = DatabaseSecurityProfile(
+          databaseId: 'db-1',
+          inactivityLockTimeoutSeconds: 300,
+        );
+
+        final result = await coordinator.getInactivityLockTimeoutForPath(
+          databasePath: databasePath,
+        );
+
+        expect(result, 300);
+      },
+    );
+
+    test(
+      'getInactivityLockTimeoutForPath returns null when database path is empty',
+      () async {
+        registryRepository.records = [
+          DatabaseRecord(
+            databaseId: 'db-1',
+            canonicalPath: '/tmp/test.kdbx',
+            displayName: 'test.kdbx',
+            sourceType: DatabaseSourceType.local,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          ),
+        ];
+
+        final result = await coordinator.getInactivityLockTimeoutForPath(
+          databasePath: '',
+        );
+
+        expect(result, isNull);
+      },
+    );
   });
 }
 
