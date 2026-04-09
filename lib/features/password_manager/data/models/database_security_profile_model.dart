@@ -5,12 +5,14 @@ class DatabaseSecurityProfileModel {
     required this.databaseId,
     this.keyFilePath,
     required this.biometricProtectionEnabled,
+    this.inactivityLockTimeoutSeconds,
     this.updatedAt,
   });
 
   final String databaseId;
   final String? keyFilePath;
   final bool biometricProtectionEnabled;
+  final int? inactivityLockTimeoutSeconds;
   final DateTime? updatedAt;
 
   factory DatabaseSecurityProfileModel.fromEntity(
@@ -20,6 +22,7 @@ class DatabaseSecurityProfileModel {
       databaseId: entity.databaseId,
       keyFilePath: entity.keyFilePath,
       biometricProtectionEnabled: entity.biometricProtectionEnabled,
+      inactivityLockTimeoutSeconds: entity.inactivityLockTimeoutSeconds,
       updatedAt: entity.updatedAt,
     );
   }
@@ -29,6 +32,7 @@ class DatabaseSecurityProfileModel {
       databaseId: databaseId,
       keyFilePath: keyFilePath,
       biometricProtectionEnabled: biometricProtectionEnabled,
+      inactivityLockTimeoutSeconds: inactivityLockTimeoutSeconds,
       updatedAt: updatedAt,
     );
   }
@@ -38,6 +42,7 @@ class DatabaseSecurityProfileModel {
       'databaseId': databaseId,
       'keyFilePath': keyFilePath,
       'biometricProtectionEnabled': biometricProtectionEnabled,
+      'inactivityLockTimeoutSeconds': inactivityLockTimeoutSeconds,
       'updatedAt': updatedAt?.toUtc().toIso8601String(),
     };
   }
@@ -48,6 +53,8 @@ class DatabaseSecurityProfileModel {
       keyFilePath: map['keyFilePath'] as String?,
       biometricProtectionEnabled:
           map['biometricProtectionEnabled'] as bool? ?? true,
+      inactivityLockTimeoutSeconds:
+          map['inactivityLockTimeoutSeconds'] as int?,
       updatedAt: map['updatedAt'] == null
           ? null
           : DateTime.parse(map['updatedAt'] as String).toLocal(),
