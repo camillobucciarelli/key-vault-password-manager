@@ -18,6 +18,7 @@ import '../../../../../core/theme/app_colors.dart';
 import '../../../../../core/theme/app_icons.dart';
 import '../../../../../core/theme/theme_cubit.dart';
 import '../../../../../injection_container.dart' as di;
+import '../../data/datasources/biometric_data_source.dart';
 import '../../data/datasources/local_data_source.dart';
 import '../../data/services/vault_csv_import_service.dart';
 import '../../domain/models/database_sync_status.dart';

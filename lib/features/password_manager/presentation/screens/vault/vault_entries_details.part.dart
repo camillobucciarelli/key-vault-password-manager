@@ -801,12 +801,12 @@ class _FolderListItem extends StatelessWidget {
                     value: _FolderAction.addSubfolder,
                     child: const Text('Add subfolder'),
                   ),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem(
+                    value: _FolderAction.rename,
+                    child: Text('Rename'),
+                  ),
                   if (!isRoot) ...const [
-                    PopupMenuDivider(),
-                    PopupMenuItem(
-                      value: _FolderAction.rename,
-                      child: Text('Rename'),
-                    ),
                     PopupMenuItem(
                       value: _FolderAction.move,
                       child: Text('Move'),
@@ -972,6 +972,130 @@ bool _isPasswordUpdateOverdue(VaultEntry entry, DateTime now) {
   );
 
   return reference.isBefore(cutoff);
+}
+
+class _PrivacyOverlay extends StatelessWidget {
+  const _PrivacyOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      color: colorScheme.surface,
+      child: Center(
+        child: Icon(
+          AppIcons.lock,
+          size: 48,
+          color: colorScheme.onSurface.withValues(alpha: 0.2),
+        ),
+      ),
+    );
+  }
+}
+
+class _LockOverlay extends StatefulWidget {
+  const _LockOverlay({
+    required this.databasePath,
+    required this.onUnlocked,
+  });
+
+  final String databasePath;
+  final VoidCallback onUnlocked;
+
+  @override
+  State<_LockOverlay> createState() => _LockOverlayState();
+}
+
+class _LockOverlayState extends State<_LockOverlay> {
+  bool _biometricAvailable = false;
+  bool _showPasswordFallback = false;
+  bool _isAuthenticating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _initBiometric());
+  }
+
+  Future<void> _initBiometric() async {
+    final available =
+        await di.sl<BiometricDataSource>().isBiometricAvailable();
+    if (!mounted) return;
+    setState(() => _biometricAvailable = available);
+    if (available) {
+      await _triggerBiometric();
+    } else {
+      setState(() => _showPasswordFallback = true);
+    }
+  }
+
+  Future<void> _triggerBiometric() async {
+    if (_isAuthenticating || !mounted) return;
+    setState(() => _isAuthenticating = true);
+    final ok = await di.sl<BiometricDataSource>().authenticate(
+      reason: 'Unlock vault',
+    );
+    if (!mounted) return;
+    if (ok) {
+      widget.onUnlocked();
+      return;
+    }
+    setState(() {
+      _isAuthenticating = false;
+      _showPasswordFallback = true;
+    });
+  }
+
+  void _usePassword() {
+    di.sl<VaultSessionCoordinator>().lockVault(
+      currentDatabasePath: widget.databasePath,
+    );
+    AppNavigation.pushFadeReplacement(
+      context,
+      DatabaseUnlockScreen(databasePath: widget.databasePath),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      color: colorScheme.surface,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              AppIcons.lock,
+              size: 52,
+              color: colorScheme.onSurface.withValues(alpha: 0.5),
+            ),
+            const SizedBox(height: 24),
+            if (_biometricAvailable && !_showPasswordFallback)
+              FilledButton.icon(
+                onPressed: _isAuthenticating ? null : _triggerBiometric,
+                icon: Icon(AppIcons.fingerprint),
+                label: const Text('Unlock with biometrics'),
+              ),
+            if (_showPasswordFallback) ...[
+              if (_biometricAvailable)
+                FilledButton.icon(
+                  onPressed: _isAuthenticating ? null : _triggerBiometric,
+                  icon: Icon(AppIcons.fingerprint),
+                  label: const Text('Unlock with biometrics'),
+                ),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: _usePassword,
+                child: const Text('Use password'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _RecordsEmptyState extends StatelessWidget {
