@@ -1046,10 +1046,11 @@ class _LockOverlayState extends State<_LockOverlay> {
     });
   }
 
-  void _usePassword() {
-    di.sl<VaultSessionCoordinator>().lockVault(
+  Future<void> _usePassword() async {
+    await di.sl<VaultSessionCoordinator>().lockVault(
       currentDatabasePath: widget.databasePath,
     );
+    if (!mounted) return;
     AppNavigation.pushFadeReplacement(
       context,
       DatabaseUnlockScreen(databasePath: widget.databasePath),
