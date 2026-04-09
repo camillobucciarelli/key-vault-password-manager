@@ -431,6 +431,10 @@ class _SyncStripMenuButton extends StatelessWidget {
           databasePath: currentDatabasePath,
         );
     final initialBiometricEnabled = biometricEnabled;
+    var inactivityTimeout = await di
+        .sl<VaultSessionCoordinator>()
+        .getInactivityLockTimeoutForPath(databasePath: currentDatabasePath);
+    final initialInactivityTimeout = inactivityTimeout;
     final initialFileName = path.basename(currentDatabasePath);
     final normalizedCurrentKeyPath = _normalizeKeyPathForComparison(
       currentKeyPath,
@@ -454,9 +458,12 @@ class _SyncStripMenuButton extends StatelessWidget {
                 _normalizeDatabaseFileName(databaseTitle) != initialFileName;
             final biometricChanged =
                 biometricEnabled != initialBiometricEnabled;
+            final inactivityChanged =
+                inactivityTimeout != initialInactivityTimeout;
             final pendingChanges = <String>[
               if (fileNameChanged) 'Database file name',
               if (biometricChanged) 'Biometric protection',
+              if (inactivityChanged) 'Inactivity lock',
               if (keyFileChanged) 'Key file',
               if (changePassword) 'Master password',
             ];
@@ -510,6 +517,49 @@ class _SyncStripMenuButton extends StatelessWidget {
                           onChanged: (value) {
                             setState(() {
                               biometricEnabled = value;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 10),
+                        DropdownButtonFormField<int?>(
+                          initialValue: inactivityTimeout,
+                          decoration: const InputDecoration(
+                            labelText: 'Lock on inactivity',
+                            prefixIcon: Icon(AppIcons.lock),
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: null,
+                              child: Text('Never'),
+                            ),
+                            DropdownMenuItem(
+                              value: 10,
+                              child: Text('10 seconds'),
+                            ),
+                            DropdownMenuItem(
+                              value: 20,
+                              child: Text('20 seconds'),
+                            ),
+                            DropdownMenuItem(
+                              value: 30,
+                              child: Text('30 seconds'),
+                            ),
+                            DropdownMenuItem(
+                              value: 60,
+                              child: Text('1 minute'),
+                            ),
+                            DropdownMenuItem(
+                              value: 120,
+                              child: Text('2 minutes'),
+                            ),
+                            DropdownMenuItem(
+                              value: 300,
+                              child: Text('5 minutes'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            setState(() {
+                              inactivityTimeout = value;
                             });
                           },
                         ),
@@ -806,7 +856,7 @@ class _SyncStripMenuButton extends StatelessWidget {
               keyFilePath: selectedKeyPath,
               biometricProtectionEnabled: biometricEnabled,
               changePassword: changePassword,
-              inactivityLockTimeoutSeconds: null,
+              inactivityLockTimeoutSeconds: inactivityTimeout,
               currentPassword: currentPassword,
               newPassword: newPassword,
             ),
