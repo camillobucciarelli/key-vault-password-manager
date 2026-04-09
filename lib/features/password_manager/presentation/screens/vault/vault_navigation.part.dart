@@ -351,7 +351,7 @@ class _SyncStripMenuButton extends StatelessWidget {
     }
 
     final defaultName = path.basename(databasePath);
-    final savePath = await FilePicker.platform.saveFile(
+    final savePath = await FilePicker.saveFile(
       dialogTitle: 'Export database backup',
       fileName: defaultName,
       type: FileType.custom,
@@ -389,7 +389,7 @@ class _SyncStripMenuButton extends StatelessWidget {
     }
 
     final defaultName = path.basename(keyPath);
-    final savePath = await FilePicker.platform.saveFile(
+    final savePath = await FilePicker.saveFile(
       dialogTitle: 'Export key file backup',
       fileName: defaultName,
       type: FileType.custom,
@@ -575,8 +575,7 @@ class _SyncStripMenuButton extends StatelessWidget {
                                     return;
                                   }
 
-                                  final picked = await FilePicker.platform
-                                      .pickFiles(
+                                  final picked = await FilePicker.pickFiles(
                                         allowMultiple: false,
                                         withData: false,
                                       );
@@ -807,6 +806,7 @@ class _SyncStripMenuButton extends StatelessWidget {
               keyFilePath: selectedKeyPath,
               biometricProtectionEnabled: biometricEnabled,
               changePassword: changePassword,
+              inactivityLockTimeoutSeconds: null,
               currentPassword: currentPassword,
               newPassword: newPassword,
             ),
