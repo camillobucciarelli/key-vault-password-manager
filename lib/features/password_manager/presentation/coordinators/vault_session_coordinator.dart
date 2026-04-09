@@ -23,6 +23,7 @@ class DatabaseSettingsUpdateRequest {
     required this.keyFilePath,
     required this.biometricProtectionEnabled,
     required this.changePassword,
+    required this.inactivityLockTimeoutSeconds,
     this.currentPassword,
     this.newPassword,
   });
@@ -32,6 +33,7 @@ class DatabaseSettingsUpdateRequest {
   final String? keyFilePath;
   final bool biometricProtectionEnabled;
   final bool changePassword;
+  final int? inactivityLockTimeoutSeconds;
   final String? currentPassword;
   final String? newPassword;
 }
@@ -101,6 +103,26 @@ class VaultSessionCoordinator {
       return profile?.biometricProtectionEnabled ?? false;
     }
     return false;
+  }
+
+  Future<int?> getInactivityLockTimeoutForPath({
+    required String databasePath,
+  }) async {
+    if (databasePath.trim().isEmpty) {
+      return null;
+    }
+
+    final records = await getRegisteredDatabasesUseCase();
+    for (final record in records) {
+      if (record.canonicalPath != databasePath) {
+        continue;
+      }
+      final profile = await getDatabaseSecurityProfileUseCase(
+        record.databaseId,
+      );
+      return profile?.inactivityLockTimeoutSeconds;
+    }
+    return null;
   }
 
   Future<DatabaseSettingsUpdateResult> updateDatabaseSettings(
@@ -179,8 +201,12 @@ class VaultSessionCoordinator {
                   keyFilePath: persistedKeyFilePath,
                   biometricProtectionEnabled:
                       request.biometricProtectionEnabled,
+                  inactivityLockTimeoutSeconds:
+                      request.inactivityLockTimeoutSeconds,
                   updatedAt: DateTime.now(),
                   clearKeyFilePath: persistedKeyFilePath == null,
+                  clearInactivityTimeout:
+                      request.inactivityLockTimeoutSeconds == null,
                 );
         await saveDatabaseSecurityProfileUseCase(profile);
         break;

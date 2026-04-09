@@ -96,6 +96,7 @@ void main() {
             keyFilePath: keyFile.path,
             biometricProtectionEnabled: true,
             changePassword: false,
+            inactivityLockTimeoutSeconds: null,
           ),
         );
 
@@ -147,6 +148,7 @@ void main() {
               keyFilePath: keyFile.path,
               biometricProtectionEnabled: true,
               changePassword: true,
+              inactivityLockTimeoutSeconds: null,
               currentPassword: 'old-secret',
               newPassword: 'new-secret',
             ),
