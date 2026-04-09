@@ -44,15 +44,24 @@ flutter:
   uses-material-design: true
   assets:
     - assets/logo/keyvault-source.png
+    - assets/logo/keyvault-monochrome.png
 
 flutter_launcher_icons:
   image_path: assets/logo/keyvault-source.png
   android: true
   ios: true
+  # Android adaptive icons (API 26+)
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: assets/logo/keyvault-source.png
+  adaptive_icon_monochrome: assets/logo/keyvault-monochrome.png
+  # iOS: remove alpha for standard icon, provide dark/tinted variants for iOS 18+
+  remove_alpha_ios: true
+  image_path_ios_dark_transparent: assets/logo/keyvault-source.png
+  image_path_ios_tinted_grayscale: assets/logo/keyvault-source.png
+  desaturate_tinted_to_grayscale_ios: true
   web:
     generate: true
   windows:
     generate: true
   macos:
     generate: true
-  remove_alpha_ios: true
