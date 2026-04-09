@@ -90,7 +90,10 @@ class _VaultView extends StatefulWidget {
 
 class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   DateTime? _backgroundedAt;
-  bool _isLockNavigationInProgress = false;
+  bool _isBackground = false;
+  bool _isLocked = false;
+  Timer? _inactivityTimer;
+  int? _inactivityTimeoutSeconds;
   bool _autofillPromptChecked = false;
 
   @override
@@ -99,13 +102,44 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybeShowAutofillOnboardingDialog();
+      _loadInactivityTimeout();
     });
   }
 
   @override
   void dispose() {
+    _inactivityTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  Future<void> _loadInactivityTimeout() async {
+    if (!mounted) return;
+    final databasePath = context.read<VaultBloc>().state.databasePath;
+    final seconds = await di
+        .sl<VaultSessionCoordinator>()
+        .getInactivityLockTimeoutForPath(databasePath: databasePath);
+    if (!mounted) return;
+    setState(() => _inactivityTimeoutSeconds = seconds);
+    _resetInactivityTimer();
+  }
+
+  void _resetInactivityTimer() {
+    _inactivityTimer?.cancel();
+    final seconds = _inactivityTimeoutSeconds;
+    if (seconds == null || _isLocked || _isBackground) return;
+    _inactivityTimer = Timer(Duration(seconds: seconds), _triggerInactivityLock);
+  }
+
+  void _triggerInactivityLock() {
+    if (!mounted || _isLocked) return;
+    setState(() => _isLocked = true);
+  }
+
+  void _dismissLock() {
+    if (!mounted) return;
+    setState(() => _isLocked = false);
+    _resetInactivityTimer();
   }
 
   @override
@@ -115,6 +149,10 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
         _backgroundedAt = DateTime.now();
+        _inactivityTimer?.cancel();
+        if (!_isLocked && mounted) {
+          setState(() => _isBackground = true);
+        }
         break;
       case AppLifecycleState.resumed:
         _onAppResumed();
@@ -125,30 +163,24 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   }
 
   void _onAppResumed() {
+    if (!mounted) return;
+
     final backgroundedAt = _backgroundedAt;
     _backgroundedAt = null;
-    if (backgroundedAt == null || _isLockNavigationInProgress || !mounted) {
-      return;
-    }
 
-    final elapsed = DateTime.now().difference(backgroundedAt);
-    if (elapsed < _VaultUiTokens.backgroundLockTimeout) {
-      return;
-    }
+    final elapsed = backgroundedAt != null
+        ? DateTime.now().difference(backgroundedAt)
+        : Duration.zero;
+    final shouldLock = elapsed >= _VaultUiTokens.backgroundLockTimeout;
 
-    final databasePath = context.read<VaultBloc>().state.databasePath;
-    if (databasePath.trim().isEmpty) {
-      return;
-    }
+    setState(() {
+      _isBackground = false;
+      if (shouldLock) _isLocked = true;
+    });
 
-    _isLockNavigationInProgress = true;
-    di.sl<VaultSessionCoordinator>().lockVault(
-      currentDatabasePath: databasePath,
-    );
-    AppNavigation.pushFadeReplacement(
-      context,
-      DatabaseUnlockScreen(databasePath: databasePath),
-    );
+    if (!shouldLock) {
+      _resetInactivityTimer();
+    }
   }
 
   Future<void> _maybeShowAutofillOnboardingDialog() async {
@@ -348,35 +380,38 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
 
                 return Stack(
                   children: [
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final spec = _VaultLayoutSpec.fromWidth(
-                          constraints.maxWidth,
-                        );
+                    Listener(
+                      onPointerDown: (_) => _resetInactivityTimer(),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final spec = _VaultLayoutSpec.fromWidth(
+                            constraints.maxWidth,
+                          );
 
-                        return Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            spec.horizontalPadding,
-                            topInset + spec.contentTopPadding,
-                            spec.horizontalPadding,
-                            spec.horizontalPadding,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              _VaultSyncStatusStrip(
-                                onOpenRecycleBin: () {
-                                  _showRecycleBinDialog(context);
-                                },
-                                onChangeDatabase:
-                                    _closeCurrentDatabaseAndSelectAnother,
-                              ),
-                              const SizedBox(height: _VaultUiTokens.panelGap),
-                              const Expanded(child: _VaultEntriesCardSection()),
-                            ],
-                          ),
-                        );
-                      },
+                          return Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              spec.horizontalPadding,
+                              topInset + spec.contentTopPadding,
+                              spec.horizontalPadding,
+                              spec.horizontalPadding,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                _VaultSyncStatusStrip(
+                                  onOpenRecycleBin: () {
+                                    _showRecycleBinDialog(context);
+                                  },
+                                  onChangeDatabase:
+                                      _closeCurrentDatabaseAndSelectAnother,
+                                ),
+                                const SizedBox(height: _VaultUiTokens.panelGap),
+                                const Expanded(child: _VaultEntriesCardSection()),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
                     ),
                     BlocSelector<VaultBloc, VaultState, bool>(
                       selector: (state) => state.isSaving,
@@ -393,6 +428,13 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                         );
                       },
                     ),
+                    if (_isBackground && !_isLocked)
+                      const _PrivacyOverlay(),
+                    if (_isLocked)
+                      _LockOverlay(
+                        databasePath: context.read<VaultBloc>().state.databasePath,
+                        onUnlocked: _dismissLock,
+                      ),
                   ],
                 );
               },
