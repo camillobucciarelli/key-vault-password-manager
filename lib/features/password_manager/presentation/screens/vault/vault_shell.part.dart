@@ -146,9 +146,12 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.inactive:
+        _backgroundedAt ??= DateTime.now();
+        _inactivityTimer?.cancel();
+        break;
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
-        _backgroundedAt = DateTime.now();
+        _backgroundedAt ??= DateTime.now();
         _inactivityTimer?.cancel();
         if (!_isLocked && mounted) {
           setState(() => _isBackground = true);
