@@ -94,7 +94,7 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
       return;
     }
 
-    final result = await FilePicker.platform.pickFiles(withData: false);
+    final result = await FilePicker.pickFiles(withData: false);
     if (!mounted || result == null) {
       return;
     }

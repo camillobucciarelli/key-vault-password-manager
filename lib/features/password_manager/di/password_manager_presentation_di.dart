@@ -1,5 +1,6 @@
 import 'package:get_it/get_it.dart';
 
+import '../data/services/android_autofill_coordinator.dart';
 import '../presentation/bloc/database_selection/database_selection_bloc.dart';
 import '../presentation/bloc/database_unlock/database_unlock_bloc.dart';
 import '../presentation/bloc/vault/vault_bloc.dart';
@@ -70,6 +71,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       syncDatabaseNowUseCase: sl(),
       setDatabaseAutoSyncUseCase: sl(),
       databaseSyncRepository: sl(),
+      androidAutofillCoordinator: sl<AndroidAutofillCoordinator>(),
     ),
   );
 }

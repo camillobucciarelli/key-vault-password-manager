@@ -298,8 +298,7 @@ class _EntryDialogState extends State<_EntryDialog> {
                             ),
                             TextButton.icon(
                               onPressed: () async {
-                                final result = await FilePicker.platform
-                                    .pickFiles(allowMultiple: false);
+                                final result = await FilePicker.pickFiles(allowMultiple: false);
                                 final filePath = result?.files.single.path;
                                 if (filePath == null || filePath.isEmpty) {
                                   return;
@@ -797,8 +796,7 @@ Future<void> _showAttachmentsDialog(
 
                           switch (action) {
                             case _AttachmentAction.export:
-                              final directory = await FilePicker.platform
-                                  .getDirectoryPath();
+                              final directory = await FilePicker.getDirectoryPath();
                               if (directory != null && dialogContext.mounted) {
                                 dialogContext.read<VaultBloc>().add(
                                   ExportVaultAttachment(
@@ -848,7 +846,7 @@ Future<void> _showAttachmentsDialog(
         actions: _adaptiveDialogActions(dialogContext, [
           TextButton(
             onPressed: () async {
-              final result = await FilePicker.platform.pickFiles(
+              final result = await FilePicker.pickFiles(
                 allowMultiple: false,
                 withData: false,
               );

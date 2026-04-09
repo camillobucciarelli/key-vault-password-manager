@@ -11,6 +11,7 @@ plugins {
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    id("com.github.triplet.play")
 }
 
 android {
@@ -68,4 +69,16 @@ android {
 
 flutter {
     source = "../.."
+}
+
+play {
+    val serviceAccountEnv = System.getenv("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON")
+    serviceAccountCredentials.set(
+        if (serviceAccountEnv != null) file(serviceAccountEnv)
+        else rootProject.file("play-service-account.json")
+    )
+    track.set("production")
+    artifactDir.set(
+        rootProject.layout.buildDirectory.dir("app/outputs/bundle/release").get().asFile
+    )
 }

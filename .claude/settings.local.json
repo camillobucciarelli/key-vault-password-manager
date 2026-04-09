@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter analyze:*)",
+      "Bash(flutter build:*)",
+      "Bash(security find-identity:*)",
+      "Bash(xcodebuild -workspace /Users/cbucciarelli/Documents/personal-projects/password-manager/macos/Runner.xcworkspace -scheme Runner -configuration Release -destination generic/platform=macOS build)",
+      "Bash(xargs cat:*)",
+      "Bash(flutter test:*)",
+      "Bash(git stash:*)",
+      "Bash(flutter --version)",
+      "Bash(flutter pub:*)",
+      "Bash(flutter upgrade:*)",
+      "Bash(dart pub:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(git commit:*)",
+      "Bash(cat)",
+      "Read(//tmp/**)",
+      "Bash(xargs -I {} bash -c 'echo \"=== {} ===\" && git diff 37aaa0b111d9e3fa714bd804d334dfafa1d07de5 9225393 -- {} | head -50')",
+      "Bash(chmod +x:*)"
+    ]
+  }
+}

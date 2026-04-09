@@ -241,6 +241,7 @@
 				3399D490228B24CF009A79C7 /* ShellScript */,
 				7F8C5EC3DFA8BE997226B381 /* [CP] Embed Pods Frameworks */,
 				F784FF64469D085688A3C613 /* [CP] Copy Pods Resources */,
+				B2E4A8F13C7D9E5A0F2B4C6D /* Copy Flutter dSYMs */,
 			);
 			buildRules = (
 			);
@@ -419,6 +420,22 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		B2E4A8F13C7D9E5A0F2B4C6D /* Copy Flutter dSYMs */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Flutter dSYMs";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "SRC=\"${BUILT_PRODUCTS_DIR}/App.framework.dSYM\"\nDST=\"${DWARF_DSYM_FOLDER_PATH}/App.framework.dSYM\"\nif [ -d \"$SRC\" ] && [ \"$SRC\" != \"$DST\" ]; then\n  cp -r \"$SRC\" \"${DWARF_DSYM_FOLDER_PATH}/\"\nfi\n";
 			showEnvVarsInLog = 0;
 		};
 		F784FF64469D085688A3C613 /* [CP] Copy Pods Resources */ = {

@@ -30,9 +30,11 @@ class AndroidAutofillCoordinator with WidgetsBindingObserver {
 
   static const Duration _requestDedupWindow = Duration(seconds: 2);
   static const Duration _entriesCacheTtl = Duration(seconds: 20);
+  static const Duration _saveCompleteTimeout = Duration(seconds: 3);
 
   bool _initialized = false;
   bool _processing = false;
+  bool _pendingFillRequest = false;
   String? _lastHandledRequestKey;
   DateTime? _lastHandledRequestAt;
   _AutofillEntriesCache? _entriesCache;
@@ -46,13 +48,31 @@ class AndroidAutofillCoordinator with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
 
     try {
+      // Disable IME inline suggestions to avoid a crash in FlutterAutofillService
+      // when the keyboard sends an InlineSuggestionsRequest with maxSuggestionCount >= 2
+      // but an empty inlinePresentationSpecs list (NoSuchElementException on .first()).
       await autofillService.setPreferences(
-        AutofillPreferences(enableDebug: false, enableSaving: true),
+        AutofillPreferences(
+          enableDebug: false,
+          enableSaving: true,
+          enableIMERequests: false,
+        ),
       );
       await handlePendingRequest();
     } catch (e, st) {
       logError('Unable to initialize Android autofill coordinator.', e, st);
     }
+  }
+
+  /// Called by [VaultBloc] after the vault is successfully loaded.
+  /// If a fill request was deferred because the vault was locked, this
+  /// method retries the request now that credentials are available.
+  Future<void> onVaultReady() async {
+    if (!_pendingFillRequest) return;
+    _pendingFillRequest = false;
+    _lastHandledRequestKey = null;
+    _lastHandledRequestAt = null;
+    await handlePendingRequest();
   }
 
   @override
@@ -102,7 +122,11 @@ class AndroidAutofillCoordinator with WidgetsBindingObserver {
 
       if (hasSaveRequest) {
         await _handleSaveRequest(metadata);
-        await autofillService.onSaveComplete();
+        // The plugin's native onSaveComplete handler never calls result.success(),
+        // so invokeMethod would hang forever. Use a timeout to unblock _processing.
+        await autofillService
+            .onSaveComplete()
+            .timeout(_saveCompleteTimeout, onTimeout: () {});
       }
     } catch (e, st) {
       logError('Unable to process Android autofill request.', e, st);
@@ -121,9 +145,15 @@ class AndroidAutofillCoordinator with WidgetsBindingObserver {
   Future<void> _handleFillRequest(AutofillMetadata? metadata) async {
     final context = await _resolveAutofillContext();
     if (context == null) {
-      await autofillService.resultWithDatasets(const []);
+      // Vault is locked or no database is selected. Rather than returning empty
+      // results (which would close the AutofillActivity immediately), keep the
+      // activity open so the user can unlock the vault. Once VaultBloc finishes
+      // initialisation it will call onVaultReady() to retry this request.
+      _pendingFillRequest = true;
       return;
     }
+
+    _pendingFillRequest = false;
 
     try {
       final entries = await _resolveEntries(context);

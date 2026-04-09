@@ -396,9 +396,6 @@ class VaultKdbxService {
     );
 
     final group = _findGroupById(file.body.rootGroup.getAllGroups(), groupId);
-    if (group.parent == null) {
-      throw Exception('Root group cannot be renamed.');
-    }
     group.name.set(newName);
 
     await _save(databasePath, file);

@@ -12,7 +12,7 @@ dependencies:
   bloc: ^9.2.0
   catch_and_flow: ^1.2.1
   equatable: ^2.0.8
-  file_picker: ^10.3.10
+  file_picker: ^11.0.2
   flutter_bloc: ^9.1.1
   flutter_autofill_service: ^0.21.0
   flutter_secure_storage: ^10.0.0

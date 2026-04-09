@@ -312,12 +312,13 @@ class LinkCurrentDatabaseToDrive extends VaultEvent {
 }
 
 class SyncCurrentDatabaseNow extends VaultEvent {
-  const SyncCurrentDatabaseNow({this.resolution});
+  const SyncCurrentDatabaseNow({this.resolution, this.silentIfConflict = false});
 
   final SyncConflictResolution? resolution;
+  final bool silentIfConflict;
 
   @override
-  List<Object?> get props => [resolution];
+  List<Object?> get props => [resolution, silentIfConflict];
 }
 
 class ToggleCurrentDatabaseAutoSync extends VaultEvent {

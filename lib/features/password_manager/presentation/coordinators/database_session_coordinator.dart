@@ -790,7 +790,7 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     if (_usesManagedStorage) {
       return normalizedFileName;
     }
-    return FilePicker.platform.saveFile(
+    return FilePicker.saveFile(
       dialogTitle: 'Please select an output file:',
       fileName: normalizedFileName,
       type: FileType.custom,
