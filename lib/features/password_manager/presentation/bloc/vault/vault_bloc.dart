@@ -5,6 +5,7 @@ import 'package:loggy/loggy.dart';
 import 'package:stream_transform/stream_transform.dart';
 
 import '../../../data/datasources/secure_data_source.dart';
+import '../../../data/services/android_autofill_coordinator.dart';
 import '../../../data/services/vault_csv_import_service.dart';
 import '../../../data/services/vault_kdbx_service.dart';
 import '../../../domain/models/database_sync_status.dart';
@@ -39,6 +40,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     required this.syncDatabaseNowUseCase,
     required this.setDatabaseAutoSyncUseCase,
     required this.databaseSyncRepository,
+    this.androidAutofillCoordinator,
   }) : super(VaultState.initial(databasePath: databasePath)) {
     on<InitializeVault>(_onInitializeVault);
     on<RefreshVault>(_onRefreshVault);
@@ -96,6 +98,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   final SecureDataSource secureDataSource;
   final GetSelectedKeyFilePathUseCase getSelectedKeyFilePathUseCase;
   final VaultKdbxService vaultKdbxService;
+  final AndroidAutofillCoordinator? androidAutofillCoordinator;
   final VaultCsvImportService vaultCsvImportService;
   final GetDriveConnectionStatusUseCase getDriveConnectionStatusUseCase;
   final ConnectGoogleAccountUseCase connectGoogleAccountUseCase;
@@ -120,11 +123,12 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       _password = await secureDataSource.getMasterPassword() ?? '';
       _keyFilePath = await getSelectedKeyFilePathUseCase();
       await _refreshSyncState(emit);
-      if (state.isDriveConnected && state.isDriveLinked) {
-        await _performSync(emit, silentIfConflict: true);
-      }
       await _reload(emit);
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
+      if (state.isDriveConnected && state.isDriveLinked && state.autoSyncEnabled) {
+        add(const SyncCurrentDatabaseNow(silentIfConflict: true));
+      }
+      unawaited(androidAutofillCoordinator?.onVaultReady());
     } catch (e, st) {
       logError('Failed to initialize vault.', e, st);
       _safeEmit(
@@ -1220,7 +1224,11 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     SyncCurrentDatabaseNow event,
     Emitter<VaultState> emit,
   ) async {
-    await _performSync(emit, resolution: event.resolution);
+    await _performSync(
+      emit,
+      resolution: event.resolution,
+      silentIfConflict: event.silentIfConflict,
+    );
     await _reload(
       emit,
       currentGroupId: state.currentGroupId,

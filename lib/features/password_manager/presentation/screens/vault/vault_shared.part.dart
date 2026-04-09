@@ -241,7 +241,7 @@ String _csvSourceFormatLabel(VaultCsvSourceFormat format) {
 }
 
 Future<void> _startCsvImportFlow(BuildContext context) async {
-  final picked = await FilePicker.platform.pickFiles(
+  final picked = await FilePicker.pickFiles(
     allowMultiple: false,
     type: FileType.custom,
     allowedExtensions: const ['csv'],

@@ -73,7 +73,7 @@ class _InternalKeyFileManagerDialogState
   }
 
   Future<void> _importKeyFile() async {
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       allowMultiple: false,
       withData: true,
       dialogTitle: 'Import key file',
@@ -115,7 +115,7 @@ class _InternalKeyFileManagerDialogState
   }
 
   Future<void> _exportKeyFile(AppStorageFileEntry entry) async {
-    final savePath = await FilePicker.platform.saveFile(
+    final savePath = await FilePicker.saveFile(
       dialogTitle: 'Export key file',
       fileName: entry.name,
       type: FileType.any,

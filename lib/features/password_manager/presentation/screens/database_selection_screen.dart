@@ -116,7 +116,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
       if (isManagedStoragePlatform) {
         savePath = selected.name;
       } else {
-        savePath = await FilePicker.platform.saveFile(
+        savePath = await FilePicker.saveFile(
           dialogTitle: 'Save a local copy of the Drive database',
           fileName: selected.name,
           type: FileType.custom,
@@ -474,7 +474,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
     }
 
     final defaultName = p.basename(path);
-    final savePath = await FilePicker.platform.saveFile(
+    final savePath = await FilePicker.saveFile(
       dialogTitle: 'Export database backup',
       fileName: defaultName,
       type: FileType.custom,
@@ -502,7 +502,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
   }
 
   Future<void> _onSelectExistingDatabase(BuildContext context) async {
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['kdbx'],
       withData: kIsWeb || isManagedStoragePlatform,

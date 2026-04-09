@@ -20,7 +20,7 @@ Build production Flutter packages and copy them to a timestamped folder.
 Options:
   --env-file <path>      Path to dart define json file
                          (default: .env.dart.define.json)
-  --platforms <list>     Comma-separated list: android,ios,macos,windows,linux
+  --platforms <list>     Comma-separated list: android,android-playstore,ios,ios-appstore,macos,macos-appstore,windows,linux
                          (default: all)
   --no-clean             Skip flutter clean + flutter pub get
   --output-dir <path>    Output base directory (default: dist/prod_packages)
@@ -142,8 +142,21 @@ for raw_platform in "${selected_platforms[@]}"; do
         "${OUTPUT_DIR}/password_manager-android-release.apk"
       ;;
 
+    android-playstore)
+      echo "Building Android app bundle for Play Store..."
+      (cd "${ROOT_DIR}" && flutter build appbundle "${build_args[@]}")
+      copy_if_exists \
+        "${ROOT_DIR}/build/app/outputs/bundle/release/app-release.aab" \
+        "${OUTPUT_DIR}/password_manager-android-release.aab"
+
+      echo "Uploading to Google Play Store..."
+      (cd "${ROOT_DIR}/android" && ./gradlew publishReleaseBundle)
+
+      echo "Android Play Store upload complete."
+      ;;
+
     ios)
-      echo "Building iOS ipa (requires signing config)..."
+      echo "Building iOS ipa..."
       (cd "${ROOT_DIR}" && flutter build ipa "${build_args[@]}")
 
       ipa_file="$(ls "${ROOT_DIR}"/build/ios/ipa/*.ipa 2>/dev/null | head -n 1 || true)"
@@ -154,6 +167,37 @@ for raw_platform in "${selected_platforms[@]}"; do
       fi
       ;;
 
+    ios-appstore)
+      echo "Building iOS app for App Store..."
+      ARCHIVE_PATH="${OUTPUT_DIR}/Runner-ios.xcarchive"
+      EXPORT_PATH="${OUTPUT_DIR}/ios-appstore-export"
+      EXPORT_OPTIONS="${ROOT_DIR}/ios/ExportOptions.plist"
+
+      (cd "${ROOT_DIR}" && flutter build ios "${build_args[@]}" --no-codesign)
+
+      echo "Archiving with xcodebuild..."
+      xcodebuild archive \
+        -workspace "${ROOT_DIR}/ios/Runner.xcworkspace" \
+        -scheme Runner \
+        -configuration Release \
+        -destination "generic/platform=iOS" \
+        -archivePath "${ARCHIVE_PATH}" \
+        -allowProvisioningUpdates \
+        CODE_SIGN_STYLE=Automatic \
+        DEVELOPMENT_TEAM=A8QUU5F9G3 \
+        | grep -E "(error:|warning:|\*\* ARCHIVE (SUCCEEDED|FAILED) \*\*)" || true
+
+      echo "Exporting and uploading to App Store Connect..."
+      xcodebuild -exportArchive \
+        -archivePath "${ARCHIVE_PATH}" \
+        -exportOptionsPlist "${EXPORT_OPTIONS}" \
+        -exportPath "${EXPORT_PATH}" \
+        -allowProvisioningUpdates \
+        | grep -E "(error:|warning:|\*\* EXPORT (SUCCEEDED|FAILED) \*\*|Uploaded)" || true
+
+      echo "iOS App Store upload complete."
+      ;;
+
     macos)
       echo "Building macOS app..."
       (cd "${ROOT_DIR}" && flutter build macos "${build_args[@]}")
@@ -161,6 +205,39 @@ for raw_platform in "${selected_platforms[@]}"; do
       macos_app="${ROOT_DIR}/build/macos/Build/Products/Release/password_manager.app"
       copy_if_exists "${macos_app}" "${OUTPUT_DIR}/password_manager-macos-release.app"
       zip_dir "${OUTPUT_DIR}/password_manager-macos-release.app" "${OUTPUT_DIR}/password_manager-macos-release.zip"
+      ;;
+
+    macos-appstore)
+      echo "Building macOS app for App Store..."
+      ARCHIVE_PATH="${OUTPUT_DIR}/Runner.xcarchive"
+      EXPORT_PATH="${OUTPUT_DIR}/macos-appstore-export"
+      EXPORT_OPTIONS="${ROOT_DIR}/macos/ExportOptions.plist"
+
+      # Pass dart-define vars as xcodebuild OTHER_SWIFT_FLAGS / user-defined vars
+      # by building the .app first so Flutter generates the necessary files
+      (cd "${ROOT_DIR}" && flutter build macos "${build_args[@]}")
+
+      echo "Archiving with xcodebuild..."
+      xcodebuild archive \
+        -workspace "${ROOT_DIR}/macos/Runner.xcworkspace" \
+        -scheme Runner \
+        -configuration Release \
+        -destination "generic/platform=macOS" \
+        -archivePath "${ARCHIVE_PATH}" \
+        -allowProvisioningUpdates \
+        CODE_SIGN_STYLE=Automatic \
+        DEVELOPMENT_TEAM=A8QUU5F9G3 \
+        | grep -E "(error:|warning:|\*\* ARCHIVE (SUCCEEDED|FAILED) \*\*)" || true
+
+      echo "Exporting and uploading to App Store Connect..."
+      xcodebuild -exportArchive \
+        -archivePath "${ARCHIVE_PATH}" \
+        -exportOptionsPlist "${EXPORT_OPTIONS}" \
+        -exportPath "${EXPORT_PATH}" \
+        -allowProvisioningUpdates \
+        | grep -E "(error:|warning:|\*\* EXPORT (SUCCEEDED|FAILED) \*\*|Uploaded)" || true
+
+      echo "macOS App Store upload complete."
       ;;
 
     windows)
@@ -186,7 +263,7 @@ for raw_platform in "${selected_platforms[@]}"; do
 
     *)
       echo "Unsupported platform: ${platform}"
-      echo "Supported: android, ios, macos, windows, linux"
+      echo "Supported: android, android-playstore, ios, ios-appstore, macos, macos-appstore, windows, linux"
       exit 1
       ;;
   esac

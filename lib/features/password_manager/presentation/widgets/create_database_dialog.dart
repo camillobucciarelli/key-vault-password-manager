@@ -46,7 +46,7 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
   }
 
   Future<void> _pickKeyFile() async {
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       dialogTitle: 'Select a Key File',
     );
     if (result != null && result.files.single.path != null) {
@@ -75,12 +75,12 @@ class _CreateDatabaseDialogState extends State<CreateDatabaseDialog> {
     String? savePath;
 
     try {
-      savePath = await FilePicker.platform.saveFile(
+      savePath = await FilePicker.saveFile(
         dialogTitle: 'Select destination for generated key file',
         fileName: 'database.key',
       );
     } catch (_) {
-      final directory = await FilePicker.platform.getDirectoryPath(
+      final directory = await FilePicker.getDirectoryPath(
         dialogTitle: 'Select destination folder for generated key file',
       );
       if (directory != null && directory.isNotEmpty) {
