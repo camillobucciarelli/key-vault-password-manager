@@ -10,6 +10,7 @@
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		1A2B3C4D5E6F700100000001 /* CredentialProviderViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700100000011 /* CredentialProviderViewController.swift */; };
 		1A2B3C4D5E6F700100000002 /* SharedAutofillStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700100000012 /* SharedAutofillStore.swift */; };
+		1A2B3C4D5E6F700100000004 /* CredentialProviderPasswordGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700100000015 /* CredentialProviderPasswordGenerator.swift */; };
 		1A2B3C4D5E6F700100000003 /* CredentialProviderExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700100000010 /* CredentialProviderExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
@@ -62,6 +63,7 @@
 		1A2B3C4D5E6F700100000010 /* CredentialProviderExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = CredentialProviderExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A2B3C4D5E6F700100000011 /* CredentialProviderViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialProviderViewController.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F700100000012 /* SharedAutofillStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedAutofillStore.swift; sourceTree = "<group>"; };
+		1A2B3C4D5E6F700100000015 /* CredentialProviderPasswordGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialProviderPasswordGenerator.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F700100000013 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		1A2B3C4D5E6F700100000014 /* CredentialProviderExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CredentialProviderExtension.entitlements; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
@@ -129,6 +131,7 @@
 			children = (
 				1A2B3C4D5E6F700100000011 /* CredentialProviderViewController.swift */,
 				1A2B3C4D5E6F700100000012 /* SharedAutofillStore.swift */,
+				1A2B3C4D5E6F700100000015 /* CredentialProviderPasswordGenerator.swift */,
 				1A2B3C4D5E6F700100000013 /* Info.plist */,
 				1A2B3C4D5E6F700100000014 /* CredentialProviderExtension.entitlements */,
 			);
@@ -459,6 +462,7 @@
 			files = (
 				1A2B3C4D5E6F700100000001 /* CredentialProviderViewController.swift in Sources */,
 				1A2B3C4D5E6F700100000002 /* SharedAutofillStore.swift in Sources */,
+				1A2B3C4D5E6F700100000004 /* CredentialProviderPasswordGenerator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -519,7 +523,7 @@
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				DEVELOPMENT_TEAM = A8QUU5F9G3;
 				INFOPLIST_FILE = CredentialProviderExtension/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -545,7 +549,7 @@
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				DEVELOPMENT_TEAM = A8QUU5F9G3;
 				INFOPLIST_FILE = CredentialProviderExtension/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -569,7 +573,7 @@
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				DEVELOPMENT_TEAM = A8QUU5F9G3;
 				INFOPLIST_FILE = CredentialProviderExtension/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -627,7 +631,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = iphoneos;
@@ -761,7 +765,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
@@ -812,7 +816,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = iphoneos;
