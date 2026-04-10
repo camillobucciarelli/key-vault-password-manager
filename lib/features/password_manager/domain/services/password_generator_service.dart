@@ -79,6 +79,9 @@ class PasswordGeneratorService {
   }
 
   int _secureInt(math.Random random, int maxExclusive) {
+    if (maxExclusive <= 0) {
+      throw ArgumentError.value(maxExclusive, 'maxExclusive');
+    }
     final limit = 256 - (256 % maxExclusive);
     while (true) {
       final value = random.nextInt(256);
