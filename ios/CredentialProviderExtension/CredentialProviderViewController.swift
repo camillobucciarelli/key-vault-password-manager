@@ -156,15 +156,6 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     return "\(parts[parts.count - 2]).\(parts.last!)"
   }
 
-  private func serviceTitle(from serviceId: ASCredentialServiceIdentifier) -> String {
-    return urlHost(from: serviceId.identifier) ?? serviceId.identifier
-  }
-
-  private func serviceUrl(from serviceId: ASCredentialServiceIdentifier) -> String {
-    let id = serviceId.identifier
-    return id.contains("://") ? id : "https://\(id)"
-  }
-
   // MARK: - Error helpers
 
   private func cancelWithError(
