@@ -82,20 +82,16 @@ import UIKit
       result(nil)
 
     case "readAndClearPendingSaves":
-      guard let savesDefaults = UserDefaults(suiteName: appGroupId) else {
-        result([])
-        return
-      }
       guard
-        let json = savesDefaults.string(forKey: pendingSavesKey),
+        let json = defaults.string(forKey: pendingSavesKey),
         let data = json.data(using: .utf8),
         let decoded = try? JSONDecoder().decode([PendingAutofillSavePayload].self, from: data)
       else {
         result([])
         return
       }
-      savesDefaults.removeObject(forKey: pendingSavesKey)
-      savesDefaults.synchronize()
+      defaults.removeObject(forKey: pendingSavesKey)
+      defaults.synchronize()
       let mapped: [[String: String]] = decoded.map { save in
         ["title": save.title, "username": save.username, "password": save.password, "url": save.url]
       }

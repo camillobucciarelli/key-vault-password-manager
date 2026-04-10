@@ -13,6 +13,19 @@ struct SharedAutofillCredential: Codable {
     let key: String
     let value: String
   }
+
+  // Custom decoder: `customFields` defaults to [] for cached JSON written
+  // by older versions of the app that did not include this field.
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id           = try c.decode(String.self, forKey: .id)
+    title        = try c.decode(String.self, forKey: .title)
+    username     = try c.decode(String.self, forKey: .username)
+    password     = try c.decode(String.self, forKey: .password)
+    url          = try c.decode(String.self, forKey: .url)
+    notes        = try c.decode(String.self, forKey: .notes)
+    customFields = try c.decodeIfPresent([SharedCustomField].self, forKey: .customFields) ?? []
+  }
 }
 
 final class SharedAutofillStore {
