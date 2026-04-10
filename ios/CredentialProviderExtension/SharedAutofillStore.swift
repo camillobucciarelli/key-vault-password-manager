@@ -1,5 +1,4 @@
 import Foundation
-import AuthenticationServices
 
 struct SharedAutofillCredential: Codable {
   let id: String
