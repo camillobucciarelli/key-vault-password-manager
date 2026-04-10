@@ -54,7 +54,28 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
   override func provideCredentialWithoutUserInteraction(
     for credentialRequest: any ASCredentialRequest
   ) {
-    // Delegate to the password-identity based method for regular fill
+    // iOS 18+: handle new-password requests by generating and saving a strong password
+    if #available(iOS 18.0, *),
+       let passwordRequest = credentialRequest as? ASPasswordCredentialRequest,
+       passwordRequest.isNewPassword {
+      let generated = CredentialProviderPasswordGenerator.generateDefault()
+      let store = SharedAutofillStore()
+      let serviceId = passwordRequest.credentialIdentity.serviceIdentifier
+      let title = serviceId.identifier
+      let pending = PendingAutofillSave(
+        title: title,
+        username: "",
+        password: generated,
+        url: serviceId.type == .URL ? serviceId.identifier : ""
+      )
+      store.writePendingSave(pending)
+      extensionContext.completeRequest(
+        withSelectedCredential: ASPasswordCredential(user: "", password: generated)
+      )
+      return
+    }
+
+    // Regular fill: delegate to the password-identity based method
     if let passwordRequest = credentialRequest as? ASPasswordCredentialRequest,
        let identity = passwordRequest.credentialIdentity as? ASPasswordCredentialIdentity {
       provideCredentialWithoutUserInteraction(for: identity)
