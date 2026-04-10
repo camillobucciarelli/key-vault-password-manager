@@ -1,3 +1,4 @@
+import AuthenticationServices
 import Flutter
 import UIKit
 
@@ -61,6 +62,16 @@ import UIKit
       let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
       defaults.set(timestamp, forKey: autofillLastSyncKey)
       defaults.synchronize()
+
+      // Register credentials in ASCredentialIdentityStore
+      // so they appear in the QuickType keyboard bar
+      if #available(iOS 17, *) {
+        if let data = entries.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([SharedAutofillCredentialPayload].self, from: data) {
+          registerCredentialIdentities(from: decoded)
+        }
+      }
+
       result(nil)
 
     case "clearSnapshot":
@@ -73,4 +84,60 @@ import UIKit
       result(FlutterMethodNotImplemented)
     }
   }
+
+  @available(iOS 17, *)
+  private func registerCredentialIdentities(from entries: [SharedAutofillCredentialPayload]) {
+    var identities: [ASPasswordCredentialIdentity] = []
+
+    for entry in entries {
+      // URL-based service identifier
+      if !entry.url.isEmpty,
+         let url = URL(string: entry.url),
+         let host = url.host, !host.isEmpty,
+         !entry.username.isEmpty {
+        let serviceId = ASCredentialServiceIdentifier(identifier: host, type: .domain)
+        let identity = ASPasswordCredentialIdentity(
+          serviceIdentifier: serviceId,
+          user: entry.username,
+          recordIdentifier: entry.id
+        )
+        identities.append(identity)
+      }
+
+      // Bundle ID via KPH: iosBundle custom field
+      if let bundleField = entry.customFields.first(where: {
+        $0.key.lowercased() == "kph: iosbundle"
+      }), !bundleField.value.isEmpty, !entry.username.isEmpty {
+        let serviceId = ASCredentialServiceIdentifier(
+          identifier: bundleField.value,
+          type: .domain
+        )
+        let identity = ASPasswordCredentialIdentity(
+          serviceIdentifier: serviceId,
+          user: entry.username,
+          recordIdentifier: entry.id
+        )
+        identities.append(identity)
+      }
+    }
+
+    ASCredentialIdentityStore.shared.replaceCredentialIdentities(
+      with: identities
+    ) { success, error in
+      if let error = error {
+        print("[Autofill] Failed to register identities: \(error)")
+      }
+    }
+  }
+}
+
+private struct SharedAutofillCredentialPayload: Decodable {
+  struct CustomField: Decodable {
+    let key: String
+    let value: String
+  }
+  let id: String
+  let username: String
+  let url: String
+  let customFields: [CustomField]
 }
