@@ -102,6 +102,7 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
       secureDataSource: sl(),
       vaultKdbxService: sl(),
       matcher: sl(),
+      passwordGenerator: sl(),
     ),
   );
   sl.registerLazySingleton(
