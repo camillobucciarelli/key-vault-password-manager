@@ -14,48 +14,8 @@ class _PasswordStrengthAssessment {
   final String label;
 }
 
-class _PasswordGeneratorOptions {
-  const _PasswordGeneratorOptions({
-    required this.length,
-    required this.includeLowercase,
-    required this.includeUppercase,
-    required this.includeDigits,
-    required this.includeSymbols,
-  });
-
-  const _PasswordGeneratorOptions.defaults()
-    : length = 16,
-      includeLowercase = true,
-      includeUppercase = true,
-      includeDigits = true,
-      includeSymbols = true;
-
-  final int length;
-  final bool includeLowercase;
-  final bool includeUppercase;
-  final bool includeDigits;
-  final bool includeSymbols;
-
-  int get enabledSetsCount {
-    var count = 0;
-    if (includeLowercase) {
-      count++;
-    }
-    if (includeUppercase) {
-      count++;
-    }
-    if (includeDigits) {
-      count++;
-    }
-    if (includeSymbols) {
-      count++;
-    }
-    return count;
-  }
-}
-
 Future<String?> _showPasswordGeneratorDialog(BuildContext context) async {
-  var options = const _PasswordGeneratorOptions.defaults();
+  var options = const PasswordGeneratorOptions.defaults();
 
   return showDialog<String>(
     context: context,
@@ -89,7 +49,7 @@ Future<String?> _showPasswordGeneratorDialog(BuildContext context) async {
                       label: options.length.toString(),
                       onChanged: (value) {
                         setState(() {
-                          options = _PasswordGeneratorOptions(
+                          options = PasswordGeneratorOptions(
                             length: value.round(),
                             includeLowercase: options.includeLowercase,
                             includeUppercase: options.includeUppercase,
@@ -103,7 +63,7 @@ Future<String?> _showPasswordGeneratorDialog(BuildContext context) async {
                       value: options.includeLowercase,
                       onChanged: (value) {
                         setState(() {
-                          options = _PasswordGeneratorOptions(
+                          options = PasswordGeneratorOptions(
                             length: options.length,
                             includeLowercase: value ?? false,
                             includeUppercase: options.includeUppercase,
@@ -120,7 +80,7 @@ Future<String?> _showPasswordGeneratorDialog(BuildContext context) async {
                       value: options.includeUppercase,
                       onChanged: (value) {
                         setState(() {
-                          options = _PasswordGeneratorOptions(
+                          options = PasswordGeneratorOptions(
                             length: options.length,
                             includeLowercase: options.includeLowercase,
                             includeUppercase: value ?? false,
@@ -137,7 +97,7 @@ Future<String?> _showPasswordGeneratorDialog(BuildContext context) async {
                       value: options.includeDigits,
                       onChanged: (value) {
                         setState(() {
-                          options = _PasswordGeneratorOptions(
+                          options = PasswordGeneratorOptions(
                             length: options.length,
                             includeLowercase: options.includeLowercase,
                             includeUppercase: options.includeUppercase,
@@ -154,7 +114,7 @@ Future<String?> _showPasswordGeneratorDialog(BuildContext context) async {
                       value: options.includeSymbols,
                       onChanged: (value) {
                         setState(() {
-                          options = _PasswordGeneratorOptions(
+                          options = PasswordGeneratorOptions(
                             length: options.length,
                             includeLowercase: options.includeLowercase,
                             includeUppercase: options.includeUppercase,
@@ -195,14 +155,8 @@ Future<String?> _showPasswordGeneratorDialog(BuildContext context) async {
                     ? () {
                         final generatedPassword =
                             GetIt.instance<PasswordGeneratorService>().generate(
-                          PasswordGeneratorOptions(
-                            length: options.length,
-                            includeLowercase: options.includeLowercase,
-                            includeUppercase: options.includeUppercase,
-                            includeDigits: options.includeDigits,
-                            includeSymbols: options.includeSymbols,
-                          ),
-                        );
+                              options,
+                            );
                         Navigator.of(dialogContext).pop(generatedPassword);
                       }
                     : null,

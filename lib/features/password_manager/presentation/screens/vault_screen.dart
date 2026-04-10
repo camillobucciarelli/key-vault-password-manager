@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_autofill_service/flutter_autofill_service.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:get_it/get_it.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path/path.dart' as path;
 
@@ -17,12 +18,10 @@ import '../../../../../core/theme/app_backgrounds.dart';
 import '../../../../../core/theme/app_colors.dart';
 import '../../../../../core/theme/app_icons.dart';
 import '../../../../../core/theme/theme_cubit.dart';
-import 'package:get_it/get_it.dart';
-
 import '../../../../../injection_container.dart' as di;
-import '../../domain/services/password_generator_service.dart';
 import '../../data/datasources/biometric_data_source.dart';
 import '../../data/datasources/local_data_source.dart';
+import '../../domain/services/password_generator_service.dart';
 import '../../data/services/vault_csv_import_service.dart';
 import '../../domain/models/database_sync_status.dart';
 import '../../domain/models/sync_conflict.dart';
