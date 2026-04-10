@@ -82,6 +82,92 @@ void main() {
 
       expect(results.first.id, '1');
     });
+
+    test('matches androidapp:// URL scheme as package identifier', () {
+      final entries = [
+        _entry(
+          id: '1',
+          title: 'Bank',
+          username: 'alice',
+          password: 'pw',
+          url: 'androidapp://com.example.bank',
+        ),
+      ];
+
+      final results = matcher.findBestMatches(
+        entries: entries,
+        packageNames: {'com.example.bank'},
+      );
+
+      expect(results, hasLength(1));
+      expect(results.first.id, '1');
+    });
+
+    test('matches iosbundleid:// URL scheme as package identifier', () {
+      final entries = [
+        _entry(
+          id: '1',
+          title: 'Bank iOS',
+          username: 'alice',
+          password: 'pw',
+          url: 'iosbundleid://com.example.bank',
+        ),
+      ];
+
+      final results = matcher.findBestMatches(
+        entries: entries,
+        packageNames: {'com.example.bank'},
+      );
+
+      expect(results, hasLength(1));
+      expect(results.first.id, '1');
+    });
+
+    test('matches KPH: androidPackage custom field', () {
+      final entries = [
+        _entry(
+          id: '1',
+          title: 'Bank',
+          username: 'alice',
+          password: 'pw',
+          url: '',
+          customFields: [
+            const VaultCustomField(key: 'KPH: androidPackage', value: 'com.example.bank'),
+          ],
+        ),
+      ];
+
+      final results = matcher.findBestMatches(
+        entries: entries,
+        packageNames: {'com.example.bank'},
+      );
+
+      expect(results, hasLength(1));
+      expect(results.first.id, '1');
+    });
+
+    test('matches KPH: iosBundle custom field', () {
+      final entries = [
+        _entry(
+          id: '1',
+          title: 'Bank iOS',
+          username: 'alice',
+          password: 'pw',
+          url: '',
+          customFields: [
+            const VaultCustomField(key: 'KPH: iosBundle', value: 'com.example.bank'),
+          ],
+        ),
+      ];
+
+      final results = matcher.findBestMatches(
+        entries: entries,
+        packageNames: {'com.example.bank'},
+      );
+
+      expect(results, hasLength(1));
+      expect(results.first.id, '1');
+    });
   });
 }
 
@@ -92,6 +178,7 @@ VaultEntry _entry({
   required String password,
   String url = '',
   List<VaultCustomField> customFields = const [],
+  DateTime? updatedAt,
 }) {
   return VaultEntry(
     id: id,
@@ -102,6 +189,6 @@ VaultEntry _entry({
     url: url,
     notes: '',
     customFields: customFields,
-    updatedAt: DateTime.utc(2026, 1, 1),
+    updatedAt: updatedAt ?? DateTime.utc(2026, 1, 1),
   );
 }

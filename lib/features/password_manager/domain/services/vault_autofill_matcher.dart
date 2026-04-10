@@ -134,27 +134,43 @@ class VaultAutofillMatcher {
 
   Set<String> _extractPackageIdentifiers(VaultEntry entry) {
     final values = <String>{};
+
+    // 1. URL schemes: androidapp:// and iosbundleid://
+    final trimmedUrl = entry.url.trim();
+    if (trimmedUrl.isNotEmpty) {
+      final uri = Uri.tryParse(trimmedUrl);
+      if (uri != null) {
+        if (uri.scheme == 'androidapp' || uri.scheme == 'iosbundleid') {
+          final id = _normalize(uri.host.isNotEmpty ? uri.host : uri.path);
+          if (id.isNotEmpty) values.add(id);
+        }
+      }
+    }
+
+    // 2. Custom fields: KPH: androidPackage, KPH: iosBundle, and legacy keys
     for (final field in entry.customFields) {
       final normalizedKey = _normalize(field.key);
-      final looksLikePackageField =
+      final isKphAndroid = normalizedKey == 'kph: androidpackage';
+      final isKphIos = normalizedKey == 'kph: iosbundle';
+      final isLegacy =
           normalizedKey.contains('package') ||
           normalizedKey.contains('bundle') ||
           normalizedKey.contains('androidapp') ||
           normalizedKey.contains('iosapp');
-      if (!looksLikePackageField) {
-        continue;
-      }
+
+      if (!isKphAndroid && !isKphIos && !isLegacy) continue;
 
       final splitValues = field.value
           .split(RegExp(r'[,;\s]+'))
-          .map((value) => _normalize(value))
-          .where((value) => value.isNotEmpty);
+          .map(_normalize)
+          .where((v) => v.isNotEmpty);
       values.addAll(splitValues);
     }
 
-    final urlDomain = _domainFromUrl(entry.url);
-    if (urlDomain.isNotEmpty && !urlDomain.contains('.')) {
-      values.add(urlDomain);
+    // 3. URL host fallback: bare single-label hosts (e.g. "myapp") as identifier
+    final domain = _domainFromUrl(entry.url);
+    if (domain.isNotEmpty && !domain.contains('.')) {
+      values.add(domain);
     }
 
     return values;
