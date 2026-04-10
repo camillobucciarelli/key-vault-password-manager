@@ -1,5 +1,6 @@
 import 'package:get_it/get_it.dart';
 
+import '../domain/services/password_generator_service.dart';
 import '../domain/usecases/connect_google_account_usecase.dart';
 import '../domain/usecases/get_active_database_usecase.dart';
 import '../domain/usecases/disconnect_google_account_usecase.dart';
@@ -22,6 +23,7 @@ import '../domain/usecases/upsert_database_record_usecase.dart';
 import '../domain/usecases/validate_database_usecase.dart';
 
 void registerPasswordManagerDomainDependencies(GetIt sl) {
+  sl.registerLazySingleton(() => PasswordGeneratorService());
   sl.registerLazySingleton(() => SaveSelectedDatabasePathUseCase(sl()));
   sl.registerLazySingleton(() => GetRegisteredDatabasesUseCase(sl()));
   sl.registerLazySingleton(() => GetActiveDatabaseUseCase(sl()));

@@ -193,8 +193,15 @@ Future<String?> _showPasswordGeneratorDialog(BuildContext context) async {
               FilledButton(
                 onPressed: canGenerate
                     ? () {
-                        final generatedPassword = _generateSecurePassword(
-                          options,
+                        final generatedPassword =
+                            GetIt.instance<PasswordGeneratorService>().generate(
+                          PasswordGeneratorOptions(
+                            length: options.length,
+                            includeLowercase: options.includeLowercase,
+                            includeUppercase: options.includeUppercase,
+                            includeDigits: options.includeDigits,
+                            includeSymbols: options.includeSymbols,
+                          ),
                         );
                         Navigator.of(dialogContext).pop(generatedPassword);
                       }
@@ -207,72 +214,6 @@ Future<String?> _showPasswordGeneratorDialog(BuildContext context) async {
       );
     },
   );
-}
-
-String _generateSecurePassword(_PasswordGeneratorOptions options) {
-  const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  const lowercase = 'abcdefghijklmnopqrstuvwxyz';
-  const digits = '0123456789';
-  const symbols = r'!@#$%^&*()-_=+[]{};:,.<>?';
-  final random = math.Random.secure();
-  final enabledSets = <String>[];
-  if (options.includeLowercase) {
-    enabledSets.add(lowercase);
-  }
-  if (options.includeUppercase) {
-    enabledSets.add(uppercase);
-  }
-  if (options.includeDigits) {
-    enabledSets.add(digits);
-  }
-  if (options.includeSymbols) {
-    enabledSets.add(symbols);
-  }
-
-  if (enabledSets.isEmpty) {
-    throw StateError('At least one character set is required.');
-  }
-  if (options.length < enabledSets.length) {
-    throw StateError('Length is too short for selected character sets.');
-  }
-
-  final chars = <String>[];
-  for (final set in enabledSets) {
-    chars.add(_pickSecureChar(set, random));
-  }
-
-  final combined = enabledSets.join();
-  for (var i = chars.length; i < options.length; i++) {
-    chars.add(_pickSecureChar(combined, random));
-  }
-
-  for (var i = chars.length - 1; i > 0; i--) {
-    final j = _nextSecureInt(random, i + 1);
-    final temp = chars[i];
-    chars[i] = chars[j];
-    chars[j] = temp;
-  }
-
-  return chars.join();
-}
-
-String _pickSecureChar(String source, math.Random random) {
-  final index = _nextSecureInt(random, source.length);
-  return source[index];
-}
-
-int _nextSecureInt(math.Random random, int maxExclusive) {
-  if (maxExclusive <= 0) {
-    throw ArgumentError.value(maxExclusive, 'maxExclusive');
-  }
-
-  final limit = 256 - (256 % maxExclusive);
-  while (true) {
-    final value = random.nextInt(256);
-    if (value < limit) {
-      return value % maxExclusive;
-    }
-  }
 }
 
 _PasswordStrengthAssessment _evaluatePasswordStrength(String value) {
