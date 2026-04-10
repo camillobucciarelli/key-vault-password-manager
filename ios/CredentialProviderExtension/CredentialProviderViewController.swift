@@ -63,6 +63,14 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
   }
 
+  override func prepareInterfaceToProvideCredential(
+    for credentialIdentity: ASPasswordCredentialIdentity
+  ) {
+    // Called by iOS when non-interactive fill returned userInteractionRequired.
+    // Delegate back to the matching logic; cancel if still no match.
+    provideCredentialWithoutUserInteraction(for: credentialIdentity)
+  }
+
   override func prepareInterfaceForExtensionConfiguration() {
     extensionContext.completeExtensionConfigurationRequest()
   }
