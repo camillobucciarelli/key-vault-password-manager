@@ -17,7 +17,10 @@ import '../../../../../core/theme/app_backgrounds.dart';
 import '../../../../../core/theme/app_colors.dart';
 import '../../../../../core/theme/app_icons.dart';
 import '../../../../../core/theme/theme_cubit.dart';
+import 'package:get_it/get_it.dart';
+
 import '../../../../../injection_container.dart' as di;
+import '../../domain/services/password_generator_service.dart';
 import '../../data/datasources/biometric_data_source.dart';
 import '../../data/datasources/local_data_source.dart';
 import '../../data/services/vault_csv_import_service.dart';
