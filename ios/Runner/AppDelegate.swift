@@ -8,6 +8,7 @@ import UIKit
   private let autofillEntriesKey = "autofill_entries_json"
   private let autofillLastSyncKey = "autofill_last_sync_epoch_ms"
   private let appGroupId = "group.dev.camillobucciarelli.kdbxKeyVault"
+  private let pendingSavesKey = "pending_autofill_saves"
 
   override func application(
     _ application: UIApplication,
@@ -80,6 +81,26 @@ import UIKit
       defaults.synchronize()
       result(nil)
 
+    case "readAndClearPendingSaves":
+      guard let savesDefaults = UserDefaults(suiteName: appGroupId) else {
+        result([])
+        return
+      }
+      guard
+        let json = savesDefaults.string(forKey: pendingSavesKey),
+        let data = json.data(using: .utf8),
+        let decoded = try? JSONDecoder().decode([PendingAutofillSavePayload].self, from: data)
+      else {
+        result([])
+        return
+      }
+      savesDefaults.removeObject(forKey: pendingSavesKey)
+      savesDefaults.synchronize()
+      let mapped: [[String: String]] = decoded.map { save in
+        ["title": save.title, "username": save.username, "password": save.password, "url": save.url]
+      }
+      result(mapped)
+
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -140,4 +161,11 @@ private struct SharedAutofillCredentialPayload: Decodable {
   let username: String
   let url: String
   let customFields: [CustomField]
+}
+
+private struct PendingAutofillSavePayload: Decodable {
+  let title: String
+  let username: String
+  let password: String
+  let url: String
 }
