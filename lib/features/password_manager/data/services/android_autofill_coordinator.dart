@@ -5,6 +5,7 @@ import 'package:loggy/loggy.dart';
 
 import '../../domain/models/vault_custom_field.dart';
 import '../../domain/models/vault_entry.dart';
+import '../../domain/services/password_generator_service.dart';
 import '../../domain/services/vault_autofill_matcher.dart';
 import '../../domain/usecases/get_active_database_usecase.dart';
 import '../../domain/usecases/get_selected_key_file_path_usecase.dart';
@@ -19,6 +20,7 @@ class AndroidAutofillCoordinator with WidgetsBindingObserver {
     required this.secureDataSource,
     required this.vaultKdbxService,
     required this.matcher,
+    required this.passwordGenerator,
   });
 
   final AutofillService autofillService;
@@ -27,6 +29,7 @@ class AndroidAutofillCoordinator with WidgetsBindingObserver {
   final SecureDataSource secureDataSource;
   final VaultKdbxService vaultKdbxService;
   final VaultAutofillMatcher matcher;
+  final PasswordGeneratorService passwordGenerator;
 
   static const Duration _requestDedupWindow = Duration(seconds: 2);
   static const Duration _entriesCacheTtl = Duration(seconds: 20);
@@ -158,16 +161,17 @@ class AndroidAutofillCoordinator with WidgetsBindingObserver {
     try {
       final entries = await _resolveEntries(context);
 
-      final datasets = matcher
-          .findBestMatches(
-            entries: entries,
-            packageNames: metadata?.packageNames ?? const {},
-            webDomains:
-                metadata?.webDomains
-                    .map((webDomain) => webDomain.domain)
-                    .toSet() ??
-                const {},
-          )
+      final matched = matcher.findBestMatches(
+        entries: entries,
+        packageNames: metadata?.packageNames ?? const {},
+        webDomains:
+            metadata?.webDomains
+                .map((webDomain) => webDomain.domain)
+                .toSet() ??
+            const {},
+      );
+
+      final datasets = matched
           .map(
             (entry) => PwDataset(
               label: _buildLabel(entry.title, entry.username),
@@ -175,7 +179,22 @@ class AndroidAutofillCoordinator with WidgetsBindingObserver {
               password: entry.password,
             ),
           )
-          .toList(growable: false);
+          .toList(growable: true);
+
+      // If no existing credentials match, offer a strong generated password
+      if (datasets.isEmpty) {
+        final generated = passwordGenerator.generate(
+          const PasswordGeneratorOptions.defaults(),
+        );
+        datasets.insert(
+          0,
+          PwDataset(
+            label: 'Generate secure password',
+            username: '',
+            password: generated,
+          ),
+        );
+      }
 
       await autofillService.resultWithDatasets(datasets);
     } catch (e, st) {
@@ -435,7 +454,7 @@ class AndroidAutofillCoordinator with WidgetsBindingObserver {
     if (packages.isEmpty) {
       return const [];
     }
-    return [VaultCustomField(key: 'androidPackage', value: packages.join(','))];
+    return [VaultCustomField(key: 'KPH: androidPackage', value: packages.join(','))];
   }
 
   Set<String> _extractPackageIdentifiers(VaultEntry entry) {
