@@ -911,6 +911,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				OTHER_LDFLAGS = ();
 				PRODUCT_BUNDLE_IDENTIFIER = dev.camillobucciarelli.kdbxKeyVault.CredentialProviderMac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
@@ -939,6 +940,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				OTHER_LDFLAGS = ();
 				PRODUCT_BUNDLE_IDENTIFIER = dev.camillobucciarelli.kdbxKeyVault.CredentialProviderMac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
@@ -965,6 +967,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				OTHER_LDFLAGS = ();
 				PRODUCT_BUNDLE_IDENTIFIER = dev.camillobucciarelli.kdbxKeyVault.CredentialProviderMac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
