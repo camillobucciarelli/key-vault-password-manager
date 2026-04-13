@@ -23,7 +23,10 @@ final class MacCredentialProviderViewController: ASCredentialProviderViewControl
           }
           return (cred, score)
         }
-        .sorted { $0.1 > $1.1 }
+        .sorted {
+          if $0.1 != $1.1 { return $0.1 > $1.1 }
+          return $0.0.title.localizedCompare($1.0.title) == .orderedAscending
+        }
 
       let sorted      = scored.map { $0.0 }
       let topScore    = scored.first?.1 ?? 0
@@ -128,7 +131,10 @@ final class MacCredentialProviderViewController: ASCredentialProviderViewControl
       }
       let scored = credentials
         .map { ($0, matchScore(credential: $0, serviceId: credentialIdentity.serviceIdentifier)) }
-        .sorted { $0.1 > $1.1 }
+        .sorted {
+          if $0.1 != $1.1 { return $0.1 > $1.1 }
+          return $0.0.title.localizedCompare($1.0.title) == .orderedAscending
+        }
       let bestId = scored.first(where: { $0.1 > 0 })?.0.id
       showCredentialList(scored.map { $0.0 }, bestMatchId: bestId)
     }
