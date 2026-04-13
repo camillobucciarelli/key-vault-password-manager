@@ -27,35 +27,43 @@ class MainFlutterWindow: NSWindow {
         return
       }
 
+      let entriesKey      = "autofill_entries_json"
+      let lastSyncKey     = "autofill_last_sync_epoch_ms"
+      let pendingSavesKey = "pending_autofill_saves"
+
       switch call.method {
       case "saveSnapshot":
-        let args = call.arguments as? [String: Any]
-        if let entries = args?["entries"] as? String {
-          defaults.set(entries, forKey: "autofill_entries_json")
-          let epochMs = Int64(Date().timeIntervalSince1970 * 1000)
-          defaults.set(epochMs, forKey: "autofill_last_sync_epoch_ms")
-          defaults.synchronize()
+        guard
+          let args = call.arguments as? [String: Any],
+          let entries = args["entries"] as? String
+        else {
+          result(FlutterError(code: "INVALID_ARGS", message: "Missing entries payload.", details: nil))
+          return
         }
+        defaults.set(entries, forKey: entriesKey)
+        let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
+        defaults.set(timestamp, forKey: lastSyncKey)
         result(nil)
 
       case "clearSnapshot":
-        defaults.removeObject(forKey: "autofill_entries_json")
-        defaults.removeObject(forKey: "autofill_last_sync_epoch_ms")
-        defaults.synchronize()
+        defaults.removeObject(forKey: entriesKey)
+        defaults.removeObject(forKey: lastSyncKey)
         result(nil)
 
       case "readAndClearPendingSaves":
-        var saves: [[String: String]] = []
-        if let raw = defaults.object(forKey: "pending_autofill_saves") as? String,
-           let data = raw.data(using: .utf8),
-           let decoded = try? JSONSerialization.jsonObject(with: data) as? [[String: String]] {
-          saves = decoded
-        } else if let raw = defaults.object(forKey: "pending_autofill_saves") as? Data,
-                  let decoded = try? JSONSerialization.jsonObject(with: raw) as? [[String: String]] {
-          saves = decoded
+        struct PendingSave: Decodable {
+          let title: String
+          let username: String
+          let password: String
+          let url: String
         }
-        defaults.removeObject(forKey: "pending_autofill_saves")
-        defaults.synchronize()
+        var saves: [[String: String]] = []
+        if let json = defaults.string(forKey: pendingSavesKey),
+           let data = json.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([PendingSave].self, from: data) {
+          saves = decoded.map { ["title": $0.title, "username": $0.username, "password": $0.password, "url": $0.url] }
+        }
+        defaults.removeObject(forKey: pendingSavesKey)
         result(saves)
 
       default:
