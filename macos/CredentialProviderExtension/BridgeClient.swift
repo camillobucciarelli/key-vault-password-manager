@@ -76,6 +76,7 @@ struct BridgeClient {
         let password = dict["password"] as? String,
         let url      = dict["url"]      as? String
       else { return nil }
+      // Bridge omits `notes` and `customFields` — update both sides together if needed.
       return SharedAutofillCredential(
         id: id, title: title, username: username,
         password: password, url: url, notes: "",
