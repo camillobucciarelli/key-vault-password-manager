@@ -16,5 +16,9 @@
 	<array>
 		<string>$(AppIdentifierPrefix)dev.camillobucciarelli.kdbxKeyVault</string>
 	</array>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.dev.camillobucciarelli.kdbxKeyVault</string>
+	</array>
 </dict>
 </plist>
