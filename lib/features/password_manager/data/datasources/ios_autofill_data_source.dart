@@ -71,6 +71,7 @@ class IosAutofillDataSourceImpl implements IosAutofillDataSource {
     if (kIsWeb) {
       return false;
     }
-    return defaultTargetPlatform == TargetPlatform.iOS;
+    return defaultTargetPlatform == TargetPlatform.iOS ||
+           defaultTargetPlatform == TargetPlatform.macOS;
   }
 }
