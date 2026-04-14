@@ -1405,18 +1405,21 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     Emitter<VaultState> emit, {
     SyncConflictResolution? resolution,
     bool silentIfConflict = false,
+    bool emitSyncingStatus = true,
   }) async {
     if (!state.isDriveConnected || !state.isDriveLinked) {
       return;
     }
 
-    _safeEmit(
-      emit,
-      state.copyWith(
-        syncStatus: DatabaseSyncStatus.syncing,
-        clearSyncError: true,
-      ),
-    );
+    if (emitSyncingStatus) {
+      _safeEmit(
+        emit,
+        state.copyWith(
+          syncStatus: DatabaseSyncStatus.syncing,
+          clearSyncError: true,
+        ),
+      );
+    }
 
     try {
       final result = await syncDatabaseNowUseCase(
