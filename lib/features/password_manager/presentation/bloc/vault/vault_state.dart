@@ -37,6 +37,8 @@ class VaultState extends Equatable {
     this.remoteDriveFiles = const [],
     this.isLoadingRemoteDriveFiles = false,
     this.linkedDriveFileName,
+    this.isSyncing = false,
+    this.isSyncReloadPending = false,
   });
 
   factory VaultState.initial({required String databasePath}) {
@@ -70,6 +72,8 @@ class VaultState extends Equatable {
   final List<DriveRemoteFile> remoteDriveFiles;
   final bool isLoadingRemoteDriveFiles;
   final String? linkedDriveFileName;
+  final bool isSyncing;
+  final bool isSyncReloadPending;
 
   VaultState copyWith({
     String? rootGroupId,
@@ -98,10 +102,13 @@ class VaultState extends Equatable {
     List<DriveRemoteFile>? remoteDriveFiles,
     bool? isLoadingRemoteDriveFiles,
     String? linkedDriveFileName,
+    bool? isSyncing,
+    bool? isSyncReloadPending,
     bool clearError = false,
     bool clearInfo = false,
     bool clearSyncError = false,
     bool clearSyncConflict = false,
+    bool clearSyncReloadPending = false,
   }) {
     return VaultState(
       databasePath: databasePath,
@@ -134,6 +141,10 @@ class VaultState extends Equatable {
       isLoadingRemoteDriveFiles:
           isLoadingRemoteDriveFiles ?? this.isLoadingRemoteDriveFiles,
       linkedDriveFileName: linkedDriveFileName ?? this.linkedDriveFileName,
+      isSyncing: isSyncing ?? this.isSyncing,
+      isSyncReloadPending: clearSyncReloadPending
+          ? false
+          : isSyncReloadPending ?? this.isSyncReloadPending,
     );
   }
 
@@ -206,5 +217,7 @@ class VaultState extends Equatable {
     remoteDriveFiles,
     isLoadingRemoteDriveFiles,
     linkedDriveFileName,
+    isSyncing,
+    isSyncReloadPending,
   ];
 }
