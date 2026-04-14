@@ -342,3 +342,7 @@ class LoadDriveRemoteFiles extends VaultEvent {
   @override
   List<Object?> get props => [query];
 }
+
+class BackgroundDriveSync extends VaultEvent {
+  const BackgroundDriveSync();
+}

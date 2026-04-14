@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_event.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_state.dart';
 
 void main() {
@@ -50,6 +51,15 @@ void main() {
         isSyncReloadPending: false,
       );
       expect(a, isNot(equals(b)));
+    });
+  });
+
+  group('BackgroundDriveSync event', () {
+    test('two instances are equal', () {
+      expect(
+        const BackgroundDriveSync(),
+        equals(const BackgroundDriveSync()),
+      );
     });
   });
 }
