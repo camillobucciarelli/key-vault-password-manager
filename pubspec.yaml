@@ -54,8 +54,7 @@ flutter_launcher_icons:
   adaptive_icon_background: "#FFFFFF"
   adaptive_icon_foreground: assets/logo/keyvault-source.png
   adaptive_icon_monochrome: assets/logo/keyvault-monochrome.png
-  # iOS: remove alpha for standard icon, provide dark/tinted variants for iOS 18+
-  remove_alpha_ios: true
+  # iOS: dark/tinted variants for iOS 18+
   image_path_ios_dark_transparent: assets/logo/keyvault-source.png
   image_path_ios_tinted_grayscale: assets/logo/keyvault-source.png
   desaturate_tinted_to_grayscale_ios: true
