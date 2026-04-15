@@ -56,7 +56,7 @@ class AndroidAutofillCoordinator with WidgetsBindingObserver {
       // but an empty inlinePresentationSpecs list (NoSuchElementException on .first()).
       await autofillService.setPreferences(
         AutofillPreferences(
-          enableDebug: false,
+          enableDebug: !kReleaseMode,
           enableSaving: true,
           enableIMERequests: false,
         ),
@@ -517,18 +517,15 @@ class AndroidAutofillCoordinator with WidgetsBindingObserver {
   }
 
   String _buildLabel(String title, String username) {
-    final trimmedTitle = title.trim();
     final trimmedUsername = username.trim();
-    if (trimmedTitle.isEmpty && trimmedUsername.isEmpty) {
-      return 'Saved credential';
-    }
-    if (trimmedUsername.isEmpty) {
-      return trimmedTitle;
-    }
-    if (trimmedTitle.isEmpty) {
+    if (trimmedUsername.isNotEmpty) {
       return trimmedUsername;
     }
-    return '$trimmedTitle · $trimmedUsername';
+    final trimmedTitle = title.trim();
+    if (trimmedTitle.isNotEmpty) {
+      return trimmedTitle;
+    }
+    return 'Saved credential';
   }
 }
 
