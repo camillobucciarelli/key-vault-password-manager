@@ -1,6 +1,27 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_event.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_state.dart';
+import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
+import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
+import 'package:password_manager/features/password_manager/data/services/vault_csv_import_service.dart';
+import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
+import 'package:password_manager/features/password_manager/domain/models/database_sync_status.dart';
+import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_snapshot.dart';
+import 'package:password_manager/features/password_manager/domain/repositories/database_repository.dart';
+import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/connect_google_account_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/disconnect_google_account_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/get_drive_connection_status_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/get_selected_key_file_path_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/link_database_to_drive_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/list_drive_remote_files_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/set_database_auto_sync_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/sync_database_now_usecase.dart';
+import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_bloc.dart';
+import 'dart:typed_data';
 
 void main() {
   group('VaultState background sync fields', () {
@@ -62,4 +83,244 @@ void main() {
       );
     });
   });
+
+  group('InitializeVault — Drive check deferred', () {
+    late _FakeSyncRepo repo;
+    late _FakeVaultKdbxService kdbx;
+    late VaultBloc bloc;
+
+    setUp(() {
+      repo = _FakeSyncRepo()..mapping = _testMapping;
+      kdbx = _FakeVaultKdbxService();
+      bloc = _makeBloc(repo, kdbx);
+    });
+
+    tearDown(() async => bloc.close());
+
+    test('vault loads (loadVault called) without network Drive check during init', () async {
+      // isConnectedResult is false, but mapping exists.
+      // InitializeVault must NOT call isConnected() — if it did,
+      // isDriveConnected would be set to false and syncStatus to disconnected.
+      // Instead, preload from local mapping sets isDriveLinked: true, syncStatus: idle.
+      bloc.add(const InitializeVault());
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(kdbx.loadCallCount, greaterThanOrEqualTo(1));
+      expect(bloc.state.isDriveLinked, isTrue);
+      expect(bloc.state.syncStatus, equals(DatabaseSyncStatus.idle));
+      expect(bloc.state.isLoading, isFalse);
+    });
+  });
+
+  group('BackgroundDriveSync', () {
+    late _FakeSyncRepo repo;
+    late _FakeVaultKdbxService kdbx;
+    late VaultBloc bloc;
+
+    setUp(() {
+      repo = _FakeSyncRepo()
+        ..mapping = _testMapping
+        ..isConnectedResult = true;
+      kdbx = _FakeVaultKdbxService();
+      bloc = _makeBloc(repo, kdbx);
+    });
+
+    tearDown(() async => bloc.close());
+
+    test('emits isSyncing: true then false when connected and linked', () async {
+      final states = <VaultState>[];
+      final sub = bloc.stream.listen(states.add);
+
+      bloc.add(const BackgroundDriveSync());
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      await sub.cancel();
+
+      expect(states.any((s) => s.isSyncing), isTrue);
+      expect(states.last.isSyncing, isFalse);
+    });
+
+    test('never emits syncStatus: syncing during background sync', () async {
+      final states = <VaultState>[];
+      final sub = bloc.stream.listen(states.add);
+
+      bloc.add(const BackgroundDriveSync());
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      await sub.cancel();
+
+      expect(
+        states.any((s) => s.syncStatus == DatabaseSyncStatus.syncing),
+        isFalse,
+      );
+    });
+
+    test('does not emit isSyncing when not connected', () async {
+      repo.isConnectedResult = false;
+      final states = <VaultState>[];
+      final sub = bloc.stream.listen(states.add);
+
+      bloc.add(const BackgroundDriveSync());
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      await sub.cancel();
+
+      expect(states.any((s) => s.isSyncing), isFalse);
+    });
+
+    test('reloads vault after successful sync when not saving', () async {
+      // kdbx.loadCallCount starts at 0 (no InitializeVault fired)
+      bloc.add(const BackgroundDriveSync());
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      // _reload is called: loadVault must have been called at least once
+      expect(kdbx.loadCallCount, greaterThanOrEqualTo(1));
+      expect(bloc.state.isSyncReloadPending, isFalse);
+    });
+
+    test('sets isDriveConnected: false silently when auth fails', () async {
+      repo.isConnectedResult = false;
+
+      final states = <VaultState>[];
+      final sub = bloc.stream.listen(states.add);
+
+      bloc.add(const BackgroundDriveSync());
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      await sub.cancel();
+
+      // With isConnectedResult: false, refreshSyncState sets isDriveConnected: false
+      // No exception, no error message, no popup
+      expect(bloc.state.errorMessage, isNull);
+      expect(states.any((s) => s.isSyncing), isFalse);
+    });
+  });
+}
+
+const _kDbPath = '/vault/test.kdbx';
+
+final _emptySnapshot = VaultSnapshot(
+  rootGroupId: 'root',
+  currentGroupId: 'root',
+  groups: const [],
+  entries: const [],
+  allEntries: const [],
+);
+
+const _testMapping = DatabaseSyncMapping(
+  databasePath: _kDbPath,
+  driveFileId: 'file-123',
+  driveFileName: 'test.kdbx',
+  autoSyncEnabled: true,
+);
+
+// --- Fakes ---
+
+class _FakeSecureDataSource implements SecureDataSource {
+  @override
+  Future<String?> getMasterPassword() async => '';
+  @override
+  Future<void> saveMasterPassword(String p) async {}
+  @override
+  Future<void> clearMasterPassword() async {}
+}
+
+class _FakeDatabaseRepository implements DatabaseRepository {
+  @override
+  Future<String?> getSelectedKeyFilePath() async => null;
+  @override
+  Future<void> saveSelectedDatabasePath(String path) async {}
+  @override
+  Future<void> saveSelectedKeyFilePath(String? path) async {}
+}
+
+class _FakeVaultKdbxService implements VaultKdbxService {
+  int loadCallCount = 0;
+
+  @override
+  Future<VaultSnapshot> loadVault({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    String? currentGroupId,
+  }) async {
+    loadCallCount++;
+    return _emptySnapshot;
+  }
+
+  @override
+  Future<List<VaultEntry>> loadRecycleBinEntries({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+  }) async => [];
+
+  @override
+  dynamic noSuchMethod(Invocation i) => super.noSuchMethod(i);
+}
+
+class _FakeSyncRepo implements DatabaseSyncRepository {
+  DatabaseSyncMapping? mapping;
+  bool isConnectedResult = false;
+  SyncNowResult syncResult = const SyncNowSuccess();
+
+  @override
+  Future<bool> isConnected() async => isConnectedResult;
+
+  @override
+  Future<DatabaseSyncMapping?> getMapping(String path) async => mapping;
+
+  @override
+  Future<SyncNowResult> syncNow(
+    String path, {
+    SyncConflictResolution? resolution,
+  }) async => syncResult;
+
+  @override
+  Future<void> connect() async {}
+
+  @override
+  Future<void> disconnect() async {}
+
+  @override
+  Future<void> removeMapping(String p) async {}
+
+  @override
+  Future<void> moveMappingPath({
+    required String fromDatabasePath,
+    required String toDatabasePath,
+  }) async {}
+
+  @override
+  Future<void> setAutoSync(String p, bool e) async {}
+
+  @override
+  Future<List<DriveRemoteFile>> listRemoteFiles({String? query}) async => [];
+
+  @override
+  Future<Uint8List> downloadRemoteFile(String id) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<DatabaseSyncMapping> linkDatabaseToDrive({
+    required String databasePath,
+    String? remoteFileId,
+    String? remoteFileName,
+  }) async => throw UnimplementedError();
+}
+
+VaultBloc _makeBloc(_FakeSyncRepo repo, _FakeVaultKdbxService kdbx) {
+  return VaultBloc(
+    databasePath: _kDbPath,
+    secureDataSource: _FakeSecureDataSource(),
+    getSelectedKeyFilePathUseCase: GetSelectedKeyFilePathUseCase(
+      _FakeDatabaseRepository(),
+    ),
+    vaultKdbxService: kdbx,
+    vaultCsvImportService: VaultCsvImportService(),
+    getDriveConnectionStatusUseCase: GetDriveConnectionStatusUseCase(repo),
+    connectGoogleAccountUseCase: ConnectGoogleAccountUseCase(repo),
+    disconnectGoogleAccountUseCase: DisconnectGoogleAccountUseCase(repo),
+    linkDatabaseToDriveUseCase: LinkDatabaseToDriveUseCase(repo),
+    listDriveRemoteFilesUseCase: ListDriveRemoteFilesUseCase(repo),
+    syncDatabaseNowUseCase: SyncDatabaseNowUseCase(repo),
+    setDatabaseAutoSyncUseCase: SetDatabaseAutoSyncUseCase(repo),
+    databaseSyncRepository: repo,
+  );
 }

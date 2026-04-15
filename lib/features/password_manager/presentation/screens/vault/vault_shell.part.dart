@@ -456,7 +456,8 @@ bool _syncStatusStripBuildWhen(VaultState previous, VaultState current) {
       previous.linkedDriveFileName != current.linkedDriveFileName ||
       previous.syncStatus != current.syncStatus ||
       previous.lastSyncAt != current.lastSyncAt ||
-      previous.autoSyncEnabled != current.autoSyncEnabled;
+      previous.autoSyncEnabled != current.autoSyncEnabled ||
+      previous.isSyncing != current.isSyncing;
 }
 
 bool _entriesCardBuildWhen(VaultState previous, VaultState current) {
