@@ -47,7 +47,7 @@ private struct CredentialRowView: View {
 
       VStack(alignment: .leading, spacing: 2) {
         HStack(spacing: 6) {
-          Text(credential.title.isEmpty ? "Unnamed" : credential.title)
+          Text(credential.username.isEmpty ? credential.title : credential.username)
             .font(.body)
             .foregroundColor(.primary)
             .lineLimit(1)
@@ -61,12 +61,6 @@ private struct CredentialRowView: View {
               .background(Color.accentColor.opacity(0.12))
               .clipShape(Capsule())
           }
-        }
-        if !credential.username.isEmpty {
-          Text(credential.username)
-            .font(.subheadline)
-            .foregroundColor(.secondary)
-            .lineLimit(1)
         }
       }
 
