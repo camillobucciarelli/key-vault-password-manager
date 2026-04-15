@@ -129,6 +129,50 @@ void main() {
       expect(updated.lastPasswordChangedAt, updated.updatedAt);
     },
   );
+
+  test(
+    'updateEntry persists changed title, username, password, url, notes',
+    () async {
+      final rootGroupId = await _rootGroupId(service, databasePath, password);
+      await service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: rootGroupId,
+        title: 'Original Title',
+        username: 'original_user',
+        entryPassword: 'original_pass',
+        url: 'https://original.com',
+        notes: 'original notes',
+      );
+
+      final original = (await service.loadAllEntries(
+        databasePath: databasePath,
+        password: password,
+      )).single;
+
+      await service.updateEntry(
+        databasePath: databasePath,
+        password: password,
+        entryId: original.id,
+        title: 'Updated Title',
+        username: 'updated_user',
+        entryPassword: 'updated_pass',
+        url: 'https://updated.com',
+        notes: 'updated notes',
+      );
+
+      final updated = (await service.loadAllEntries(
+        databasePath: databasePath,
+        password: password,
+      )).single;
+
+      expect(updated.title, 'Updated Title');
+      expect(updated.username, 'updated_user');
+      expect(updated.password, 'updated_pass');
+      expect(updated.url, 'https://updated.com');
+      expect(updated.notes, 'updated notes');
+    },
+  );
 }
 
 Future<void> _createDatabase({
