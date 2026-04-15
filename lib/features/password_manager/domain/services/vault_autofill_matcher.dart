@@ -25,17 +25,25 @@ class VaultAutofillMatcher {
         continue;
       }
 
-      final score = _scoreEntry(
+      // matchScore: only URL / package / title signals — no credential bonus.
+      // Used as the inclusion gate so that a scoped search never returns entries
+      // that merely have credentials but don't match the current app/domain.
+      final matchScore = _scoreEntry(
         entry,
         packageNames: normalizedPackages,
         webDomains: normalizedDomains,
       );
 
-      if (scopedSearch && score <= 0) {
+      if (scopedSearch && matchScore <= 0) {
         continue;
       }
 
-      scored.add(_ScoredEntry(entry: entry, score: score));
+      // Add credential-completeness bonus only for ranking, not for filtering.
+      final hasUsername = entry.username.trim().isNotEmpty;
+      final hasPassword = entry.password.trim().isNotEmpty;
+      final rankScore = matchScore + (hasUsername && hasPassword ? 20 : 10);
+
+      scored.add(_ScoredEntry(entry: entry, score: rankScore));
     }
 
     scored.sort((a, b) {
@@ -119,14 +127,6 @@ class VaultAutofillMatcher {
           score += 35;
         }
       }
-    }
-
-    final hasUsername = entry.username.trim().isNotEmpty;
-    final hasPassword = entry.password.trim().isNotEmpty;
-    if (hasUsername && hasPassword) {
-      score += 20;
-    } else {
-      score += 10;
     }
 
     return score;
