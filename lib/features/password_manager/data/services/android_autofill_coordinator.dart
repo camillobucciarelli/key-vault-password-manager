@@ -31,7 +31,7 @@ class AndroidAutofillCoordinator with WidgetsBindingObserver {
   final VaultAutofillMatcher matcher;
   final PasswordGeneratorService passwordGenerator;
 
-  static const Duration _requestDedupWindow = Duration(seconds: 2);
+  static const Duration _requestDedupWindow = Duration(milliseconds: 500);
   static const Duration _entriesCacheTtl = Duration(seconds: 20);
   static const Duration _saveCompleteTimeout = Duration(seconds: 3);
 
@@ -197,6 +197,10 @@ class AndroidAutofillCoordinator with WidgetsBindingObserver {
       }
 
       await autofillService.resultWithDatasets(datasets);
+      // Clear the dedup key so the next field focus (e.g. moving from username
+      // to password) always triggers fresh results instead of being blocked.
+      _lastHandledRequestKey = null;
+      _lastHandledRequestAt = null;
     } catch (e, st) {
       logError('Unable to build Android autofill dataset.', e, st);
       await autofillService.resultWithDatasets(const []);
