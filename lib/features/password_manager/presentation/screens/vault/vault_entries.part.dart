@@ -87,8 +87,8 @@ class _EntriesCardState extends State<_EntriesCard> {
     String? targetGroupId,
   }) async {
     final payload = await _showEntryDialog(context);
-    if (payload != null && context.mounted) {
-      final bloc = context.read<VaultBloc>();
+    if (payload != null && mounted) {
+      final bloc = this.context.read<VaultBloc>();
       if (targetGroupId != null) {
         bloc.add(OpenGroup(targetGroupId));
       }
@@ -111,11 +111,11 @@ class _EntriesCardState extends State<_EntriesCard> {
     String? targetGroupId,
   }) async {
     final name = await _showGroupDialog(context);
-    if (name == null || name.trim().isEmpty || !context.mounted) {
+    if (name == null || name.trim().isEmpty || !mounted) {
       return;
     }
 
-    final bloc = context.read<VaultBloc>();
+    final bloc = this.context.read<VaultBloc>();
     if (targetGroupId != null) {
       bloc.add(OpenGroup(targetGroupId));
     }
@@ -169,8 +169,8 @@ class _EntriesCardState extends State<_EntriesCard> {
     switch (action) {
       case _EntryAction.edit:
         final payload = await _showEntryDialog(context, initial: entry);
-        if (payload != null && context.mounted) {
-          context.read<VaultBloc>().add(
+        if (payload != null && mounted) {
+          this.context.read<VaultBloc>().add(
             UpdateVaultEntry(
               entryId: entry.id,
               title: payload.title,
@@ -185,8 +185,8 @@ class _EntriesCardState extends State<_EntriesCard> {
         break;
       case _EntryAction.move:
         final target = await _showMoveTargetDialog(context, widget.groups);
-        if (target != null && context.mounted) {
-          context.read<VaultBloc>().add(
+        if (target != null && mounted) {
+          this.context.read<VaultBloc>().add(
             MoveVaultEntry(entryId: entry.id, targetGroupId: target),
           );
         }
@@ -199,8 +199,8 @@ class _EntriesCardState extends State<_EntriesCard> {
           context,
           label: 'Move this record to recycle bin?',
         );
-        if (confirmed && context.mounted) {
-          context.read<VaultBloc>().add(DeleteVaultEntry(entry.id));
+        if (confirmed && mounted) {
+          this.context.read<VaultBloc>().add(DeleteVaultEntry(entry.id));
         }
         break;
     }
