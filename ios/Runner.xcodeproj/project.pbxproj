@@ -11,6 +11,7 @@
 		1A2B3C4D5E6F700100000001 /* CredentialProviderViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700100000011 /* CredentialProviderViewController.swift */; };
 		1A2B3C4D5E6F700100000002 /* SharedAutofillStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700100000012 /* SharedAutofillStore.swift */; };
 		1A2B3C4D5E6F700100000004 /* CredentialProviderPasswordGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700100000015 /* CredentialProviderPasswordGenerator.swift */; };
+		1A2B3C4D5E6F700100000005 /* CredentialListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700100000016 /* CredentialListView.swift */; };
 		1A2B3C4D5E6F700100000003 /* CredentialProviderExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F700100000010 /* CredentialProviderExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
@@ -64,6 +65,7 @@
 		1A2B3C4D5E6F700100000011 /* CredentialProviderViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialProviderViewController.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F700100000012 /* SharedAutofillStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedAutofillStore.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F700100000015 /* CredentialProviderPasswordGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialProviderPasswordGenerator.swift; sourceTree = "<group>"; };
+		1A2B3C4D5E6F700100000016 /* CredentialListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialListView.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F700100000013 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		1A2B3C4D5E6F700100000014 /* CredentialProviderExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CredentialProviderExtension.entitlements; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
@@ -132,6 +134,7 @@
 				1A2B3C4D5E6F700100000011 /* CredentialProviderViewController.swift */,
 				1A2B3C4D5E6F700100000012 /* SharedAutofillStore.swift */,
 				1A2B3C4D5E6F700100000015 /* CredentialProviderPasswordGenerator.swift */,
+				1A2B3C4D5E6F700100000016 /* CredentialListView.swift */,
 				1A2B3C4D5E6F700100000013 /* Info.plist */,
 				1A2B3C4D5E6F700100000014 /* CredentialProviderExtension.entitlements */,
 			);
@@ -463,6 +466,7 @@
 				1A2B3C4D5E6F700100000001 /* CredentialProviderViewController.swift in Sources */,
 				1A2B3C4D5E6F700100000002 /* SharedAutofillStore.swift in Sources */,
 				1A2B3C4D5E6F700100000004 /* CredentialProviderPasswordGenerator.swift in Sources */,
+				1A2B3C4D5E6F700100000005 /* CredentialListView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

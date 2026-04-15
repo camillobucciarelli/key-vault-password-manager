@@ -1,4 +1,5 @@
 import AuthenticationServices
+import SwiftUI
 
 final class CredentialProviderViewController: ASCredentialProviderViewController {
   private let store = SharedAutofillStore()
@@ -6,21 +7,60 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
   // MARK: - Credential list (user explicitly opened the extension)
 
   override func prepareCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) {
-    let credentials = store.readCredentials()
-    let best = topMatch(in: credentials, for: serviceIdentifiers)
-      ?? credentials.first
+    let allCredentials = store.readCredentials()
 
-    guard let credential = best else {
+    guard !allCredentials.isEmpty else {
       cancelWithError(.failed, message: "No credentials available")
       return
     }
 
-    extensionContext.completeRequest(
-      withSelectedCredential: ASPasswordCredential(
-        user: credential.username,
-        password: credential.password
-      )
+    // Score and sort: best matches first, unmatched entries below
+    let scored = allCredentials
+      .map { cred -> (SharedAutofillCredential, Int) in
+        let score = serviceIdentifiers.reduce(0) {
+          $0 + matchScore(credential: cred, serviceId: $1)
+        }
+        return (cred, score)
+      }
+      .sorted { $0.1 > $1.1 }
+
+    let sorted = scored.map { $0.0 }
+    let bestId = scored.first(where: { $0.1 > 0 })?.0.id
+
+    showCredentialList(sorted, bestMatchId: bestId)
+  }
+
+  private func showCredentialList(
+    _ credentials: [SharedAutofillCredential],
+    bestMatchId: String?
+  ) {
+    let rootView = CredentialListView(
+      credentials: credentials,
+      bestMatchId: bestMatchId,
+      onSelect: { [weak self] cred in
+        self?.extensionContext.completeRequest(
+          withSelectedCredential: ASPasswordCredential(
+            user: cred.username,
+            password: cred.password
+          )
+        )
+      },
+      onCancel: { [weak self] in
+        self?.cancelWithError(.userCanceled)
+      }
     )
+
+    let host = UIHostingController(rootView: rootView)
+    addChild(host)
+    host.view.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(host.view)
+    NSLayoutConstraint.activate([
+      host.view.topAnchor.constraint(equalTo: view.topAnchor),
+      host.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      host.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      host.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    ])
+    host.didMove(toParent: self)
   }
 
   // MARK: - Silent fill (iOS already knows which credential to use)
@@ -54,27 +94,6 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
   override func provideCredentialWithoutUserInteraction(
     for credentialRequest: any ASCredentialRequest
   ) {
-    // iOS 18+: handle new-password requests by generating and saving a strong password
-    if #available(iOS 18.0, *),
-       let passwordRequest = credentialRequest as? ASPasswordCredentialRequest,
-       passwordRequest.isNewPassword {
-      let generated = CredentialProviderPasswordGenerator.generateDefault()
-      let store = SharedAutofillStore()
-      let serviceId = passwordRequest.credentialIdentity.serviceIdentifier
-      let title = serviceId.identifier
-      let pending = PendingAutofillSave(
-        title: title,
-        username: "",
-        password: generated,
-        url: serviceId.type == .URL ? serviceId.identifier : ""
-      )
-      store.writePendingSave(pending)
-      extensionContext.completeRequest(
-        withSelectedCredential: ASPasswordCredential(user: "", password: generated)
-      )
-      return
-    }
-
     // Regular fill: delegate to the password-identity based method
     if let passwordRequest = credentialRequest as? ASPasswordCredentialRequest,
        let identity = passwordRequest.credentialIdentity as? ASPasswordCredentialIdentity {
@@ -155,7 +174,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
       let key = field.key.lowercased()
       if key == "kph: iosbundle" || key == "kph: androidpackage" {
         let values = field.value.split(whereSeparator: { ",; ".contains($0) })
-          .map { $0.lowercased().trimmingCharacters(in: .whitespaces) }
+          .map { $0.lowercased().trimmingCharacters(in: CharacterSet.whitespaces) }
         if values.contains(identifier) { return 140 }
       }
     }
