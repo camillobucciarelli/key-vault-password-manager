@@ -36,7 +36,8 @@ class _SyncStatusStrip extends StatelessWidget {
     final primaryActionIcon = isDriveSyncReady
         ? AppIcons.sync
         : AppIcons.refresh;
-    final isSyncInProgress = state.syncStatus == DatabaseSyncStatus.syncing;
+    final isSyncInProgress =
+        state.syncStatus == DatabaseSyncStatus.syncing || state.isSyncing;
     final isPrimaryActionBusy = isDriveSyncReady && isSyncInProgress;
     final effectivePrimaryTooltip = isPrimaryActionBusy
         ? 'Sync in progress'

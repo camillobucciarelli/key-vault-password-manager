@@ -84,6 +84,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<SyncCurrentDatabaseNow>(_onSyncCurrentDatabaseNow);
     on<ToggleCurrentDatabaseAutoSync>(_onToggleCurrentDatabaseAutoSync);
     on<ClearVaultSyncFeedback>(_onClearVaultSyncFeedback);
+    on<BackgroundDriveSync>(_onBackgroundDriveSync);
     on<LoadDriveRemoteFiles>(
       _onLoadDriveRemoteFiles,
       transformer: (events, mapper) => events
@@ -114,6 +115,24 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   String? _lastRegularGroupId;
   Timer? _autoSyncDebounce;
 
+  Future<void> _preloadDriveStateFromLocalMapping(
+    Emitter<VaultState> emit,
+  ) async {
+    final mapping = await databaseSyncRepository.getMapping(state.databasePath);
+    if (mapping != null) {
+      _safeEmit(
+        emit,
+        state.copyWith(
+          isDriveLinked: true,
+          linkedDriveFileName: mapping.driveFileName,
+          autoSyncEnabled: mapping.autoSyncEnabled,
+          lastSyncAt: mapping.lastSyncAt,
+          syncStatus: DatabaseSyncStatus.idle,
+        ),
+      );
+    }
+  }
+
   Future<void> _onInitializeVault(
     InitializeVault event,
     Emitter<VaultState> emit,
@@ -122,12 +141,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     try {
       _password = await secureDataSource.getMasterPassword() ?? '';
       _keyFilePath = await getSelectedKeyFilePathUseCase();
-      await _refreshSyncState(emit);
+      await _preloadDriveStateFromLocalMapping(emit);
       await _reload(emit);
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
-      if (state.isDriveConnected && state.isDriveLinked && state.autoSyncEnabled) {
-        add(const SyncCurrentDatabaseNow(silentIfConflict: true));
-      }
+      add(const BackgroundDriveSync());
       unawaited(androidAutofillCoordinator?.onVaultReady());
     } catch (e, st) {
       logError('Failed to initialize vault.', e, st);
@@ -829,6 +846,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
             sortBy: state.sortBy,
           ),
           expandedGroupIds: normalizedExpanded,
+          clearSyncReloadPending: true,
           clearError: true,
           clearInfo: true,
         ),
@@ -1135,6 +1153,51 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           syncError: _buildDriveConnectErrorMessage(e),
         ),
       );
+    }
+  }
+
+  Future<void> _onBackgroundDriveSync(
+    BackgroundDriveSync event,
+    Emitter<VaultState> emit,
+  ) async {
+    // Silently refresh Drive state without touching syncStatus (no UI flash).
+    final connected = await getDriveConnectionStatusUseCase();
+    final mapping = await databaseSyncRepository.getMapping(state.databasePath);
+    _safeEmit(
+      emit,
+      state.copyWith(
+        isDriveConnected: connected,
+        isDriveLinked: mapping != null,
+        linkedDriveFileName: mapping?.driveFileName,
+        autoSyncEnabled: mapping?.autoSyncEnabled ?? true,
+        lastSyncAt: mapping?.lastSyncAt,
+      ),
+    );
+
+    if (!connected || mapping == null || !state.autoSyncEnabled) {
+      return;
+    }
+
+    _safeEmit(emit, state.copyWith(isSyncing: true));
+    try {
+      await _performSync(emit, silentIfConflict: true, emitSyncingStatus: false);
+
+      if (state.syncStatus != DatabaseSyncStatus.conflict) {
+        if (!state.isSaving) {
+          await _reload(
+            emit,
+            currentGroupId: state.currentGroupId,
+            keepLoadingFlag: false,
+          );
+        } else {
+          _safeEmit(emit, state.copyWith(isSyncReloadPending: true));
+        }
+      }
+    } catch (e, st) {
+      logError('Background Drive sync failed.', e, st);
+      _safeEmit(emit, state.copyWith(isDriveConnected: false));
+    } finally {
+      _safeEmit(emit, state.copyWith(isSyncing: false));
     }
   }
 
