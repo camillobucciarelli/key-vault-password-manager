@@ -7,27 +7,72 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
   // MARK: - Credential list (user explicitly opened the extension)
 
   override func prepareCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) {
-    let allCredentials = store.readCredentials()
+    let candidates = store.readCredentials().filter {
+      !$0.username.trimmingCharacters(in: .whitespaces).isEmpty ||
+      !$0.password.trimmingCharacters(in: .whitespaces).isEmpty
+    }
 
-    guard !allCredentials.isEmpty else {
+    guard !candidates.isEmpty else {
       cancelWithError(.failed, message: "No credentials available")
       return
     }
 
-    // Score and sort: best matches first, unmatched entries below
-    let scored = allCredentials
-      .map { cred -> (SharedAutofillCredential, Int) in
-        let score = serviceIdentifiers.reduce(0) {
-          $0 + matchScore(credential: cred, serviceId: $1)
-        }
-        return (cred, score)
+    // Match score: pure URL / package / title signal — no credential bonus.
+    // Used as the scoped-search gate and for silent-fill decisions.
+    let withMatchScore = candidates.map { cred -> (SharedAutofillCredential, Int) in
+      let ms = serviceIdentifiers.reduce(0) { $0 + matchScore(credential: cred, serviceId: $1) }
+      return (cred, ms)
+    }
+
+    // Drop zero-match entries only when service identifiers are known.
+    let scoped = serviceIdentifiers.isEmpty
+      ? withMatchScore
+      : withMatchScore.filter { $0.1 > 0 }
+
+    // No credentials matched this site — show full list so the user can pick.
+    let displayPairs: [(SharedAutofillCredential, Int)]
+    let topMatchScore: Int
+    let matchCount: Int
+    let bestId: String?
+
+    if scoped.isEmpty {
+      displayPairs   = withMatchScore
+      topMatchScore  = 0
+      matchCount     = 0
+      bestId         = nil
+    } else {
+      displayPairs   = scoped
+      topMatchScore  = withMatchScore.map { $0.1 }.max() ?? 0
+      matchCount     = withMatchScore.filter { $0.1 > 0 }.count
+      bestId         = withMatchScore.sorted { $0.1 > $1.1 }.first(where: { $0.1 > 0 })?.0.id
+    }
+
+    // Add credential-completeness bonus for ranking tiebreaking (mirrors Android).
+    let sorted = displayPairs
+      .map { (cred, ms) -> (SharedAutofillCredential, Int) in
+        let hasUsername = !cred.username.trimmingCharacters(in: .whitespaces).isEmpty
+        let hasPassword = !cred.password.trimmingCharacters(in: .whitespaces).isEmpty
+        return (cred, ms + ((hasUsername && hasPassword) ? 20 : 10))
       }
-      .sorted { $0.1 > $1.1 }
+      .sorted {
+        if $0.1 != $1.1 { return $0.1 > $1.1 }
+        return $0.0.title.localizedCompare($1.0.title) == .orderedAscending
+      }
 
-    let sorted = scored.map { $0.0 }
-    let bestId = scored.first(where: { $0.1 > 0 })?.0.id
+    // Silent fill: one unambiguous match or an exact-domain / exact-bundle hit.
+    if matchCount == 1 || topMatchScore >= 140 {
+      if let best = sorted.first?.0 {
+        extensionContext.completeRequest(
+          withSelectedCredential: ASPasswordCredential(
+            user: best.username,
+            password: best.password
+          )
+        )
+        return
+      }
+    }
 
-    showCredentialList(sorted, bestMatchId: bestId)
+    showCredentialList(sorted.map { $0.0 }, bestMatchId: bestId)
   }
 
   private func showCredentialList(
@@ -117,27 +162,6 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
   // MARK: - Matching helpers
 
-  private func topMatch(
-    in credentials: [SharedAutofillCredential],
-    for serviceIdentifiers: [ASCredentialServiceIdentifier]
-  ) -> SharedAutofillCredential? {
-    var best: (credential: SharedAutofillCredential, score: Int)?
-
-    for credential in credentials {
-      var score = 0
-      for serviceId in serviceIdentifiers {
-        score += matchScore(credential: credential, serviceId: serviceId)
-      }
-      if score > 0 {
-        if best == nil || score > best!.score {
-          best = (credential, score)
-        }
-      }
-    }
-
-    return best?.credential
-  }
-
   private func credentialMatchesService(
     _ credential: SharedAutofillCredential,
     serviceId: ASCredentialServiceIdentifier
@@ -145,41 +169,71 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     return matchScore(credential: credential, serviceId: serviceId) > 0
   }
 
+  /// Scores a credential against a single service identifier.
+  /// Returns the match signal (URL / package / title) without any credential
+  /// completeness bonus so that callers can use it as a gate condition.
   private func matchScore(
     credential: SharedAutofillCredential,
     serviceId: ASCredentialServiceIdentifier
   ) -> Int {
     let identifier = serviceId.identifier.lowercased()
+    var score = 0
 
-    // Domain match against entry URL
+    // Domain matching (3-tier: exact / subdomain / registrable)
     if let entryHost = urlHost(from: credential.url)?.lowercased() {
       let normalizedEntry = stripCommonPrefixes(entryHost)
-      let normalizedId = stripCommonPrefixes(identifier)
-      if normalizedEntry == normalizedId { return 140 }
-      if normalizedEntry.hasSuffix(".\(normalizedId)") ||
-         normalizedId.hasSuffix(".\(normalizedEntry)") { return 110 }
-      if registrable(normalizedEntry) == registrable(normalizedId) { return 80 }
+      let normalizedId    = stripCommonPrefixes(identifier)
+      if normalizedEntry == normalizedId {
+        score += 140
+      } else if normalizedEntry.hasSuffix(".\(normalizedId)") ||
+                normalizedId.hasSuffix(".\(normalizedEntry)") {
+        score += 110
+      } else if registrable(normalizedEntry) == registrable(normalizedId) {
+        score += 80
+      }
     }
 
-    // Bundle ID match via androidapp:// / iosbundleid:// URL
+    // Bundle ID via androidapp:// / iosbundleid:// URL scheme (3-tier: exact / related / substring)
     if let url = URL(string: credential.url),
        let scheme = url.scheme,
        (scheme == "androidapp" || scheme == "iosbundleid"),
        let bundleId = url.host?.lowercased() {
-      if bundleId == identifier { return 140 }
-    }
-
-    // Bundle ID match via KPH: iosBundle / KPH: androidPackage custom fields
-    for field in credential.customFields {
-      let key = field.key.lowercased()
-      if key == "kph: iosbundle" || key == "kph: androidpackage" {
-        let values = field.value.split(whereSeparator: { ",; ".contains($0) })
-          .map { $0.lowercased().trimmingCharacters(in: CharacterSet.whitespaces) }
-        if values.contains(identifier) { return 140 }
+      if bundleId == identifier {
+        score += 140
+      } else if bundleId.hasSuffix(".\(identifier)") || identifier.hasSuffix(".\(bundleId)") {
+        score += 100
+      } else if bundleId.contains(identifier) || identifier.contains(bundleId) {
+        score += 70
       }
     }
 
-    return 0
+    // Bundle ID via KPH custom fields (3-tier: exact / related / substring)
+    outer: for field in credential.customFields {
+      let key = field.key.lowercased()
+      if key == "kph: iosbundle" || key == "kph: androidpackage" {
+        let values = field.value
+          .split(whereSeparator: { ",; ".contains($0) })
+          .map { $0.lowercased().trimmingCharacters(in: .whitespaces) }
+        if values.contains(identifier) {
+          score += 140; break outer
+        } else if values.contains(where: { $0.hasSuffix(".\(identifier)") || identifier.hasSuffix(".\($0)") }) {
+          score += 100; break outer
+        } else if values.contains(where: { $0.contains(identifier) || identifier.contains($0) }) {
+          score += 70; break outer
+        }
+      }
+    }
+
+    // Title-in-domain heuristic (+35) — mirrors Android VaultAutofillMatcher.
+    // Only applied when the service identifier is a URL (not an app bundle ID).
+    if identifier.hasPrefix("https://") || identifier.hasPrefix("http://") {
+      let reqDomain = stripCommonPrefixes(urlHost(from: identifier) ?? "")
+      if !reqDomain.isEmpty && credential.title.lowercased().contains(reqDomain) {
+        score += 35
+      }
+    }
+
+    return score
   }
 
   // MARK: - URL utilities
