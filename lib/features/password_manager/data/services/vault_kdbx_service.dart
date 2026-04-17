@@ -127,7 +127,20 @@ class VaultKdbxService {
       keyFilePath: keyFilePath,
     );
 
-    final entries = file.body.rootGroup.getAllEntries()
+    final recycleBinUuid = file.recycleBin?.uuid.uuid;
+    final entries = file.body.rootGroup
+        .getAllEntries()
+        .where((entry) {
+          if (recycleBinUuid == null) return true;
+          // Walk up the parent chain to check if entry is inside the recycle bin.
+          KdbxGroup? group = entry.parent;
+          while (group != null) {
+            if (group.uuid.uuid == recycleBinUuid) return false;
+            group = group.parent;
+          }
+          return true;
+        })
+        .toList()
       ..sort((a, b) {
         final left = a.getString(KdbxKeyCommon.TITLE)?.getText() ?? '';
         final right = b.getString(KdbxKeyCommon.TITLE)?.getText() ?? '';
@@ -208,6 +221,62 @@ class VaultKdbxService {
     entry.setString(KdbxKeyCommon.URL, PlainValue(url));
     entry.setString(_notesKey, PlainValue(notes));
     _setCustomFields(entry, customFields);
+
+    await _save(databasePath, file);
+  }
+
+  Future<void> mergeEntries({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String primaryId,
+    required String secondaryId,
+  }) async {
+    final file = await _openFile(
+      databasePath: databasePath,
+      password: password,
+      keyFilePath: keyFilePath,
+    );
+
+    final allEntries = file.body.rootGroup.getAllEntries();
+    final primary = _findEntryById(allEntries, primaryId);
+    final secondary = _findEntryById(allEntries, secondaryId);
+
+    // Copy notes if primary notes is empty.
+    final primaryNotes = primary.getString(_notesKey)?.getText() ?? '';
+    final secondaryNotes = secondary.getString(_notesKey)?.getText() ?? '';
+    if (primaryNotes.trim().isEmpty && secondaryNotes.trim().isNotEmpty) {
+      primary.setString(_notesKey, PlainValue(secondaryNotes));
+    }
+
+    // Copy custom fields present in secondary but absent in primary.
+    final primaryStringKeys = primary.stringEntries
+        .map((e) => e.key.key.toLowerCase())
+        .toSet();
+    for (final stringEntry in secondary.stringEntries) {
+      final key = stringEntry.key.key;
+      if (_standardEntryKeys.contains(key.toLowerCase())) continue;
+      if (!primaryStringKeys.contains(key.toLowerCase())) {
+        primary.setString(KdbxKey(key), stringEntry.value ?? PlainValue(''));
+      }
+    }
+
+    // Copy attachments present in secondary but absent in primary.
+    final primaryAttachmentKeys =
+        primary.binaryEntries.map((e) => e.key.key).toSet();
+    for (final binaryEntry in secondary.binaryEntries) {
+      final key = binaryEntry.key.key;
+      if (!primaryAttachmentKeys.contains(key)) {
+        primary.createBinary(
+          isProtected: false,
+          name: key,
+          bytes: binaryEntry.value.value,
+        );
+      }
+    }
+
+    // Move secondary to recycle bin.
+    file.deleteEntry(secondary);
 
     await _save(databasePath, file);
   }

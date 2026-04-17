@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kdbx/kdbx.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
 
 void main() {
   const password = 'test-password';
@@ -173,6 +174,175 @@ void main() {
       expect(updated.notes, 'updated notes');
     },
   );
+
+  group('mergeEntries', () {
+    test('copies notes from secondary to primary when primary notes is empty',
+        () async {
+      final rootGroupId = await _rootGroupId(service, databasePath, password);
+      final primaryId = await service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: rootGroupId,
+        title: 'Primary',
+        username: 'alice',
+        entryPassword: 'pw',
+        url: 'https://github.com',
+        notes: '',
+      );
+      final secondaryId = await service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: rootGroupId,
+        title: 'Secondary',
+        username: 'alice',
+        entryPassword: 'pw',
+        url: 'https://github.com',
+        notes: 'important note',
+      );
+
+      await service.mergeEntries(
+        databasePath: databasePath,
+        password: password,
+        primaryId: primaryId,
+        secondaryId: secondaryId,
+      );
+
+      final all = await service.loadAllEntries(
+        databasePath: databasePath,
+        password: password,
+      );
+      final primary = all.firstWhere((e) => e.id == primaryId);
+      expect(primary.notes, 'important note');
+    });
+
+    test('does not overwrite primary notes when already set', () async {
+      final rootGroupId = await _rootGroupId(service, databasePath, password);
+      final primaryId = await service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: rootGroupId,
+        title: 'Primary',
+        username: 'alice',
+        entryPassword: 'pw',
+        url: 'https://github.com',
+        notes: 'keep me',
+      );
+      final secondaryId = await service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: rootGroupId,
+        title: 'Secondary',
+        username: 'alice',
+        entryPassword: 'pw',
+        url: 'https://github.com',
+        notes: 'do not copy',
+      );
+
+      await service.mergeEntries(
+        databasePath: databasePath,
+        password: password,
+        primaryId: primaryId,
+        secondaryId: secondaryId,
+      );
+
+      final all = await service.loadAllEntries(
+        databasePath: databasePath,
+        password: password,
+      );
+      final primary = all.firstWhere((e) => e.id == primaryId);
+      expect(primary.notes, 'keep me');
+    });
+
+    test('copies custom field from secondary absent in primary', () async {
+      final rootGroupId = await _rootGroupId(service, databasePath, password);
+      final primaryId = await service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: rootGroupId,
+        title: 'Primary',
+        username: 'alice',
+        entryPassword: 'pw',
+        url: 'https://github.com',
+        notes: '',
+        customFields: [
+          const VaultCustomField(key: 'PIN', value: '1234'),
+        ],
+      );
+      final secondaryId = await service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: rootGroupId,
+        title: 'Secondary',
+        username: 'alice',
+        entryPassword: 'pw',
+        url: 'https://github.com',
+        notes: '',
+        customFields: [
+          const VaultCustomField(key: 'Recovery', value: 'abc123'),
+        ],
+      );
+
+      await service.mergeEntries(
+        databasePath: databasePath,
+        password: password,
+        primaryId: primaryId,
+        secondaryId: secondaryId,
+      );
+
+      final all = await service.loadAllEntries(
+        databasePath: databasePath,
+        password: password,
+      );
+      final primary = all.firstWhere((e) => e.id == primaryId);
+      final fieldKeys = primary.customFields.map((f) => f.key).toList();
+      expect(fieldKeys, containsAll(['PIN', 'Recovery']));
+    });
+
+    test('moves secondary to recycle bin after merge', () async {
+      final rootGroupId = await _rootGroupId(service, databasePath, password);
+      final primaryId = await service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: rootGroupId,
+        title: 'Primary',
+        username: 'alice',
+        entryPassword: 'pw',
+        url: 'https://github.com',
+        notes: '',
+      );
+      final secondaryId = await service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: rootGroupId,
+        title: 'Secondary',
+        username: 'alice',
+        entryPassword: 'pw',
+        url: 'https://github.com',
+        notes: '',
+      );
+
+      await service.mergeEntries(
+        databasePath: databasePath,
+        password: password,
+        primaryId: primaryId,
+        secondaryId: secondaryId,
+      );
+
+      final recycleBinEntries = await service.loadRecycleBinEntries(
+        databasePath: databasePath,
+        password: password,
+      );
+      expect(recycleBinEntries.map((e) => e.id), contains(secondaryId));
+
+      final all = await service.loadAllEntries(
+        databasePath: databasePath,
+        password: password,
+      );
+      final activeIds = all.map((e) => e.id).toSet();
+      expect(activeIds, contains(primaryId));
+      expect(activeIds, isNot(contains(secondaryId)));
+    });
+  });
 }
 
 Future<void> _createDatabase({
