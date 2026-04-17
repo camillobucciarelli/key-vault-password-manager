@@ -25,6 +25,9 @@ class _EntriesCardState extends State<_EntriesCard> {
   String? _selectedEntryId;
   late final ScrollController _entriesScrollController;
   late final TextEditingController _searchController;
+  // Groups manually collapsed by the user while a search is active.
+  // Cleared whenever the search query changes.
+  final _searchCollapsed = <String>{};
 
   @override
   void initState() {
@@ -62,6 +65,9 @@ class _EntriesCardState extends State<_EntriesCard> {
         selection: TextSelection.collapsed(offset: widget.searchQuery.length),
       );
     }
+    if (widget.searchQuery != oldWidget.searchQuery) {
+      _searchCollapsed.clear();
+    }
 
     if (widget.entries.isEmpty) {
       if (_selectedEntryId != null) {
@@ -79,6 +85,20 @@ class _EntriesCardState extends State<_EntriesCard> {
     );
     if (!stillExists) {
       _selectedEntryId = null;
+    }
+  }
+
+  void _toggleGroup(BuildContext context, String groupId, bool isSearchActive) {
+    if (isSearchActive) {
+      setState(() {
+        if (_searchCollapsed.contains(groupId)) {
+          _searchCollapsed.remove(groupId);
+        } else {
+          _searchCollapsed.add(groupId);
+        }
+      });
+    } else {
+      context.read<VaultBloc>().add(ToggleVaultGroupExpanded(groupId));
     }
   }
 
@@ -221,9 +241,14 @@ class _EntriesCardState extends State<_EntriesCard> {
     await AppNavigation.pushFade<void>(
       context,
       _EntryDetailsPage(
-        entry: entry,
+        entryId: entry.id,
         onSelectedAction: (action) async {
-          await _handleEntryAction(context, entry, action);
+          final bloc = context.read<VaultBloc>();
+          final currentEntry = bloc.state.allEntries.firstWhere(
+            (e) => e.id == entry.id,
+            orElse: () => entry,
+          );
+          await _handleEntryAction(context, currentEntry, action);
         },
       ),
     );
@@ -338,7 +363,9 @@ class _EntriesCardState extends State<_EntriesCard> {
       }
 
       final isExpanded =
-          manualExpanded.contains(group.id) || autoExpanded.contains(group.id);
+          (manualExpanded.contains(group.id) ||
+              autoExpanded.contains(group.id)) &&
+          !_searchCollapsed.contains(group.id);
       final isCurrent = widget.currentGroupId == group.id;
       final children = byParent[group.id] ?? const <VaultGroup>[];
       final records = entriesByGroup[group.id] ?? const <VaultEntry>[];
@@ -450,16 +477,9 @@ class _EntriesCardState extends State<_EntriesCard> {
                     isRoot: isRoot,
                     childGroupsCount: childGroupsCount,
                     recordsCount: recordsCount,
-                    onOpen: () {
-                      context.read<VaultBloc>().add(
-                        ToggleVaultGroupExpanded(group.id),
-                      );
-                    },
-                    onToggleExpand: () {
-                      context.read<VaultBloc>().add(
-                        ToggleVaultGroupExpanded(group.id),
-                      );
-                    },
+                    onOpen: () => _toggleGroup(context, group.id, isSearchActive),
+                    onToggleExpand: () =>
+                        _toggleGroup(context, group.id, isSearchActive),
                     onSelectedAction: (action) async {
                       await _handleFolderAction(
                         context,
@@ -491,7 +511,13 @@ class _EntriesCardState extends State<_EntriesCard> {
       },
     );
 
-    return Scrollbar(controller: _entriesScrollController, child: list);
+    return NotificationListener<ScrollStartNotification>(
+      onNotification: (_) {
+        FocusScope.of(context).unfocus();
+        return false;
+      },
+      child: Scrollbar(controller: _entriesScrollController, child: list),
+    );
   }
 
   @override

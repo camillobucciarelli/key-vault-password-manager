@@ -206,7 +206,13 @@ class AppTheme {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       ),
       popupMenuTheme: PopupMenuThemeData(
+        color: isDark
+            ? colorScheme.surfaceContainerHigh
+            : colorScheme.surfaceContainerHigh,
+        surfaceTintColor: Colors.transparent,
+        elevation: 4,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        menuPadding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
       ),
       chipTheme: ChipThemeData(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),

@@ -2,15 +2,31 @@ part of '../vault_screen.dart';
 
 class _EntryDetailsPage extends StatelessWidget {
   const _EntryDetailsPage({
-    required this.entry,
+    required this.entryId,
     required this.onSelectedAction,
   });
 
-  final VaultEntry entry;
+  final String entryId;
   final ValueChanged<_EntryAction> onSelectedAction;
 
   @override
   Widget build(BuildContext context) {
+    final entry = context.select((VaultBloc bloc) {
+      for (final e in bloc.state.allEntries) {
+        if (e.id == entryId) return e;
+      }
+      return null;
+    });
+
+    if (entry == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted && Navigator.canPop(context)) {
+          Navigator.pop(context);
+        }
+      });
+      return const Scaffold(body: SizedBox.shrink());
+    }
+
     final topInset = MediaQuery.paddingOf(context).top + kToolbarHeight;
     final bottomInset = MediaQuery.viewPaddingOf(context).bottom + 12;
 
@@ -24,22 +40,35 @@ class _EntryDetailsPage extends StatelessWidget {
             ignorePointer: true,
             child: PopupMenuButton<_EntryAction>(
               onSelected: onSelectedAction,
-              itemBuilder: (context) => [
-                const PopupMenuItem(
+              itemBuilder: (context) => const [
+                _RoundedPopupItem(
                   value: _EntryAction.edit,
-                  child: Text('Edit'),
+                  child: _MenuItemContent(
+                    icon: AppIcons.edit,
+                    label: 'Edit',
+                  ),
                 ),
-                const PopupMenuItem(
+                _RoundedPopupItem(
                   value: _EntryAction.move,
-                  child: Text('Move'),
+                  child: _MenuItemContent(
+                    icon: AppIcons.move,
+                    label: 'Move',
+                  ),
                 ),
-                const PopupMenuItem(
+                _RoundedPopupItem(
                   value: _EntryAction.attachments,
-                  child: Text('Attachments'),
+                  child: _MenuItemContent(
+                    icon: AppIcons.attachment,
+                    label: 'Attachments',
+                  ),
                 ),
-                const PopupMenuItem(
+                _RoundedPopupItem(
                   value: _EntryAction.delete,
-                  child: Text('Delete'),
+                  child: _MenuItemContent(
+                    icon: AppIcons.delete,
+                    label: 'Delete',
+                    isDestructive: true,
+                  ),
                 ),
               ],
             ),
@@ -291,28 +320,54 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                     ],
                   ),
                 ),
+                Tooltip(
+                  message: 'Record info',
+                  ignorePointer: true,
+                  child: IconButton(
+                    onPressed: () =>
+                        _showRecordMetadataDialog(context, entry),
+                    icon: Icon(
+                      AppIcons.info,
+                      size: 18,
+                      color: colorScheme.onSurface.withValues(alpha: 0.52),
+                    ),
+                  ),
+                ),
                 if (widget.onSelectedAction != null)
                   Tooltip(
                     message: 'Record actions',
                     ignorePointer: true,
                     child: PopupMenuButton<_EntryAction>(
                       onSelected: widget.onSelectedAction,
-                      itemBuilder: (context) => [
-                        const PopupMenuItem(
+                      itemBuilder: (context) => const [
+                        _RoundedPopupItem(
                           value: _EntryAction.edit,
-                          child: Text('Edit'),
+                          child: _MenuItemContent(
+                            icon: AppIcons.edit,
+                            label: 'Edit',
+                          ),
                         ),
-                        const PopupMenuItem(
+                        _RoundedPopupItem(
                           value: _EntryAction.move,
-                          child: Text('Move'),
+                          child: _MenuItemContent(
+                            icon: AppIcons.move,
+                            label: 'Move',
+                          ),
                         ),
-                        const PopupMenuItem(
+                        _RoundedPopupItem(
                           value: _EntryAction.attachments,
-                          child: Text('Attachments'),
+                          child: _MenuItemContent(
+                            icon: AppIcons.attachment,
+                            label: 'Attachments',
+                          ),
                         ),
-                        const PopupMenuItem(
+                        _RoundedPopupItem(
                           value: _EntryAction.delete,
-                          child: Text('Delete'),
+                          child: _MenuItemContent(
+                            icon: AppIcons.delete,
+                            label: 'Delete',
+                            isDestructive: true,
+                          ),
                         ),
                       ],
                     ),
@@ -333,30 +388,6 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
             ),
             const SizedBox(height: 6),
             _EntryFieldsWrap(children: standardFields),
-            const SizedBox(height: 10),
-            _EntryDetailsSection(
-              title: 'Metadata',
-              caption: 'KDBX record timestamps.',
-              child: _EntryFieldsWrap(
-                children: [
-                  _EntryFieldCard(
-                    label: 'Created',
-                    value: _formatEntryDateTime(entry.createdAt),
-                    maxLines: 1,
-                  ),
-                  _EntryFieldCard(
-                    label: 'Last modified',
-                    value: _formatEntryDateTime(entry.updatedAt),
-                    maxLines: 1,
-                  ),
-                  _EntryFieldCard(
-                    label: 'Last password change',
-                    value: _formatEntryDateTime(entry.lastPasswordChangedAt),
-                    maxLines: 1,
-                  ),
-                ],
-              ),
-            ),
             if (customFields.isNotEmpty) ...[
               const SizedBox(height: 10),
               _EntryDetailsSection(
@@ -368,6 +399,120 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
           ],
         ),
       ),
+    );
+  }
+}
+
+void _showRecordMetadataDialog(BuildContext context, VaultEntry entry) {
+  showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      final theme = Theme.of(dialogContext);
+      final colorScheme = theme.colorScheme;
+
+      return AlertDialog(
+        titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+        contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        title: Row(
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Icon(
+                AppIcons.info,
+                size: 16,
+                color: colorScheme.onSurface.withValues(alpha: 0.72),
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Text('Record info'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _MetadataRow(
+              label: 'Created',
+              value: _formatEntryDateTime(entry.createdAt),
+            ),
+            _MetadataRow(
+              label: 'Last modified',
+              value: _formatEntryDateTime(entry.updatedAt),
+            ),
+            _MetadataRow(
+              label: 'Password changed',
+              value: _formatEntryDateTime(entry.lastPasswordChangedAt),
+              isLast: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+class _MetadataRow extends StatelessWidget {
+  const _MetadataRow({
+    required this.label,
+    required this.value,
+    this.isLast = false,
+  });
+
+  final String label;
+  final String value;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 120,
+                child: Text(
+                  label,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurface.withValues(alpha: 0.58),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  value,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurface,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  textAlign: TextAlign.end,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (!isLast)
+          Divider(
+            height: 1,
+            color: colorScheme.outlineVariant.withValues(alpha: 0.45),
+          ),
+      ],
     );
   }
 }
@@ -480,7 +625,7 @@ Future<void> _showCopyFieldMenu(
     context: context,
     position: RelativeRect.fromRect(fieldRect, Offset.zero & overlay.size),
     items: const [
-      PopupMenuItem<_EntryFieldMenuAction>(
+      _RoundedPopupItem<_EntryFieldMenuAction>(
         value: _EntryFieldMenuAction.copy,
         child: Row(
           children: [
@@ -793,27 +938,43 @@ class _FolderListItem extends StatelessWidget {
               child: PopupMenuButton<_FolderAction>(
                 onSelected: onSelectedAction,
                 itemBuilder: (context) => [
-                  PopupMenuItem(
+                  const _RoundedPopupItem(
                     value: _FolderAction.addRecord,
-                    child: const Text('Add record'),
+                    child: _MenuItemContent(
+                      icon: AppIcons.cardAdd,
+                      label: 'Add record',
+                    ),
                   ),
-                  PopupMenuItem(
+                  const _RoundedPopupItem(
                     value: _FolderAction.addSubfolder,
-                    child: const Text('Add subfolder'),
+                    child: _MenuItemContent(
+                      icon: AppIcons.folderAdd,
+                      label: 'Add subfolder',
+                    ),
                   ),
                   const PopupMenuDivider(),
-                  const PopupMenuItem(
+                  const _RoundedPopupItem(
                     value: _FolderAction.rename,
-                    child: Text('Rename'),
-                  ),
-                  if (!isRoot) ...const [
-                    PopupMenuItem(
-                      value: _FolderAction.move,
-                      child: Text('Move'),
+                    child: _MenuItemContent(
+                      icon: AppIcons.edit,
+                      label: 'Rename',
                     ),
-                    PopupMenuItem(
+                  ),
+                  if (!isRoot) ...[
+                    const _RoundedPopupItem(
+                      value: _FolderAction.move,
+                      child: _MenuItemContent(
+                        icon: AppIcons.move,
+                        label: 'Move',
+                      ),
+                    ),
+                    const _RoundedPopupItem(
                       value: _FolderAction.delete,
-                      child: Text('Delete'),
+                      child: _MenuItemContent(
+                        icon: AppIcons.delete,
+                        label: 'Delete',
+                        isDestructive: true,
+                      ),
                     ),
                   ],
                 ],
@@ -927,22 +1088,35 @@ class _RecordListItem extends StatelessWidget {
               ignorePointer: true,
               child: PopupMenuButton<_EntryAction>(
                 onSelected: onSelectedAction,
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
+                itemBuilder: (context) => const [
+                  _RoundedPopupItem(
                     value: _EntryAction.edit,
-                    child: Text('Edit'),
+                    child: _MenuItemContent(
+                      icon: AppIcons.edit,
+                      label: 'Edit',
+                    ),
                   ),
-                  const PopupMenuItem(
+                  _RoundedPopupItem(
                     value: _EntryAction.move,
-                    child: Text('Move'),
+                    child: _MenuItemContent(
+                      icon: AppIcons.move,
+                      label: 'Move',
+                    ),
                   ),
-                  const PopupMenuItem(
+                  _RoundedPopupItem(
                     value: _EntryAction.attachments,
-                    child: Text('Attachments'),
+                    child: _MenuItemContent(
+                      icon: AppIcons.attachment,
+                      label: 'Attachments',
+                    ),
                   ),
-                  const PopupMenuItem(
+                  _RoundedPopupItem(
                     value: _EntryAction.delete,
-                    child: Text('Delete'),
+                    child: _MenuItemContent(
+                      icon: AppIcons.delete,
+                      label: 'Delete',
+                      isDestructive: true,
+                    ),
                   ),
                 ],
               ),
@@ -1093,6 +1267,81 @@ class _LockOverlayState extends State<_LockOverlay> {
               ),
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MenuItemContent extends StatelessWidget {
+  const _MenuItemContent({
+    required this.icon,
+    required this.label,
+    this.isDestructive = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool isDestructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final color = isDestructive ? colorScheme.error : null;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 17, color: color),
+        const SizedBox(width: 10),
+        Text(label, style: color != null ? TextStyle(color: color) : null),
+      ],
+    );
+  }
+}
+
+/// [PopupMenuItem] with rounded hover/splash ink instead of a full-width
+/// rectangle. Replaces the default [InkWell] with one that has [borderRadius].
+class _RoundedPopupItem<T> extends PopupMenuItem<T> {
+  const _RoundedPopupItem({
+    super.key,
+    super.value,
+    super.enabled,
+    required super.child,
+  }) : super(padding: EdgeInsets.zero);
+
+  @override
+  PopupMenuItemState<T, PopupMenuItem<T>> createState() =>
+      _RoundedPopupItemState<T>();
+}
+
+class _RoundedPopupItemState<T>
+    extends PopupMenuItemState<T, _RoundedPopupItem<T>> {
+  static const _kRadius = 10.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return MergeSemantics(
+      child: Semantics(
+        enabled: widget.enabled,
+        button: true,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Material(
+            type: MaterialType.transparency,
+            borderRadius: BorderRadius.circular(_kRadius),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(_kRadius),
+              onTap: widget.enabled ? handleTap : null,
+              canRequestFocus: widget.enabled,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 11,
+                ),
+                child: buildChild(),
+              ),
+            ),
+          ),
         ),
       ),
     );
