@@ -7,6 +7,7 @@ import 'package:stream_transform/stream_transform.dart';
 import '../../../data/datasources/secure_data_source.dart';
 import '../../../data/services/android_autofill_coordinator.dart';
 import '../../../data/services/vault_csv_import_service.dart';
+import '../../../data/services/vault_duplicate_service.dart';
 import '../../../data/services/vault_kdbx_service.dart';
 import '../../../domain/models/database_sync_status.dart';
 import '../../../domain/models/sync_conflict.dart';
@@ -32,6 +33,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     required this.getSelectedKeyFilePathUseCase,
     required this.vaultKdbxService,
     required this.vaultCsvImportService,
+    required this.vaultDuplicateService,
     required this.getDriveConnectionStatusUseCase,
     required this.connectGoogleAccountUseCase,
     required this.disconnectGoogleAccountUseCase,
@@ -85,6 +87,9 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<ToggleCurrentDatabaseAutoSync>(_onToggleCurrentDatabaseAutoSync);
     on<ClearVaultSyncFeedback>(_onClearVaultSyncFeedback);
     on<BackgroundDriveSync>(_onBackgroundDriveSync);
+    on<LoadDuplicates>(_onLoadDuplicates);
+    on<DeleteDuplicateEntry>(_onDeleteDuplicateEntry);
+    on<MergeDuplicateEntries>(_onMergeDuplicateEntries);
     on<LoadDriveRemoteFiles>(
       _onLoadDriveRemoteFiles,
       transformer: (events, mapper) => events
@@ -101,6 +106,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   final VaultKdbxService vaultKdbxService;
   final AndroidAutofillCoordinator? androidAutofillCoordinator;
   final VaultCsvImportService vaultCsvImportService;
+  final VaultDuplicateService vaultDuplicateService;
   final GetDriveConnectionStatusUseCase getDriveConnectionStatusUseCase;
   final ConnectGoogleAccountUseCase connectGoogleAccountUseCase;
   final DisconnectGoogleAccountUseCase disconnectGoogleAccountUseCase;
@@ -144,6 +150,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       await _preloadDriveStateFromLocalMapping(emit);
       await _reload(emit);
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
+      _computeDuplicates(emit);
       add(const BackgroundDriveSync());
       unawaited(androidAutofillCoordinator?.onVaultReady());
     } catch (e, st) {
@@ -169,6 +176,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       keepLoadingFlag: false,
     );
     await _loadRecycleBinEntries(emit, isInitialLoad: true);
+    _computeDuplicates(emit);
   }
 
   Future<void> _onOpenRecycleBin(
@@ -1093,6 +1101,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         currentGroupId: targetGroupId,
         keepLoadingFlag: false,
       );
+      _computeDuplicates(emit);
       await _scheduleAutoSync(emit);
 
       final skippedTotal = parsed.skippedRows + failedCount + duplicateCount;
@@ -1121,6 +1130,84 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
 
   void _onClearVaultInfo(ClearVaultInfo event, Emitter<VaultState> emit) {
     _safeEmit(emit, state.copyWith(clearInfo: true));
+  }
+
+  void _computeDuplicates(Emitter<VaultState> emit) {
+    final groups = vaultDuplicateService.findDuplicates(state.allEntries);
+    _safeEmit(
+      emit,
+      state.copyWith(duplicateGroups: groups, isDuplicatesLoading: false),
+    );
+  }
+
+  void _onLoadDuplicates(LoadDuplicates event, Emitter<VaultState> emit) {
+    _safeEmit(emit, state.copyWith(isDuplicatesLoading: true));
+    _computeDuplicates(emit);
+  }
+
+  Future<void> _onDeleteDuplicateEntry(
+    DeleteDuplicateEntry event,
+    Emitter<VaultState> emit,
+  ) async {
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
+    try {
+      await vaultKdbxService.deleteEntry(
+        databasePath: state.databasePath,
+        password: _password,
+        keyFilePath: _keyFilePath,
+        entryId: event.entryId,
+      );
+      await _reload(
+        emit,
+        currentGroupId: state.currentGroupId,
+        keepLoadingFlag: false,
+      );
+      await _loadRecycleBinEntries(emit, isInitialLoad: true);
+      _computeDuplicates(emit);
+      await _scheduleAutoSync(emit);
+    } catch (e, st) {
+      logError('Failed deleting duplicate entry.', e, st);
+      _safeEmit(
+        emit,
+        state.copyWith(
+          isSaving: false,
+          errorMessage: 'Unable to delete duplicate.',
+        ),
+      );
+    }
+  }
+
+  Future<void> _onMergeDuplicateEntries(
+    MergeDuplicateEntries event,
+    Emitter<VaultState> emit,
+  ) async {
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
+    try {
+      await vaultKdbxService.mergeEntries(
+        databasePath: state.databasePath,
+        password: _password,
+        keyFilePath: _keyFilePath,
+        primaryId: event.primaryId,
+        secondaryId: event.secondaryId,
+      );
+      await _reload(
+        emit,
+        currentGroupId: state.currentGroupId,
+        keepLoadingFlag: false,
+      );
+      await _loadRecycleBinEntries(emit, isInitialLoad: true);
+      _computeDuplicates(emit);
+      await _scheduleAutoSync(emit);
+    } catch (e, st) {
+      logError('Failed merging duplicate entries.', e, st);
+      _safeEmit(
+        emit,
+        state.copyWith(
+          isSaving: false,
+          errorMessage: 'Unable to merge entries.',
+        ),
+      );
+    }
   }
 
   Future<void> _onConnectGoogleDrive(
