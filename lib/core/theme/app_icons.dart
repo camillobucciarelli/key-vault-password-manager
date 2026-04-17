@@ -43,4 +43,14 @@ class AppIcons {
   static const IconData magic = PhosphorIconsRegular.sparkle;
   static const IconData file = PhosphorIconsRegular.file;
   static const IconData fileKey = PhosphorIconsRegular.fileLock;
+  static const IconData move = PhosphorIconsRegular.arrowRight;
+  static const IconData info = PhosphorIconsRegular.info;
+  static const IconData settings = PhosphorIconsRegular.gear;
+  static const IconData globe = PhosphorIconsRegular.globe;
+  static const IconData linkSimple = PhosphorIconsRegular.linkSimple;
+  static const IconData export = PhosphorIconsRegular.export;
+  static const IconData import = PhosphorIconsRegular.arrowLineDown;
+  static const IconData sun = PhosphorIconsRegular.sun;
+  static const IconData moon = PhosphorIconsRegular.moon;
+  static const IconData desktop = PhosphorIconsRegular.desktop;
 }

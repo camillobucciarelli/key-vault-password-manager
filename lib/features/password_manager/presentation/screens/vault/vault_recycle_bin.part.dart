@@ -323,13 +323,20 @@ class _RecycleBinEntryListItem extends StatelessWidget {
               child: PopupMenuButton<_RecycleBinEntryAction>(
                 onSelected: onSelectedAction,
                 itemBuilder: (context) => const [
-                  PopupMenuItem(
+                  _RoundedPopupItem(
                     value: _RecycleBinEntryAction.restore,
-                    child: Text('Restore'),
+                    child: _MenuItemContent(
+                      icon: AppIcons.refresh,
+                      label: 'Restore',
+                    ),
                   ),
-                  PopupMenuItem(
+                  _RoundedPopupItem(
                     value: _RecycleBinEntryAction.deletePermanently,
-                    child: Text('Delete permanently'),
+                    child: _MenuItemContent(
+                      icon: AppIcons.deleteSweep,
+                      label: 'Delete permanently',
+                      isDestructive: true,
+                    ),
                   ),
                 ],
               ),
