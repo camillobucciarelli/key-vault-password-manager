@@ -405,6 +405,9 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                                   onOpenRecycleBin: () {
                                     _showRecycleBinDialog(context);
                                   },
+                                  onOpenDuplicates: () {
+                                    _showDuplicatesDialog(context);
+                                  },
                                   onChangeDatabase:
                                       _closeCurrentDatabaseAndSelectAnother,
                                 ),
@@ -457,7 +460,8 @@ bool _syncStatusStripBuildWhen(VaultState previous, VaultState current) {
       previous.syncStatus != current.syncStatus ||
       previous.lastSyncAt != current.lastSyncAt ||
       previous.autoSyncEnabled != current.autoSyncEnabled ||
-      previous.isSyncing != current.isSyncing;
+      previous.isSyncing != current.isSyncing ||
+      previous.duplicateGroupCount != current.duplicateGroupCount;
 }
 
 bool _entriesCardBuildWhen(VaultState previous, VaultState current) {
@@ -472,10 +476,12 @@ bool _entriesCardBuildWhen(VaultState previous, VaultState current) {
 class _VaultSyncStatusStrip extends StatelessWidget {
   const _VaultSyncStatusStrip({
     required this.onOpenRecycleBin,
+    required this.onOpenDuplicates,
     required this.onChangeDatabase,
   });
 
   final VoidCallback onOpenRecycleBin;
+  final VoidCallback onOpenDuplicates;
   final Future<void> Function() onChangeDatabase;
 
   @override
@@ -489,6 +495,7 @@ class _VaultSyncStatusStrip extends StatelessWidget {
             context.read<VaultBloc>().add(const RefreshVault());
           },
           onOpenRecycleBin: onOpenRecycleBin,
+          onOpenDuplicates: onOpenDuplicates,
           onChangeDatabase: onChangeDatabase,
         );
       },
