@@ -4,6 +4,7 @@ import 'package:password_manager/features/password_manager/presentation/bloc/vau
 import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_csv_import_service.dart';
+import 'package:password_manager/features/password_manager/data/services/vault_duplicate_service.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_status.dart';
 import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
@@ -314,6 +315,7 @@ VaultBloc _makeBloc(_FakeSyncRepo repo, _FakeVaultKdbxService kdbx) {
     ),
     vaultKdbxService: kdbx,
     vaultCsvImportService: VaultCsvImportService(),
+    vaultDuplicateService: VaultDuplicateService(),
     getDriveConnectionStatusUseCase: GetDriveConnectionStatusUseCase(repo),
     connectGoogleAccountUseCase: ConnectGoogleAccountUseCase(repo),
     disconnectGoogleAccountUseCase: DisconnectGoogleAccountUseCase(repo),

@@ -346,3 +346,29 @@ class LoadDriveRemoteFiles extends VaultEvent {
 class BackgroundDriveSync extends VaultEvent {
   const BackgroundDriveSync();
 }
+
+class LoadDuplicates extends VaultEvent {
+  const LoadDuplicates();
+}
+
+class DeleteDuplicateEntry extends VaultEvent {
+  const DeleteDuplicateEntry(this.entryId);
+
+  final String entryId;
+
+  @override
+  List<Object?> get props => [entryId];
+}
+
+class MergeDuplicateEntries extends VaultEvent {
+  const MergeDuplicateEntries({
+    required this.primaryId,
+    required this.secondaryId,
+  });
+
+  final String primaryId;
+  final String secondaryId;
+
+  @override
+  List<Object?> get props => [primaryId, secondaryId];
+}

@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 
 import '../../../domain/models/database_sync_status.dart';
 import '../../../domain/models/drive_remote_file.dart';
+import '../../../domain/models/duplicate_group.dart';
 import '../../../domain/models/sync_conflict.dart';
 import '../../../domain/models/vault_entry.dart';
 import '../../../domain/models/vault_group.dart';
@@ -39,6 +40,8 @@ class VaultState extends Equatable {
     this.linkedDriveFileName,
     this.isSyncing = false,
     this.isSyncReloadPending = false,
+    this.duplicateGroups = const [],
+    this.isDuplicatesLoading = false,
   });
 
   factory VaultState.initial({required String databasePath}) {
@@ -74,6 +77,10 @@ class VaultState extends Equatable {
   final String? linkedDriveFileName;
   final bool isSyncing;
   final bool isSyncReloadPending;
+  final List<DuplicateGroup> duplicateGroups;
+  final bool isDuplicatesLoading;
+
+  int get duplicateGroupCount => duplicateGroups.length;
 
   VaultState copyWith({
     String? rootGroupId,
@@ -104,6 +111,8 @@ class VaultState extends Equatable {
     String? linkedDriveFileName,
     bool? isSyncing,
     bool? isSyncReloadPending,
+    List<DuplicateGroup>? duplicateGroups,
+    bool? isDuplicatesLoading,
     bool clearError = false,
     bool clearInfo = false,
     bool clearSyncError = false,
@@ -145,6 +154,8 @@ class VaultState extends Equatable {
       isSyncReloadPending: clearSyncReloadPending
           ? false
           : isSyncReloadPending ?? this.isSyncReloadPending,
+      duplicateGroups: duplicateGroups ?? this.duplicateGroups,
+      isDuplicatesLoading: isDuplicatesLoading ?? this.isDuplicatesLoading,
     );
   }
 
@@ -219,5 +230,7 @@ class VaultState extends Equatable {
     linkedDriveFileName,
     isSyncing,
     isSyncReloadPending,
+    duplicateGroups,
+    isDuplicatesLoading,
   ];
 }

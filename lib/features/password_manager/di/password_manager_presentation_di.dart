@@ -63,6 +63,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       getSelectedKeyFilePathUseCase: sl(),
       vaultKdbxService: sl(),
       vaultCsvImportService: sl(),
+      vaultDuplicateService: sl(),
       getDriveConnectionStatusUseCase: sl(),
       connectGoogleAccountUseCase: sl(),
       disconnectGoogleAccountUseCase: sl(),
