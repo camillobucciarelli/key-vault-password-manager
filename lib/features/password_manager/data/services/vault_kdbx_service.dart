@@ -68,8 +68,10 @@ class VaultKdbxService {
         .map((entry) => _mapEntry(resolvedCurrentGroup.uuid.uuid, entry))
         .toList(growable: false);
 
+    final recycleBinUuid = file.recycleBin?.uuid.uuid;
     final allEntryModels = rootGroup
         .getAllEntries()
+        .where((entry) => !_isInsideRecycleBin(entry, recycleBinUuid))
         .map(
           (entry) =>
               _mapEntry(entry.parent?.uuid.uuid ?? rootGroup.uuid.uuid, entry),
@@ -128,24 +130,16 @@ class VaultKdbxService {
     );
 
     final recycleBinUuid = file.recycleBin?.uuid.uuid;
-    final entries = file.body.rootGroup
-        .getAllEntries()
-        .where((entry) {
-          if (recycleBinUuid == null) return true;
-          // Walk up the parent chain to check if entry is inside the recycle bin.
-          KdbxGroup? group = entry.parent;
-          while (group != null) {
-            if (group.uuid.uuid == recycleBinUuid) return false;
-            group = group.parent;
-          }
-          return true;
-        })
-        .toList()
-      ..sort((a, b) {
-        final left = a.getString(KdbxKeyCommon.TITLE)?.getText() ?? '';
-        final right = b.getString(KdbxKeyCommon.TITLE)?.getText() ?? '';
-        return left.toLowerCase().compareTo(right.toLowerCase());
-      });
+    final entries =
+        file.body.rootGroup
+            .getAllEntries()
+            .where((entry) => !_isInsideRecycleBin(entry, recycleBinUuid))
+            .toList()
+          ..sort((a, b) {
+            final left = a.getString(KdbxKeyCommon.TITLE)?.getText() ?? '';
+            final right = b.getString(KdbxKeyCommon.TITLE)?.getText() ?? '';
+            return left.toLowerCase().compareTo(right.toLowerCase());
+          });
 
     return entries
         .map(
@@ -262,8 +256,9 @@ class VaultKdbxService {
     }
 
     // Copy attachments present in secondary but absent in primary.
-    final primaryAttachmentKeys =
-        primary.binaryEntries.map((e) => e.key.key).toSet();
+    final primaryAttachmentKeys = primary.binaryEntries
+        .map((e) => e.key.key)
+        .toSet();
     for (final binaryEntry in secondary.binaryEntries) {
       final key = binaryEntry.key.key;
       if (!primaryAttachmentKeys.contains(key)) {
@@ -733,6 +728,17 @@ class VaultKdbxService {
       (entry) => entry.uuid.uuid == id,
       orElse: () => throw Exception('Entry not found.'),
     );
+  }
+
+  bool _isInsideRecycleBin(KdbxEntry entry, String? recycleBinUuid) {
+    if (recycleBinUuid == null) return false;
+
+    KdbxGroup? group = entry.parent;
+    while (group != null) {
+      if (group.uuid.uuid == recycleBinUuid) return true;
+      group = group.parent;
+    }
+    return false;
   }
 
   VaultEntry _mapEntry(String groupId, KdbxEntry entry) {

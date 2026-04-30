@@ -176,44 +176,46 @@ void main() {
   );
 
   group('mergeEntries', () {
-    test('copies notes from secondary to primary when primary notes is empty',
-        () async {
-      final rootGroupId = await _rootGroupId(service, databasePath, password);
-      final primaryId = await service.createEntry(
-        databasePath: databasePath,
-        password: password,
-        groupId: rootGroupId,
-        title: 'Primary',
-        username: 'alice',
-        entryPassword: 'pw',
-        url: 'https://github.com',
-        notes: '',
-      );
-      final secondaryId = await service.createEntry(
-        databasePath: databasePath,
-        password: password,
-        groupId: rootGroupId,
-        title: 'Secondary',
-        username: 'alice',
-        entryPassword: 'pw',
-        url: 'https://github.com',
-        notes: 'important note',
-      );
+    test(
+      'copies notes from secondary to primary when primary notes is empty',
+      () async {
+        final rootGroupId = await _rootGroupId(service, databasePath, password);
+        final primaryId = await service.createEntry(
+          databasePath: databasePath,
+          password: password,
+          groupId: rootGroupId,
+          title: 'Primary',
+          username: 'alice',
+          entryPassword: 'pw',
+          url: 'https://github.com',
+          notes: '',
+        );
+        final secondaryId = await service.createEntry(
+          databasePath: databasePath,
+          password: password,
+          groupId: rootGroupId,
+          title: 'Secondary',
+          username: 'alice',
+          entryPassword: 'pw',
+          url: 'https://github.com',
+          notes: 'important note',
+        );
 
-      await service.mergeEntries(
-        databasePath: databasePath,
-        password: password,
-        primaryId: primaryId,
-        secondaryId: secondaryId,
-      );
+        await service.mergeEntries(
+          databasePath: databasePath,
+          password: password,
+          primaryId: primaryId,
+          secondaryId: secondaryId,
+        );
 
-      final all = await service.loadAllEntries(
-        databasePath: databasePath,
-        password: password,
-      );
-      final primary = all.firstWhere((e) => e.id == primaryId);
-      expect(primary.notes, 'important note');
-    });
+        final all = await service.loadAllEntries(
+          databasePath: databasePath,
+          password: password,
+        );
+        final primary = all.firstWhere((e) => e.id == primaryId);
+        expect(primary.notes, 'important note');
+      },
+    );
 
     test('does not overwrite primary notes when already set', () async {
       final rootGroupId = await _rootGroupId(service, databasePath, password);
@@ -264,9 +266,7 @@ void main() {
         entryPassword: 'pw',
         url: 'https://github.com',
         notes: '',
-        customFields: [
-          const VaultCustomField(key: 'PIN', value: '1234'),
-        ],
+        customFields: [const VaultCustomField(key: 'PIN', value: '1234')],
       );
       final secondaryId = await service.createEntry(
         databasePath: databasePath,
@@ -339,6 +339,46 @@ void main() {
         password: password,
       );
       final activeIds = all.map((e) => e.id).toSet();
+      expect(activeIds, contains(primaryId));
+      expect(activeIds, isNot(contains(secondaryId)));
+    });
+
+    test('loadVault allEntries excludes entries in recycle bin', () async {
+      final rootGroupId = await _rootGroupId(service, databasePath, password);
+      final primaryId = await service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: rootGroupId,
+        title: 'Primary',
+        username: 'alice',
+        entryPassword: 'pw',
+        url: 'https://github.com',
+        notes: '',
+      );
+      final secondaryId = await service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: rootGroupId,
+        title: 'Secondary',
+        username: 'alice',
+        entryPassword: 'pw',
+        url: 'https://github.com',
+        notes: '',
+      );
+
+      await service.mergeEntries(
+        databasePath: databasePath,
+        password: password,
+        primaryId: primaryId,
+        secondaryId: secondaryId,
+      );
+
+      final snapshot = await service.loadVault(
+        databasePath: databasePath,
+        password: password,
+      );
+      final activeIds = snapshot.allEntries.map((e) => e.id).toSet();
+
       expect(activeIds, contains(primaryId));
       expect(activeIds, isNot(contains(secondaryId)));
     });
