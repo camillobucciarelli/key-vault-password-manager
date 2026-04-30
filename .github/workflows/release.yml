@@ -3,6 +3,8 @@ name: Release
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'pubspec.yaml'
 
 permissions:
   contents: write
@@ -11,26 +13,43 @@ jobs:
   version:
     runs-on: ubuntu-latest
     outputs:
-      version_name: ${{ steps.parse.outputs.version_name }}
-      build_number: ${{ steps.parse.outputs.build_number }}
-      tag: ${{ steps.parse.outputs.tag }}
+      version_name: ${{ steps.bump.outputs.version_name }}
+      build_number: ${{ steps.bump.outputs.build_number }}
+      tag: ${{ steps.bump.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
-      - id: parse
-        env:
-          RUN_NUMBER: ${{ github.run_number }}
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: bump
         run: |
-          VERSION_NAME=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1)
-          BUILD_NUMBER="$RUN_NUMBER"
+          CURRENT=$(grep '^version:' pubspec.yaml | sed 's/version: //')
+          VERSION_NAME=$(echo "$CURRENT" | cut -d'+' -f1)
+          OLD_BUILD=$(echo "$CURRENT" | cut -d'+' -f2)
+          BUILD_NUMBER=$((OLD_BUILD + 1))
+          sed -i "s/^version: .*/version: ${VERSION_NAME}+${BUILD_NUMBER}/" pubspec.yaml
           echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
           echo "tag=v${VERSION_NAME}+${BUILD_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and tag
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pubspec.yaml
+          git commit -m "chore: bump build number to ${TAG}"
+          git tag "$TAG"
+          git push origin main --tags
 
   android:
     needs: version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
 
       - uses: subosito/flutter-action@v2
         with:
@@ -51,13 +70,6 @@ jobs:
           printf 'storeFile=upload-keystore.jks\nstorePassword=%s\nkeyAlias=upload\nkeyPassword=%s\n' \
             "$ANDROID_STORE_PASSWORD" "$ANDROID_KEY_PASSWORD" > android/key.properties
 
-      - name: Set build number
-        env:
-          VERSION_NAME: ${{ needs.version.outputs.version_name }}
-          BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
-        run: |
-          sed -i "s/^version: .*/version: ${VERSION_NAME}+${BUILD_NUMBER}/" pubspec.yaml
-
       - name: Build
         run: ./tool/build_prod_packages.sh --platforms android
 
@@ -73,6 +85,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
 
       - uses: subosito/flutter-action@v2
         with:
@@ -91,13 +105,6 @@ jobs:
           ENV_DART_DEFINE: ${{ secrets.ENV_DART_DEFINE }}
         run: echo "$ENV_DART_DEFINE" > .env.dart.define.json
 
-      - name: Set build number
-        env:
-          VERSION_NAME: ${{ needs.version.outputs.version_name }}
-          BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
-        run: |
-          sed -i "s/^version: .*/version: ${VERSION_NAME}+${BUILD_NUMBER}/" pubspec.yaml
-
       - name: Build
         run: ./tool/build_prod_packages.sh --platforms linux
 
@@ -113,18 +120,13 @@ jobs:
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
 
       - name: Setup env file
         env:
           ENV_DART_DEFINE: ${{ secrets.ENV_DART_DEFINE }}
         run: echo "$ENV_DART_DEFINE" > .env.dart.define.json
-
-      - name: Set build number
-        env:
-          VERSION_NAME: ${{ needs.version.outputs.version_name }}
-          BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
-        run: |
-          sed -i '' "s/^version: .*/version: ${VERSION_NAME}+${BUILD_NUMBER}/" pubspec.yaml
 
       - name: Build and upload to App Store
         run: ./tool/build_prod_packages.sh --platforms ios-appstore
@@ -134,18 +136,13 @@ jobs:
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
 
       - name: Setup env file
         env:
           ENV_DART_DEFINE: ${{ secrets.ENV_DART_DEFINE }}
         run: echo "$ENV_DART_DEFINE" > .env.dart.define.json
-
-      - name: Set build number
-        env:
-          VERSION_NAME: ${{ needs.version.outputs.version_name }}
-          BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
-        run: |
-          sed -i '' "s/^version: .*/version: ${VERSION_NAME}+${BUILD_NUMBER}/" pubspec.yaml
 
       - name: Build and upload to App Store
         run: ./tool/build_prod_packages.sh --platforms macos-appstore
@@ -155,6 +152,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
 
       - uses: subosito/flutter-action@v2
         with:
@@ -165,16 +164,6 @@ jobs:
           ENV_DART_DEFINE: ${{ secrets.ENV_DART_DEFINE }}
         run: echo "$ENV_DART_DEFINE" > .env.dart.define.json
         shell: bash
-
-      - name: Set build number
-        env:
-          VERSION_NAME: ${{ needs.version.outputs.version_name }}
-          BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
-        run: |
-          (Get-Content pubspec.yaml) `
-            -replace '^version: .*', "version: $env:VERSION_NAME+$env:BUILD_NUMBER" |
-          Set-Content pubspec.yaml
-        shell: pwsh
 
       - name: Build
         run: ./tool/build_prod_packages.sh --platforms windows
