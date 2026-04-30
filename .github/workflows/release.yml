@@ -55,7 +55,8 @@ jobs:
         env:
           VERSION_NAME: ${{ needs.version.outputs.version_name }}
           BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
-        run: sed -i "s/^version: .*/version: ${VERSION_NAME}+${BUILD_NUMBER}/" pubspec.yaml
+        run: |
+          sed -i "s/^version: .*/version: ${VERSION_NAME}+${BUILD_NUMBER}/" pubspec.yaml
 
       - name: Build
         run: ./tool/build_prod_packages.sh --platforms android
@@ -94,7 +95,8 @@ jobs:
         env:
           VERSION_NAME: ${{ needs.version.outputs.version_name }}
           BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
-        run: sed -i "s/^version: .*/version: ${VERSION_NAME}+${BUILD_NUMBER}/" pubspec.yaml
+        run: |
+          sed -i "s/^version: .*/version: ${VERSION_NAME}+${BUILD_NUMBER}/" pubspec.yaml
 
       - name: Build
         run: ./tool/build_prod_packages.sh --platforms linux
