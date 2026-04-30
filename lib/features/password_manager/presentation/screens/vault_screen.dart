@@ -28,6 +28,7 @@ import '../../domain/models/merge_preview.dart';
 import '../../domain/models/database_sync_status.dart';
 import '../../domain/services/password_generator_service.dart';
 import '../../domain/models/sync_conflict.dart';
+import '../../domain/models/vault_attachment.dart';
 import '../../domain/models/vault_custom_field.dart';
 import '../../domain/models/vault_entry.dart';
 import '../../domain/models/vault_group.dart';

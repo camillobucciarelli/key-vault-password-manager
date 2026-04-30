@@ -43,17 +43,11 @@ class _EntryDetailsPage extends StatelessWidget {
               itemBuilder: (context) => const [
                 _RoundedPopupItem(
                   value: _EntryAction.edit,
-                  child: _MenuItemContent(
-                    icon: AppIcons.edit,
-                    label: 'Edit',
-                  ),
+                  child: _MenuItemContent(icon: AppIcons.edit, label: 'Edit'),
                 ),
                 _RoundedPopupItem(
                   value: _EntryAction.move,
-                  child: _MenuItemContent(
-                    icon: AppIcons.move,
-                    label: 'Move',
-                  ),
+                  child: _MenuItemContent(icon: AppIcons.move, label: 'Move'),
                 ),
                 _RoundedPopupItem(
                   value: _EntryAction.attachments,
@@ -157,9 +151,9 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
     final totpData = entry.otpUri == null
         ? null
         : TotpUtils.fromOtpAuthUri(entry.otpUri!, _nowUtc);
-    final resolvedPassword = _passwordVisible
-        ? (entry.password.isEmpty ? 'Not set' : entry.password)
-        : (entry.password.isEmpty ? 'Not set' : '••••••••••••');
+    final resolvedPassword = entry.password.isEmpty
+        ? ''
+        : (_passwordVisible ? entry.password : '••••••••••••');
     final standardFields = <Widget>[
       _EntryFieldCard(
         label: 'Username',
@@ -324,8 +318,7 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                   message: 'Record info',
                   ignorePointer: true,
                   child: IconButton(
-                    onPressed: () =>
-                        _showRecordMetadataDialog(context, entry),
+                    onPressed: () => _showRecordMetadataDialog(context, entry),
                     icon: Icon(
                       AppIcons.info,
                       size: 18,
@@ -388,6 +381,20 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
             ),
             const SizedBox(height: 6),
             _EntryFieldsWrap(children: standardFields),
+            if (entry.attachments.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              _EntryDetailsSection(
+                title: 'Attachments',
+                child: _AttachmentsDetailCard(
+                  attachments: entry.attachments,
+                  onManage: widget.onSelectedAction == null
+                      ? null
+                      : () {
+                          widget.onSelectedAction!(_EntryAction.attachments);
+                        },
+                ),
+              ),
+            ],
             if (customFields.isNotEmpty) ...[
               const SizedBox(height: 10),
               _EntryDetailsSection(
@@ -733,6 +740,98 @@ class _CustomFieldsDetailCard extends StatelessWidget {
           if (i < fields.length - 1) const SizedBox(height: 8),
         ],
       ],
+    );
+  }
+}
+
+class _AttachmentsDetailCard extends StatelessWidget {
+  const _AttachmentsDetailCard({required this.attachments, this.onManage});
+
+  final List<VaultAttachment> attachments;
+  final VoidCallback? onManage;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return StyledInfoContainer(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      borderRadius: 10,
+      backgroundColor: colorScheme.surfaceContainerHighest.withValues(
+        alpha: 0.34,
+      ),
+      borderColor: colorScheme.outlineVariant.withValues(alpha: 0.65),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < attachments.length; i++) ...[
+            _AttachmentDetailRow(attachment: attachments[i]),
+            if (i < attachments.length - 1)
+              Divider(
+                height: 1,
+                color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+              ),
+          ],
+          if (onManage != null) ...[
+            Divider(
+              height: 1,
+              color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: onManage,
+                icon: const Icon(AppIcons.attachment, size: 16),
+                label: const Text('Manage'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _AttachmentDetailRow extends StatelessWidget {
+  const _AttachmentDetailRow({required this.attachment});
+
+  final VaultAttachment attachment;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(
+            AppIcons.attachment,
+            size: 16,
+            color: colorScheme.onSurface.withValues(alpha: 0.62),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              attachment.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            _formatBytes(attachment.size),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurface.withValues(alpha: 0.62),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1091,17 +1190,11 @@ class _RecordListItem extends StatelessWidget {
                 itemBuilder: (context) => const [
                   _RoundedPopupItem(
                     value: _EntryAction.edit,
-                    child: _MenuItemContent(
-                      icon: AppIcons.edit,
-                      label: 'Edit',
-                    ),
+                    child: _MenuItemContent(icon: AppIcons.edit, label: 'Edit'),
                   ),
                   _RoundedPopupItem(
                     value: _EntryAction.move,
-                    child: _MenuItemContent(
-                      icon: AppIcons.move,
-                      label: 'Move',
-                    ),
+                    child: _MenuItemContent(icon: AppIcons.move, label: 'Move'),
                   ),
                   _RoundedPopupItem(
                     value: _EntryAction.attachments,
@@ -1168,10 +1261,7 @@ class _PrivacyOverlay extends StatelessWidget {
 }
 
 class _LockOverlay extends StatefulWidget {
-  const _LockOverlay({
-    required this.databasePath,
-    required this.onUnlocked,
-  });
+  const _LockOverlay({required this.databasePath, required this.onUnlocked});
 
   final String databasePath;
   final VoidCallback onUnlocked;
@@ -1192,8 +1282,7 @@ class _LockOverlayState extends State<_LockOverlay> {
   }
 
   Future<void> _initBiometric() async {
-    final available =
-        await di.sl<BiometricDataSource>().isBiometricAvailable();
+    final available = await di.sl<BiometricDataSource>().isBiometricAvailable();
     if (!mounted) return;
     setState(() => _biometricAvailable = available);
     if (available) {
