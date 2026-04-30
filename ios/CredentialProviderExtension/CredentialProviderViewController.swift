@@ -1,19 +1,33 @@
 import AuthenticationServices
+import OSLog
 import SwiftUI
+
+private let log = Logger(subsystem: "dev.camillobucciarelli.kdbxKeyVault.CredentialProviderExtension", category: "ext")
 
 final class CredentialProviderViewController: ASCredentialProviderViewController {
   private let store = SharedAutofillStore()
 
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    log.info("viewDidLoad")
+  }
+
   // MARK: - Credential list (user explicitly opened the extension)
 
   override func prepareCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) {
+    log.info("prepareCredentialList serviceIdentifiers=\(serviceIdentifiers.map { $0.identifier }, privacy: .public)")
+
     let candidates = store.readCredentials().filter {
       !$0.username.trimmingCharacters(in: .whitespaces).isEmpty ||
       !$0.password.trimmingCharacters(in: .whitespaces).isEmpty
     }
+    log.info("candidates count=\(candidates.count, privacy: .public)")
 
+    // Empty → show friendly empty state instead of cancelling (avoids the
+    // "flash-and-close" UX when main app has never unlocked).
     guard !candidates.isEmpty else {
-      cancelWithError(.failed, message: "No credentials available")
+      log.info("no candidates → showing empty state")
+      showCredentialList([], bestMatchId: nil)
       return
     }
 
@@ -59,9 +73,12 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         return $0.0.title.localizedCompare($1.0.title) == .orderedAscending
       }
 
-    // Silent fill: one unambiguous match or an exact-domain / exact-bundle hit.
+    log.info("topMatchScore=\(topMatchScore, privacy: .public) matchCount=\(matchCount, privacy: .public)")
+
+    // Silent fill when we have a clear single winner.
     if matchCount == 1 || topMatchScore >= 140 {
       if let best = sorted.first?.0 {
+        log.info("silent fill id=\(best.id, privacy: .public)")
         extensionContext.completeRequest(
           withSelectedCredential: ASPasswordCredential(
             user: best.username,
@@ -79,10 +96,13 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     _ credentials: [SharedAutofillCredential],
     bestMatchId: String?
   ) {
+    log.info("showCredentialList count=\(credentials.count, privacy: .public)")
+
     let rootView = CredentialListView(
       credentials: credentials,
       bestMatchId: bestMatchId,
       onSelect: { [weak self] cred in
+        log.info("user selected credential id=\(cred.id, privacy: .public)")
         self?.extensionContext.completeRequest(
           withSelectedCredential: ASPasswordCredential(
             user: cred.username,
@@ -91,6 +111,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         )
       },
       onCancel: { [weak self] in
+        log.info("user cancelled")
         self?.cancelWithError(.userCanceled)
       }
     )
@@ -106,6 +127,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
       host.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
     ])
     host.didMove(toParent: self)
+    log.info("host controller attached")
   }
 
   // MARK: - Silent fill (iOS already knows which credential to use)
@@ -113,6 +135,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
   override func provideCredentialWithoutUserInteraction(
     for credentialIdentity: ASPasswordCredentialIdentity
   ) {
+    log.info("provideCredentialWithoutUserInteraction(identity) user=\(credentialIdentity.user, privacy: .public) serviceId=\(credentialIdentity.serviceIdentifier.identifier, privacy: .public)")
+
     let credentials = store.readCredentials()
     guard let matched = credentials.first(where: { credential in
       credential.username == credentialIdentity.user &&
@@ -121,10 +145,12 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         serviceId: credentialIdentity.serviceIdentifier
       )
     }) else {
+      log.info("no silent match → .userInteractionRequired")
       cancelWithError(.userInteractionRequired)
       return
     }
 
+    log.info("silent fill matched id=\(matched.id, privacy: .public)")
     extensionContext.completeRequest(
       withSelectedCredential: ASPasswordCredential(
         user: matched.username,
@@ -139,11 +165,14 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
   override func provideCredentialWithoutUserInteraction(
     for credentialRequest: any ASCredentialRequest
   ) {
+    log.info("provideCredentialWithoutUserInteraction(any) type=\(String(describing: type(of: credentialRequest)), privacy: .public)")
+
     // Regular fill: delegate to the password-identity based method
     if let passwordRequest = credentialRequest as? ASPasswordCredentialRequest,
        let identity = passwordRequest.credentialIdentity as? ASPasswordCredentialIdentity {
       provideCredentialWithoutUserInteraction(for: identity)
     } else {
+      log.error("unsupported credential request → .failed")
       cancelWithError(.failed, message: "Unsupported credential type")
     }
   }
@@ -151,12 +180,14 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
   override func prepareInterfaceToProvideCredential(
     for credentialIdentity: ASPasswordCredentialIdentity
   ) {
+    log.info("prepareInterfaceToProvideCredential user=\(credentialIdentity.user, privacy: .public) serviceId=\(credentialIdentity.serviceIdentifier.identifier, privacy: .public)")
     // Called by iOS when non-interactive fill returned userInteractionRequired.
     // Delegate back to the matching logic; cancel if still no match.
     provideCredentialWithoutUserInteraction(for: credentialIdentity)
   }
 
   override func prepareInterfaceForExtensionConfiguration() {
+    log.info("prepareInterfaceForExtensionConfiguration")
     extensionContext.completeExtensionConfigurationRequest()
   }
 
@@ -264,6 +295,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     _ code: ASExtensionError.Code,
     message: String? = nil
   ) {
+    log.info("cancelWithError code=\(code.rawValue, privacy: .public) message=\(message ?? "nil", privacy: .public)")
     var userInfo: [String: Any]? = nil
     if let message = message {
       userInfo = [NSLocalizedDescriptionKey: message]
