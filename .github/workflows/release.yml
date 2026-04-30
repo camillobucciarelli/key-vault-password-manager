@@ -167,8 +167,14 @@ jobs:
         shell: bash
 
       - name: Build
-        run: ./tool/build_prod_packages.sh --platforms windows
+        run: ./tool/build_prod_packages.sh --platforms windows --no-clean
         shell: bash
+
+      - name: Zip Windows bundle
+        run: |
+          $src = Get-ChildItem -Path dist\prod_packages -Recurse -Filter "password_manager-windows-release" -Directory | Select-Object -First 1
+          Compress-Archive -Path "$($src.FullName)\*" -DestinationPath "$($src.Parent.FullName)\password_manager-windows-release.zip"
+        shell: pwsh
 
       - name: Upload Windows bundle to release
         uses: softprops/action-gh-release@v2
