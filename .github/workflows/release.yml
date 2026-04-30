@@ -108,6 +108,48 @@ jobs:
           name: ${{ needs.version.outputs.tag }}
           files: dist/prod_packages/*/password_manager-linux-release.zip
 
+  ios:
+    needs: version
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup env file
+        env:
+          ENV_DART_DEFINE: ${{ secrets.ENV_DART_DEFINE }}
+        run: echo "$ENV_DART_DEFINE" > .env.dart.define.json
+
+      - name: Set build number
+        env:
+          VERSION_NAME: ${{ needs.version.outputs.version_name }}
+          BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
+        run: |
+          sed -i '' "s/^version: .*/version: ${VERSION_NAME}+${BUILD_NUMBER}/" pubspec.yaml
+
+      - name: Build and upload to App Store
+        run: ./tool/build_prod_packages.sh --platforms ios-appstore
+
+  macos:
+    needs: version
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup env file
+        env:
+          ENV_DART_DEFINE: ${{ secrets.ENV_DART_DEFINE }}
+        run: echo "$ENV_DART_DEFINE" > .env.dart.define.json
+
+      - name: Set build number
+        env:
+          VERSION_NAME: ${{ needs.version.outputs.version_name }}
+          BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
+        run: |
+          sed -i '' "s/^version: .*/version: ${VERSION_NAME}+${BUILD_NUMBER}/" pubspec.yaml
+
+      - name: Build and upload to App Store
+        run: ./tool/build_prod_packages.sh --platforms macos-appstore
+
   windows:
     needs: version
     runs-on: windows-latest
