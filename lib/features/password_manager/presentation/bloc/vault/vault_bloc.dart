@@ -1133,11 +1133,42 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   }
 
   void _computeDuplicates(Emitter<VaultState> emit) {
-    final groups = vaultDuplicateService.findDuplicates(state.allEntries);
+    final recycleBinGroupIds = _recycleBinGroupIds(state.groups);
+    final recycleBinEntryIds = state.recycleBinEntries
+        .map((entry) => entry.id)
+        .toSet();
+    final activeEntries = state.allEntries
+        .where((entry) => !recycleBinGroupIds.contains(entry.groupId))
+        .where((entry) => !recycleBinEntryIds.contains(entry.id))
+        .toList(growable: false);
+    final groups = vaultDuplicateService.findDuplicates(activeEntries);
     _safeEmit(
       emit,
       state.copyWith(duplicateGroups: groups, isDuplicatesLoading: false),
     );
+  }
+
+  Set<String> _recycleBinGroupIds(List<VaultGroup> groups) {
+    final ids = groups
+        .where((group) => group.isRecycleBin)
+        .map((group) => group.id)
+        .toSet();
+    if (ids.isEmpty) {
+      return ids;
+    }
+
+    var added = true;
+    while (added) {
+      added = false;
+      for (final group in groups) {
+        if (group.parentId != null &&
+            ids.contains(group.parentId) &&
+            ids.add(group.id)) {
+          added = true;
+        }
+      }
+    }
+    return ids;
   }
 
   void _onLoadDuplicates(LoadDuplicates event, Emitter<VaultState> emit) {
@@ -1267,7 +1298,11 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
 
     _safeEmit(emit, state.copyWith(isSyncing: true));
     try {
-      await _performSync(emit, silentIfConflict: true, emitSyncingStatus: false);
+      await _performSync(
+        emit,
+        silentIfConflict: true,
+        emitSyncingStatus: false,
+      );
 
       if (state.syncStatus != DatabaseSyncStatus.conflict) {
         if (!state.isSaving) {
