@@ -1,14 +1,37 @@
 import AuthenticationServices
 import Flutter
+import OSLog
 import UIKit
+
+private let autofillLog = Logger(
+  subsystem: "dev.camillobucciarelli.kdbxKeyVault",
+  category: "autofill-host"
+)
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private let autofillChannelName = "dev.camillobucciarelli.kdbxKeyVault/ios_autofill"
-  private let autofillEntriesKey = "autofill_entries_json"
   private let autofillLastSyncKey = "autofill_last_sync_epoch_ms"
   private let appGroupId = "group.dev.camillobucciarelli.kdbxKeyVault"
-  private let pendingSavesKey = "pending_autofill_saves"
+
+  // File-based shared storage (mirrors SharedAutofillPaths in extension target).
+  // iOS 18 cfprefsd rejects `UserDefaults(suiteName:)` reads from the extension
+  // process with "kCFPreferencesAnyUser with a container is only allowed for
+  // System Containers", so entries + pending saves live in container files.
+  private let entriesFileName = "autofill_entries.json"
+  private let pendingSavesFileName = "pending_autofill_saves.json"
+
+  private var sharedContainerURL: URL? {
+    FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupId)
+  }
+
+  private var entriesFileURL: URL? {
+    sharedContainerURL?.appendingPathComponent(entriesFileName)
+  }
+
+  private var pendingSavesFileURL: URL? {
+    sharedContainerURL?.appendingPathComponent(pendingSavesFileName)
+  }
 
   override func application(
     _ application: UIApplication,
@@ -32,11 +55,11 @@ import UIKit
   }
 
   private func handleAutofillChannel(call: FlutterMethodCall, result: FlutterResult) {
-    guard let defaults = UserDefaults(suiteName: appGroupId) else {
+    guard let entriesURL = entriesFileURL, let pendingURL = pendingSavesFileURL else {
       result(
         FlutterError(
           code: "NO_APP_GROUP",
-          message: "Unable to open shared App Group defaults.",
+          message: "Unable to resolve shared App Group container URL.",
           details: appGroupId
         )
       )
@@ -47,7 +70,8 @@ import UIKit
     case "saveSnapshot":
       guard
         let args = call.arguments as? [String: Any],
-        let entries = args["entries"] as? String
+        let entries = args["entries"] as? String,
+        let data = entries.data(using: .utf8)
       else {
         result(
           FlutterError(
@@ -59,16 +83,31 @@ import UIKit
         return
       }
 
-      defaults.set(entries, forKey: autofillEntriesKey)
-      let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
-      defaults.set(timestamp, forKey: autofillLastSyncKey)
-      defaults.synchronize()
+      do {
+        try data.write(to: entriesURL, options: .atomic)
+        autofillLog.info("saveSnapshot wrote bytes=\(data.count, privacy: .public) path=\(entriesURL.path, privacy: .public)")
+      } catch {
+        autofillLog.error("saveSnapshot write failed \(error.localizedDescription, privacy: .public) path=\(entriesURL.path, privacy: .public)")
+        result(
+          FlutterError(
+            code: "WRITE_FAILED",
+            message: "Unable to write autofill snapshot file.",
+            details: error.localizedDescription
+          )
+        )
+        return
+      }
+
+      // Timestamp is main-app-only; UserDefaults is fine for this (no extension read).
+      if let defaults = UserDefaults(suiteName: appGroupId) {
+        let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
+        defaults.set(timestamp, forKey: autofillLastSyncKey)
+      }
 
       // Register credentials in ASCredentialIdentityStore
       // so they appear in the QuickType keyboard bar
       if #available(iOS 17, *) {
-        if let data = entries.data(using: .utf8),
-           let decoded = try? JSONDecoder().decode([SharedAutofillCredentialPayload].self, from: data) {
+        if let decoded = try? JSONDecoder().decode([SharedAutofillCredentialPayload].self, from: data) {
           registerCredentialIdentities(from: decoded)
         }
       }
@@ -76,22 +115,22 @@ import UIKit
       result(nil)
 
     case "clearSnapshot":
-      defaults.removeObject(forKey: autofillEntriesKey)
-      defaults.removeObject(forKey: autofillLastSyncKey)
-      defaults.synchronize()
+      autofillLog.info("clearSnapshot path=\(entriesURL.path, privacy: .public)")
+      try? FileManager.default.removeItem(at: entriesURL)
+      if let defaults = UserDefaults(suiteName: appGroupId) {
+        defaults.removeObject(forKey: autofillLastSyncKey)
+      }
       result(nil)
 
     case "readAndClearPendingSaves":
       guard
-        let json = defaults.string(forKey: pendingSavesKey),
-        let data = json.data(using: .utf8),
+        let data = try? Data(contentsOf: pendingURL),
         let decoded = try? JSONDecoder().decode([PendingAutofillSavePayload].self, from: data)
       else {
         result([])
         return
       }
-      defaults.removeObject(forKey: pendingSavesKey)
-      defaults.synchronize()
+      try? FileManager.default.removeItem(at: pendingURL)
       let mapped: [[String: String]] = decoded.map { save in
         ["title": save.title, "username": save.username, "password": save.password, "url": save.url]
       }

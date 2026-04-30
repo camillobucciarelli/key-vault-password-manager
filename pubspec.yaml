@@ -1,6 +1,6 @@
 name: password_manager
 description: "A new Flutter project."
-publish_to: 'none'
+publish_to: "none"
 version: 0.2.0+1
 
 environment:
@@ -18,7 +18,7 @@ dependencies:
   flutter_secure_storage: ^10.0.0
   google_sign_in: ^7.2.0
   get_it: ^9.2.1
-  google_fonts: ^8.0.2
+  google_fonts: ^8.1.0
   crypto: ^3.0.7
   http: ^1.6.0
   kdbx: ^2.4.2
@@ -29,7 +29,7 @@ dependencies:
   oauth2: ^2.0.5
   path: ^1.9.1
   path_provider: ^2.1.5
-  shared_preferences: ^2.5.4
+  shared_preferences: ^2.5.5
   stream_transform: ^2.1.1
   url_launcher: ^6.3.2
   phosphor_flutter: ^2.1.0
@@ -50,6 +50,7 @@ flutter_launcher_icons:
   image_path: assets/logo/keyvault-source.png
   android: true
   ios: true
+  remove_alpha_ios: true
   # Android adaptive icons (API 26+)
   adaptive_icon_background: "#FFFFFF"
   adaptive_icon_foreground: assets/logo/keyvault-source.png

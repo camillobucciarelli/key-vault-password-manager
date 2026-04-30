@@ -1,4 +1,10 @@
 import Foundation
+import OSLog
+
+private let storeLog = Logger(
+  subsystem: "dev.camillobucciarelli.kdbxKeyVault.CredentialProviderExtension",
+  category: "store"
+)
 
 struct SharedAutofillCredential: Codable {
   let id: String
@@ -28,40 +34,79 @@ struct SharedAutofillCredential: Codable {
   }
 }
 
-final class SharedAutofillStore {
-  private let appGroupId = "group.dev.camillobucciarelli.kdbxKeyVault"
-  private let autofillEntriesKey = "autofill_entries_json"
-  private let pendingSavesKey = "pending_autofill_saves"
+/// File-based shared store. We write/read JSON files inside the App Group
+/// container URL instead of using `UserDefaults(suiteName:)` — iOS 18's
+/// `cfprefsd` rejects app-group reads from extensions with
+/// "kCFPreferencesAnyUser with a container is only allowed for System Containers",
+/// leaving the extension with no credentials.
+enum SharedAutofillPaths {
+  static let appGroupId = "group.dev.camillobucciarelli.kdbxKeyVault"
+  static let entriesFileName = "autofill_entries.json"
+  static let pendingSavesFileName = "pending_autofill_saves.json"
 
+  static func containerURL() -> URL? {
+    FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupId)
+  }
+
+  static func entriesURL() -> URL? {
+    containerURL()?.appendingPathComponent(entriesFileName)
+  }
+
+  static func pendingSavesURL() -> URL? {
+    containerURL()?.appendingPathComponent(pendingSavesFileName)
+  }
+}
+
+final class SharedAutofillStore {
   func readCredentials() -> [SharedAutofillCredential] {
-    guard
-      let defaults = UserDefaults(suiteName: appGroupId),
-      let json = defaults.string(forKey: autofillEntriesKey),
-      let data = json.data(using: .utf8),
-      let decoded = try? JSONDecoder().decode([SharedAutofillCredential].self, from: data)
-    else {
+    guard let url = SharedAutofillPaths.entriesURL() else {
+      storeLog.error("readCredentials: containerURL nil — App Group not accessible")
       return []
     }
-    return decoded.filter { !$0.username.isEmpty || !$0.password.isEmpty }
+    storeLog.info("readCredentials: path=\(url.path, privacy: .public)")
+
+    let exists = FileManager.default.fileExists(atPath: url.path)
+    storeLog.info("readCredentials: exists=\(exists, privacy: .public)")
+    guard exists else { return [] }
+
+    let data: Data
+    do {
+      data = try Data(contentsOf: url)
+    } catch {
+      storeLog.error("readCredentials: read failed \(error.localizedDescription, privacy: .public)")
+      return []
+    }
+    storeLog.info("readCredentials: bytes=\(data.count, privacy: .public)")
+
+    do {
+      let decoded = try JSONDecoder().decode([SharedAutofillCredential].self, from: data)
+      storeLog.info("readCredentials: decoded count=\(decoded.count, privacy: .public)")
+      let filtered = decoded.filter { !$0.username.isEmpty || !$0.password.isEmpty }
+      storeLog.info("readCredentials: after filter count=\(filtered.count, privacy: .public)")
+      return filtered
+    } catch {
+      let preview = String(data: data.prefix(200), encoding: .utf8) ?? "<non-utf8>"
+      storeLog.error("readCredentials: decode failed \(error.localizedDescription, privacy: .public) preview=\(preview, privacy: .public)")
+      return []
+    }
   }
 
   // MARK: - Pending saves (written by extension, read by main app)
 
   func writePendingSave(_ credential: PendingAutofillSave) {
-    guard let defaults = UserDefaults(suiteName: appGroupId) else { return }
-    var existing = _readPendingSaves(defaults: defaults)
+    var existing = readPendingSaves()
     existing.append(credential)
-    if let data = try? JSONEncoder().encode(existing),
-       let json = String(data: data, encoding: .utf8) {
-      defaults.set(json, forKey: pendingSavesKey)
-      defaults.synchronize()
-    }
+    guard
+      let url = SharedAutofillPaths.pendingSavesURL(),
+      let data = try? JSONEncoder().encode(existing)
+    else { return }
+    try? data.write(to: url, options: .atomic)
   }
 
-  private func _readPendingSaves(defaults: UserDefaults) -> [PendingAutofillSave] {
+  private func readPendingSaves() -> [PendingAutofillSave] {
     guard
-      let json = defaults.string(forKey: pendingSavesKey),
-      let data = json.data(using: .utf8),
+      let url = SharedAutofillPaths.pendingSavesURL(),
+      let data = try? Data(contentsOf: url),
       let decoded = try? JSONDecoder().decode([PendingAutofillSave].self, from: data)
     else {
       return []

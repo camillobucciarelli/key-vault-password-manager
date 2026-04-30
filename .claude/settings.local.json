@@ -46,7 +46,20 @@
       "Bash(fvm install *)",
       "Bash(fvm flutter *)",
       "Bash(kill %1)",
-      "Bash(wait %1)"
+      "Bash(wait %1)",
+      "Bash(xcrun simctl *)",
+      "Bash(xcrun devicectl *)",
+      "Bash(xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -quiet build)",
+      "Bash(awk '/1A2B3C4D5E6F700100000060/,/buildConfigurations = \\\\\\(/' ios/Runner.xcodeproj/project.pbxproj)",
+      "Bash(awk 'NR>=460 && NR<=475' Runner.xcodeproj/project.pbxproj)",
+      "Bash(cp Icon-App-1024x1024@1x.png Icon-App-1024x1024@1x.png.bak)",
+      "Bash(sips -s format png -s formatOptions normal --setProperty hasAlpha no Icon-App-1024x1024@1x.png --out Icon-App-1024x1024@1x.png)",
+      "Bash(sips -g hasAlpha Icon-App-1024x1024@1x.png)",
+      "Bash(sips -s format png --setProperty hasAlpha no Icon-App-1024x1024@1x.png --out Icon-App-1024x1024@1x.png)",
+      "Bash(python3 -c \"from PIL import Image; print\\('PIL ok'\\)\")",
+      "Bash(python3 -c ' *)",
+      "Bash(sips -g hasAlpha ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png)",
+      "Bash(sips -g hasAlpha __TRACKED_VAR__/Icon-App-1024x1024@1x.png)"
     ]
   }
 }

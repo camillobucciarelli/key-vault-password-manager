@@ -9,18 +9,24 @@ struct CredentialListView: View {
 
   var body: some View {
     NavigationView {
-      List(credentials, id: \.id) { credential in
-        Button {
-          onSelect(credential)
-        } label: {
-          CredentialRowView(
-            credential: credential,
-            isBestMatch: credential.id == bestMatchId
-          )
+      Group {
+        if credentials.isEmpty {
+          EmptyCredentialsView()
+        } else {
+          List(credentials, id: \.id) { credential in
+            Button {
+              onSelect(credential)
+            } label: {
+              CredentialRowView(
+                credential: credential,
+                isBestMatch: credential.id == bestMatchId
+              )
+            }
+            .buttonStyle(.plain)
+          }
+          .listStyle(.plain)
         }
-        .buttonStyle(.plain)
       }
-      .listStyle(.plain)
       .navigationTitle("Credentials")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
@@ -29,6 +35,25 @@ struct CredentialListView: View {
         }
       }
     }
+  }
+}
+
+private struct EmptyCredentialsView: View {
+  var body: some View {
+    VStack(spacing: 16) {
+      Image(systemName: "key.slash")
+        .font(.system(size: 48))
+        .foregroundColor(.secondary)
+      Text("No credentials available")
+        .font(.headline)
+      Text("Open the main app and unlock your vault at least once so credentials are shared with the autofill extension.")
+        .font(.footnote)
+        .foregroundColor(.secondary)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 32)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .padding()
   }
 }
 
