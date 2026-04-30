@@ -75,7 +75,7 @@ jobs:
         run: ./tool/build_prod_packages.sh --platforms android
 
       - name: Upload APK to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           name: ${{ needs.version.outputs.tag }}
@@ -110,7 +110,7 @@ jobs:
         run: ./tool/build_prod_packages.sh --platforms linux
 
       - name: Upload Linux bundle to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           name: ${{ needs.version.outputs.tag }}
@@ -177,7 +177,7 @@ jobs:
         shell: pwsh
 
       - name: Upload Windows bundle to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           name: ${{ needs.version.outputs.tag }}
