@@ -1,6 +1,7 @@
 import 'package:get_it/get_it.dart';
 
 import '../data/services/android_autofill_coordinator.dart';
+import '../data/services/ios_autofill_snapshot_coordinator.dart';
 import '../presentation/bloc/database_selection/database_selection_bloc.dart';
 import '../presentation/bloc/database_unlock/database_unlock_bloc.dart';
 import '../presentation/bloc/vault/vault_bloc.dart';
@@ -26,6 +27,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       getDatabaseSecurityProfileUseCase: sl(),
       saveDatabaseSecurityProfileUseCase: sl(),
       unlockDatabaseUseCase: sl(),
+      iosAutofillSnapshotCoordinator: sl<IosAutofillSnapshotCoordinator>(),
     ),
   );
 
