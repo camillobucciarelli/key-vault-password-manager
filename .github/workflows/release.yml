@@ -7,9 +7,6 @@ on:
       - 'pubspec.yaml'
   workflow_dispatch:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 permissions:
   contents: write
 
@@ -21,7 +18,7 @@ jobs:
       build_number: ${{ steps.bump.outputs.build_number }}
       tag: ${{ steps.bump.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v6.0.2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -51,7 +48,7 @@ jobs:
     needs: version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v6.0.2
         with:
           ref: ${{ needs.version.outputs.tag }}
 
@@ -88,7 +85,7 @@ jobs:
     needs: version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v6.0.2
         with:
           ref: ${{ needs.version.outputs.tag }}
 
@@ -123,7 +120,7 @@ jobs:
     needs: version
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v6.0.2
         with:
           ref: ${{ needs.version.outputs.tag }}
 
@@ -139,7 +136,7 @@ jobs:
     needs: version
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v6.0.2
         with:
           ref: ${{ needs.version.outputs.tag }}
 
@@ -155,7 +152,7 @@ jobs:
     needs: version
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v6.0.2
         with:
           ref: ${{ needs.version.outputs.tag }}
 
