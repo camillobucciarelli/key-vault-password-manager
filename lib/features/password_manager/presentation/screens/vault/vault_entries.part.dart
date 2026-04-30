@@ -238,18 +238,21 @@ class _EntriesCardState extends State<_EntriesCard> {
       return;
     }
 
+    final bloc = context.read<VaultBloc>();
     await AppNavigation.pushFade<void>(
       context,
-      _EntryDetailsPage(
-        entryId: entry.id,
-        onSelectedAction: (action) async {
-          final bloc = context.read<VaultBloc>();
-          final currentEntry = bloc.state.allEntries.firstWhere(
-            (e) => e.id == entry.id,
-            orElse: () => entry,
-          );
-          await _handleEntryAction(context, currentEntry, action);
-        },
+      BlocProvider.value(
+        value: bloc,
+        child: _EntryDetailsPage(
+          entryId: entry.id,
+          onSelectedAction: (action) async {
+            final currentEntry = bloc.state.allEntries.firstWhere(
+              (e) => e.id == entry.id,
+              orElse: () => entry,
+            );
+            await _handleEntryAction(context, currentEntry, action);
+          },
+        ),
       ),
     );
   }
