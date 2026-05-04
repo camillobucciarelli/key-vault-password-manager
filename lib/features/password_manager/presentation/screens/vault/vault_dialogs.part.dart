@@ -37,17 +37,20 @@ class _CustomFieldFormRow {
 Future<_EntryDialogPayload?> _showEntryDialog(
   BuildContext context, {
   VaultEntry? initial,
+  OtpAuthPayload? initialOtpAuth,
 }) async {
   return showDialog<_EntryDialogPayload>(
     context: context,
-    builder: (_) => _EntryDialog(initial: initial),
+    builder: (_) =>
+        _EntryDialog(initial: initial, initialOtpAuth: initialOtpAuth),
   );
 }
 
 class _EntryDialog extends StatefulWidget {
-  const _EntryDialog({this.initial});
+  const _EntryDialog({this.initial, this.initialOtpAuth});
 
   final VaultEntry? initial;
+  final OtpAuthPayload? initialOtpAuth;
 
   @override
   State<_EntryDialog> createState() => _EntryDialogState();
@@ -71,11 +74,15 @@ class _EntryDialogState extends State<_EntryDialog> {
   void initState() {
     super.initState();
     _title = widget.initial?.title ?? '';
-    _username = widget.initial?.username ?? '';
+    _username =
+        widget.initial?.username ?? widget.initialOtpAuth?.username ?? '';
     _password = widget.initial?.password ?? '';
     _url = widget.initial?.url ?? '';
     _notes = widget.initial?.notes ?? '';
-    _otpUri = widget.initial?.otpUri ?? '';
+    _otpUri = widget.initial?.otpUri ?? widget.initialOtpAuth?.uri ?? '';
+    if (_title.isEmpty && widget.initialOtpAuth != null) {
+      _title = widget.initialOtpAuth!.title;
+    }
     _passwordController = TextEditingController(text: _password);
 
     _customFieldRows =

@@ -1,20 +1,27 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
-import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_event.dart';
-import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_state.dart';
+import 'package:password_manager/features/password_manager/data/datasources/ios_autofill_data_source.dart';
 import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
+import 'package:password_manager/features/password_manager/data/services/ios_autofill_snapshot_coordinator.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_csv_import_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_duplicate_service.dart';
+import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_status.dart';
 import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_snapshot.dart';
+import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/connect_google_account_usecase.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/disconnect_google_account_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/get_active_database_usecase.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/get_drive_connection_status_usecase.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/get_selected_key_file_path_usecase.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/link_database_to_drive_usecase.dart';
@@ -22,7 +29,8 @@ import 'package:password_manager/features/password_manager/domain/usecases/list_
 import 'package:password_manager/features/password_manager/domain/usecases/set_database_auto_sync_usecase.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/sync_database_now_usecase.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_bloc.dart';
-import 'dart:typed_data';
+import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_event.dart';
+import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_state.dart';
 
 void main() {
   group('VaultState background sync fields', () {
@@ -78,10 +86,7 @@ void main() {
 
   group('BackgroundDriveSync event', () {
     test('two instances are equal', () {
-      expect(
-        const BackgroundDriveSync(),
-        equals(const BackgroundDriveSync()),
-      );
+      expect(const BackgroundDriveSync(), equals(const BackgroundDriveSync()));
     });
   });
 
@@ -98,24 +103,28 @@ void main() {
 
     tearDown(() async => bloc.close());
 
-    test('vault loads (loadVault called) without network Drive check during init', () async {
-      // isConnectedResult is false, but mapping exists.
-      // InitializeVault must NOT call isConnected() — if it did,
-      // isDriveConnected would be set to false and syncStatus to disconnected.
-      // Instead, preload from local mapping sets isDriveLinked: true, syncStatus: idle.
-      bloc.add(const InitializeVault());
-      await Future<void>.delayed(const Duration(milliseconds: 30));
+    test(
+      'vault loads (loadVault called) without network Drive check during init',
+      () async {
+        // isConnectedResult is false, but mapping exists.
+        // InitializeVault must NOT call isConnected() — if it did,
+        // isDriveConnected would be set to false and syncStatus to disconnected.
+        // Instead, preload from local mapping sets isDriveLinked: true, syncStatus: idle.
+        bloc.add(const InitializeVault());
+        await Future<void>.delayed(const Duration(milliseconds: 30));
 
-      expect(kdbx.loadCallCount, greaterThanOrEqualTo(1));
-      expect(bloc.state.isDriveLinked, isTrue);
-      expect(bloc.state.syncStatus, equals(DatabaseSyncStatus.idle));
-      expect(bloc.state.isLoading, isFalse);
-    });
+        expect(kdbx.loadCallCount, greaterThanOrEqualTo(1));
+        expect(bloc.state.isDriveLinked, isTrue);
+        expect(bloc.state.syncStatus, equals(DatabaseSyncStatus.idle));
+        expect(bloc.state.isLoading, isFalse);
+      },
+    );
   });
 
   group('BackgroundDriveSync', () {
     late _FakeSyncRepo repo;
     late _FakeVaultKdbxService kdbx;
+    late _FakeIosAutofillSnapshotCoordinator iosAutofill;
     late VaultBloc bloc;
 
     setUp(() {
@@ -123,22 +132,26 @@ void main() {
         ..mapping = _testMapping
         ..isConnectedResult = true;
       kdbx = _FakeVaultKdbxService();
-      bloc = _makeBloc(repo, kdbx);
+      iosAutofill = _FakeIosAutofillSnapshotCoordinator();
+      bloc = _makeBloc(repo, kdbx, iosAutofill: iosAutofill);
     });
 
     tearDown(() async => bloc.close());
 
-    test('emits isSyncing: true then false when connected and linked', () async {
-      final states = <VaultState>[];
-      final sub = bloc.stream.listen(states.add);
+    test(
+      'emits isSyncing: true then false when connected and linked',
+      () async {
+        final states = <VaultState>[];
+        final sub = bloc.stream.listen(states.add);
 
-      bloc.add(const BackgroundDriveSync());
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-      await sub.cancel();
+        bloc.add(const BackgroundDriveSync());
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        await sub.cancel();
 
-      expect(states.any((s) => s.isSyncing), isTrue);
-      expect(states.last.isSyncing, isFalse);
-    });
+        expect(states.any((s) => s.isSyncing), isTrue);
+        expect(states.last.isSyncing, isFalse);
+      },
+    );
 
     test('never emits syncStatus: syncing during background sync', () async {
       final states = <VaultState>[];
@@ -176,6 +189,69 @@ void main() {
       expect(bloc.state.isSyncReloadPending, isFalse);
     });
 
+    test('refreshes iOS autofill snapshot after sync reload', () async {
+      bloc.add(const BackgroundDriveSync());
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(kdbx.loadCallCount, greaterThanOrEqualTo(1));
+      expect(iosAutofill.syncCallCount, 1);
+    });
+
+    test(
+      'refreshes iOS autofill snapshot after deferred sync reload completes',
+      () async {
+        final operations = <String>[];
+        final repo = _FakeSyncRepo()
+          ..mapping = _testMapping
+          ..isConnectedResult = true;
+        final kdbx = _FakeVaultKdbxService(operations: operations);
+        final iosAutofill = _FakeIosAutofillSnapshotCoordinator(
+          operations: operations,
+        );
+        final bloc = _makeBloc(repo, kdbx, iosAutofill: iosAutofill);
+        addTearDown(bloc.close);
+
+        bloc.add(const InitializeVault());
+        await _waitUntil(() => bloc.state.currentGroupId == 'root');
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        operations.clear();
+        iosAutofill.syncCallCount = 0;
+
+        kdbx.createEntryCompleter = Completer<String>();
+        bloc.add(
+          const CreateVaultEntry(
+            title: 'Example',
+            username: 'user',
+            password: 'pass',
+            url: 'https://example.com',
+            notes: '',
+          ),
+        );
+        await _waitUntil(() => bloc.state.isSaving);
+
+        bloc.add(const BackgroundDriveSync());
+        await _waitUntil(() => bloc.state.isSyncReloadPending);
+
+        expect(iosAutofill.syncCallCount, 0);
+
+        kdbx.createEntryCompleter!.complete('entry-1');
+        await _waitUntil(
+          () => !bloc.state.isSaving && !bloc.state.isSyncReloadPending,
+        );
+
+        expect(kdbx.loadCallCount, greaterThanOrEqualTo(2));
+        expect(iosAutofill.syncCallCount, 1);
+        expect(
+          operations,
+          containsAllInOrder(const [
+            'createEntry',
+            'loadVault',
+            'syncSnapshot',
+          ]),
+        );
+      },
+    );
+
     test('sets isDriveConnected: false silently when auth fails', () async {
       repo.isConnectedResult = false;
 
@@ -192,9 +268,40 @@ void main() {
       expect(states.any((s) => s.isSyncing), isFalse);
     });
   });
+
+  group('SyncCurrentDatabaseNow', () {
+    test('refreshes iOS autofill snapshot after manual sync reload', () async {
+      final repo = _FakeSyncRepo()
+        ..mapping = _testMapping
+        ..isConnectedResult = true;
+      final kdbx = _FakeVaultKdbxService();
+      final iosAutofill = _FakeIosAutofillSnapshotCoordinator();
+      final bloc = _makeBloc(repo, kdbx, iosAutofill: iosAutofill);
+      addTearDown(bloc.close);
+
+      bloc.add(const SyncCurrentDatabaseNow());
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(kdbx.loadCallCount, greaterThanOrEqualTo(1));
+      expect(iosAutofill.syncCallCount, 1);
+    });
+  });
 }
 
 const _kDbPath = '/vault/test.kdbx';
+
+Future<void> _waitUntil(
+  bool Function() predicate, {
+  Duration timeout = const Duration(seconds: 1),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!predicate()) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail('Timed out waiting for condition.');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
 
 final _emptySnapshot = VaultSnapshot(
   rootGroupId: 'root',
@@ -232,7 +339,12 @@ class _FakeDatabaseRepository implements DatabaseRepository {
 }
 
 class _FakeVaultKdbxService implements VaultKdbxService {
+  _FakeVaultKdbxService({List<String>? operations})
+    : operations = operations ?? <String>[];
+
+  final List<String> operations;
   int loadCallCount = 0;
+  Completer<String>? createEntryCompleter;
 
   @override
   Future<VaultSnapshot> loadVault({
@@ -241,8 +353,30 @@ class _FakeVaultKdbxService implements VaultKdbxService {
     String? keyFilePath,
     String? currentGroupId,
   }) async {
+    operations.add('loadVault');
     loadCallCount++;
     return _emptySnapshot;
+  }
+
+  @override
+  Future<String> createEntry({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String groupId,
+    required String title,
+    required String username,
+    required String entryPassword,
+    required String url,
+    required String notes,
+    List<VaultCustomField> customFields = const [],
+  }) async {
+    operations.add('createEntry');
+    final completer = createEntryCompleter;
+    if (completer != null) {
+      return completer.future;
+    }
+    return 'entry-1';
   }
 
   @override
@@ -254,6 +388,72 @@ class _FakeVaultKdbxService implements VaultKdbxService {
 
   @override
   dynamic noSuchMethod(Invocation i) => super.noSuchMethod(i);
+}
+
+class _FakeIosAutofillSnapshotCoordinator
+    extends IosAutofillSnapshotCoordinator {
+  _FakeIosAutofillSnapshotCoordinator({List<String>? operations})
+    : operations = operations ?? <String>[],
+      super(
+        getActiveDatabaseUseCase: GetActiveDatabaseUseCase(
+          _FakeDatabaseRegistryRepository(),
+        ),
+        getSelectedKeyFilePathUseCase: GetSelectedKeyFilePathUseCase(
+          _FakeDatabaseRepository(),
+        ),
+        secureDataSource: _FakeSecureDataSource(),
+        vaultKdbxService: VaultKdbxService(),
+        iosAutofillDataSource: _FakeIosAutofillDataSource(),
+      );
+
+  final List<String> operations;
+  int syncCallCount = 0;
+
+  @override
+  Future<void> syncSnapshot() async {
+    operations.add('syncSnapshot');
+    syncCallCount++;
+  }
+}
+
+class _FakeIosAutofillDataSource implements IosAutofillDataSource {
+  @override
+  Future<void> clearSnapshot() async {}
+
+  @override
+  Future<List<Map<String, dynamic>>> readAndClearPendingSaves() async => [];
+
+  @override
+  Future<void> saveSnapshot(List<VaultEntry> entries) async {}
+}
+
+class _FakeDatabaseRegistryRepository implements DatabaseRegistryRepository {
+  @override
+  Future<List<DatabaseRecord>> list() async => [];
+
+  @override
+  Future<DatabaseRecord?> getById(String databaseId) async => null;
+
+  @override
+  Future<DatabaseRecord?> findBySource({
+    required DatabaseSourceType sourceType,
+    required String sourceRef,
+  }) async => null;
+
+  @override
+  Future<DatabaseRecord?> findByHash(String fileHash) async => null;
+
+  @override
+  Future<void> upsert(DatabaseRecord record) async {}
+
+  @override
+  Future<void> remove(String databaseId) async {}
+
+  @override
+  Future<void> setActive(String? databaseId) async {}
+
+  @override
+  Future<String?> getActive() async => null;
 }
 
 class _FakeSyncRepo implements DatabaseSyncRepository {
@@ -306,7 +506,11 @@ class _FakeSyncRepo implements DatabaseSyncRepository {
   }) async => throw UnimplementedError();
 }
 
-VaultBloc _makeBloc(_FakeSyncRepo repo, _FakeVaultKdbxService kdbx) {
+VaultBloc _makeBloc(
+  _FakeSyncRepo repo,
+  _FakeVaultKdbxService kdbx, {
+  IosAutofillSnapshotCoordinator? iosAutofill,
+}) {
   return VaultBloc(
     databasePath: _kDbPath,
     secureDataSource: _FakeSecureDataSource(),
@@ -324,5 +528,6 @@ VaultBloc _makeBloc(_FakeSyncRepo repo, _FakeVaultKdbxService kdbx) {
     syncDatabaseNowUseCase: SyncDatabaseNowUseCase(repo),
     setDatabaseAutoSyncUseCase: SetDatabaseAutoSyncUseCase(repo),
     databaseSyncRepository: repo,
+    iosAutofillSnapshotCoordinator: iosAutofill,
   );
 }

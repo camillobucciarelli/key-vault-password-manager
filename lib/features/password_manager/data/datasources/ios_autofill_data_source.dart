@@ -22,23 +22,7 @@ class IosAutofillDataSourceImpl implements IosAutofillDataSource {
       return;
     }
 
-    final payload = jsonEncode(
-      entries
-          .map(
-            (entry) => {
-              'id': entry.id,
-              'title': entry.title,
-              'username': entry.username,
-              'password': entry.password,
-              'url': entry.url,
-              'notes': entry.notes,
-              'customFields': entry.customFields
-                  .map((field) => {'key': field.key, 'value': field.value})
-                  .toList(growable: false),
-            },
-          )
-          .toList(growable: false),
-    );
+    final payload = encodeIosAutofillSnapshot(entries);
 
     await _channel.invokeMethod<void>('saveSnapshot', {'entries': payload});
   }
@@ -72,6 +56,27 @@ class IosAutofillDataSourceImpl implements IosAutofillDataSource {
       return false;
     }
     return defaultTargetPlatform == TargetPlatform.iOS ||
-           defaultTargetPlatform == TargetPlatform.macOS;
+        defaultTargetPlatform == TargetPlatform.macOS;
   }
+}
+
+@visibleForTesting
+String encodeIosAutofillSnapshot(List<VaultEntry> entries) {
+  return jsonEncode(
+    entries
+        .map(
+          (entry) => {
+            'id': entry.id,
+            'title': entry.title,
+            'username': entry.username,
+            'password': entry.password,
+            'url': entry.url,
+            'notes': entry.notes,
+            'customFields': entry.customFields
+                .map((field) => {'key': field.key, 'value': field.value})
+                .toList(growable: false),
+          },
+        )
+        .toList(growable: false),
+  );
 }

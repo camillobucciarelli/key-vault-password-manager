@@ -12,6 +12,14 @@
 				<string>com.googleusercontent.apps.252324447208-t1l5dueh67ehjq1638ao3ajbia30b2k4</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>otpauth</string>
+			</array>
+		</dict>
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>

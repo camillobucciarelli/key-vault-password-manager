@@ -1,0 +1,37 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "dart-mcp-server": {
+      "type": "local",
+      "command": ["dart","mcp-server"],
+      "enabled": true,
+      "environment": {}
+    },
+    "ios-simulator": {
+      "type": "local",
+      "command": [
+        "node",
+        "/Users/cbucciarelli/.agents/mcp/mcp-server-simulator-ios-idb/dist/index.js"
+      ],
+      "enabled": true,
+      "environment": {
+        "PATH": "/Users/cbucciarelli/.agents/mcp/mcp-server-simulator-ios-idb/venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+      }
+    },
+    "android-mcp": {
+      "type": "local",
+      "command": [
+        "uv",
+        "--directory",
+        "/Users/cbucciarelli/.agents/mcp/Android-MCP",
+        "run",
+        "android-mcp"
+      ],
+      "enabled": true,
+      "environment": {
+        "FASTMCP_LOG_LEVEL": "ERROR",
+        "PATH": "/Users/cbucciarelli/Library/Android/sdk/platform-tools:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+      }
+    }
+  },
+}

@@ -2,9 +2,9 @@ name: Release
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
     paths-ignore:
-      - 'pubspec.yaml'
+      - "pubspec.yaml"
   workflow_dispatch:
 
 permissions:

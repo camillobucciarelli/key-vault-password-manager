@@ -91,7 +91,7 @@ class BrowserSetupService {
   // Extension folder lookup
   // ---------------------------------------------------------------------------
 
-  /// Absolute path to the `extension/` folder inside the project root.
+  /// Absolute path to the browser extension folder inside the project root.
   ///
   /// Works during development (when the script lives in
   /// `.../desktop/native_host/`).  In a shipped `.app` this would need to
@@ -99,11 +99,16 @@ class BrowserSetupService {
   String? get extensionFolderPath {
     final script = _installScriptPath();
     if (script == null) return null;
-    // native_host/ → project_root/extension/
-    final projectRoot = p.dirname(p.dirname(script));
-    final ext = p.join(projectRoot, 'extension');
+    // native_host/ → desktop/ → project_root/desktop/browser_extension/
+    final projectRoot = p.dirname(p.dirname(p.dirname(script)));
+    final ext = p.join(projectRoot, 'desktop', 'browser_extension');
     return Directory(ext).existsSync() ? ext : null;
   }
+
+  String get nativeHostName =>
+      'dev.camillobucciarelli.kdbxKeyVault_native_host';
+
+  String get bridgeConfigPath => _bridgeFilePath();
 
   // ---------------------------------------------------------------------------
   // Private helpers

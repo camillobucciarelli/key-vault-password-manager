@@ -25,6 +25,7 @@ class IosAutofillSnapshotCoordinator with WidgetsBindingObserver {
 
   bool _initialized = false;
   bool _processing = false;
+  bool _rerunRequested = false;
 
   Future<void> initialize() async {
     if (_initialized || !_isSupportedPlatform) {
@@ -44,13 +45,18 @@ class IosAutofillSnapshotCoordinator with WidgetsBindingObserver {
   }
 
   Future<void> syncSnapshot() async {
-    if (!_initialized || _processing || !_isSupportedPlatform) {
+    if (!_initialized || !_isSupportedPlatform) {
+      return;
+    }
+
+    if (_processing) {
+      _rerunRequested = true;
       return;
     }
 
     _processing = true;
     try {
-      await _processPendingSaves();   // process before refreshing snapshot
+      await _processPendingSaves(); // process before refreshing snapshot
 
       final active = await getActiveDatabaseUseCase();
       final databasePath = active?.canonicalPath;
@@ -78,6 +84,10 @@ class IosAutofillSnapshotCoordinator with WidgetsBindingObserver {
       logError('Unable to sync iOS autofill snapshot.', e, st);
     } finally {
       _processing = false;
+      if (_rerunRequested) {
+        _rerunRequested = false;
+        await syncSnapshot();
+      }
     }
   }
 
@@ -91,7 +101,9 @@ class IosAutofillSnapshotCoordinator with WidgetsBindingObserver {
 
     final password = await secureDataSource.getMasterPassword() ?? '';
     final keyFilePath = await getSelectedKeyFilePathUseCase();
-    if (password.isEmpty && (keyFilePath == null || keyFilePath.isEmpty)) return;
+    if (password.isEmpty && (keyFilePath == null || keyFilePath.isEmpty)) {
+      return;
+    }
 
     try {
       final vault = await vaultKdbxService.loadVault(
@@ -113,7 +125,9 @@ class IosAutofillSnapshotCoordinator with WidgetsBindingObserver {
           password: password,
           keyFilePath: keyFilePath,
           groupId: vault.rootGroupId,
-          title: title.isEmpty ? (url.isEmpty ? 'Saved credential' : url) : title,
+          title: title.isEmpty
+              ? (url.isEmpty ? 'Saved credential' : url)
+              : title,
           username: username,
           entryPassword: entryPassword,
           url: url,
@@ -131,6 +145,6 @@ class IosAutofillSnapshotCoordinator with WidgetsBindingObserver {
       return false;
     }
     return defaultTargetPlatform == TargetPlatform.iOS ||
-           defaultTargetPlatform == TargetPlatform.macOS;
+        defaultTargetPlatform == TargetPlatform.macOS;
   }
 }
