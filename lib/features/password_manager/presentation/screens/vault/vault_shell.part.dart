@@ -93,13 +93,20 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   bool _isBackground = false;
   bool _isLocked = false;
   Timer? _inactivityTimer;
+  StreamSubscription<OtpAuthDeepLinkEvent>? _otpAuthSubscription;
+  final List<OtpAuthDeepLinkEvent> _otpAuthEventQueue = [];
   int? _inactivityTimeoutSeconds;
   bool _autofillPromptChecked = false;
+  bool _otpAuthVaultMarkedAvailable = false;
+  bool _isHandlingOtpAuth = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _otpAuthSubscription = di.sl<OtpAuthDeepLinkCoordinator>().events.listen(
+      _handleOtpAuthEvent,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _maybeShowAutofillOnboardingDialog();
       _loadInactivityTimeout();
@@ -109,8 +116,99 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   @override
   void dispose() {
     _inactivityTimer?.cancel();
+    _otpAuthSubscription?.cancel();
+    di.sl<OtpAuthDeepLinkCoordinator>().markVaultUnavailable();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  void _markOtpAuthVaultAvailableIfReady(VaultState state) {
+    if (_otpAuthVaultMarkedAvailable ||
+        state.isLoading ||
+        state.rootGroupId == null) {
+      return;
+    }
+    _otpAuthVaultMarkedAvailable = true;
+    di.sl<OtpAuthDeepLinkCoordinator>().markVaultAvailable();
+  }
+
+  Future<void> _handleOtpAuthEvent(OtpAuthDeepLinkEvent event) async {
+    if (!mounted) {
+      return;
+    }
+    final errorMessage = event.errorMessage;
+    if (errorMessage != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(errorMessage)));
+      return;
+    }
+
+    final otpAuth = event.otpAuth;
+    if (otpAuth == null) {
+      return;
+    }
+
+    if (_isHandlingOtpAuth) {
+      _otpAuthEventQueue.add(event);
+      return;
+    }
+
+    _isHandlingOtpAuth = true;
+    try {
+      final shouldAdd = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('Add OTP account?'),
+            insetPadding: _dialogInsetPadding(dialogContext),
+            contentPadding: _dialogContentPadding(dialogContext),
+            actionsOverflowDirection: VerticalDirection.down,
+            actionsOverflowButtonSpacing: 8,
+            content: Text(
+              'An OTP account for ${otpAuth.title} was received. Review it before saving to this vault.',
+            ),
+            actions: _adaptiveDialogActions(dialogContext, [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Not now'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Review'),
+              ),
+            ]),
+          );
+        },
+      );
+
+      if (shouldAdd != true || !mounted) {
+        return;
+      }
+
+      final payload = await _showEntryDialog(context, initialOtpAuth: otpAuth);
+      if (payload == null || !mounted) {
+        return;
+      }
+
+      context.read<VaultBloc>().add(
+        CreateVaultEntry(
+          title: payload.title,
+          username: payload.username,
+          password: payload.password,
+          url: payload.url,
+          notes: payload.notes,
+          customFields: payload.customFields,
+          attachmentPaths: payload.attachmentPaths,
+        ),
+      );
+    } finally {
+      _isHandlingOtpAuth = false;
+      if (mounted && _otpAuthEventQueue.isNotEmpty) {
+        final next = _otpAuthEventQueue.removeAt(0);
+        unawaited(_handleOtpAuthEvent(next));
+      }
+    }
   }
 
   Future<void> _loadInactivityTimeout() async {
@@ -325,6 +423,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
           ),
           BlocListener<VaultBloc, VaultState>(
             listener: (context, state) {
+              _markOtpAuthVaultAvailableIfReady(state);
               if (state.errorMessage != null &&
                   state.errorMessage!.isNotEmpty) {
                 ScaffoldMessenger.of(

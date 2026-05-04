@@ -12,13 +12,15 @@ import '../widgets/styled_info_container.dart';
 /// A step-by-step wizard that guides the user through connecting the
 /// KeyVault browser extension to the desktop app.
 ///
-/// Should only be shown on desktop platforms (macOS).
+/// Should only be shown on desktop platforms.
 class BrowserSetupScreen extends StatefulWidget {
   const BrowserSetupScreen({super.key});
 
   static bool get shouldShow {
     if (kIsWeb) return false;
-    return defaultTargetPlatform == TargetPlatform.macOS;
+    return defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux;
   }
 
   @override
@@ -35,6 +37,15 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
 
   String? _errorMessage;
   bool _isCheckingConnection = false;
+
+  bool get _hasMacInstaller => Platform.isMacOS;
+
+  String get _platformName {
+    if (Platform.isMacOS) return 'macOS';
+    if (Platform.isWindows) return 'Windows';
+    if (Platform.isLinux) return 'Linux';
+    return 'desktop';
+  }
 
   @override
   void initState() {
@@ -56,35 +67,6 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
         _extensionStatus = _StepStatus.done;
         _connectionStatus = _StepStatus.done;
       });
-    }
-  }
-
-  Future<void> _installNativeHost() async {
-    setState(() {
-      _nativeHostStatus = _StepStatus.loading;
-      _errorMessage = null;
-    });
-
-    final result = await _service.installNativeHost();
-    if (!mounted) return;
-
-    switch (result) {
-      case NativeHostInstallResult.success:
-        setState(() => _nativeHostStatus = _StepStatus.done);
-      case NativeHostInstallResult.scriptNotFound:
-        setState(() {
-          _nativeHostStatus = _StepStatus.error;
-          _errorMessage =
-              'Script install_mac.sh non trovato.\n'
-              'Assicurati di eseguire l\'app dalla cartella del progetto.';
-        });
-      case NativeHostInstallResult.failed:
-        setState(() {
-          _nativeHostStatus = _StepStatus.error;
-          _errorMessage =
-              'Installazione fallita. Prova a rieseguire lo script manualmente:\n'
-              './desktop/native_host/install_mac.sh';
-        });
     }
   }
 
@@ -119,7 +101,7 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
             ),
             const SizedBox(height: 14),
             const Text(
-              '4. Seleziona la cartella che si è aperta:',
+              '4. Seleziona questa cartella del repo:',
               style: TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 6),
@@ -150,7 +132,94 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
     if (path == null) return;
     if (Platform.isMacOS) {
       await Process.run('open', [path]);
+    } else if (Platform.isWindows) {
+      await Process.run('explorer', [path]);
+    } else if (Platform.isLinux) {
+      await Process.run('xdg-open', [path]);
     }
+  }
+
+  Future<void> _showNativeHostInstructions() async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Registra Native Messaging Host ($_platformName)'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Chrome deve trovare il manifest del native host e il manifest deve consentire l\'ID della tua estensione.',
+              ),
+              const SizedBox(height: 14),
+              if (Platform.isMacOS) ...[
+                const Text(
+                  '1. Copia l\'ID da chrome://extensions dopo aver caricato l\'estensione.',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                const Text('2. Esegui dal root del repo:'),
+                const SizedBox(height: 6),
+                _CopyableCodeRow(
+                  text:
+                      './desktop/native_host/install_host_macos.sh chrome <EXTENSION_ID>',
+                ),
+                const SizedBox(height: 8),
+                const Text('Per Edge usa:'),
+                const SizedBox(height: 6),
+                _CopyableCodeRow(
+                  text:
+                      './desktop/native_host/install_host_macos.sh edge <EXTENSION_ID>',
+                ),
+              ] else ...[
+                Text(
+                  'Nel repo non è presente uno script di installazione host per $_platformName.',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                const Text('Usa i template manifest verificati in:'),
+                const SizedBox(height: 6),
+                const _CopyableCodeRow(
+                  text: 'desktop/native_host/manifests/chrome/',
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Sostituisci __EXTENSION_ID__ con l\'ID Chrome e __HOST_PATH__ con il launcher host del repo/package:',
+                ),
+                const SizedBox(height: 6),
+                _CopyableCodeRow(
+                  text: Platform.isWindows
+                      ? 'launcher host Windows del package (non presente nel repo)'
+                      : 'desktop/native_host/keyvault_native_host.sh',
+                ),
+              ],
+              const SizedBox(height: 14),
+              const Text(
+                'Nome host usato dall\'estensione:',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 6),
+              _CopyableCodeRow(text: _service.nativeHostName),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Chiudi'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              setState(() => _nativeHostStatus = _StepStatus.done);
+            },
+            child: const Text('Host registrato ✓'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _checkConnection() async {
@@ -172,10 +241,11 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
           _connectionStatus = _StepStatus.error;
           _errorMessage =
               'App non avviata o bridge non ancora partito. '
-              'Assicurati che l\'app KeyVault sia aperta.';
+              'Assicurati che KeyVault sia aperta e sbloccata. Config bridge: ${_service.bridgeConfigPath}';
         case BridgeCheckResult.notRunning:
           _connectionStatus = _StepStatus.error;
-          _errorMessage = 'Bridge non raggiungibile. Riavvia l\'app e riprova.';
+          _errorMessage =
+              'Bridge non raggiungibile. Riavvia KeyVault, sblocca il vault e riprova.';
       }
     });
   }
@@ -198,7 +268,7 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: BackButton(onPressed: () => Navigator.of(context).pop()),
-        title: const Text('Connetti Browser'),
+        title: const Text('Estensione Chrome desktop'),
       ),
       body: Container(
         decoration: BoxDecoration(gradient: AppBackgrounds.gradient(context)),
@@ -242,7 +312,7 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      'Connetti il Browser',
+                                      'Estensione Chrome desktop',
                                       style: Theme.of(context)
                                           .textTheme
                                           .titleMedium
@@ -252,7 +322,7 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
-                                      'Abilita l\'autofill one-click su Chrome, Brave ed Edge',
+                                      'Installa e collega Chrome all\'app desktop KeyVault',
                                       style: Theme.of(
                                         context,
                                       ).textTheme.bodySmall,
@@ -266,35 +336,35 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                           const Divider(height: 1),
                           const SizedBox(height: 20),
 
-                          // Step 1 — Native Host
+                          // Step 1 — Load Extension
                           _SetupStep(
                             number: 1,
-                            title: 'Installa il Native Messaging Host',
+                            title: 'Carica l\'estensione in Chrome',
                             description:
-                                'Registra KeyVault nei browser installati sul tuo Mac '
-                                '(Chrome, Brave, Edge). Operazione da fare una volta sola.',
-                            status: _nativeHostStatus,
-                            actionLabel: 'Installa',
-                            onAction: _nativeHostStatus != _StepStatus.loading
-                                ? _installNativeHost
+                                'Apri chrome://extensions, abilita Modalità sviluppatore '
+                                'e seleziona desktop/browser_extension dal repo.',
+                            status: _extensionStatus,
+                            actionLabel: 'Apri istruzioni →',
+                            onAction: _extensionStatus != _StepStatus.loading
+                                ? _openChromeExtensions
                                 : null,
                           ),
 
                           const SizedBox(height: 12),
 
-                          // Step 2 — Load Extension
+                          // Step 2 — Native Host
                           _SetupStep(
                             number: 2,
-                            title: 'Carica l\'estensione in Chrome',
-                            description:
-                                'Apri Chrome > Estensioni > Modalità sviluppatore, '
-                                'poi seleziona la cartella dell\'estensione.',
-                            status: _nativeHostStatus == _StepStatus.done
-                                ? _extensionStatus
+                            title: 'Registra il Native Messaging Host',
+                            description: _hasMacInstaller
+                                ? 'Copia l\'ID estensione e registra l\'host con lo script macOS del repo.'
+                                : 'Configura il manifest host per $_platformName usando i template presenti nel repo.',
+                            status: _extensionStatus == _StepStatus.done
+                                ? _nativeHostStatus
                                 : _StepStatus.disabled,
-                            actionLabel: 'Apri istruzioni →',
-                            onAction: _nativeHostStatus == _StepStatus.done
-                                ? _openChromeExtensions
+                            actionLabel: 'Mostra istruzioni →',
+                            onAction: _extensionStatus == _StepStatus.done
+                                ? _showNativeHostInstructions
                                 : null,
                           ),
 
@@ -305,16 +375,15 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                             number: 3,
                             title: 'Verifica la connessione',
                             description:
-                                'Controlla che l\'estensione riesca a comunicare '
-                                'con l\'app KeyVault in esecuzione.',
-                            status: _extensionStatus == _StepStatus.done
+                                'Lascia KeyVault aperta e sbloccata, poi controlla che il bridge locale risponda.',
+                            status: _nativeHostStatus == _StepStatus.done
                                 ? _connectionStatus
                                 : _StepStatus.disabled,
                             actionLabel: _isCheckingConnection
                                 ? 'Verifica in corso…'
                                 : 'Verifica',
                             onAction:
-                                _extensionStatus == _StepStatus.done &&
+                                _nativeHostStatus == _StepStatus.done &&
                                     !_isCheckingConnection
                                 ? _checkConnection
                                 : null,
@@ -365,6 +434,9 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                             ),
                           ],
 
+                          const SizedBox(height: 16),
+                          _TroubleshootingTips(platformName: _platformName),
+
                           // Success state
                           if (allDone) ...[
                             const SizedBox(height: 20),
@@ -388,8 +460,9 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Text(
-                                      'Tutto configurato! Naviga su qualsiasi sito con una '
-                                      'password e clicca l\'icona 🔒 nel campo per l\'autofill.',
+                                      'Tutto configurato! Tieni l\'app aperta e sbloccata, '
+                                      'apri il popup dell\'estensione sul sito, quindi usa '
+                                      'Find credentials e Fill this account per compilare.',
                                       style: Theme.of(context)
                                           .textTheme
                                           .bodySmall
@@ -570,6 +643,83 @@ class _SetupStep extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _TroubleshootingTips extends StatelessWidget {
+  const _TroubleshootingTips({required this.platformName});
+
+  final String platformName;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return StyledInfoContainer(
+      padding: const EdgeInsets.all(14),
+      borderRadius: 12,
+      backgroundColor: colorScheme.surfaceContainerHighest.withValues(
+        alpha: 0.55,
+      ),
+      borderColor: colorScheme.outlineVariant,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(AppIcons.info, size: 16, color: colorScheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                'Troubleshooting rapido',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _Tip(
+            text:
+                'Chrome non vede l\'host: ricontrolla ID estensione, nome host e manifest native messaging per $platformName.',
+          ),
+          const _Tip(
+            text:
+                'App non aperta: avvia KeyVault desktop e sblocca il vault prima di usare il popup.',
+          ),
+          const _Tip(
+            text:
+                'Estensione non collegata: ricarica l\'estensione da chrome://extensions dopo aver aggiornato il manifest host.',
+          ),
+          const _Tip(
+            text:
+                'Permessi/path: il manifest deve puntare a un host eseguibile e leggibile dal browser.',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Tip extends StatelessWidget {
+  const _Tip({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('• '),
+          Expanded(
+            child: Text(text, style: Theme.of(context).textTheme.bodySmall),
+          ),
+        ],
       ),
     );
   }

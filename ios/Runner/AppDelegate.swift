@@ -8,6 +8,39 @@ private let autofillLog = Logger(
   category: "autofill-host"
 )
 
+final class OtpAuthDeepLinkForwarder {
+  static let shared = OtpAuthDeepLinkForwarder()
+
+  private let channelName = "dev.camillobucciarelli.kdbxKeyVault/otpauth_deep_link"
+  private var channel: FlutterMethodChannel?
+  private var pendingUrls: [String] = []
+
+  func configure(binaryMessenger: FlutterBinaryMessenger) {
+    let channel = FlutterMethodChannel(name: channelName, binaryMessenger: binaryMessenger)
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "takePendingUrls" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      result(self?.drainPendingUrls() ?? [])
+    }
+    self.channel = channel
+  }
+
+  func receive(_ url: URL) {
+    guard url.scheme?.lowercased() == "otpauth" else { return }
+    let urlString = url.absoluteString
+    pendingUrls.append(urlString)
+    channel?.invokeMethod("receiveOtpAuthUrl", arguments: urlString)
+  }
+
+  private func drainPendingUrls() -> [String] {
+    let urls = pendingUrls
+    pendingUrls.removeAll()
+    return urls
+  }
+}
+
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private let autofillChannelName = "dev.camillobucciarelli.kdbxKeyVault/ios_autofill"
@@ -48,6 +81,18 @@ private let autofillLog = Logger(
     }
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  override func application(
+    _ app: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey : Any] = [:]
+  ) -> Bool {
+    if url.scheme?.lowercased() == "otpauth" {
+      OtpAuthDeepLinkForwarder.shared.receive(url)
+      return true
+    }
+    return super.application(app, open: url, options: options)
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {

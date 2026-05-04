@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A cross-platform Flutter password manager (Android, iOS, macOS, Windows, Linux, web) named "Antigravity Password Manager". It uses the KeePass `.kdbx` format for encrypted vault storage, with Android/iOS autofill integration and a desktop browser autofill bridge.
+A cross-platform Flutter password manager (Android, iOS, macOS, Windows, Linux, web). It uses the KeePass `.kdbx` format for encrypted vault storage, with Android/iOS autofill integration and a desktop browser autofill bridge.
 
 ## Commands
 

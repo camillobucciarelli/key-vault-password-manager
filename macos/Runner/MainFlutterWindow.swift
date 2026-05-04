@@ -1,6 +1,39 @@
 import Cocoa
 import FlutterMacOS
 
+final class OtpAuthDeepLinkForwarder {
+  static let shared = OtpAuthDeepLinkForwarder()
+
+  private let channelName = "dev.camillobucciarelli.kdbxKeyVault/otpauth_deep_link"
+  private var channel: FlutterMethodChannel?
+  private var pendingUrls: [String] = []
+
+  func configure(binaryMessenger: FlutterBinaryMessenger) {
+    let channel = FlutterMethodChannel(name: channelName, binaryMessenger: binaryMessenger)
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "takePendingUrls" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      result(self?.drainPendingUrls() ?? [])
+    }
+    self.channel = channel
+  }
+
+  func receive(_ url: URL) {
+    guard url.scheme?.lowercased() == "otpauth" else { return }
+    let urlString = url.absoluteString
+    pendingUrls.append(urlString)
+    channel?.invokeMethod("receiveOtpAuthUrl", arguments: urlString)
+  }
+
+  private func drainPendingUrls() -> [String] {
+    let urls = pendingUrls
+    pendingUrls.removeAll()
+    return urls
+  }
+}
+
 class MainFlutterWindow: NSWindow {
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
@@ -10,6 +43,9 @@ class MainFlutterWindow: NSWindow {
     self.minSize = NSSize(width: 420, height: 640)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
+    OtpAuthDeepLinkForwarder.shared.configure(
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
 
     let autofillChannel = FlutterMethodChannel(
       name: "dev.camillobucciarelli.kdbxKeyVault/ios_autofill",

@@ -6,6 +6,7 @@ import '../presentation/bloc/database_selection/database_selection_bloc.dart';
 import '../presentation/bloc/database_unlock/database_unlock_bloc.dart';
 import '../presentation/bloc/vault/vault_bloc.dart';
 import '../presentation/coordinators/database_session_coordinator.dart';
+import '../presentation/coordinators/otpauth_deep_link_coordinator.dart';
 import '../presentation/coordinators/vault_session_coordinator.dart';
 
 void registerPasswordManagerPresentationDependencies(GetIt sl) {
@@ -46,6 +47,10 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
     ),
   );
 
+  sl.registerLazySingleton<OtpAuthDeepLinkCoordinator>(
+    () => OtpAuthDeepLinkCoordinator(),
+  );
+
   sl.registerFactory(
     () => DatabaseSelectionBloc(databaseSessionCoordinator: sl()),
   );
@@ -75,6 +80,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       setDatabaseAutoSyncUseCase: sl(),
       databaseSyncRepository: sl(),
       androidAutofillCoordinator: sl<AndroidAutofillCoordinator>(),
+      iosAutofillSnapshotCoordinator: sl<IosAutofillSnapshotCoordinator>(),
     ),
   );
 }

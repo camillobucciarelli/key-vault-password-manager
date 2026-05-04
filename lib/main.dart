@@ -16,6 +16,7 @@ import 'features/password_manager/presentation/bloc/database_selection/database_
 import 'features/password_manager/presentation/bloc/database_selection/database_selection_event.dart';
 import 'features/password_manager/presentation/screens/database_selection_screen.dart';
 import 'features/password_manager/data/services/android_autofill_coordinator.dart';
+import 'features/password_manager/presentation/coordinators/otpauth_deep_link_coordinator.dart';
 
 Future<void> main() async {
   await _bootstrapApp();
@@ -33,6 +34,7 @@ Future<void> _bootstrapApp() async {
   await di.sl<AndroidAutofillCoordinator>().initialize();
   await di.sl<IosAutofillSnapshotCoordinator>().initialize();
   await di.sl<DesktopAutofillBridgeService>().start();
+  await di.sl<OtpAuthDeepLinkCoordinator>().initialize();
   runApp(const PasswordManagerApp());
 }
 

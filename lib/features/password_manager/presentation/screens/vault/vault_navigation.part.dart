@@ -22,8 +22,7 @@ class _SyncStatusStrip extends StatelessWidget {
     final compactActions = MediaQuery.sizeOf(context).width < 390;
     final canConfigureAndroidAutofill =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
-    final canConfigureBrowserAutofill =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
+    final canConfigureBrowserAutofill = BrowserSetupScreen.shouldShow;
     final databaseName = state.databasePath.trim().isEmpty
         ? 'Database'
         : path.basenameWithoutExtension(state.databasePath);
@@ -1068,9 +1067,6 @@ class _VaultSettingsSheet extends StatelessWidget {
     final maxSheetHeight = MediaQuery.sizeOf(context).height * 0.88;
     final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
 
-    final isDriveSetupIncomplete =
-        !state.isDriveConnected || !state.isDriveLinked;
-
     return SafeArea(
       minimum: EdgeInsets.only(bottom: bottomInset),
       child: ConstrainedBox(
@@ -1310,9 +1306,9 @@ class _VaultSettingsSheet extends StatelessWidget {
                                   alpha: 0.6,
                                 ),
                             iconColor: colorScheme.onSecondaryContainer,
-                            label: 'Browser extension',
+                            label: 'Desktop Chrome extension',
                             subtitle:
-                                'One-click autofill in Chrome, Brave, Edge',
+                                'Install and connect the desktop browser host',
                             onTap: () => onSelect('browserSetup'),
                           ),
                       ],
