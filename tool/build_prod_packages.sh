@@ -19,12 +19,19 @@ Build production Flutter packages and copy them to a timestamped folder.
 
 Options:
   --env-file <path>      Path to dart define json file
-                         (default: .env.dart.define.json)
+                          (default: .env.dart.define.json)
   --platforms <list>     Comma-separated list: android,android-playstore,ios,ios-appstore,macos,macos-appstore,windows,linux
-                         (default: all)
+                          (default: all)
   --no-clean             Skip flutter clean + flutter pub get
   --output-dir <path>    Output base directory (default: dist/prod_packages)
   -h, --help             Show this help
+
+Environment for App Store Connect uploads:
+  APP_STORE_CONNECT_API_KEY_PATH       Optional path to App Store Connect .p8 key
+  APP_STORE_CONNECT_API_KEY_ID         Key ID for the .p8 key
+  APP_STORE_CONNECT_API_ISSUER_ID      Issuer ID for the .p8 key
+
+  Aliases are also accepted: ASC_API_KEY_PATH, ASC_API_KEY_ID, ASC_API_ISSUER_ID.
 
 Examples:
   tool/build_prod_packages.sh
@@ -130,6 +137,92 @@ run_xcodebuild_filtered() {
   return "${xcodebuild_status}"
 }
 
+app_store_connect_api_args=()
+
+configure_app_store_connect_api_args() {
+  app_store_connect_api_args=()
+
+  local key_path="${APP_STORE_CONNECT_API_KEY_PATH:-${ASC_API_KEY_PATH:-}}"
+  local key_id="${APP_STORE_CONNECT_API_KEY_ID:-${ASC_API_KEY_ID:-}}"
+  local issuer_id="${APP_STORE_CONNECT_API_ISSUER_ID:-${ASC_API_ISSUER_ID:-}}"
+  local configured_count=0
+
+  [[ -n "${key_path}" ]] && configured_count=$((configured_count + 1))
+  [[ -n "${key_id}" ]] && configured_count=$((configured_count + 1))
+  [[ -n "${issuer_id}" ]] && configured_count=$((configured_count + 1))
+
+  if [[ "${configured_count}" -eq 0 ]]; then
+    return 0
+  fi
+
+  if [[ "${configured_count}" -ne 3 ]]; then
+    cat <<'EOF'
+Incomplete App Store Connect API auth.
+Set all of:
+  APP_STORE_CONNECT_API_KEY_PATH
+  APP_STORE_CONNECT_API_KEY_ID
+  APP_STORE_CONNECT_API_ISSUER_ID
+or aliases:
+  ASC_API_KEY_PATH
+  ASC_API_KEY_ID
+  ASC_API_ISSUER_ID
+EOF
+    exit 1
+  fi
+
+  if [[ "${key_path}" != /* ]]; then
+    key_path="${ROOT_DIR}/${key_path}"
+  fi
+
+  if [[ ! -f "${key_path}" ]]; then
+    echo "App Store Connect API key file not found: ${key_path}"
+    exit 1
+  fi
+
+  app_store_connect_api_args=(
+    -authenticationKeyPath "${key_path}"
+    -authenticationKeyID "${key_id}"
+    -authenticationKeyIssuerID "${issuer_id}"
+  )
+}
+
+preflight_macos_appstore_signing() {
+  local team_id="$1"
+
+  if ! command -v security >/dev/null 2>&1; then
+    echo "security command not found; macOS App Store signing requires macOS keychain access."
+    exit 1
+  fi
+
+  local identities
+  identities="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+
+  if ! grep -E "(Mac App Distribution|Apple Distribution|3rd Party Mac Developer Application)" <<<"${identities}" | grep -F "(${team_id})" >/dev/null; then
+    cat <<EOF
+Missing Mac App Store distribution signing identity for team ${team_id}.
+
+Import a .p12 containing the distribution certificate and private key into an unlocked keychain accessible to this runner.
+Accepted identities include:
+  - Apple Distribution: ... (${team_id})
+  - Mac App Distribution: ... (${team_id})
+  - 3rd Party Mac Developer Application: ... (${team_id})
+
+Verify on the runner with:
+  security find-identity -v -p codesigning
+
+Automatic signing also needs Developer Portal/App Store Connect auth to create/download Mac App Store provisioning profiles.
+Use Xcode account auth on the runner, or set APP_STORE_CONNECT_API_KEY_PATH, APP_STORE_CONNECT_API_KEY_ID, and APP_STORE_CONNECT_API_ISSUER_ID.
+EOF
+    exit 1
+  fi
+
+  if [[ "${#app_store_connect_api_args[@]}" -gt 0 ]]; then
+    echo "Using App Store Connect API key auth for xcodebuild."
+  else
+    echo "No App Store Connect API key env configured; xcodebuild will use the Xcode account on this runner."
+  fi
+}
+
 IFS=',' read -r -a selected_platforms <<<"${PLATFORMS}"
 
 echo "Output folder: ${OUTPUT_DIR}"
@@ -190,6 +283,12 @@ for raw_platform in "${selected_platforms[@]}"; do
       EXPORT_PATH="${OUTPUT_DIR}/ios-appstore-export"
       EXPORT_OPTIONS="${ROOT_DIR}/ios/ExportOptions.plist"
 
+      configure_app_store_connect_api_args
+      ios_appstore_auth_args=(
+        -allowProvisioningUpdates
+        "${app_store_connect_api_args[@]}"
+      )
+
       (cd "${ROOT_DIR}" && flutter build ios "${build_args[@]}" --no-codesign)
 
       echo "Archiving with xcodebuild..."
@@ -200,7 +299,7 @@ for raw_platform in "${selected_platforms[@]}"; do
         -configuration Release \
         -destination "generic/platform=iOS" \
         -archivePath "${ARCHIVE_PATH}" \
-        -allowProvisioningUpdates \
+        "${ios_appstore_auth_args[@]}" \
         CODE_SIGN_STYLE=Automatic \
         DEVELOPMENT_TEAM=A8QUU5F9G3
 
@@ -210,7 +309,7 @@ for raw_platform in "${selected_platforms[@]}"; do
         -archivePath "${ARCHIVE_PATH}" \
         -exportOptionsPlist "${EXPORT_OPTIONS}" \
         -exportPath "${EXPORT_PATH}" \
-        -allowProvisioningUpdates
+        "${ios_appstore_auth_args[@]}"
 
       echo "iOS App Store upload complete."
       ;;
@@ -232,10 +331,14 @@ for raw_platform in "${selected_platforms[@]}"; do
 
       # Generate Flutter/Xcode config without signing. The archive step below
       # owns App Store signing with provisioning updates enabled.
+      configure_app_store_connect_api_args
+      preflight_macos_appstore_signing "A8QUU5F9G3"
+
       (cd "${ROOT_DIR}" && flutter build macos "${build_args[@]}" --config-only)
 
       macos_appstore_signing_args=(
         -allowProvisioningUpdates
+        "${app_store_connect_api_args[@]}"
         CODE_SIGN_STYLE=Automatic
         DEVELOPMENT_TEAM=A8QUU5F9G3
       )
