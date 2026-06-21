@@ -238,7 +238,6 @@ for raw_platform in "${selected_platforms[@]}"; do
         -allowProvisioningUpdates
         CODE_SIGN_STYLE=Automatic
         DEVELOPMENT_TEAM=A8QUU5F9G3
-        CODE_SIGN_IDENTITY="Apple Distribution"
       )
 
       echo "Archiving with xcodebuild..."
