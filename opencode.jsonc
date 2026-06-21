@@ -1,5 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "plugin": ["opencode-regolo@latest"],
   "mcp": {
     "dart-mcp-server": {
       "type": "local",
