@@ -113,6 +113,23 @@ zip_dir() {
   fi
 }
 
+run_xcodebuild_filtered() {
+  local filter_regex="$1"
+  shift
+
+  local xcodebuild_status=0
+  set +e
+  "$@" 2>&1 | grep -E "${filter_regex}"
+  xcodebuild_status=${PIPESTATUS[0]}
+  set -e
+
+  if [[ "${xcodebuild_status}" -ne 0 ]]; then
+    echo "xcodebuild failed with exit code ${xcodebuild_status}"
+  fi
+
+  return "${xcodebuild_status}"
+}
+
 IFS=',' read -r -a selected_platforms <<<"${PLATFORMS}"
 
 echo "Output folder: ${OUTPUT_DIR}"
@@ -176,7 +193,8 @@ for raw_platform in "${selected_platforms[@]}"; do
       (cd "${ROOT_DIR}" && flutter build ios "${build_args[@]}" --no-codesign)
 
       echo "Archiving with xcodebuild..."
-      xcodebuild archive \
+      run_xcodebuild_filtered "(error:|warning:|\*\* ARCHIVE (SUCCEEDED|FAILED) \*\*)" \
+        xcodebuild archive \
         -workspace "${ROOT_DIR}/ios/Runner.xcworkspace" \
         -scheme Runner \
         -configuration Release \
@@ -184,16 +202,15 @@ for raw_platform in "${selected_platforms[@]}"; do
         -archivePath "${ARCHIVE_PATH}" \
         -allowProvisioningUpdates \
         CODE_SIGN_STYLE=Automatic \
-        DEVELOPMENT_TEAM=A8QUU5F9G3 \
-        | grep -E "(error:|warning:|\*\* ARCHIVE (SUCCEEDED|FAILED) \*\*)" || true
+        DEVELOPMENT_TEAM=A8QUU5F9G3
 
       echo "Exporting and uploading to App Store Connect..."
-      xcodebuild -exportArchive \
+      run_xcodebuild_filtered "(error:|warning:|\*\* EXPORT (SUCCEEDED|FAILED) \*\*|Uploaded)" \
+        xcodebuild -exportArchive \
         -archivePath "${ARCHIVE_PATH}" \
         -exportOptionsPlist "${EXPORT_OPTIONS}" \
         -exportPath "${EXPORT_PATH}" \
-        -allowProvisioningUpdates \
-        | grep -E "(error:|warning:|\*\* EXPORT (SUCCEEDED|FAILED) \*\*|Uploaded)" || true
+        -allowProvisioningUpdates
 
       echo "iOS App Store upload complete."
       ;;
@@ -213,29 +230,34 @@ for raw_platform in "${selected_platforms[@]}"; do
       EXPORT_PATH="${OUTPUT_DIR}/macos-appstore-export"
       EXPORT_OPTIONS="${ROOT_DIR}/macos/ExportOptions.plist"
 
-      # Pass dart-define vars as xcodebuild OTHER_SWIFT_FLAGS / user-defined vars
-      # by building the .app first so Flutter generates the necessary files
-      (cd "${ROOT_DIR}" && flutter build macos "${build_args[@]}")
+      # Generate Flutter/Xcode config without signing. The archive step below
+      # owns App Store signing with provisioning updates enabled.
+      (cd "${ROOT_DIR}" && flutter build macos "${build_args[@]}" --config-only)
+
+      macos_appstore_signing_args=(
+        -allowProvisioningUpdates
+        CODE_SIGN_STYLE=Automatic
+        DEVELOPMENT_TEAM=A8QUU5F9G3
+        CODE_SIGN_IDENTITY="Apple Distribution"
+      )
 
       echo "Archiving with xcodebuild..."
-      xcodebuild archive \
+      run_xcodebuild_filtered "(error:|warning:|\*\* ARCHIVE (SUCCEEDED|FAILED) \*\*)" \
+        xcodebuild archive \
         -workspace "${ROOT_DIR}/macos/Runner.xcworkspace" \
         -scheme Runner \
         -configuration Release \
         -destination "generic/platform=macOS" \
         -archivePath "${ARCHIVE_PATH}" \
-        -allowProvisioningUpdates \
-        CODE_SIGN_STYLE=Automatic \
-        DEVELOPMENT_TEAM=A8QUU5F9G3 \
-        | grep -E "(error:|warning:|\*\* ARCHIVE (SUCCEEDED|FAILED) \*\*)" || true
+        "${macos_appstore_signing_args[@]}"
 
       echo "Exporting and uploading to App Store Connect..."
-      xcodebuild -exportArchive \
+      run_xcodebuild_filtered "(error:|warning:|\*\* EXPORT (SUCCEEDED|FAILED) \*\*|Uploaded)" \
+        xcodebuild -exportArchive \
         -archivePath "${ARCHIVE_PATH}" \
         -exportOptionsPlist "${EXPORT_OPTIONS}" \
         -exportPath "${EXPORT_PATH}" \
-        -allowProvisioningUpdates \
-        | grep -E "(error:|warning:|\*\* EXPORT (SUCCEEDED|FAILED) \*\*|Uploaded)" || true
+        "${macos_appstore_signing_args[@]}"
 
       echo "macOS App Store upload complete."
       ;;
