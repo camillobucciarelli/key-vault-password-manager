@@ -11,6 +11,7 @@ import 'package:password_manager/features/password_manager/domain/entities/datab
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_security_repository.dart';
@@ -29,6 +30,8 @@ import 'package:password_manager/features/password_manager/domain/usecases/set_a
 import 'package:password_manager/features/password_manager/domain/usecases/unlock_database_usecase.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/upsert_database_record_usecase.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/validate_database_usecase.dart';
+import 'package:password_manager/features/password_manager/presentation/bloc/database_selection/database_selection_event.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/database_session_coordinator.dart';
 
 void main() {
@@ -38,6 +41,7 @@ void main() {
     late _FakeSecurityRepository securityRepository;
     late _FakeSyncRepository syncRepository;
     late _FakeSecureDataSource secureDataSource;
+    late _FakeAppleAutofillV2Coordinator appleAutofillV2Coordinator;
     late DatabaseSessionCoordinator coordinator;
 
     setUp(() {
@@ -46,6 +50,7 @@ void main() {
       securityRepository = _FakeSecurityRepository();
       syncRepository = _FakeSyncRepository();
       secureDataSource = _FakeSecureDataSource();
+      appleAutofillV2Coordinator = _FakeAppleAutofillV2Coordinator();
 
       coordinator = DatabaseSessionCoordinator(
         saveSelectedDatabasePathUseCase: SaveSelectedDatabasePathUseCase(
@@ -84,6 +89,7 @@ void main() {
           securityRepository,
         ),
         unlockDatabaseUseCase: UnlockDatabaseUseCase(),
+        appleAutofillV2Coordinator: appleAutofillV2Coordinator,
       );
     });
 
@@ -144,8 +150,39 @@ void main() {
         expect(databaseRepository.selectedDatabasePath, currentPath);
         expect(databaseRepository.selectedKeyFilePath, isNull);
         expect(secureDataSource.password, isNull);
+        expect(appleAutofillV2Coordinator.clearCallCount, 1);
       },
     );
+
+    test('removeRecentDatabase clears Apple autofill credentials', () async {
+      const currentPath = '/tmp/active.kdbx';
+      registryRepository.records = [
+        DatabaseRecord(
+          databaseId: 'db-current',
+          canonicalPath: currentPath,
+          displayName: 'active.kdbx',
+          sourceType: DatabaseSourceType.local,
+          createdAt: DateTime(2026),
+          updatedAt: DateTime(2026),
+        ),
+      ];
+      registryRepository.activeId = 'db-current';
+      databaseRepository.selectedDatabasePath = currentPath;
+      databaseRepository.selectedKeyFilePath = '/tmp/key.key';
+      secureDataSource.password = 'secret';
+
+      final result = await coordinator.removeRecentDatabase(
+        path: currentPath,
+        mode: RecentDatabaseRemovalMode.removeOnly,
+      );
+
+      expect(result.status, DatabaseSessionStatus.info);
+      expect(registryRepository.records, isEmpty);
+      expect(databaseRepository.selectedDatabasePath, '');
+      expect(databaseRepository.selectedKeyFilePath, isNull);
+      expect(secureDataSource.password, isNull);
+      expect(appleAutofillV2Coordinator.clearCallCount, 1);
+    });
   });
 }
 
@@ -266,6 +303,22 @@ class _FakeSecureDataSource implements SecureDataSource {
   Future<void> saveMasterPassword(String password) async {
     this.password = password;
   }
+}
+
+class _FakeAppleAutofillV2Coordinator
+    implements AppleAutofillV2CoordinatorContract {
+  int clearCallCount = 0;
+
+  @override
+  Future<void> clearCredentials({String? databasePath}) async {
+    clearCallCount += 1;
+  }
+
+  @override
+  Future<void> publishVault({
+    required String databasePath,
+    required List<VaultEntry> entries,
+  }) async {}
 }
 
 class _FakeSyncRepository implements DatabaseSyncRepository {

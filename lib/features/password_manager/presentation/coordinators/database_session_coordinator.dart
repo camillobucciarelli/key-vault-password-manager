@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -12,7 +11,6 @@ import 'package:path/path.dart' as p;
 import '../../../../core/utils/mobile_file_storage.dart';
 import '../../data/datasources/secure_data_source.dart';
 import '../../data/services/database_import_service.dart';
-import '../../data/services/ios_autofill_snapshot_coordinator.dart';
 import '../../domain/entities/database_record.dart';
 import '../../domain/entities/database_security_profile.dart';
 import '../../domain/models/database_dedup_result.dart';
@@ -32,6 +30,7 @@ import '../../domain/usecases/set_active_database_usecase.dart';
 import '../../domain/usecases/unlock_database_usecase.dart';
 import '../../domain/usecases/upsert_database_record_usecase.dart';
 import '../bloc/database_selection/database_selection_event.dart';
+import 'apple_autofill_v2_coordinator.dart';
 
 enum DatabaseSessionStatus {
   success,
@@ -166,7 +165,7 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     required this.getDatabaseSecurityProfileUseCase,
     required this.saveDatabaseSecurityProfileUseCase,
     required this.unlockDatabaseUseCase,
-    this.iosAutofillSnapshotCoordinator,
+    this.appleAutofillV2Coordinator = const NoopAppleAutofillV2Coordinator(),
   });
 
   final SaveSelectedDatabasePathUseCase saveSelectedDatabasePathUseCase;
@@ -185,7 +184,7 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
   final GetDatabaseSecurityProfileUseCase getDatabaseSecurityProfileUseCase;
   final SaveDatabaseSecurityProfileUseCase saveDatabaseSecurityProfileUseCase;
   final UnlockDatabaseUseCase unlockDatabaseUseCase;
-  final IosAutofillSnapshotCoordinator? iosAutofillSnapshotCoordinator;
+  final AppleAutofillV2CoordinatorContract appleAutofillV2Coordinator;
 
   @override
   Future<DatabaseSelectionSessionResult> checkInitialDatabase() async {
@@ -285,6 +284,7 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     await saveSelectedDatabasePathUseCase(recordToSave.canonicalPath);
     await saveSelectedKeyFilePathUseCase(null);
     await secureDataSource.clearMasterPassword();
+    await appleAutofillV2Coordinator.clearCredentials();
 
     return DatabaseSelectionSessionResult(
       status: DatabaseSessionStatus.success,
@@ -437,6 +437,7 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     }
 
     await _removeRecordByPath(trimmed);
+    await appleAutofillV2Coordinator.clearCredentials();
     try {
       await databaseSyncRepository.removeMapping(trimmed);
     } catch (e, st) {
@@ -584,7 +585,6 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
       keyFilePath: persistedKeyFilePath,
       biometricProtectionEnabled: null,
     );
-    _triggerAutofillSnapshotSync();
   }
 
   @override
@@ -598,16 +598,6 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
       password: storedPassword,
       keyFilePath: keyFilePath,
     );
-    _triggerAutofillSnapshotSync();
-  }
-
-  /// Fire-and-forget refresh of the iOS autofill snapshot file.
-  /// Must run after unlock so `secureDataSource.getMasterPassword()` returns
-  /// the credential and `loadAllEntries` can decrypt the vault.
-  void _triggerAutofillSnapshotSync() {
-    final coordinator = iosAutofillSnapshotCoordinator;
-    if (coordinator == null) return;
-    unawaited(coordinator.syncSnapshot());
   }
 
   @override
@@ -686,6 +676,7 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     if (clearCredentials) {
       await saveSelectedKeyFilePathUseCase(null);
       await secureDataSource.clearMasterPassword();
+      await appleAutofillV2Coordinator.clearCredentials();
     }
 
     return DatabaseSelectionSessionResult(

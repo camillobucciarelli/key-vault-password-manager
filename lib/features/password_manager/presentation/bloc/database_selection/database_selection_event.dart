@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:password_manager/core/utils/redacted_value.dart';
 
 import '../../../domain/models/database_dedup_result.dart';
 
@@ -62,11 +63,17 @@ class CreateNewDatabase extends DatabaseSelectionEvent {
   @override
   List<Object> get props => [
     databaseFileName,
-    password,
-    keyFilePath ?? '',
+    RedactedValue<String>(password),
+    RedactedValue<String>(
+      keyFilePath ?? '',
+      redaction: '<redacted keyFilePath>',
+    ),
     biometricProtectionEnabled,
     generateKeyFile,
-    generatedKeyFilePath ?? '',
+    RedactedValue<String>(
+      generatedKeyFilePath ?? '',
+      redaction: '<redacted generatedKeyFilePath>',
+    ),
   ];
 }
 

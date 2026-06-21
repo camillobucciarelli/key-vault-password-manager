@@ -9,6 +9,7 @@ import 'package:password_manager/features/password_manager/domain/entities/datab
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_security_repository.dart';
@@ -20,6 +21,7 @@ import 'package:password_manager/features/password_manager/domain/usecases/save_
 import 'package:password_manager/features/password_manager/domain/usecases/save_selected_key_file_path_usecase.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/set_active_database_usecase.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/upsert_database_record_usecase.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/vault_session_coordinator.dart';
 
 void main() {
@@ -30,6 +32,7 @@ void main() {
     late _FakeSyncRepository syncRepository;
     late _FakeSecureDataSource secureDataSource;
     late _FakeVaultKdbxService vaultKdbxService;
+    late _FakeAppleAutofillV2Coordinator appleAutofillV2Coordinator;
     late VaultSessionCoordinator coordinator;
 
     setUp(() {
@@ -39,6 +42,7 @@ void main() {
       syncRepository = _FakeSyncRepository();
       secureDataSource = _FakeSecureDataSource();
       vaultKdbxService = _FakeVaultKdbxService();
+      appleAutofillV2Coordinator = _FakeAppleAutofillV2Coordinator();
       coordinator = VaultSessionCoordinator(
         saveSelectedDatabasePathUseCase: SaveSelectedDatabasePathUseCase(
           databaseRepository,
@@ -62,6 +66,7 @@ void main() {
           securityRepository,
         ),
         vaultKdbxService: vaultKdbxService,
+        appleAutofillV2Coordinator: appleAutofillV2Coordinator,
       );
     });
 
@@ -167,18 +172,33 @@ void main() {
       },
     );
 
-    test('changeDatabase clears selected paths and active database', () async {
+    test(
+      'changeDatabase clears selected paths, active database, and master password',
+      () async {
+        databaseRepository.selectedDatabasePath = '/tmp/a.kdbx';
+        databaseRepository.selectedKeyFilePath = '/tmp/a.key';
+        secureDataSource.password = 'secret';
+        registryRepository.activeId = 'db-1';
+
+        await coordinator.changeDatabase(currentDatabasePath: '/tmp/a.kdbx');
+
+        expect(databaseRepository.selectedDatabasePath, '');
+        expect(databaseRepository.selectedKeyFilePath, isNull);
+        expect(secureDataSource.password, isNull);
+        expect(registryRepository.activeId, isNull);
+        expect(appleAutofillV2Coordinator.clearCallCount, 1);
+      },
+    );
+
+    test('lockVault clears Apple autofill credentials', () async {
       databaseRepository.selectedDatabasePath = '/tmp/a.kdbx';
-      databaseRepository.selectedKeyFilePath = '/tmp/a.key';
       secureDataSource.password = 'secret';
-      registryRepository.activeId = 'db-1';
 
-      await coordinator.changeDatabase(currentDatabasePath: '/tmp/a.kdbx');
+      await coordinator.lockVault(currentDatabasePath: '/tmp/a.kdbx');
 
-      expect(databaseRepository.selectedDatabasePath, '');
-      expect(databaseRepository.selectedKeyFilePath, isNull);
+      expect(databaseRepository.selectedDatabasePath, '/tmp/a.kdbx');
       expect(secureDataSource.password, isNull);
-      expect(registryRepository.activeId, isNull);
+      expect(appleAutofillV2Coordinator.clearCallCount, 1);
     });
 
     test(
@@ -346,6 +366,25 @@ class _FakeVaultKdbxService extends VaultKdbxService {
     if (shouldThrowOnChangeMasterPassword) {
       throw Exception('Unable to change password.');
     }
+  }
+}
+
+class _FakeAppleAutofillV2Coordinator
+    implements AppleAutofillV2CoordinatorContract {
+  int clearCallCount = 0;
+  int publishCallCount = 0;
+
+  @override
+  Future<void> clearCredentials({String? databasePath}) async {
+    clearCallCount += 1;
+  }
+
+  @override
+  Future<void> publishVault({
+    required String databasePath,
+    required List<VaultEntry> entries,
+  }) async {
+    publishCallCount += 1;
   }
 }
 

@@ -1,5 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
     <uses-permission android:name="android.permission.CAMERA"/>
     <application
@@ -28,29 +27,6 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <activity
-            android:name=".AutofillActivity"
-            android:exported="true"
-            android:launchMode="singleTop"
-            android:taskAffinity=""
-            android:theme="@style/LaunchTheme"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
-            android:hardwareAccelerated="true"
-            android:windowSoftInputMode="adjustResize">
-            <meta-data
-                android:name="io.flutter.embedding.android.NormalTheme"
-                android:resource="@style/NormalTheme" />
-            <meta-data
-                android:name="flutterEmbedding"
-                android:value="2" />
-        </activity>
-
-        <meta-data
-            android:name="com.keevault.flutter_autofill_service.ACTIVITY_NAME"
-            android:value="dev.camillobucciarelli.kdbxKeyVault.AutofillActivity" />
-        <meta-data
-            android:name="com.keevault.flutter_autofill_service.SAVE_ACTIVITY_NAME"
-            android:value="dev.camillobucciarelli.kdbxKeyVault.MainActivity" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
@@ -58,9 +34,17 @@
             android:value="2" />
 
         <service
-            android:name="com.keevault.flutter_autofill_service.FlutterAutofillService"
-            android:label="KeyVault Autofill"
-            tools:replace="label" />
+            android:name=".autofill.KeyVaultAutofillService"
+            android:exported="true"
+            android:label="@string/autofill_service_label"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.autofill"
+                android:resource="@xml/keyvault_autofill_service" />
+        </service>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

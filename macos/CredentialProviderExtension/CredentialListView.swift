@@ -1,25 +1,31 @@
 import SwiftUI
 
 struct CredentialListView: View {
-  let credentials: [SharedAutofillCredential]
+  let credentials: [AutofillCredentialMetadata]
   let bestMatchId: String?
-  let onSelect: (SharedAutofillCredential) -> Void
+  let onSelect: (AutofillCredentialMetadata) -> Void
   let onCancel: () -> Void
 
   var body: some View {
     NavigationView {
-      List(credentials, id: \.id) { credential in
-        Button {
-          onSelect(credential)
-        } label: {
-          CredentialRowView(
-            credential: credential,
-            isBestMatch: credential.id == bestMatchId
-          )
+      Group {
+        if credentials.isEmpty {
+          EmptyCredentialsView()
+        } else {
+          List(credentials, id: \.id) { credential in
+            Button {
+              onSelect(credential)
+            } label: {
+              CredentialRowView(
+                credential: credential,
+                isBestMatch: credential.id == bestMatchId
+              )
+            }
+            .buttonStyle(.plain)
+          }
+          .listStyle(.plain)
         }
-        .buttonStyle(.plain)
       }
-      .listStyle(.plain)
       .navigationTitle("Credentials")
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
@@ -30,8 +36,27 @@ struct CredentialListView: View {
   }
 }
 
+private struct EmptyCredentialsView: View {
+  var body: some View {
+    VStack(spacing: 16) {
+      Image(systemName: "key.slash")
+        .font(.system(size: 48))
+        .foregroundColor(.secondary)
+      Text("No matching credentials")
+        .font(.headline)
+      Text("Open KeyVault, unlock your vault, and publish the encrypted AutoFill cache before filling.")
+        .font(.footnote)
+        .foregroundColor(.secondary)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 32)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .padding()
+  }
+}
+
 private struct CredentialRowView: View {
-  let credential: SharedAutofillCredential
+  let credential: AutofillCredentialMetadata
   let isBestMatch: Bool
 
   var body: some View {
@@ -40,14 +65,14 @@ private struct CredentialRowView: View {
         .fill(Color.accentColor.opacity(0.15))
         .frame(width: 40, height: 40)
         .overlay {
-          Text(credential.title.prefix(1).uppercased())
+          Text(initial)
             .font(.system(size: 16, weight: .semibold))
             .foregroundColor(.accentColor)
         }
 
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: 3) {
         HStack(spacing: 6) {
-          Text(credential.username.isEmpty ? credential.title : credential.username)
+          Text(title)
             .font(.body)
             .foregroundColor(.primary)
             .lineLimit(1)
@@ -62,6 +87,20 @@ private struct CredentialRowView: View {
               .clipShape(Capsule())
           }
         }
+
+        if !credential.username.isEmpty {
+          Text(credential.username)
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .lineLimit(1)
+        }
+
+        if !credential.displayService.isEmpty {
+          Text(credential.displayService)
+            .font(.caption2)
+            .foregroundColor(.secondary)
+            .lineLimit(1)
+        }
       }
 
       Spacer()
@@ -72,5 +111,13 @@ private struct CredentialRowView: View {
     }
     .padding(.vertical, 4)
     .contentShape(Rectangle())
+  }
+
+  private var title: String {
+    credential.title.isEmpty ? "Untitled" : credential.title
+  }
+
+  private var initial: String {
+    String(title.prefix(1)).uppercased()
   }
 }

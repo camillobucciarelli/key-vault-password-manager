@@ -1,28 +1,14 @@
 {
   "manifest_version": 3,
   "name": "KeyVault Browser Autofill",
-  "version": "0.1.0",
-  "description": "Fill login forms from your local KeyVault database.",
-  "browser_specific_settings": {
-    "gecko": {
-      "id": "keyvault-autofill@camillobucciarelli.dev",
-      "strict_min_version": "121.0"
-    }
-  },
-  "permissions": ["activeTab", "tabs", "storage", "nativeMessaging"],
-  "host_permissions": ["<all_urls>"],
+  "version": "0.2.0",
+  "description": "Safe Native Messaging v2 status bridge for KeyVault desktop autofill.",
+  "permissions": ["activeTab", "nativeMessaging"],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
     "default_title": "KeyVault Autofill",
     "default_popup": "popup.html"
-  },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "run_at": "document_idle"
-    }
-  ]
+  }
 }

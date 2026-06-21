@@ -1,5 +1,11 @@
 import Cocoa
 import FlutterMacOS
+import OSLog
+
+private let autofillLog = Logger(
+  subsystem: "dev.camillobucciarelli.kdbxKeyVault",
+  category: "autofill-host"
+)
 
 final class OtpAuthDeepLinkForwarder {
   static let shared = OtpAuthDeepLinkForwarder()
@@ -46,67 +52,48 @@ class MainFlutterWindow: NSWindow {
     OtpAuthDeepLinkForwarder.shared.configure(
       binaryMessenger: flutterViewController.engine.binaryMessenger
     )
-
-    let autofillChannel = FlutterMethodChannel(
-      name: "dev.camillobucciarelli.kdbxKeyVault/ios_autofill",
+    AppleAutofillV2Channel.shared.configure(
       binaryMessenger: flutterViewController.engine.binaryMessenger
     )
+    wipeLegacyAutofillPlaintextArtifacts(reason: "app launch")
 
-    autofillChannel.setMethodCallHandler { (call, result) in
-      let suiteName = "group.dev.camillobucciarelli.kdbxKeyVault"
-      guard let defaults = UserDefaults(suiteName: suiteName) else {
-        result(FlutterError(
-          code: "NO_APP_GROUP",
-          message: "Unable to open shared App Group defaults.",
-          details: suiteName
-        ))
-        return
-      }
+    super.awakeFromNib()
+  }
 
-      let entriesKey      = "autofill_entries_json"
-      let lastSyncKey     = "autofill_last_sync_epoch_ms"
-      let pendingSavesKey = "pending_autofill_saves"
+  private func wipeLegacyAutofillPlaintextArtifacts(reason: String) {
+    let appGroupId = "group.dev.camillobucciarelli.kdbxKeyVault"
+    let legacyFileNames = [
+      "autofill_entries.json",
+      "pending_autofill_saves.json",
+    ]
+    let legacyDefaultsKeys = [
+      "autofill_entries_json",
+      "autofill_last_sync_epoch_ms",
+      "pending_autofill_saves",
+    ]
 
-      switch call.method {
-      case "saveSnapshot":
-        guard
-          let args = call.arguments as? [String: Any],
-          let entries = args["entries"] as? String
-        else {
-          result(FlutterError(code: "INVALID_ARGS", message: "Missing entries payload.", details: nil))
-          return
-        }
-        defaults.set(entries, forKey: entriesKey)
-        let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
-        defaults.set(timestamp, forKey: lastSyncKey)
-        result(nil)
+    guard let containerURL = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: appGroupId
+    ) else {
+      autofillLog.error("legacy autofill cleanup skipped: app group unavailable reason=\(reason, privacy: .public)")
+      return
+    }
 
-      case "clearSnapshot":
-        defaults.removeObject(forKey: entriesKey)
-        defaults.removeObject(forKey: lastSyncKey)
-        result(nil)
-
-      case "readAndClearPendingSaves":
-        struct PendingSave: Decodable {
-          let title: String
-          let username: String
-          let password: String
-          let url: String
-        }
-        var saves: [[String: String]] = []
-        if let json = defaults.string(forKey: pendingSavesKey),
-           let data = json.data(using: .utf8),
-           let decoded = try? JSONDecoder().decode([PendingSave].self, from: data) {
-          saves = decoded.map { ["title": $0.title, "username": $0.username, "password": $0.password, "url": $0.url] }
-        }
-        defaults.removeObject(forKey: pendingSavesKey)
-        result(saves)
-
-      default:
-        result(FlutterMethodNotImplemented)
+    for fileName in legacyFileNames {
+      let url = containerURL.appendingPathComponent(fileName)
+      guard FileManager.default.fileExists(atPath: url.path) else { continue }
+      do {
+        try FileManager.default.removeItem(at: url)
+        autofillLog.info("legacy autofill plaintext file removed name=\(fileName, privacy: .public) reason=\(reason, privacy: .public)")
+      } catch {
+        autofillLog.error("legacy autofill plaintext removal failed name=\(fileName, privacy: .public) error=\(String(describing: type(of: error)), privacy: .public)")
       }
     }
 
-    super.awakeFromNib()
+    if let defaults = UserDefaults(suiteName: appGroupId) {
+      for key in legacyDefaultsKeys {
+        defaults.removeObject(forKey: key)
+      }
+    }
   }
 }

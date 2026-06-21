@@ -38,7 +38,8 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
   String? _errorMessage;
   bool _isCheckingConnection = false;
 
-  bool get _hasMacInstaller => Platform.isMacOS;
+  bool get _hasMacInstaller =>
+      Platform.isMacOS || Platform.isWindows || Platform.isLinux;
 
   String get _platformName {
     if (Platform.isMacOS) return 'macOS';
@@ -106,7 +107,8 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
             ),
             const SizedBox(height: 6),
             _CopyableCodeRow(
-              text: _service.extensionFolderPath ?? 'extension/',
+              text:
+                  _service.extensionFolderPath ?? 'desktop/browser_extension/',
             ),
           ],
         ),
@@ -173,26 +175,49 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                   text:
                       './desktop/native_host/install_host_macos.sh edge <EXTENSION_ID>',
                 ),
-              ] else ...[
-                Text(
-                  'Nel repo non è presente uno script di installazione host per $_platformName.',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+              ] else if (Platform.isWindows) ...[
+                const Text(
+                  'Esegui PowerShell dal root del repo:',
+                  style: TextStyle(fontWeight: FontWeight.w600),
                 ),
-                const SizedBox(height: 8),
-                const Text('Usa i template manifest verificati in:'),
                 const SizedBox(height: 6),
                 const _CopyableCodeRow(
-                  text: 'desktop/native_host/manifests/chrome/',
+                  text:
+                      '.\\desktop\\native_host\\install_host_windows.ps1 -Browser Chrome -ExtensionId <EXTENSION_ID>',
                 ),
                 const SizedBox(height: 8),
+                const Text('Per Edge usa:'),
+                const SizedBox(height: 6),
+                const _CopyableCodeRow(
+                  text:
+                      '.\\desktop\\native_host\\install_host_windows.ps1 -Browser Edge -ExtensionId <EXTENSION_ID>',
+                ),
+              ] else if (Platform.isLinux) ...[
                 const Text(
-                  'Sostituisci __EXTENSION_ID__ con l\'ID Chrome e __HOST_PATH__ con il launcher host del repo/package:',
+                  'Esegui dal root del repo:',
+                  style: TextStyle(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 6),
-                _CopyableCodeRow(
-                  text: Platform.isWindows
-                      ? 'launcher host Windows del package (non presente nel repo)'
-                      : 'desktop/native_host/keyvault_native_host.sh',
+                const _CopyableCodeRow(
+                  text:
+                      './desktop/native_host/install_host_linux.sh <EXTENSION_ID>',
+                ),
+                const SizedBox(height: 8),
+                const Text('Per Chromium o Edge usa:'),
+                const SizedBox(height: 6),
+                const _CopyableCodeRow(
+                  text:
+                      './desktop/native_host/install_host_linux.sh --browser chromium <EXTENSION_ID>',
+                ),
+                const SizedBox(height: 6),
+                const _CopyableCodeRow(
+                  text:
+                      './desktop/native_host/install_host_linux.sh --browser edge <EXTENSION_ID>',
+                ),
+              ] else ...[
+                Text(
+                  '$_platformName non è supportato da questa guida.',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
               ],
               const SizedBox(height: 14),
@@ -246,6 +271,11 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
           _connectionStatus = _StepStatus.error;
           _errorMessage =
               'Bridge non raggiungibile. Riavvia KeyVault, sblocca il vault e riprova.';
+        case BridgeCheckResult.v2AppBridgeUnavailable:
+          _connectionStatus = _StepStatus.error;
+          _errorMessage =
+              'Native Messaging v2 è in safe mode e non è ancora collegato al vault/app bridge. '
+              'Il popup può verificare l\'host, ma queryCredentials/revealForFill rispondono senza segreti.';
       }
     });
   }
@@ -322,7 +352,7 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
-                                      'Installa e collega Chrome all\'app desktop KeyVault',
+                                      'Installa il bridge Native Messaging v2 in safe mode',
                                       style: Theme.of(
                                         context,
                                       ).textTheme.bodySmall,
@@ -357,7 +387,7 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                             number: 2,
                             title: 'Registra il Native Messaging Host',
                             description: _hasMacInstaller
-                                ? 'Copia l\'ID estensione e registra l\'host con lo script macOS del repo.'
+                                ? 'Copia l\'ID estensione e registra l\'host v2 con lo script del repo per $_platformName.'
                                 : 'Configura il manifest host per $_platformName usando i template presenti nel repo.',
                             status: _extensionStatus == _StepStatus.done
                                 ? _nativeHostStatus
@@ -375,7 +405,7 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                             number: 3,
                             title: 'Verifica la connessione',
                             description:
-                                'Lascia KeyVault aperta e sbloccata, poi controlla che il bridge locale risponda.',
+                                'In questa milestone il popup verifica l\'host v2; il bridge vault/app reale non è ancora implementato.',
                             status: _nativeHostStatus == _StepStatus.done
                                 ? _connectionStatus
                                 : _StepStatus.disabled,
@@ -687,7 +717,7 @@ class _TroubleshootingTips extends StatelessWidget {
           ),
           const _Tip(
             text:
-                'App non aperta: avvia KeyVault desktop e sblocca il vault prima di usare il popup.',
+                'Safe mode v2: queryCredentials e revealForFill devono tornare errori sicuri finché il vault bridge reale non è implementato.',
           ),
           const _Tip(
             text:

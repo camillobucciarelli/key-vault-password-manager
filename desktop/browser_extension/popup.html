@@ -11,42 +11,29 @@
       <h1>KeyVault Autofill</h1>
 
       <p class="hint">
-        Recommended: keep KeyVault desktop app open and unlocked. In this case no password is required here.
+        Native Messaging v2 is enabled in safe mode. It is not connected to the KeyVault vault yet.
       </p>
 
-      <label>
-        Database path (fallback mode)
-        <input id="databasePath" type="text" placeholder="/path/to/vault.kdbx" />
-      </label>
+      <section class="status-grid" aria-live="polite">
+        <article class="status-card">
+          <span class="status-label">Native host</span>
+          <strong id="hostStatus">Not checked</strong>
+        </article>
+        <article class="status-card">
+          <span class="status-label">App / vault bridge</span>
+          <strong id="appStatus">Not connected</strong>
+        </article>
+      </section>
 
-      <label>
-        Master password (fallback mode)
-        <input id="masterPassword" type="password" placeholder="Master password" />
-      </label>
-
-      <label>
-        Key file path (fallback mode)
-        <input id="keyFilePath" type="text" placeholder="/path/to/keyfile.key" />
-      </label>
-
-      <label>
-        Max results
-        <input id="limit" type="number" min="1" max="10" value="5" />
-      </label>
-
-      <label class="toggle-row">
-        <input id="autoRefresh" type="checkbox" checked />
-        Auto refresh when tab/page changes
-      </label>
-
-      <button id="findButton">Find credentials</button>
+      <button id="statusButton" type="button">Check host status</button>
+      <button id="queryButton" type="button">Check current site</button>
       <p id="status" class="status"></p>
 
       <section>
-        <h2>Matches</h2>
+        <h2>v2 milestone</h2>
         <div id="results" class="results"></div>
       </section>
     </main>
     <script src="popup.js"></script>
   </body>
-  </html>
+</html>

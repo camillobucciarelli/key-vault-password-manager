@@ -233,4 +233,40 @@ class VaultState extends Equatable {
     duplicateGroups,
     isDuplicatesLoading,
   ];
+
+  @override
+  String toString() {
+    return 'VaultState('
+        'databasePath: $databasePath, '
+        'rootGroupId: $rootGroupId, '
+        'currentGroupId: $currentGroupId, '
+        'groups: ${groups.length}, '
+        'entries: ${entries.length}, '
+        'allEntries: ${allEntries.length}, '
+        'visibleEntries: ${visibleEntries.length}, '
+        'expandedGroupIds: $expandedGroupIds, '
+        'recycleBinEntries: ${recycleBinEntries.length}, '
+        'isLoading: $isLoading, '
+        'isSaving: $isSaving, '
+        'isRecycleBinView: $isRecycleBinView, '
+        'isRecycleBinLoading: $isRecycleBinLoading, '
+        'searchQuery: $searchQuery, '
+        'sortBy: $sortBy, '
+        'errorMessage: $errorMessage, '
+        'infoMessage: $infoMessage, '
+        'isDriveConnected: $isDriveConnected, '
+        'isDriveLinked: $isDriveLinked, '
+        'autoSyncEnabled: $autoSyncEnabled, '
+        'syncStatus: $syncStatus, '
+        'syncError: $syncError, '
+        'lastSyncAt: $lastSyncAt, '
+        'pendingSyncConflict: $pendingSyncConflict, '
+        'remoteDriveFiles: ${remoteDriveFiles.length}, '
+        'isLoadingRemoteDriveFiles: $isLoadingRemoteDriveFiles, '
+        'linkedDriveFileName: $linkedDriveFileName, '
+        'isSyncing: $isSyncing, '
+        'isSyncReloadPending: $isSyncReloadPending, '
+        'duplicateGroups: ${duplicateGroups.length}, '
+        'isDuplicatesLoading: $isDuplicatesLoading)';
+  }
 }

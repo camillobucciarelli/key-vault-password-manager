@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:password_manager/core/utils/redacted_value.dart';
 
 abstract class DatabaseUnlockEvent extends Equatable {
   const DatabaseUnlockEvent();
@@ -22,7 +23,10 @@ class UnlockWithManualCredentials extends DatabaseUnlockEvent {
   const UnlockWithManualCredentials({required this.password, this.keyFilePath});
 
   @override
-  List<Object?> get props => [password, keyFilePath];
+  List<Object?> get props => [
+    RedactedValue<String>(password),
+    RedactedValue<String?>(keyFilePath, redaction: '<redacted keyFilePath>'),
+  ];
 }
 
 class UpdateKeyFilePath extends DatabaseUnlockEvent {
@@ -31,5 +35,7 @@ class UpdateKeyFilePath extends DatabaseUnlockEvent {
   const UpdateKeyFilePath(this.keyFilePath);
 
   @override
-  List<Object?> get props => [keyFilePath];
+  List<Object?> get props => [
+    RedactedValue<String?>(keyFilePath, redaction: '<redacted keyFilePath>'),
+  ];
 }
