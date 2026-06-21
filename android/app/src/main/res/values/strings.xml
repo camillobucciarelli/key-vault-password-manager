@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="autofill_service_label">KeyVault Autofill</string>
+    <string name="autofill_service_summary">KeyVault Autofill v2 is installed but not yet connected to the vault.</string>
+</resources>

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart' show kReleaseMode;
@@ -10,30 +9,19 @@ import 'package:loggy/loggy.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_cubit.dart';
 import 'injection_container.dart' as di;
-import 'features/password_manager/data/services/ios_autofill_snapshot_coordinator.dart';
-import 'features/password_manager/data/services/desktop_autofill_bridge_service.dart';
 import 'features/password_manager/presentation/bloc/database_selection/database_selection_bloc.dart';
 import 'features/password_manager/presentation/bloc/database_selection/database_selection_event.dart';
 import 'features/password_manager/presentation/screens/database_selection_screen.dart';
-import 'features/password_manager/data/services/android_autofill_coordinator.dart';
 import 'features/password_manager/presentation/coordinators/otpauth_deep_link_coordinator.dart';
 
 Future<void> main() async {
   await _bootstrapApp();
 }
 
-@pragma('vm:entry-point')
-void autofillEntryPoint() {
-  unawaited(_bootstrapApp());
-}
-
 Future<void> _bootstrapApp() async {
   WidgetsFlutterBinding.ensureInitialized();
   _configureLogging();
   await di.init();
-  await di.sl<AndroidAutofillCoordinator>().initialize();
-  await di.sl<IosAutofillSnapshotCoordinator>().initialize();
-  await di.sl<DesktopAutofillBridgeService>().start();
   await di.sl<OtpAuthDeepLinkCoordinator>().initialize();
   runApp(const PasswordManagerApp());
 }

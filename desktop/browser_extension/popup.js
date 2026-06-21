@@ -1,13 +1,10 @@
-const databasePathInput = document.getElementById("databasePath");
-const masterPasswordInput = document.getElementById("masterPassword");
-const keyFilePathInput = document.getElementById("keyFilePath");
-const limitInput = document.getElementById("limit");
-const autoRefreshInput = document.getElementById("autoRefresh");
-const findButton = document.getElementById("findButton");
+const hostStatusElement = document.getElementById("hostStatus");
+const appStatusElement = document.getElementById("appStatus");
+const statusButton = document.getElementById("statusButton");
+const queryButton = document.getElementById("queryButton");
 const statusElement = document.getElementById("status");
 const resultsElement = document.getElementById("results");
 
-let lastTabUrl = "";
 let inFlight = false;
 
 function setStatus(message, isError = false) {
@@ -15,179 +12,170 @@ function setStatus(message, isError = false) {
   statusElement.style.color = isError ? "#b42342" : "#5f4a83";
 }
 
-async function getActiveTab() {
-  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tabs[0];
+function errorText(response, fallback) {
+  if (!response?.error) {
+    return fallback;
+  }
+  if (typeof response.error === "string") {
+    return response.error;
+  }
+  return response.error.message || response.error.code || fallback;
 }
 
-async function saveSettings() {
-  await chrome.storage.local.set({
-    databasePath: databasePathInput.value.trim(),
-    keyFilePath: keyFilePathInput.value.trim(),
-    limit: Number.parseInt(limitInput.value, 10) || 5,
-    autoRefresh: autoRefreshInput.checked,
+async function getActiveTab() {
+  return new Promise((resolve) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const lastError = chrome.runtime.lastError;
+      if (lastError) {
+        resolve(null);
+        return;
+      }
+      resolve(tabs[0] || null);
+    });
   });
 }
 
-async function loadSettings() {
-  const settings = await chrome.storage.local.get([
-    "databasePath",
-    "keyFilePath",
-    "limit",
-    "autoRefresh",
-  ]);
-
-  databasePathInput.value = settings.databasePath || "";
-  keyFilePathInput.value = settings.keyFilePath || "";
-  limitInput.value = String(settings.limit || 5);
-  autoRefreshInput.checked = settings.autoRefresh !== false;
+async function sendExtensionMessage(message) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(message, (response) => {
+      const lastError = chrome.runtime.lastError;
+      if (lastError) {
+        resolve({
+          ok: false,
+          error: {
+            code: "extension_message_failed",
+            message: lastError.message,
+          },
+        });
+        return;
+      }
+      resolve(response);
+    });
+  });
 }
 
-function renderResults(tabId, credentials) {
+function activeTabOrigin(tabUrl) {
+  try {
+    const url = new URL(tabUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null;
+    }
+    return url.origin;
+  } catch (_) {
+    return null;
+  }
+}
+
+function renderMessage(title, body) {
   resultsElement.innerHTML = "";
-  if (!credentials.length) {
-    resultsElement.textContent = "No matching credentials found.";
+  const wrapper = document.createElement("article");
+  wrapper.className = "result-card";
+
+  const heading = document.createElement("div");
+  heading.className = "result-title";
+  heading.textContent = title;
+
+  const text = document.createElement("div");
+  text.className = "result-body";
+  text.textContent = body;
+
+  wrapper.appendChild(heading);
+  wrapper.appendChild(text);
+  resultsElement.appendChild(wrapper);
+}
+
+function updateStatusCards(response) {
+  if (response?.ok) {
+    hostStatusElement.textContent = "Available";
+    const bridgeStatus = response.data?.appBridge?.status || "unavailable";
+    appStatusElement.textContent =
+      bridgeStatus === "available" ? "Connected" : "Not connected";
     return;
   }
 
-  for (const credential of credentials) {
-    const wrapper = document.createElement("article");
-    wrapper.className = "credential";
-
-    const title = document.createElement("div");
-    title.className = "credential-title";
-    title.textContent = credential.title || "Saved credential";
-
-    const subtitle = document.createElement("div");
-    subtitle.className = "credential-subtitle";
-    subtitle.textContent = credential.username || "(no username)";
-
-    const button = document.createElement("button");
-    button.textContent = "Fill this account";
-    button.addEventListener("click", async () => {
-      const response = await chrome.runtime.sendMessage({
-        type: "KEYVAULT_FILL_CREDENTIAL",
-        tabId,
-        credential,
-      });
-
-      if (!response?.ok) {
-        setStatus(response?.error || "Failed to fill page.", true);
-        return;
-      }
-
-      setStatus("Credential filled.");
-    });
-
-    wrapper.appendChild(title);
-    wrapper.appendChild(subtitle);
-    wrapper.appendChild(button);
-    resultsElement.appendChild(wrapper);
-  }
+  hostStatusElement.textContent = "Unavailable";
+  appStatusElement.textContent = "Not connected";
 }
 
-async function findCredentials({ force = false } = {}) {
+async function checkHostStatus() {
   if (inFlight) {
     return;
   }
 
-  const databasePath = databasePathInput.value.trim();
-  const masterPassword = masterPasswordInput.value;
-  const keyFilePath = keyFilePathInput.value.trim();
-  const limit = Number.parseInt(limitInput.value, 10) || 5;
-
-  const tab = await getActiveTab();
-  if (!tab?.id || !tab.url) {
-    setStatus("No active tab found.", true);
-    return;
-  }
-
-  if (!force && autoRefreshInput.checked && tab.url === lastTabUrl) {
-    return;
-  }
-
   inFlight = true;
-  setStatus("Searching...");
-  resultsElement.innerHTML = "";
-
-  await saveSettings();
+  setStatus("Checking native host…");
 
   try {
-    const response = await chrome.runtime.sendMessage({
-      type: "KEYVAULT_FIND_CREDENTIALS",
-      url: tab.url,
-      databasePath,
-      masterPassword,
-      keyFilePath,
-      limit,
+    const response = await sendExtensionMessage({
+      type: "KEYVAULT_V2_STATUS",
     });
-
+    updateStatusCards(response);
     if (!response?.ok) {
-      const error = response?.details
-        ? `${response.error} (${response.details})`
-        : response?.error || "Failed to read credentials.";
-      setStatus(error, true);
+      setStatus(errorText(response, "Native host unavailable."), true);
+      renderMessage(
+        "Host check failed",
+        "Verify the native messaging manifest name, allowed origin and launcher path."
+      );
       return;
     }
 
-    const credentials = Array.isArray(response.credentials)
-      ? response.credentials
-      : [];
-    setStatus(`Found ${credentials.length} credential(s).`);
-    renderResults(tab.id, credentials);
-    lastTabUrl = tab.url;
+    setStatus("Native host v2 is reachable.");
+    renderMessage(
+      "Safe mode active",
+      response.data?.message || "v2 is not yet connected to the KeyVault vault."
+    );
   } finally {
     inFlight = false;
   }
 }
 
-let refreshTimer = null;
-
-function scheduleAutoRefresh() {
-  if (!autoRefreshInput.checked) {
+async function queryCurrentSite() {
+  if (inFlight) {
     return;
   }
 
-  if (refreshTimer) {
-    clearTimeout(refreshTimer);
+  const tab = await getActiveTab();
+  const origin = activeTabOrigin(tab?.url || "");
+  if (!origin) {
+    setStatus("Open an http(s) page before querying KeyVault.", true);
+    return;
   }
 
-  refreshTimer = setTimeout(() => {
-    findCredentials();
-  }, 220);
+  inFlight = true;
+  setStatus("Sending v2 query…");
+
+  try {
+    const response = await sendExtensionMessage({
+      type: "KEYVAULT_V2_QUERY_CREDENTIALS",
+      url: origin,
+      limit: 5,
+    });
+    updateStatusCards(response);
+
+    if (!response?.ok) {
+      setStatus(errorText(response, "Credential query unavailable."), true);
+      renderMessage(
+        "Vault bridge not connected",
+        "The extension sent only the active site origin to the v2 host. No credentials or vault secrets were requested or returned."
+      );
+      return;
+    }
+
+    setStatus("Query completed.");
+    renderMessage(
+      "No fill performed",
+      "Credential reveal/fill remains disabled until the app bridge milestone."
+    );
+  } finally {
+    inFlight = false;
+  }
 }
 
-findButton.addEventListener("click", () => {
-  findCredentials({ force: true });
-});
+statusButton.addEventListener("click", checkHostStatus);
+queryButton.addEventListener("click", queryCurrentSite);
 
-autoRefreshInput.addEventListener("change", () => {
-  saveSettings();
-  if (autoRefreshInput.checked) {
-    findCredentials({ force: true });
-  }
-});
-
-chrome.tabs.onActivated.addListener(() => {
-  scheduleAutoRefresh();
-});
-
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status !== "complete") {
-    return;
-  }
-
-  getActiveTab().then((activeTab) => {
-    if (activeTab?.id === tabId) {
-      scheduleAutoRefresh();
-    }
-  });
-});
-
-window.addEventListener("focus", () => {
-  scheduleAutoRefresh();
-});
-
-loadSettings().then(() => {
-  findCredentials({ force: true });
-});
+setStatus("Click Check host status to verify the v2 native host.");
+renderMessage(
+  "Not connected to vault",
+  "This MVP intentionally cannot read, reveal, fill or store credentials."
+);

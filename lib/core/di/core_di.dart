@@ -1,4 +1,3 @@
-import 'package:flutter_autofill_service/flutter_autofill_service.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:get_it/get_it.dart';
 import 'package:http/http.dart' as http;
@@ -10,7 +9,6 @@ Future<void> registerCoreDependencies(
   required SharedPreferences sharedPreferences,
 }) async {
   sl.registerLazySingleton(() => sharedPreferences);
-  sl.registerLazySingleton(() => AutofillService());
   sl.registerLazySingleton(() => const FlutterSecureStorage());
   sl.registerLazySingleton(() => LocalAuthentication());
   sl.registerLazySingleton<http.Client>(() => http.Client());

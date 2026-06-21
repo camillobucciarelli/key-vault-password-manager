@@ -1,26 +1,35 @@
 <#
 .SYNOPSIS
-Installs the KeyVault Chrome native messaging host for the current Windows user.
+Installs the KeyVault Chrome/Edge native messaging host for the current Windows user.
+
+.PARAMETER Browser
+Browser to register. Supported values: Chrome, Edge. Default: Chrome.
 
 .PARAMETER ExtensionId
-Chrome extension ID copied from chrome://extensions.
+Extension ID copied from chrome://extensions or edge://extensions.
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)]
     [ValidatePattern('^[a-p]{32}$')]
-    [string]$ExtensionId
+    [string]$ExtensionId,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet('Chrome', 'Edge')]
+    [string]$Browser = 'Chrome'
 )
 
 $ErrorActionPreference = 'Stop'
 
-$HostName = 'dev.camillobucciarelli.kdbxKeyVault_native_host'
+$HostName = 'dev.camillobucciarelli.keyvault_native_host'
 $InstallDir = Join-Path $env:LOCALAPPDATA 'KeyVault\NativeMessagingHosts'
 $ManifestPath = Join-Path $InstallDir "$HostName.json"
 $LauncherPath = Join-Path $InstallDir 'keyvault_native_host.cmd'
 $LauncherScriptPath = Join-Path $InstallDir 'keyvault_native_host.ps1'
-$RegistryPath = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$HostName"
+$BrowserRegistryRoot = if ($Browser -eq 'Edge') { 'HKCU:\Software\Microsoft\Edge\NativeMessagingHosts' } else { 'HKCU:\Software\Google\Chrome\NativeMessagingHosts' }
+$BrowserTemplateDir = if ($Browser -eq 'Edge') { 'edge' } else { 'chrome' }
+$RegistryPath = Join-Path $BrowserRegistryRoot $HostName
 
 function Write-Step {
     param([Parameter(Mandatory = $true)][string]$Message)
@@ -42,7 +51,7 @@ try {
 
     $ScriptDir = Split-Path -Parent $ScriptPath
     $RepoRoot = (Resolve-Path (Join-Path $ScriptDir '..\..')).ProviderPath
-    $TemplatePath = Join-Path $ScriptDir "manifests\chrome\$HostName.json"
+    $TemplatePath = Join-Path $ScriptDir "manifests\$BrowserTemplateDir\$HostName.json"
     $NativeHostDart = Join-Path $RepoRoot 'tool\native_host.dart'
 
     if (-not (Test-Path -LiteralPath $TemplatePath -PathType Leaf)) {
@@ -52,15 +61,20 @@ try {
         throw "Dart native host entry point not found: $NativeHostDart"
     }
 
-    Write-Step "Installing for Chrome extension ID: $ExtensionId"
+    Write-Step "Installing for $Browser extension ID: $ExtensionId"
     Write-Step "Creating install directory: $InstallDir"
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 
-    $EscapedRepoRoot = $RepoRoot.Replace("'", "''")
+    $EscapedNativeHostDart = $NativeHostDart.Replace("'", "''")
     $LauncherScriptContent = @"
 `$ErrorActionPreference = 'Stop'
-Set-Location -LiteralPath '$EscapedRepoRoot'
-& dart run tool/native_host.dart
+`$NativeHostExe = Join-Path `$PSScriptRoot 'keyvault_native_host.exe'
+if (Test-Path -LiteralPath `$NativeHostExe -PathType Leaf) {
+    & `$NativeHostExe
+    exit `$LASTEXITCODE
+}
+# TODO(autofill-v2-packaging): ship a signed native_host exe next to this script.
+& dart '$EscapedNativeHostDart'
 exit `$LASTEXITCODE
 "@
     $Utf8WithBom = New-Object System.Text.UTF8Encoding -ArgumentList $true
@@ -85,16 +99,16 @@ exit /b %ERRORLEVEL%
 
     New-Item -Path $RegistryPath -Force | Out-Null
     Set-Item -Path $RegistryPath -Value $ManifestPath
-    Write-Step "Registered HKCU Chrome native messaging host: $RegistryPath"
+    Write-Step "Registered HKCU $Browser native messaging host: $RegistryPath"
 
     Write-Host ''
-    Write-Host 'KeyVault Chrome native messaging host installed successfully.'
+    Write-Host "KeyVault $Browser native messaging host installed successfully."
     Write-Host "Manifest: $ManifestPath"
     Write-Host "Launcher: $LauncherPath"
     Write-Host "Launcher script: $LauncherScriptPath"
-    Write-Host 'Restart Chrome before testing the extension.'
+    Write-Host "Restart $Browser before testing the extension."
 }
 catch {
-    Write-Error "Failed to install KeyVault Chrome native messaging host. $($_.Exception.Message)"
+    Write-Error "Failed to install KeyVault $Browser native messaging host. $($_.Exception.Message)"
     exit 1
 }

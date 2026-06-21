@@ -15,6 +15,7 @@ import '../../domain/usecases/save_selected_key_file_path_usecase.dart';
 import '../../domain/usecases/set_active_database_usecase.dart';
 import '../../domain/usecases/upsert_database_record_usecase.dart';
 import '../../../../core/utils/mobile_file_storage.dart';
+import 'apple_autofill_v2_coordinator.dart';
 
 class DatabaseSettingsUpdateRequest {
   const DatabaseSettingsUpdateRequest({
@@ -60,6 +61,7 @@ class VaultSessionCoordinator {
     required this.getDatabaseSecurityProfileUseCase,
     required this.saveDatabaseSecurityProfileUseCase,
     required this.vaultKdbxService,
+    this.appleAutofillV2Coordinator = const NoopAppleAutofillV2Coordinator(),
   });
 
   final SaveSelectedDatabasePathUseCase saveSelectedDatabasePathUseCase;
@@ -72,8 +74,10 @@ class VaultSessionCoordinator {
   final GetDatabaseSecurityProfileUseCase getDatabaseSecurityProfileUseCase;
   final SaveDatabaseSecurityProfileUseCase saveDatabaseSecurityProfileUseCase;
   final VaultKdbxService vaultKdbxService;
+  final AppleAutofillV2CoordinatorContract appleAutofillV2Coordinator;
 
   Future<void> changeDatabase({required String currentDatabasePath}) async {
+    await appleAutofillV2Coordinator.clearCredentials();
     await saveSelectedDatabasePathUseCase('');
     await saveSelectedKeyFilePathUseCase(null);
     await secureDataSource.clearMasterPassword();
@@ -81,6 +85,7 @@ class VaultSessionCoordinator {
   }
 
   Future<void> lockVault({required String currentDatabasePath}) async {
+    await appleAutofillV2Coordinator.clearCredentials();
     await saveSelectedDatabasePathUseCase(currentDatabasePath);
     await secureDataSource.clearMasterPassword();
   }

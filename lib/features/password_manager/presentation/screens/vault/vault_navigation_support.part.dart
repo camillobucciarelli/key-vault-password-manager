@@ -55,30 +55,21 @@ class _SyncStripActionIcon extends StatelessWidget {
 }
 
 Future<void> _openAndroidAutofillSettings(BuildContext context) async {
-  final messenger = ScaffoldMessenger.of(context);
-  final service = AutofillService();
-  final status = await service.status;
-
-  if (status == AutofillServiceStatus.unsupported) {
-    messenger.showSnackBar(
-      const SnackBar(
-        content: Text('Android Autofill is not supported on this device.'),
-      ),
-    );
-    return;
-  }
-
-  if (status == AutofillServiceStatus.enabled) {
-    messenger.showSnackBar(
-      const SnackBar(content: Text('Autofill service is already active.')),
-    );
-    return;
-  }
-
-  await service.requestSetAutofillService();
-  messenger.showSnackBar(
+  ScaffoldMessenger.of(context).showSnackBar(
     const SnackBar(
-      content: Text('Select this app as your Android Autofill service.'),
+      content: Text(
+        'Android Autofill v2 is being rebuilt and is not available yet.',
+      ),
+    ),
+  );
+}
+
+Future<void> _openBrowserAutofillSettings(BuildContext context) async {
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text(
+        'Browser Autofill v2 native host is being rebuilt and is not available yet.',
+      ),
     ),
   );
 }

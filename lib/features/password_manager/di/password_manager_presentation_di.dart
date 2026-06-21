@@ -1,15 +1,18 @@
 import 'package:get_it/get_it.dart';
 
-import '../data/services/android_autofill_coordinator.dart';
-import '../data/services/ios_autofill_snapshot_coordinator.dart';
 import '../presentation/bloc/database_selection/database_selection_bloc.dart';
 import '../presentation/bloc/database_unlock/database_unlock_bloc.dart';
 import '../presentation/bloc/vault/vault_bloc.dart';
+import '../presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import '../presentation/coordinators/database_session_coordinator.dart';
 import '../presentation/coordinators/otpauth_deep_link_coordinator.dart';
 import '../presentation/coordinators/vault_session_coordinator.dart';
 
 void registerPasswordManagerPresentationDependencies(GetIt sl) {
+  sl.registerLazySingleton<AppleAutofillV2CoordinatorContract>(
+    () => AppleAutofillV2Coordinator(client: sl(), mapper: sl()),
+  );
+
   sl.registerLazySingleton<DatabaseSessionCoordinatorContract>(
     () => DatabaseSessionCoordinator(
       saveSelectedDatabasePathUseCase: sl(),
@@ -28,7 +31,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       getDatabaseSecurityProfileUseCase: sl(),
       saveDatabaseSecurityProfileUseCase: sl(),
       unlockDatabaseUseCase: sl(),
-      iosAutofillSnapshotCoordinator: sl<IosAutofillSnapshotCoordinator>(),
+      appleAutofillV2Coordinator: sl(),
     ),
   );
 
@@ -44,6 +47,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       getDatabaseSecurityProfileUseCase: sl(),
       saveDatabaseSecurityProfileUseCase: sl(),
       vaultKdbxService: sl(),
+      appleAutofillV2Coordinator: sl(),
     ),
   );
 
@@ -79,8 +83,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       syncDatabaseNowUseCase: sl(),
       setDatabaseAutoSyncUseCase: sl(),
       databaseSyncRepository: sl(),
-      androidAutofillCoordinator: sl<AndroidAutofillCoordinator>(),
-      iosAutofillSnapshotCoordinator: sl<IosAutofillSnapshotCoordinator>(),
+      appleAutofillV2Coordinator: sl(),
     ),
   );
 }

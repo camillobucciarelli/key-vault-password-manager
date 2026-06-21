@@ -20,9 +20,8 @@ class _SyncStatusStrip extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final compactActions = MediaQuery.sizeOf(context).width < 390;
-    final canConfigureAndroidAutofill =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
-    final canConfigureBrowserAutofill = BrowserSetupScreen.shouldShow;
+    final canConfigureAndroidAutofill = false;
+    final canConfigureBrowserAutofill = false;
     final databaseName = state.databasePath.trim().isEmpty
         ? 'Database'
         : path.basenameWithoutExtension(state.databasePath);
@@ -979,7 +978,7 @@ class _SyncStripMenuButton extends StatelessWidget {
           context.read<ThemeCubit>().setTheme(ThemeMode.dark);
           break;
         case 'browserSetup':
-          await AppNavigation.pushFade(context, const BrowserSetupScreen());
+          await _openBrowserAutofillSettings(context);
           break;
         case 'databaseSettings':
           await _showDatabaseSettings(context);

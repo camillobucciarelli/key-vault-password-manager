@@ -12,7 +12,6 @@ cd "${SCRIPT_DIR}"
 zip -r "${OUT_FILE}" \
   manifest.json \
   background.js \
-  content.js \
   popup.html \
   popup.js \
   popup.css

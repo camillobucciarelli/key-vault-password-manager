@@ -1,49 +1,57 @@
+import '../models/autofill_models.dart';
+import '../models/vault_custom_field.dart';
 import '../models/vault_entry.dart';
 
 class VaultAutofillMatcher {
-  List<VaultEntry> findBestMatches({
+  List<AutofillCandidate> findCandidates({
     required List<VaultEntry> entries,
-    Set<String> packageNames = const {},
-    Set<String> webDomains = const {},
-    int limit = 10,
+    required AutofillRequest request,
   }) {
-    final normalizedPackages = packageNames
-        .map((name) => _normalize(name))
-        .where((name) => name.isNotEmpty)
-        .toSet();
-    final normalizedDomains = webDomains
-        .map((domain) => _normalizeDomain(domain))
-        .where((domain) => domain.isNotEmpty)
-        .toSet();
+    final policy = request.policy;
+    final limit = policy.maxCandidates.clamp(0, 50).toInt();
+    if (limit == 0) {
+      return const [];
+    }
 
-    final scopedSearch =
-        normalizedPackages.isNotEmpty || normalizedDomains.isNotEmpty;
+    final targets = request.targets
+        .map(_normalizeTarget)
+        .whereType<AutofillTarget>()
+        .toList(growable: false);
+
+    if (targets.isEmpty && !policy.allowUnscopedSuggestions) {
+      return const [];
+    }
 
     final scored = <_ScoredEntry>[];
     for (final entry in entries) {
-      if (entry.username.trim().isEmpty && entry.password.trim().isEmpty) {
-        continue;
-      }
-
-      // matchScore: only URL / package / title signals — no credential bonus.
-      // Used as the inclusion gate so that a scoped search never returns entries
-      // that merely have credentials but don't match the current app/domain.
-      final matchScore = _scoreEntry(
-        entry,
-        packageNames: normalizedPackages,
-        webDomains: normalizedDomains,
-      );
-
-      if (scopedSearch && matchScore <= 0) {
-        continue;
-      }
-
-      // Add credential-completeness bonus only for ranking, not for filtering.
       final hasUsername = entry.username.trim().isNotEmpty;
       final hasPassword = entry.password.trim().isNotEmpty;
-      final rankScore = matchScore + (hasUsername && hasPassword ? 20 : 10);
+      if (!hasUsername && !hasPassword) {
+        continue;
+      }
 
-      scored.add(_ScoredEntry(entry: entry, score: rankScore));
+      final match = _scoreEntry(entry, targets: targets);
+
+      if (targets.isNotEmpty && match.score <= 0) {
+        continue;
+      }
+
+      final rankScore = match.score + (hasUsername && hasPassword ? 20 : 10);
+
+      scored.add(
+        _ScoredEntry(
+          candidate: AutofillCandidate(
+            entryId: entry.id,
+            title: entry.title,
+            username: entry.username,
+            hasPassword: hasPassword,
+            webDomain: _domainFromUrl(entry.url),
+            matchedTargets: match.targets,
+          ),
+          updatedAt: entry.updatedAt,
+          score: rankScore,
+        ),
+      );
     }
 
     scored.sort((a, b) {
@@ -52,128 +60,166 @@ class VaultAutofillMatcher {
         return byScore;
       }
 
-      final byUpdatedAt = _compareDateDesc(
-        a.entry.updatedAt,
-        b.entry.updatedAt,
-      );
+      final byUpdatedAt = _compareDateDesc(a.updatedAt, b.updatedAt);
       if (byUpdatedAt != 0) {
         return byUpdatedAt;
       }
 
-      final byTitle = a.entry.title.toLowerCase().compareTo(
-        b.entry.title.toLowerCase(),
+      final byTitle = a.candidate.title.toLowerCase().compareTo(
+        b.candidate.title.toLowerCase(),
       );
       if (byTitle != 0) {
         return byTitle;
       }
 
-      return a.entry.username.toLowerCase().compareTo(
-        b.entry.username.toLowerCase(),
+      return a.candidate.username.toLowerCase().compareTo(
+        b.candidate.username.toLowerCase(),
       );
     });
 
-    return scored.take(limit).map((result) => result.entry).toList();
+    return scored.take(limit).map((result) => result.candidate).toList();
   }
 
-  int _scoreEntry(
+  _MatchScore _scoreEntry(
     VaultEntry entry, {
-    required Set<String> packageNames,
-    required Set<String> webDomains,
+    required List<AutofillTarget> targets,
   }) {
     var score = 0;
+    final matchedTargets = <AutofillTarget>[];
 
-    if (packageNames.isNotEmpty) {
-      final entryPackages = _extractPackageIdentifiers(entry);
-      for (final expected in packageNames) {
-        if (entryPackages.contains(expected)) {
-          score += 140;
-          continue;
-        }
-        if (entryPackages.any(
-          (candidate) => _identifiersRelated(candidate, expected),
-        )) {
-          score += 100;
-          continue;
-        }
-        if (entryPackages.any((candidate) => candidate.contains(expected))) {
-          score += 70;
-        }
-      }
-    }
-
-    if (webDomains.isNotEmpty) {
-      final entryDomain = _domainFromUrl(entry.url);
-      if (entryDomain.isNotEmpty) {
-        for (final expected in webDomains) {
-          if (entryDomain == expected) {
+    for (final target in targets) {
+      switch (target.kind) {
+        case AutofillTargetKind.androidPackage:
+        case AutofillTargetKind.appleBundleId:
+          final entryIds = _extractAppIdentifiers(entry, target.kind);
+          if (entryIds.contains(target.value)) {
             score += 140;
-            continue;
+            matchedTargets.add(target);
           }
-          if (entryDomain.endsWith('.$expected') ||
-              expected.endsWith('.$entryDomain')) {
-            score += 110;
-            continue;
+          break;
+        case AutofillTargetKind.webDomain:
+          final entryDomain = _domainFromUrl(entry.url);
+          final domainScore = _scoreDomainMatch(
+            credentialDomain: entryDomain,
+            requestDomain: target.value,
+          );
+          if (domainScore > 0) {
+            score += domainScore;
+            matchedTargets.add(target);
+            if (_titleMentionsDomain(entry.title, target.value)) {
+              score += 5;
+            }
           }
-          if (_registrableDomain(entryDomain).isNotEmpty &&
-              _registrableDomain(entryDomain) == _registrableDomain(expected)) {
-            score += 80;
-          }
-        }
-      }
-
-      final normalizedTitle = _normalize(entry.title);
-      for (final expected in webDomains) {
-        if (normalizedTitle.contains(expected)) {
-          score += 35;
-        }
+          break;
       }
     }
 
-    return score;
+    return _MatchScore(score: score, targets: matchedTargets);
   }
 
-  Set<String> _extractPackageIdentifiers(VaultEntry entry) {
+  Set<String> _extractAppIdentifiers(
+    VaultEntry entry,
+    AutofillTargetKind targetKind,
+  ) {
     final values = <String>{};
 
-    // 1. URL schemes: androidapp:// and iosbundleid://
     final trimmedUrl = entry.url.trim();
     if (trimmedUrl.isNotEmpty) {
       final uri = Uri.tryParse(trimmedUrl);
       if (uri != null) {
-        if (uri.scheme == 'androidapp' || uri.scheme == 'iosbundleid') {
-          final id = _normalize(uri.host.isNotEmpty ? uri.host : uri.path);
-          if (id.isNotEmpty) values.add(id);
+        final isAndroidTarget = targetKind == AutofillTargetKind.androidPackage;
+        final isAppleTarget = targetKind == AutofillTargetKind.appleBundleId;
+        if ((isAndroidTarget && uri.scheme == 'androidapp') ||
+            (isAppleTarget && uri.scheme == 'iosbundleid')) {
+          final id = _normalizeAppIdentifier(
+            uri.host.isNotEmpty ? uri.host : uri.path,
+          );
+          if (id.isNotEmpty) {
+            values.add(id);
+          }
         }
       }
     }
 
-    // 2. Custom fields: KPH: androidPackage, KPH: iosBundle, and legacy keys
     for (final field in entry.customFields) {
-      final normalizedKey = _normalize(field.key);
-      final isKphAndroid = normalizedKey == 'kph: androidpackage';
-      final isKphIos = normalizedKey == 'kph: iosbundle';
-      final isLegacy =
-          normalizedKey.contains('package') ||
-          normalizedKey.contains('bundle') ||
-          normalizedKey.contains('androidapp') ||
-          normalizedKey.contains('iosapp');
-
-      if (!isKphAndroid && !isKphIos && !isLegacy) continue;
+      if (!_fieldMatchesTarget(field, targetKind)) {
+        continue;
+      }
 
       final splitValues = field.value
           .split(RegExp(r'[,;\s]+'))
-          .map(_normalize)
+          .map(_normalizeAppIdentifier)
           .where((v) => v.isNotEmpty);
       values.addAll(splitValues);
     }
 
-    // 3. URL host fallback: bare single-label hosts (e.g. "myapp") as identifier
-    final domain = _domainFromUrl(entry.url);
-    if (domain.isNotEmpty && !domain.contains('.')) {
-      values.add(domain);
+    return values;
+  }
+
+  bool _fieldMatchesTarget(
+    VaultCustomField field,
+    AutofillTargetKind targetKind,
+  ) {
+    final key = _normalizeFieldKey(field.key);
+    return switch (targetKind) {
+      AutofillTargetKind.androidPackage =>
+        key == 'androidpackage' ||
+            key == 'packagename' ||
+            key == 'kph:androidpackage',
+      AutofillTargetKind.appleBundleId =>
+        key == 'iosbundle' ||
+            key == 'iosbundleid' ||
+            key == 'bundleid' ||
+            key == 'kph:iosbundle',
+      AutofillTargetKind.webDomain => false,
+    };
+  }
+
+  AutofillTarget? _normalizeTarget(AutofillTarget target) {
+    switch (target.kind) {
+      case AutofillTargetKind.androidPackage:
+        final value = _normalizeAppIdentifier(target.value);
+        return value.isEmpty ? null : AutofillTarget.androidPackage(value);
+      case AutofillTargetKind.appleBundleId:
+        final value = _normalizeAppIdentifier(target.value);
+        return value.isEmpty ? null : AutofillTarget.appleBundleId(value);
+      case AutofillTargetKind.webDomain:
+        final value = _domainFromRawTarget(target.value);
+        return value.isEmpty ? null : AutofillTarget.webDomain(value);
+    }
+  }
+
+  int _scoreDomainMatch({
+    required String credentialDomain,
+    required String requestDomain,
+  }) {
+    if (credentialDomain.isEmpty || requestDomain.isEmpty) {
+      return 0;
     }
 
-    return values;
+    if (credentialDomain == requestDomain) {
+      return 140;
+    }
+
+    // TODO(autofill-v2): integrate the Public Suffix List before supporting
+    // broader same-site heuristics. Until then, only exact domains and explicit
+    // dot-boundary parent/subdomain relationships are considered safe.
+    if (credentialDomain.endsWith('.$requestDomain')) {
+      return 115;
+    }
+    if (requestDomain.endsWith('.$credentialDomain')) {
+      return 105;
+    }
+
+    return 0;
+  }
+
+  bool _titleMentionsDomain(String title, String domain) {
+    final normalizedTitle = _normalize(title);
+    if (normalizedTitle.isEmpty) {
+      return false;
+    }
+    return normalizedTitle.contains(domain);
   }
 
   String _domainFromUrl(String rawUrl) {
@@ -182,16 +228,37 @@ class VaultAutofillMatcher {
       return '';
     }
 
-    final candidate = trimmed.contains('://') ? trimmed : 'https://$trimmed';
-    final uri = Uri.tryParse(candidate);
-    if (uri == null) {
+    final hasScheme = trimmed.contains('://');
+    final uri = Uri.tryParse(hasScheme ? trimmed : 'https://$trimmed');
+    if (uri == null || uri.host.isEmpty) {
+      return '';
+    }
+    if (hasScheme && uri.scheme != 'http' && uri.scheme != 'https') {
       return '';
     }
     return _normalizeDomain(uri.host);
   }
 
+  String _domainFromRawTarget(String rawTarget) {
+    final trimmed = rawTarget.trim();
+    if (trimmed.isEmpty) {
+      return '';
+    }
+
+    final uri = Uri.tryParse(
+      trimmed.contains('://') ? trimmed : 'https://$trimmed',
+    );
+    if (uri != null && uri.host.isNotEmpty) {
+      return _normalizeDomain(uri.host);
+    }
+    return _normalizeDomain(trimmed);
+  }
+
   String _normalizeDomain(String value) {
     var normalized = _normalize(value);
+    if (normalized.endsWith('.')) {
+      normalized = normalized.substring(0, normalized.length - 1);
+    }
     if (normalized.startsWith('www.')) {
       normalized = normalized.substring(4);
     }
@@ -202,21 +269,6 @@ class VaultAutofillMatcher {
       normalized = normalized.substring(7);
     }
     return normalized;
-  }
-
-  bool _identifiersRelated(String left, String right) {
-    if (left == right) {
-      return true;
-    }
-    return left.endsWith('.$right') || right.endsWith('.$left');
-  }
-
-  String _registrableDomain(String domain) {
-    final parts = domain.split('.').where((part) => part.isNotEmpty).toList();
-    if (parts.length < 2) {
-      return domain;
-    }
-    return '${parts[parts.length - 2]}.${parts.last}';
   }
 
   int _compareDateDesc(DateTime? left, DateTime? right) {
@@ -235,11 +287,31 @@ class VaultAutofillMatcher {
   String _normalize(String value) {
     return value.trim().toLowerCase();
   }
+
+  String _normalizeAppIdentifier(String value) {
+    return _normalize(value).replaceAll(RegExp(r'^/+|/+$'), '');
+  }
+
+  String _normalizeFieldKey(String value) {
+    return _normalize(value).replaceAll(RegExp(r'[\s_-]+'), '');
+  }
 }
 
 class _ScoredEntry {
-  const _ScoredEntry({required this.entry, required this.score});
+  const _ScoredEntry({
+    required this.candidate,
+    required this.updatedAt,
+    required this.score,
+  });
 
-  final VaultEntry entry;
+  final AutofillCandidate candidate;
+  final DateTime? updatedAt;
   final int score;
+}
+
+class _MatchScore {
+  const _MatchScore({required this.score, required this.targets});
+
+  final int score;
+  final List<AutofillTarget> targets;
 }

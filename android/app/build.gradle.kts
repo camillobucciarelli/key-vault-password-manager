@@ -71,6 +71,10 @@ flutter {
     source = "../.."
 }
 
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+}
+
 play {
     val serviceAccountEnv = System.getenv("GOOGLE_PLAY_SERVICE_ACCOUNT_JSON")
     serviceAccountCredentials.set(

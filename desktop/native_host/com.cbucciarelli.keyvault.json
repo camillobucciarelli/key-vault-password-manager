@@ -1,9 +1,0 @@
-{
-  "name": "com.cbucciarelli.keyvault",
-  "description": "KeyVault AutoFill Native Messaging Host",
-  "path": "/Applications/KeyVault.app/Contents/Resources/native_host/keyvault_native_host.sh",
-  "type": "stdio",
-  "allowed_origins": [
-    "chrome-extension://agngmnccikelmlbagfehflenonjbejcn/"
-  ]
-}

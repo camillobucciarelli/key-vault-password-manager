@@ -5,8 +5,6 @@ import 'package:loggy/loggy.dart';
 import 'package:stream_transform/stream_transform.dart';
 
 import '../../../data/datasources/secure_data_source.dart';
-import '../../../data/services/android_autofill_coordinator.dart';
-import '../../../data/services/ios_autofill_snapshot_coordinator.dart';
 import '../../../data/services/vault_csv_import_service.dart';
 import '../../../data/services/vault_duplicate_service.dart';
 import '../../../data/services/vault_kdbx_service.dart';
@@ -24,6 +22,7 @@ import '../../../domain/usecases/link_database_to_drive_usecase.dart';
 import '../../../domain/usecases/list_drive_remote_files_usecase.dart';
 import '../../../domain/usecases/set_database_auto_sync_usecase.dart';
 import '../../../domain/usecases/sync_database_now_usecase.dart';
+import '../../coordinators/apple_autofill_v2_coordinator.dart';
 import 'vault_event.dart';
 import 'vault_state.dart';
 
@@ -43,8 +42,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     required this.syncDatabaseNowUseCase,
     required this.setDatabaseAutoSyncUseCase,
     required this.databaseSyncRepository,
-    this.androidAutofillCoordinator,
-    this.iosAutofillSnapshotCoordinator,
+    this.appleAutofillV2Coordinator = const NoopAppleAutofillV2Coordinator(),
   }) : super(VaultState.initial(databasePath: databasePath)) {
     on<InitializeVault>(_onInitializeVault);
     on<RefreshVault>(_onRefreshVault);
@@ -106,8 +104,6 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   final SecureDataSource secureDataSource;
   final GetSelectedKeyFilePathUseCase getSelectedKeyFilePathUseCase;
   final VaultKdbxService vaultKdbxService;
-  final AndroidAutofillCoordinator? androidAutofillCoordinator;
-  final IosAutofillSnapshotCoordinator? iosAutofillSnapshotCoordinator;
   final VaultCsvImportService vaultCsvImportService;
   final VaultDuplicateService vaultDuplicateService;
   final GetDriveConnectionStatusUseCase getDriveConnectionStatusUseCase;
@@ -118,11 +114,11 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   final SyncDatabaseNowUseCase syncDatabaseNowUseCase;
   final SetDatabaseAutoSyncUseCase setDatabaseAutoSyncUseCase;
   final DatabaseSyncRepository databaseSyncRepository;
+  final AppleAutofillV2CoordinatorContract appleAutofillV2Coordinator;
 
   String _password = '';
   String? _keyFilePath;
   String? _lastRegularGroupId;
-  bool _lastReloadRefreshedIosSnapshot = false;
   Timer? _autoSyncDebounce;
 
   Future<void> _preloadDriveStateFromLocalMapping(
@@ -156,7 +152,6 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
       _computeDuplicates(emit);
       add(const BackgroundDriveSync());
-      unawaited(androidAutofillCoordinator?.onVaultReady());
     } catch (e, st) {
       logError('Failed to initialize vault.', e, st);
       _safeEmit(
@@ -827,9 +822,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     String? currentGroupId,
     bool keepLoadingFlag = true,
   }) async {
-    _lastReloadRefreshedIosSnapshot = false;
     try {
-      final refreshIosSnapshotAfterReload = state.isSyncReloadPending;
       final VaultSnapshot snapshot = await vaultKdbxService.loadVault(
         databasePath: state.databasePath,
         password: _password,
@@ -865,10 +858,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           clearInfo: true,
         ),
       );
-      if (refreshIosSnapshotAfterReload) {
-        _refreshIosAutofillSnapshot();
-        _lastReloadRefreshedIosSnapshot = true;
-      }
+      await appleAutofillV2Coordinator.publishVault(
+        databasePath: state.databasePath,
+        entries: snapshot.allEntries,
+      );
     } catch (e, st) {
       logError('Failed loading vault data.', e, st);
       _safeEmit(
@@ -1321,7 +1314,6 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
             currentGroupId: state.currentGroupId,
             keepLoadingFlag: false,
           );
-          _refreshIosAutofillSnapshot();
         } else {
           _safeEmit(emit, state.copyWith(isSyncReloadPending: true));
         }
@@ -1430,7 +1422,6 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       currentGroupId: state.currentGroupId,
       keepLoadingFlag: false,
     );
-    _refreshIosAutofillSnapshot();
   }
 
   Future<void> _onToggleCurrentDatabaseAutoSync(
@@ -1576,12 +1567,6 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   }
 
   Future<void> _scheduleAutoSync(Emitter<VaultState> emit) async {
-    final skipIosSnapshotRefresh = _lastReloadRefreshedIosSnapshot;
-    _lastReloadRefreshedIosSnapshot = false;
-    if (!skipIosSnapshotRefresh) {
-      _refreshIosAutofillSnapshot();
-    }
-
     if (!state.isDriveConnected ||
         !state.isDriveLinked ||
         !state.autoSyncEnabled) {
@@ -1595,12 +1580,6 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       }
       await _performSync(emit, silentIfConflict: true);
     });
-  }
-
-  void _refreshIosAutofillSnapshot() {
-    final coordinator = iosAutofillSnapshotCoordinator;
-    if (coordinator == null) return;
-    unawaited(coordinator.syncSnapshot());
   }
 
   void _safeEmit(Emitter<VaultState> emit, VaultState nextState) {

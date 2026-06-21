@@ -96,7 +96,6 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   StreamSubscription<OtpAuthDeepLinkEvent>? _otpAuthSubscription;
   final List<OtpAuthDeepLinkEvent> _otpAuthEventQueue = [];
   int? _inactivityTimeoutSeconds;
-  bool _autofillPromptChecked = false;
   bool _otpAuthVaultMarkedAvailable = false;
   bool _isHandlingOtpAuth = false;
 
@@ -284,71 +283,10 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _maybeShowAutofillOnboardingDialog() async {
-    if (_autofillPromptChecked || !mounted) {
-      return;
-    }
-    _autofillPromptChecked = true;
-
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
-      return;
-    }
-
-    final localDataSource = di.sl<LocalDataSource>();
-    final seen = await localDataSource.getAutofillPromptSeen();
-    if (seen || !mounted) {
-      return;
-    }
-
-    final autofillService = di.sl<AutofillService>();
-    final status = await autofillService.status;
-    await localDataSource.setAutofillPromptSeen(true);
-
-    if (!mounted ||
-        status == AutofillServiceStatus.enabled ||
-        status == AutofillServiceStatus.unsupported) {
-      return;
-    }
-
-    final shouldEnable = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Enable Android Autofill'),
-          insetPadding: _dialogInsetPadding(dialogContext),
-          contentPadding: _dialogContentPadding(dialogContext),
-          actionsOverflowDirection: VerticalDirection.down,
-          actionsOverflowButtonSpacing: 8,
-          content: const Text(
-            'Use this app to autofill credentials in apps and websites on Android.',
-          ),
-          actions: _adaptiveDialogActions(dialogContext, [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Not now'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Enable now'),
-            ),
-          ]),
-        );
-      },
-    );
-
-    if (shouldEnable != true || !mounted) {
-      return;
-    }
-
-    await autofillService.requestSetAutofillService();
-    if (!mounted) {
-      return;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Select this app as your Android Autofill service.'),
-      ),
-    );
+  void _maybeShowAutofillOnboardingDialog() {
+    // Autofill v1 onboarding is intentionally disabled. Milestone 1 keeps the
+    // Flutter shell clean while native Android/Apple/Desktop v2 integrations are
+    // rebuilt against the new domain contracts.
   }
 
   Future<void> _closeCurrentDatabaseAndSelectAnother() async {

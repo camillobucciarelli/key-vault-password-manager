@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:password_manager/core/utils/redacted_value.dart';
 
 import '../../../domain/models/vault_custom_field.dart';
 import '../../../domain/models/sync_conflict.dart';
@@ -90,12 +91,24 @@ class CreateVaultEntry extends VaultEvent {
   List<Object?> get props => [
     title,
     username,
-    password,
+    RedactedValue(password),
     url,
-    notes,
+    RedactedValue(notes, redaction: '<redacted notes>'),
     customFields,
     attachmentPaths,
   ];
+
+  @override
+  String toString() {
+    return 'CreateVaultEntry('
+        'title: $title, '
+        'username: $username, '
+        'password: <redacted>, '
+        'url: $url, '
+        'notes: <redacted>, '
+        'customFields: ${customFields.length}, '
+        'attachmentPaths: ${attachmentPaths.length})';
+  }
 }
 
 class UpdateVaultEntry extends VaultEvent {
@@ -122,11 +135,23 @@ class UpdateVaultEntry extends VaultEvent {
     entryId,
     title,
     username,
-    password,
+    RedactedValue(password),
     url,
-    notes,
+    RedactedValue(notes, redaction: '<redacted notes>'),
     customFields,
   ];
+
+  @override
+  String toString() {
+    return 'UpdateVaultEntry('
+        'entryId: $entryId, '
+        'title: $title, '
+        'username: $username, '
+        'password: <redacted>, '
+        'url: $url, '
+        'notes: <redacted>, '
+        'customFields: ${customFields.length})';
+  }
 }
 
 class DeleteVaultEntry extends VaultEvent {
@@ -312,7 +337,10 @@ class LinkCurrentDatabaseToDrive extends VaultEvent {
 }
 
 class SyncCurrentDatabaseNow extends VaultEvent {
-  const SyncCurrentDatabaseNow({this.resolution, this.silentIfConflict = false});
+  const SyncCurrentDatabaseNow({
+    this.resolution,
+    this.silentIfConflict = false,
+  });
 
   final SyncConflictResolution? resolution;
   final bool silentIfConflict;

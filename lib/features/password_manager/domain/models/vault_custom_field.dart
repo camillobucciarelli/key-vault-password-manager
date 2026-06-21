@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:password_manager/core/utils/redacted_value.dart';
 
 class VaultCustomField extends Equatable {
   const VaultCustomField({required this.key, required this.value});
@@ -7,5 +8,8 @@ class VaultCustomField extends Equatable {
   final String value;
 
   @override
-  List<Object?> get props => [key, value];
+  List<Object?> get props => [key, RedactedValue(value)];
+
+  @override
+  String toString() => 'VaultCustomField(key: $key, value: <redacted>)';
 }

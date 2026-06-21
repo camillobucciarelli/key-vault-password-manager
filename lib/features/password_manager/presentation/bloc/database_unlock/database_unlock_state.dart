@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:password_manager/core/utils/redacted_value.dart';
 
 class DatabaseUnlockState extends Equatable {
   final String databasePath;
@@ -52,7 +53,7 @@ class DatabaseUnlockState extends Equatable {
   @override
   List<Object?> get props => [
     databasePath,
-    keyFilePath,
+    RedactedValue<String?>(keyFilePath, redaction: '<redacted keyFilePath>'),
     isLoading,
     biometricAvailable,
     biometricPrompted,
