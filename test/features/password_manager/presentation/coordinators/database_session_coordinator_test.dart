@@ -8,6 +8,7 @@ import 'package:password_manager/features/password_manager/data/datasources/secu
 import 'package:password_manager/features/password_manager/data/services/database_import_service.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_security_profile.dart';
+import 'package:password_manager/features/password_manager/domain/models/apple_autofill_v2_models.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
@@ -315,10 +316,20 @@ class _FakeAppleAutofillV2Coordinator
   }
 
   @override
+  Future<void> clearPendingAssociations({List<String>? ids}) async {}
+
+  @override
   Future<void> publishVault({
     required String databasePath,
     required List<VaultEntry> entries,
   }) async {}
+
+  @override
+  Future<List<AppleAutofillV2PendingAssociation>> readPendingAssociations({
+    String? databasePath,
+  }) async {
+    return const [];
+  }
 }
 
 class _FakeSyncRepository implements DatabaseSyncRepository {

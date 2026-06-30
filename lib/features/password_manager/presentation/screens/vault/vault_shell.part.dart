@@ -98,6 +98,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   int? _inactivityTimeoutSeconds;
   bool _otpAuthVaultMarkedAvailable = false;
   bool _isHandlingOtpAuth = false;
+  String? _activeAppleAutofillAssociationDialogId;
 
   @override
   void initState() {
@@ -225,7 +226,10 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     _inactivityTimer?.cancel();
     final seconds = _inactivityTimeoutSeconds;
     if (seconds == null || _isLocked || _isBackground) return;
-    _inactivityTimer = Timer(Duration(seconds: seconds), _triggerInactivityLock);
+    _inactivityTimer = Timer(
+      Duration(seconds: seconds),
+      _triggerInactivityLock,
+    );
   }
 
   void _triggerInactivityLock() {
@@ -345,6 +349,137 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     }
   }
 
+  void _maybeShowAppleAutofillAssociationDialog(VaultState state) {
+    if (state.pendingAppleAutofillAssociations.isEmpty ||
+        state.isSaving ||
+        state.isLoading) {
+      return;
+    }
+
+    final pending = state.pendingAppleAutofillAssociations.first;
+    if (_activeAppleAutofillAssociationDialogId == pending.id) {
+      return;
+    }
+    if (_activeAppleAutofillAssociationDialogId != null) {
+      return;
+    }
+
+    _activeAppleAutofillAssociationDialogId = pending.id;
+    unawaited(
+      _showAppleAutofillAssociationDialog(
+        state: state,
+        id: pending.id,
+        entryId: pending.entryId,
+        displayService: pending.displayService,
+        serviceIdentifierValue: pending.serviceIdentifierValue,
+      ),
+    );
+  }
+
+  Future<void> _showAppleAutofillAssociationDialog({
+    required VaultState state,
+    required String id,
+    required String entryId,
+    required String displayService,
+    required String serviceIdentifierValue,
+  }) async {
+    try {
+      final entry = _findVaultEntryById(state, entryId);
+      final target = _appleAutofillAssociationTargetLabel(
+        displayService: displayService,
+        serviceIdentifierValue: serviceIdentifierValue,
+      );
+
+      final shouldLink = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('Link AutoFill credential?'),
+            insetPadding: _dialogInsetPadding(dialogContext),
+            contentPadding: _dialogContentPadding(dialogContext),
+            actionsOverflowDirection: VerticalDirection.down,
+            actionsOverflowButtonSpacing: 8,
+            content: SizedBox(
+              width: _dialogContentWidth(dialogContext, 420),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Target: $target'),
+                  const SizedBox(height: 12),
+                  if (entry == null)
+                    const Text('Entry unavailable.')
+                  else ...[
+                    Text(
+                      'Entry: ${entry.title.isEmpty ? '(Untitled)' : entry.title}',
+                    ),
+                    Text(
+                      'Username: ${entry.username.isEmpty ? 'No username' : entry.username}',
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  const Text(
+                    'This association updates the vault only after you confirm.',
+                  ),
+                ],
+              ),
+            ),
+            actions: _adaptiveDialogActions(dialogContext, [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Reject'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Link'),
+              ),
+            ]),
+          );
+        },
+      );
+
+      if (!mounted || shouldLink == null) {
+        return;
+      }
+
+      context.read<VaultBloc>().add(
+        shouldLink
+            ? ConfirmAppleAutofillPendingAssociation(id)
+            : RejectAppleAutofillPendingAssociation(id),
+      );
+    } finally {
+      if (_activeAppleAutofillAssociationDialogId == id) {
+        _activeAppleAutofillAssociationDialogId = null;
+      }
+    }
+  }
+
+  VaultEntry? _findVaultEntryById(VaultState state, String entryId) {
+    for (final entry in state.allEntries) {
+      if (entry.id == entryId) {
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  String _appleAutofillAssociationTargetLabel({
+    required String displayService,
+    required String serviceIdentifierValue,
+  }) {
+    final display = displayService.trim();
+    if (display.isNotEmpty) {
+      return display;
+    }
+
+    final serviceIdentifier = serviceIdentifierValue.trim();
+    if (serviceIdentifier.isNotEmpty) {
+      return serviceIdentifier;
+    }
+
+    return 'Unknown service';
+  }
+
   @override
   Widget build(BuildContext context) {
     final topInset = MediaQuery.paddingOf(context).top;
@@ -410,6 +545,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
               if (state.pendingSyncConflict != null) {
                 _showSyncConflictDialog(context, state.pendingSyncConflict!);
               }
+              _maybeShowAppleAutofillAssociationDialog(state);
             },
             child: BlocSelector<VaultBloc, VaultState, bool>(
               selector: (state) => state.isLoading,
@@ -449,7 +585,9 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                                       _closeCurrentDatabaseAndSelectAnother,
                                 ),
                                 const SizedBox(height: _VaultUiTokens.panelGap),
-                                const Expanded(child: _VaultEntriesCardSection()),
+                                const Expanded(
+                                  child: _VaultEntriesCardSection(),
+                                ),
                               ],
                             ),
                           );
@@ -471,11 +609,13 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                         );
                       },
                     ),
-                    if (_isBackground && !_isLocked)
-                      const _PrivacyOverlay(),
+                    if (_isBackground && !_isLocked) const _PrivacyOverlay(),
                     if (_isLocked)
                       _LockOverlay(
-                        databasePath: context.read<VaultBloc>().state.databasePath,
+                        databasePath: context
+                            .read<VaultBloc>()
+                            .state
+                            .databasePath,
                         onUnlocked: _dismissLock,
                       ),
                   ],

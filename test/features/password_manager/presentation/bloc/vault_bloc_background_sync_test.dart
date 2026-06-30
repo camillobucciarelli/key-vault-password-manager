@@ -6,6 +6,7 @@ import 'package:password_manager/features/password_manager/data/datasources/secu
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_csv_import_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_duplicate_service.dart';
+import 'package:password_manager/features/password_manager/domain/models/apple_autofill_v2_models.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_status.dart';
 import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
@@ -103,6 +104,118 @@ void main() {
 
       expect(appleAutofill.lastDatabasePath, _kDbPath);
       expect(appleAutofill.lastEntries, _emptySnapshot.allEntries);
+    });
+  });
+
+  group('Apple autofill pending associations', () {
+    test('confirm empty URL sets URL and clears pending', () async {
+      final entry = _entry(url: '');
+      final kdbx = _FakeVaultKdbxService()
+        ..snapshot = _snapshotWithEntry(entry);
+      final pending = _pendingAssociation(
+        serviceIdentifierType: 'url',
+        serviceIdentifierValue: 'https://Example.com/login?x=1#frag',
+      );
+      final appleAutofill = _FakeAppleAutofillV2Coordinator()
+        ..pendingAssociations = [pending];
+      final bloc = _makeBloc(
+        _FakeSyncRepo(),
+        kdbx,
+        appleAutofillV2Coordinator: appleAutofill,
+      );
+      addTearDown(bloc.close);
+
+      bloc.add(const InitializeVault());
+      await _waitUntil(
+        () => bloc.state.pendingAppleAutofillAssociations.length == 1,
+      );
+
+      bloc.add(ConfirmAppleAutofillPendingAssociation(pending.id));
+      await _waitUntil(
+        () =>
+            kdbx.updateCallCount == 1 &&
+            appleAutofill.clearPendingCallCount == 1 &&
+            bloc.state.pendingAppleAutofillAssociations.isEmpty,
+      );
+
+      expect(kdbx.lastUpdatedEntryId, entry.id);
+      expect(kdbx.lastUpdatedTitle, entry.title);
+      expect(kdbx.lastUpdatedUsername, entry.username);
+      expect(kdbx.lastUpdatedUrl, 'https://example.com');
+      expect(kdbx.lastUpdatedNotes, entry.notes);
+      expect(kdbx.lastUpdatedCustomFields, isEmpty);
+      expect(appleAutofill.lastClearedPendingIds, [pending.id]);
+    });
+
+    test('confirm existing URL adds KPH URL and preserves URL', () async {
+      final entry = _entry(
+        url: 'https://existing.example/login',
+        customFields: const [VaultCustomField(key: 'note', value: 'keep')],
+      );
+      final kdbx = _FakeVaultKdbxService()
+        ..snapshot = _snapshotWithEntry(entry);
+      final pending = _pendingAssociation(
+        serviceIdentifierType: 'domain',
+        serviceIdentifierValue: 'Example.com/path?x=1#frag',
+      );
+      final appleAutofill = _FakeAppleAutofillV2Coordinator()
+        ..pendingAssociations = [pending];
+      final bloc = _makeBloc(
+        _FakeSyncRepo(),
+        kdbx,
+        appleAutofillV2Coordinator: appleAutofill,
+      );
+      addTearDown(bloc.close);
+
+      bloc.add(const InitializeVault());
+      await _waitUntil(
+        () => bloc.state.pendingAppleAutofillAssociations.length == 1,
+      );
+
+      bloc.add(ConfirmAppleAutofillPendingAssociation(pending.id));
+      await _waitUntil(
+        () =>
+            kdbx.updateCallCount == 1 &&
+            appleAutofill.clearPendingCallCount == 1 &&
+            bloc.state.pendingAppleAutofillAssociations.isEmpty,
+      );
+
+      expect(kdbx.lastUpdatedUrl, entry.url);
+      expect(kdbx.lastUpdatedCustomFields, [
+        const VaultCustomField(key: 'note', value: 'keep'),
+        const VaultCustomField(key: 'KPH: URL', value: 'example.com'),
+      ]);
+      expect(appleAutofill.lastClearedPendingIds, [pending.id]);
+    });
+
+    test('reject clears pending and does not update', () async {
+      final entry = _entry(url: '');
+      final kdbx = _FakeVaultKdbxService()
+        ..snapshot = _snapshotWithEntry(entry);
+      final pending = _pendingAssociation();
+      final appleAutofill = _FakeAppleAutofillV2Coordinator()
+        ..pendingAssociations = [pending];
+      final bloc = _makeBloc(
+        _FakeSyncRepo(),
+        kdbx,
+        appleAutofillV2Coordinator: appleAutofill,
+      );
+      addTearDown(bloc.close);
+
+      bloc.add(const InitializeVault());
+      await _waitUntil(
+        () => bloc.state.pendingAppleAutofillAssociations.length == 1,
+      );
+
+      bloc.add(RejectAppleAutofillPendingAssociation(pending.id));
+      await _waitUntil(
+        () =>
+            appleAutofill.clearPendingCallCount == 1 &&
+            bloc.state.pendingAppleAutofillAssociations.isEmpty,
+      );
+
+      expect(kdbx.updateCallCount, 0);
+      expect(appleAutofill.lastClearedPendingIds, [pending.id]);
     });
   });
 
@@ -308,6 +421,90 @@ const _testMapping = DatabaseSyncMapping(
   autoSyncEnabled: true,
 );
 
+VaultEntry _entry({
+  String id = 'entry-1',
+  String url = '',
+  List<VaultCustomField> customFields = const [],
+}) {
+  return VaultEntry(
+    id: id,
+    groupId: 'root',
+    title: 'Example',
+    username: 'user',
+    password: 'secret',
+    url: url,
+    notes: 'notes',
+    customFields: customFields,
+  );
+}
+
+VaultSnapshot _snapshotWithEntry(VaultEntry entry) {
+  return VaultSnapshot(
+    rootGroupId: 'root',
+    currentGroupId: 'root',
+    groups: const [],
+    entries: [entry],
+    allEntries: [entry],
+  );
+}
+
+AppleAutofillV2PendingAssociation _pendingAssociation({
+  String id = 'pending-1',
+  String entryId = 'entry-1',
+  String serviceIdentifierType = 'url',
+  String serviceIdentifierValue = 'https://example.com',
+}) {
+  return AppleAutofillV2PendingAssociation(
+    id: id,
+    databaseId: 'database-id',
+    entryId: entryId,
+    serviceIdentifierType: serviceIdentifierType,
+    serviceIdentifierValue: serviceIdentifierValue,
+    displayService: serviceIdentifierValue,
+    createdAtEpochMs: 1,
+  );
+}
+
+VaultSnapshot _snapshotReplacingEntry(
+  VaultSnapshot snapshot, {
+  required String entryId,
+  required String title,
+  required String username,
+  required String password,
+  required String url,
+  required String notes,
+  required List<VaultCustomField> customFields,
+}) {
+  VaultEntry replace(VaultEntry entry) {
+    if (entry.id != entryId) {
+      return entry;
+    }
+    return VaultEntry(
+      id: entry.id,
+      groupId: entry.groupId,
+      title: title,
+      username: username,
+      password: password,
+      url: url,
+      notes: notes,
+      customFields: List<VaultCustomField>.of(customFields),
+      attachments: entry.attachments,
+      otpUri: entry.otpUri,
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
+      lastPasswordChangedAt: entry.lastPasswordChangedAt,
+    );
+  }
+
+  return VaultSnapshot(
+    rootGroupId: snapshot.rootGroupId,
+    currentGroupId: snapshot.currentGroupId,
+    groups: snapshot.groups,
+    entries: snapshot.entries.map(replace).toList(growable: false),
+    allEntries: snapshot.allEntries.map(replace).toList(growable: false),
+  );
+}
+
 // --- Fakes ---
 
 class _FakeSecureDataSource implements SecureDataSource {
@@ -333,8 +530,16 @@ class _FakeVaultKdbxService implements VaultKdbxService {
     : operations = operations ?? <String>[];
 
   final List<String> operations;
+  VaultSnapshot snapshot = _emptySnapshot;
   int loadCallCount = 0;
+  int updateCallCount = 0;
   Completer<String>? createEntryCompleter;
+  String? lastUpdatedEntryId;
+  String? lastUpdatedTitle;
+  String? lastUpdatedUsername;
+  String? lastUpdatedUrl;
+  String? lastUpdatedNotes;
+  List<VaultCustomField>? lastUpdatedCustomFields;
 
   @override
   Future<VaultSnapshot> loadVault({
@@ -345,7 +550,7 @@ class _FakeVaultKdbxService implements VaultKdbxService {
   }) async {
     operations.add('loadVault');
     loadCallCount++;
-    return _emptySnapshot;
+    return snapshot;
   }
 
   @override
@@ -367,6 +572,39 @@ class _FakeVaultKdbxService implements VaultKdbxService {
       return completer.future;
     }
     return 'entry-1';
+  }
+
+  @override
+  Future<void> updateEntry({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+    required String title,
+    required String username,
+    required String entryPassword,
+    required String url,
+    required String notes,
+    List<VaultCustomField> customFields = const [],
+  }) async {
+    operations.add('updateEntry');
+    updateCallCount += 1;
+    lastUpdatedEntryId = entryId;
+    lastUpdatedTitle = title;
+    lastUpdatedUsername = username;
+    lastUpdatedUrl = url;
+    lastUpdatedNotes = notes;
+    lastUpdatedCustomFields = List<VaultCustomField>.of(customFields);
+    snapshot = _snapshotReplacingEntry(
+      snapshot,
+      entryId: entryId,
+      title: title,
+      username: username,
+      password: entryPassword,
+      url: url,
+      notes: notes,
+      customFields: customFields,
+    );
   }
 
   @override
@@ -459,10 +697,14 @@ VaultBloc _makeBloc(
 
 class _FakeAppleAutofillV2Coordinator
     implements AppleAutofillV2CoordinatorContract {
+  List<AppleAutofillV2PendingAssociation> pendingAssociations = [];
   int publishCallCount = 0;
   int clearCallCount = 0;
+  int readPendingCallCount = 0;
+  int clearPendingCallCount = 0;
   String? lastDatabasePath;
   List<VaultEntry>? lastEntries;
+  List<String>? lastClearedPendingIds;
 
   @override
   Future<void> publishVault({
@@ -477,5 +719,28 @@ class _FakeAppleAutofillV2Coordinator
   @override
   Future<void> clearCredentials({String? databasePath}) async {
     clearCallCount += 1;
+  }
+
+  @override
+  Future<List<AppleAutofillV2PendingAssociation>> readPendingAssociations({
+    String? databasePath,
+  }) async {
+    readPendingCallCount += 1;
+    return List<AppleAutofillV2PendingAssociation>.of(pendingAssociations);
+  }
+
+  @override
+  Future<void> clearPendingAssociations({List<String>? ids}) async {
+    clearPendingCallCount += 1;
+    lastClearedPendingIds = ids == null ? null : List<String>.of(ids);
+    if (ids == null) {
+      pendingAssociations = [];
+      return;
+    }
+
+    final idSet = ids.toSet();
+    pendingAssociations = pendingAssociations
+        .where((association) => !idSet.contains(association.id))
+        .toList(growable: false);
   }
 }

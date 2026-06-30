@@ -152,6 +152,33 @@ struct AutofillCredentialSecret: Codable, Equatable {
   let password: String
 }
 
+struct AutofillPendingAssociation: Codable, Equatable, Identifiable {
+  let id: String
+  let databaseId: String
+  let entryId: String
+  let serviceIdentifierType: String
+  let serviceIdentifierValue: String
+  let displayService: String
+  let createdAtEpochMs: Int64
+  let platform: String?
+
+  var dictionary: [String: Any] {
+    var value: [String: Any] = [
+      "id": id,
+      "databaseId": databaseId,
+      "entryId": entryId,
+      "serviceIdentifierType": serviceIdentifierType,
+      "serviceIdentifierValue": serviceIdentifierValue,
+      "displayService": displayService,
+      "createdAtEpochMs": createdAtEpochMs,
+    ]
+    if let platform {
+      value["platform"] = platform
+    }
+    return value
+  }
+}
+
 private struct AutofillSecretCache: Codable {
   let version: Int
   let databaseId: String
@@ -241,6 +268,7 @@ enum SharedAutofillPaths {
   static let cacheVersion = 2
   static let metadataFileName = "autofill_metadata_v2.json"
   static let encryptedCacheFileName = "autofill_cache_v2.sealed.json"
+  static let pendingAssociationsFileName = "autofill_pending_associations_v2.json"
   static let keychainService = "dev.camillobucciarelli.keyvault.apple_autofill_v2"
   static let keychainAccount = "cache-key"
   static let keyId = "apple-autofill-v2-cache-key"
@@ -265,6 +293,10 @@ enum SharedAutofillPaths {
 
   static func encryptedCacheURL() -> URL? {
     containerURL()?.appendingPathComponent(encryptedCacheFileName)
+  }
+
+  static func pendingAssociationsURL() -> URL? {
+    containerURL()?.appendingPathComponent(pendingAssociationsFileName)
   }
 }
 
@@ -340,16 +372,20 @@ final class SharedAutofillStore {
   ) {
     wipeLegacyPlaintextArtifacts(reason: "clear")
 
+    let pendingAssociationsCleared = clearPendingAssociationsBestEffort()
+
     let currentDatabaseId = readMetadataCache()?.databaseId
     if let databaseId,
        let currentDatabaseId,
        currentDatabaseId != databaseId {
       storeLog.info("clearCredentials skipped: database mismatch")
+      var warnings = ["database_id_mismatch"]
+      if !pendingAssociationsCleared { warnings.append("pending_associations_not_cleared") }
       completion(.success(AutofillClearOutcome(
         cleared: false,
         identityStoreCleared: false,
         keychainKeyCleared: false,
-        warnings: ["database_id_mismatch"]
+        warnings: warnings
       )))
       return
     }
@@ -359,6 +395,7 @@ final class SharedAutofillStore {
       let keyCleared = deleteKeyBestEffort()
       replaceCredentialIdentities([]) { identitySynced, warning in
         var warnings: [String] = []
+        if !pendingAssociationsCleared { warnings.append("pending_associations_not_cleared") }
         if !keyCleared { warnings.append("keychain_key_not_cleared") }
         if let warning { warnings.append(warning) }
         completion(.success(AutofillClearOutcome(
@@ -393,6 +430,82 @@ final class SharedAutofillStore {
   /// Reads password-free metadata only.
   func readCredentialMetadata() -> [AutofillCredentialMetadata] {
     readMetadataCache()?.entries ?? []
+  }
+
+  /// Reads pending entry-to-service associations. Contains metadata only, never passwords.
+  func readPendingAssociations() -> [AutofillPendingAssociation] {
+    wipeLegacyPlaintextArtifacts(reason: "pending associations read")
+    return readPendingAssociationsFile()
+  }
+
+  @discardableResult
+  func clearPendingAssociations(ids: [String]? = nil) throws -> Int {
+    wipeLegacyPlaintextArtifacts(reason: "pending associations clear")
+    guard let url = SharedAutofillPaths.pendingAssociationsURL() else {
+      throw SharedAutofillStoreError.appGroupUnavailable
+    }
+
+    guard let ids else {
+      let associations = (try? loadPendingAssociations()) ?? []
+      if FileManager.default.fileExists(atPath: url.path) {
+        try FileManager.default.removeItem(at: url)
+      }
+      storeLog.info("pending associations cleared all count=\(associations.count, privacy: .public)")
+      return associations.count
+    }
+
+    let associations = try loadPendingAssociations()
+    guard !associations.isEmpty else { return 0 }
+
+    let idsToClear = Set(ids.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })
+    guard !idsToClear.isEmpty else { return 0 }
+
+    let remaining = associations.filter { !idsToClear.contains($0.id) }
+    let clearedCount = associations.count - remaining.count
+    guard clearedCount > 0 else { return 0 }
+
+    if remaining.isEmpty {
+      if FileManager.default.fileExists(atPath: url.path) {
+        try FileManager.default.removeItem(at: url)
+      }
+    } else {
+      try writePendingAssociations(remaining)
+    }
+    storeLog.info("pending associations cleared by id count=\(clearedCount, privacy: .public)")
+    return clearedCount
+  }
+
+  func savePendingAssociation(
+    for metadata: AutofillCredentialMetadata,
+    requestedServiceIdentifiers: [ASCredentialServiceIdentifier]
+  ) {
+    wipeLegacyPlaintextArtifacts(reason: "pending association save")
+
+    guard let pending = makePendingAssociation(
+      for: metadata,
+      requestedServiceIdentifiers: requestedServiceIdentifiers
+    ) else {
+      storeLog.info("pending association skipped missing normalized target")
+      return
+    }
+
+    do {
+      var associations = try loadPendingAssociations()
+      associations.removeAll {
+        $0.databaseId == pending.databaseId &&
+          $0.entryId == pending.entryId &&
+          $0.serviceIdentifierType == pending.serviceIdentifierType &&
+          $0.serviceIdentifierValue == pending.serviceIdentifierValue
+      }
+      associations.append(pending)
+      if associations.count > 200 {
+        associations = Array(associations.suffix(200))
+      }
+      try writePendingAssociations(associations)
+      storeLog.info("pending association saved count=\(associations.count, privacy: .public)")
+    } catch {
+      storeLog.error("pending association save failed error=\(String(describing: type(of: error)), privacy: .public)")
+    }
   }
 
   func encryptedCredentialCacheExists() -> Bool {
@@ -706,6 +819,82 @@ final class SharedAutofillStore {
     }
   }
 
+  // MARK: - Pending associations
+
+  private func makePendingAssociation(
+    for metadata: AutofillCredentialMetadata,
+    requestedServiceIdentifiers: [ASCredentialServiceIdentifier]
+  ) -> AutofillPendingAssociation? {
+    guard let metadataCache = readMetadataCache() else { return nil }
+    let databaseId = metadataCache.databaseId.trimmingCharacters(in: .whitespacesAndNewlines)
+    let entryId = metadata.id.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !databaseId.isEmpty, !entryId.isEmpty else { return nil }
+
+    let requested = SharedAutofillStoreNormalizer.normalizedRequestedIdentifiers(
+      requestedServiceIdentifiers
+    )
+    guard let target = requested.first,
+          !target.value.isEmpty else {
+      return nil
+    }
+
+    let displayService = SharedAutofillStoreNormalizer.displayService(from: [target])
+    return AutofillPendingAssociation(
+      id: UUID().uuidString,
+      databaseId: databaseId,
+      entryId: entryId,
+      serviceIdentifierType: target.type.rawValue,
+      serviceIdentifierValue: target.value,
+      displayService: displayService.isEmpty ? target.value : displayService,
+      createdAtEpochMs: Int64(Date().timeIntervalSince1970 * 1000),
+      platform: currentPlatform
+    )
+  }
+
+  private func readPendingAssociationsFile() -> [AutofillPendingAssociation] {
+    do {
+      return try loadPendingAssociations()
+    } catch {
+      storeLog.error("pending associations read failed error=\(String(describing: type(of: error)), privacy: .public)")
+      return []
+    }
+  }
+
+  private func loadPendingAssociations() throws -> [AutofillPendingAssociation] {
+    guard let url = SharedAutofillPaths.pendingAssociationsURL() else {
+      throw SharedAutofillStoreError.appGroupUnavailable
+    }
+    guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+    let data = try Data(contentsOf: url)
+    return try jsonDecoder.decode([AutofillPendingAssociation].self, from: data)
+  }
+
+  private func writePendingAssociations(_ associations: [AutofillPendingAssociation]) throws {
+    guard let url = SharedAutofillPaths.pendingAssociationsURL() else {
+      throw SharedAutofillStoreError.appGroupUnavailable
+    }
+    let data = try jsonEncoder.encode(associations)
+    try writeProtected(data, to: url)
+  }
+
+  private func clearPendingAssociationsBestEffort() -> Bool {
+    do {
+      _ = try clearPendingAssociations(ids: nil)
+      return true
+    } catch {
+      storeLog.error("pending associations clear failed error=\(String(describing: type(of: error)), privacy: .public)")
+      return false
+    }
+  }
+
+  private var currentPlatform: String {
+#if os(macOS)
+    return "macos"
+#else
+    return "ios"
+#endif
+  }
+
   // MARK: - File IO
 
   private func readMetadataCache() -> AutofillMetadataCache? {
@@ -956,6 +1145,10 @@ private enum SharedAutofillStoreNormalizer {
         if let host = normalizedHost(from: service.identifier) {
           append(AutofillServiceIdentifier(type: .domain, value: host))
         }
+      case .app:
+        append(normalizedBundleId(service.identifier).map {
+          AutofillServiceIdentifier(type: .bundleId, value: $0)
+        })
       @unknown default:
         continue
       }
@@ -1109,6 +1302,251 @@ private enum SharedAutofillStoreNormalizer {
       return nil
     }
     return host
+  }
+}
+
+enum AutofillMetadataSearch {
+  static let possibleMatchLimit = 50
+  static let defaultManualSearchLimit = 100
+  static let oneCharacterManualSearchLimit = 20
+
+  private static let genericTargetTokens: Set<String> = [
+    "www",
+    "com",
+    "net",
+    "org",
+    "login",
+    "auth",
+    "app",
+    "mobile",
+    "accounts",
+    "http",
+    "https",
+  ]
+
+  static func possibleMatches(
+    in entries: [AutofillCredentialMetadata],
+    for serviceIdentifiers: [ASCredentialServiceIdentifier],
+    limit: Int = possibleMatchLimit
+  ) -> [AutofillCredentialMetadata] {
+    let requested = SharedAutofillStoreNormalizer.normalizedRequestedIdentifiers(serviceIdentifiers)
+    let tokens = targetTokens(from: requested)
+    guard !tokens.isEmpty else { return [] }
+    return ranked(
+      entries: entries,
+      tokens: tokens,
+      fieldMode: .targetSuggestion,
+      requireAllTokens: false,
+      limit: limit
+    )
+  }
+
+  static func search(
+    _ entries: [AutofillCredentialMetadata],
+    query: String,
+    limit: Int? = nil
+  ) -> [AutofillCredentialMetadata] {
+    let tokens = manualSearchTokens(from: query)
+    guard !tokens.isEmpty else { return entries.sortedForDisplay() }
+
+    let normalizedQuery = normalizedSearchValue(query)
+    let effectiveLimit = limit ?? (
+      normalizedQuery.count == 1 ? oneCharacterManualSearchLimit : defaultManualSearchLimit
+    )
+
+    return ranked(
+      entries: entries,
+      tokens: tokens,
+      fieldMode: .manualSearch,
+      requireAllTokens: true,
+      limit: effectiveLimit
+    )
+  }
+
+  static func targetTokens(from identifiers: [AutofillServiceIdentifier]) -> [String] {
+    var rawValues: [String] = []
+
+    for identifier in identifiers {
+      rawValues.append(identifier.value)
+      switch identifier.type {
+      case .domain, .url:
+        if let host = SharedAutofillStoreNormalizer.normalizedHost(from: identifier.value) {
+          rawValues.append(host)
+        }
+      case .bundleId:
+        break
+      }
+    }
+
+    return unique(rawValues.flatMap(targetTokens(fromRawValue:)))
+  }
+
+  private enum SearchFieldMode {
+    case targetSuggestion
+    case manualSearch
+  }
+
+  private struct WeightedSearchField {
+    let value: String
+    let weight: Int
+  }
+
+  private static func ranked(
+    entries: [AutofillCredentialMetadata],
+    tokens: [String],
+    fieldMode: SearchFieldMode,
+    requireAllTokens: Bool,
+    limit: Int
+  ) -> [AutofillCredentialMetadata] {
+    guard limit > 0 else { return [] }
+
+    let scored = entries.compactMap { entry -> (AutofillCredentialMetadata, Int)? in
+      let fields = searchFields(for: entry, mode: fieldMode)
+      let score = scoreEntry(
+        fields: fields,
+        tokens: tokens,
+        requireAllTokens: requireAllTokens
+      )
+      guard score > 0 else { return nil }
+      return (entry, score)
+    }
+
+    return Array(scored.sorted { lhs, rhs in
+      if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
+      return lhs.0.sortKey < rhs.0.sortKey
+    }.map(\.0).prefix(limit))
+  }
+
+  private static func scoreEntry(
+    fields: [WeightedSearchField],
+    tokens: [String],
+    requireAllTokens: Bool
+  ) -> Int {
+    var total = 0
+    var matchedTokens = 0
+
+    for token in tokens {
+      let bestScore = fields.compactMap { field -> Int? in
+        let value = normalizedSearchValue(field.value)
+        guard value.contains(token) else { return nil }
+        var score = field.weight
+        if value == token {
+          score += 12
+        } else if value.hasPrefix(token) {
+          score += 6
+        } else if containsComponentPrefix(token, in: value) {
+          score += 4
+        }
+        return score
+      }.max()
+
+      if let bestScore {
+        total += bestScore
+        matchedTokens += 1
+      } else if requireAllTokens {
+        return 0
+      }
+    }
+
+    guard matchedTokens > 0 else { return 0 }
+    return total + (matchedTokens * 2)
+  }
+
+  private static func searchFields(
+    for entry: AutofillCredentialMetadata,
+    mode: SearchFieldMode
+  ) -> [WeightedSearchField] {
+    var fields: [WeightedSearchField] = [
+      WeightedSearchField(value: entry.title, weight: 6),
+      WeightedSearchField(value: entry.displayService, weight: 8),
+    ]
+
+    if mode == .manualSearch {
+      fields.append(WeightedSearchField(value: entry.username, weight: 5))
+    }
+
+    for identifier in entry.serviceIdentifiers {
+      fields.append(WeightedSearchField(value: identifier.value, weight: 9))
+      switch identifier.type {
+      case .domain, .url:
+        if let host = SharedAutofillStoreNormalizer.normalizedHost(from: identifier.value) {
+          fields.append(WeightedSearchField(value: host, weight: 10))
+        }
+      case .bundleId:
+        break
+      }
+    }
+
+    return uniqueFields(fields)
+  }
+
+  private static func manualSearchTokens(from query: String) -> [String] {
+    let normalized = normalizedSearchValue(query)
+    guard !normalized.isEmpty else { return [] }
+    let tokens = normalized
+      .split(whereSeparator: { $0.isWhitespace })
+      .map(String.init)
+      .filter { !$0.isEmpty }
+    return tokens.isEmpty ? [normalized] : unique(tokens)
+  }
+
+  private static func targetTokens(fromRawValue rawValue: String) -> [String] {
+    let normalized = normalizedSearchValue(rawValue)
+    guard !normalized.isEmpty else { return [] }
+
+    let separators = CharacterSet(charactersIn: ".-_/:\\")
+      .union(.whitespacesAndNewlines)
+    return normalized
+      .components(separatedBy: separators)
+      .map { $0.trimmingCharacters(in: .punctuationCharacters) }
+      .filter { token in
+        token.count >= 3 && !genericTargetTokens.contains(token)
+      }
+  }
+
+  private static func normalizedSearchValue(_ value: String) -> String {
+    value
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+      .lowercased()
+  }
+
+  private static func containsComponentPrefix(_ token: String, in value: String) -> Bool {
+    let separators = CharacterSet(charactersIn: ".-_/:\\")
+      .union(.whitespacesAndNewlines)
+    return value
+      .components(separatedBy: separators)
+      .contains { $0.hasPrefix(token) }
+  }
+
+  private static func unique(_ values: [String]) -> [String] {
+    var seen = Set<String>()
+    var result: [String] = []
+    for value in values where !seen.contains(value) {
+      seen.insert(value)
+      result.append(value)
+    }
+    return result
+  }
+
+  private static func uniqueFields(_ fields: [WeightedSearchField]) -> [WeightedSearchField] {
+    var bestByValue: [String: WeightedSearchField] = [:]
+    var order: [String] = []
+
+    for field in fields {
+      let key = normalizedSearchValue(field.value)
+      guard !key.isEmpty else { continue }
+      if let existing = bestByValue[key] {
+        if field.weight > existing.weight {
+          bestByValue[key] = field
+        }
+      } else {
+        bestByValue[key] = field
+        order.append(key)
+      }
+    }
+
+    return order.compactMap { bestByValue[$0] }
   }
 }
 

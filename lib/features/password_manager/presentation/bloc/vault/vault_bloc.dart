@@ -10,6 +10,7 @@ import '../../../data/services/vault_duplicate_service.dart';
 import '../../../data/services/vault_kdbx_service.dart';
 import '../../../domain/models/database_sync_status.dart';
 import '../../../domain/models/sync_conflict.dart';
+import '../../../domain/models/vault_custom_field.dart';
 import '../../../domain/repositories/database_sync_repository.dart';
 import '../../../domain/usecases/connect_google_account_usecase.dart';
 import '../../../domain/usecases/disconnect_google_account_usecase.dart';
@@ -87,6 +88,15 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<ToggleCurrentDatabaseAutoSync>(_onToggleCurrentDatabaseAutoSync);
     on<ClearVaultSyncFeedback>(_onClearVaultSyncFeedback);
     on<BackgroundDriveSync>(_onBackgroundDriveSync);
+    on<RefreshAppleAutofillPendingAssociations>(
+      _onRefreshAppleAutofillPendingAssociations,
+    );
+    on<ConfirmAppleAutofillPendingAssociation>(
+      _onConfirmAppleAutofillPendingAssociation,
+    );
+    on<RejectAppleAutofillPendingAssociation>(
+      _onRejectAppleAutofillPendingAssociation,
+    );
     on<LoadDuplicates>(_onLoadDuplicates);
     on<DeleteDuplicateEntry>(_onDeleteDuplicateEntry);
     on<MergeDuplicateEntries>(_onMergeDuplicateEntries);
@@ -862,6 +872,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         databasePath: state.databasePath,
         entries: snapshot.allEntries,
       );
+      await _refreshAppleAutofillPendingAssociations(emit);
     } catch (e, st) {
       logError('Failed loading vault data.', e, st);
       _safeEmit(
@@ -877,6 +888,140 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     if (!keepLoadingFlag && state.isLoading) {
       _safeEmit(emit, state.copyWith(isLoading: false));
     }
+  }
+
+  Future<void> _onRefreshAppleAutofillPendingAssociations(
+    RefreshAppleAutofillPendingAssociations event,
+    Emitter<VaultState> emit,
+  ) async {
+    await _refreshAppleAutofillPendingAssociations(emit);
+  }
+
+  Future<void> _onConfirmAppleAutofillPendingAssociation(
+    ConfirmAppleAutofillPendingAssociation event,
+    Emitter<VaultState> emit,
+  ) async {
+    final pending = state.pendingAppleAutofillAssociations
+        .where((association) => association.id == event.id)
+        .firstOrNull;
+    if (pending == null) {
+      await _refreshAppleAutofillPendingAssociations(emit);
+      return;
+    }
+
+    final entry = state.allEntries
+        .where((candidate) => candidate.id == pending.entryId)
+        .firstOrNull;
+    if (entry == null) {
+      await appleAutofillV2Coordinator.clearPendingAssociations(
+        ids: [event.id],
+      );
+      await _refreshAppleAutofillPendingAssociations(emit);
+      _safeEmit(
+        emit,
+        state.copyWith(
+          infoMessage: 'Apple Autofill association skipped.',
+          clearError: true,
+        ),
+      );
+      return;
+    }
+
+    final target = _normalizeAppleAutofillAssociationTarget(
+      type: pending.serviceIdentifierType,
+      value: pending.serviceIdentifierValue,
+    );
+    if (target == null) {
+      _safeEmit(
+        emit,
+        state.copyWith(
+          errorMessage: 'Unable to confirm Apple Autofill association.',
+        ),
+      );
+      return;
+    }
+
+    final update = _buildAppleAutofillAssociationUpdate(
+      entry: entry,
+      target: target,
+    );
+
+    if (!update.needsUpdate) {
+      await appleAutofillV2Coordinator.clearPendingAssociations(
+        ids: [event.id],
+      );
+      await _refreshAppleAutofillPendingAssociations(emit);
+      _safeEmit(
+        emit,
+        state.copyWith(
+          infoMessage: 'Apple Autofill association already exists.',
+          clearError: true,
+        ),
+      );
+      return;
+    }
+
+    _safeEmit(
+      emit,
+      state.copyWith(isSaving: true, clearError: true, clearInfo: true),
+    );
+    try {
+      await vaultKdbxService.updateEntry(
+        databasePath: state.databasePath,
+        password: _password,
+        keyFilePath: _keyFilePath,
+        entryId: entry.id,
+        title: entry.title,
+        username: entry.username,
+        entryPassword: entry.password,
+        url: update.url,
+        notes: entry.notes,
+        customFields: update.customFields,
+      );
+      await appleAutofillV2Coordinator.clearPendingAssociations(
+        ids: [event.id],
+      );
+      await _reload(
+        emit,
+        currentGroupId: state.currentGroupId,
+        keepLoadingFlag: false,
+      );
+      await _loadRecycleBinEntries(emit, isInitialLoad: true);
+      await _scheduleAutoSync(emit);
+      _safeEmit(
+        emit,
+        state.copyWith(
+          infoMessage: 'Apple Autofill association added.',
+          clearError: true,
+        ),
+      );
+    } catch (e, st) {
+      logError('Failed confirming Apple Autofill association.', e, st);
+      _safeEmit(
+        emit,
+        state.copyWith(
+          isSaving: false,
+          errorMessage: 'Unable to confirm Apple Autofill association.',
+        ),
+      );
+    }
+  }
+
+  Future<void> _onRejectAppleAutofillPendingAssociation(
+    RejectAppleAutofillPendingAssociation event,
+    Emitter<VaultState> emit,
+  ) async {
+    await appleAutofillV2Coordinator.clearPendingAssociations(ids: [event.id]);
+    await _refreshAppleAutofillPendingAssociations(emit);
+  }
+
+  Future<void> _refreshAppleAutofillPendingAssociations(
+    Emitter<VaultState> emit,
+  ) async {
+    final pending = await appleAutofillV2Coordinator.readPendingAssociations(
+      databasePath: state.databasePath,
+    );
+    _safeEmit(emit, state.copyWith(pendingAppleAutofillAssociations: pending));
   }
 
   Future<void> _loadRecycleBinEntries(
@@ -1589,6 +1734,361 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     emit(nextState);
   }
 
+  _AppleAutofillAssociationUpdate _buildAppleAutofillAssociationUpdate({
+    required VaultEntry entry,
+    required _AppleAutofillAssociationTarget target,
+  }) {
+    if (target.isWeb) {
+      if (entry.url.trim().isEmpty) {
+        return _AppleAutofillAssociationUpdate(
+          url: target.value,
+          customFields: entry.customFields,
+          needsUpdate: true,
+        );
+      }
+
+      if (_entryContainsAppleAutofillWebTarget(entry, target)) {
+        return _AppleAutofillAssociationUpdate(
+          url: entry.url,
+          customFields: entry.customFields,
+          needsUpdate: false,
+        );
+      }
+
+      final customFields = List<VaultCustomField>.of(entry.customFields)
+        ..add(
+          VaultCustomField(
+            key: _nextAppleAutofillCustomFieldKey(
+              entry.customFields,
+              target.customFieldBaseKey,
+            ),
+            value: target.value,
+          ),
+        );
+      return _AppleAutofillAssociationUpdate(
+        url: entry.url,
+        customFields: customFields,
+        needsUpdate: true,
+      );
+    }
+
+    if (_customFieldsContainAppleAutofillBundleTarget(
+      entry.customFields,
+      target.value,
+    )) {
+      return _AppleAutofillAssociationUpdate(
+        url: entry.url,
+        customFields: entry.customFields,
+        needsUpdate: false,
+      );
+    }
+
+    final customFields = List<VaultCustomField>.of(entry.customFields)
+      ..add(
+        VaultCustomField(
+          key: _nextAppleAutofillCustomFieldKey(
+            entry.customFields,
+            target.customFieldBaseKey,
+          ),
+          value: target.value,
+        ),
+      );
+    return _AppleAutofillAssociationUpdate(
+      url: entry.url,
+      customFields: customFields,
+      needsUpdate: true,
+    );
+  }
+
+  _AppleAutofillAssociationTarget? _normalizeAppleAutofillAssociationTarget({
+    required String type,
+    required String value,
+  }) {
+    final normalizedType = type.trim().toLowerCase().replaceAll(
+      RegExp(r'[\s_-]+'),
+      '',
+    );
+
+    if (normalizedType == 'bundleid') {
+      final trimmed = value.trim();
+      if (trimmed.isEmpty) {
+        return null;
+      }
+      return _AppleAutofillAssociationTarget.bundleId(trimmed);
+    }
+
+    if (normalizedType == 'domain') {
+      final target = _normalizeAppleAutofillDomainTarget(value);
+      if (target == null) {
+        return null;
+      }
+      return _AppleAutofillAssociationTarget.web(
+        target,
+        compareAsOrigin: false,
+      );
+    }
+
+    if (normalizedType == 'url') {
+      final target = _normalizeAppleAutofillUrlTarget(value);
+      if (target == null) {
+        return null;
+      }
+      return _AppleAutofillAssociationTarget.web(
+        target,
+        compareAsOrigin: value.trim().contains('://'),
+      );
+    }
+
+    return null;
+  }
+
+  bool _entryContainsAppleAutofillWebTarget(
+    VaultEntry entry,
+    _AppleAutofillAssociationTarget target,
+  ) {
+    if (_appleAutofillWebValueMatchesTarget(entry.url, target)) {
+      return true;
+    }
+
+    for (final field in entry.customFields) {
+      if (!_isAppleAutofillWebFieldKey(field.key)) {
+        continue;
+      }
+      for (final value in _splitAppleAutofillCustomFieldValues(field.value)) {
+        if (_appleAutofillWebValueMatchesTarget(value, target)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  bool _customFieldsContainAppleAutofillBundleTarget(
+    List<VaultCustomField> customFields,
+    String target,
+  ) {
+    final normalizedTarget = _normalizeAppleAutofillBundleComparisonValue(
+      target,
+    );
+    if (normalizedTarget == null) {
+      return false;
+    }
+
+    for (final field in customFields) {
+      if (!_isAppleAutofillBundleFieldKey(field.key)) {
+        continue;
+      }
+      for (final value in _splitAppleAutofillCustomFieldValues(field.value)) {
+        if (_normalizeAppleAutofillBundleComparisonValue(value) ==
+            normalizedTarget) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  bool _appleAutofillWebValueMatchesTarget(
+    String value,
+    _AppleAutofillAssociationTarget target,
+  ) {
+    final normalized = target.compareWebAsOrigin
+        ? _normalizeAppleAutofillUrlTarget(value)
+        : _normalizeAppleAutofillDomainTarget(value);
+    return normalized != null && normalized == target.value;
+  }
+
+  String? _normalizeAppleAutofillUrlTarget(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+
+    if (trimmed.contains('://')) {
+      final uri = Uri.tryParse(trimmed);
+      if (uri == null || uri.host.isEmpty) {
+        return null;
+      }
+
+      final scheme = uri.scheme.toLowerCase();
+      if (scheme != 'http' && scheme != 'https') {
+        return null;
+      }
+
+      final host = _cleanAppleAutofillHost(uri.host);
+      if (host == null) {
+        return null;
+      }
+
+      return Uri(
+        scheme: scheme,
+        host: host,
+        port: uri.hasPort ? uri.port : null,
+      ).toString();
+    }
+
+    return _normalizeAppleAutofillRawHost(trimmed);
+  }
+
+  String? _normalizeAppleAutofillDomainTarget(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+
+    if (trimmed.contains('://')) {
+      final uri = Uri.tryParse(trimmed);
+      if (uri == null || uri.host.isEmpty) {
+        return null;
+      }
+      return _cleanAppleAutofillHost(uri.host);
+    }
+
+    return _normalizeAppleAutofillRawHost(trimmed);
+  }
+
+  String? _normalizeAppleAutofillRawHost(String rawValue) {
+    var value = rawValue.trim();
+    if (value.startsWith('//')) {
+      value = value.substring(2);
+    }
+
+    final delimiterIndex = _firstAppleAutofillDelimiterIndex(value);
+    if (delimiterIndex >= 0) {
+      value = value.substring(0, delimiterIndex);
+    }
+    value = value.trim();
+    if (value.isEmpty || value.contains('@')) {
+      return null;
+    }
+
+    try {
+      final uri = Uri.tryParse('https://$value');
+      if (uri == null || uri.host.isEmpty) {
+        return null;
+      }
+      return _cleanAppleAutofillHost(uri.host);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  String? _cleanAppleAutofillHost(String rawHost) {
+    var host = rawHost.trim().toLowerCase();
+    while (host.endsWith('.')) {
+      host = host.substring(0, host.length - 1);
+    }
+    if (host.isEmpty ||
+        host.length > 253 ||
+        host.contains(RegExp(r'[\s/@:]'))) {
+      return null;
+    }
+    return host;
+  }
+
+  int _firstAppleAutofillDelimiterIndex(String value) {
+    var result = -1;
+    for (final delimiter in const ['/', '?', '#']) {
+      final index = value.indexOf(delimiter);
+      if (index >= 0 && (result == -1 || index < result)) {
+        result = index;
+      }
+    }
+    return result;
+  }
+
+  String _nextAppleAutofillCustomFieldKey(
+    List<VaultCustomField> customFields,
+    String baseKey,
+  ) {
+    final existingKeys = customFields
+        .map((field) => field.key.trim().toLowerCase())
+        .toSet();
+    if (!existingKeys.contains(baseKey.toLowerCase())) {
+      return baseKey;
+    }
+
+    var suffix = 2;
+    while (existingKeys.contains('${baseKey.toLowerCase()} $suffix')) {
+      suffix += 1;
+    }
+    return '$baseKey $suffix';
+  }
+
+  bool _isAppleAutofillWebFieldKey(String key) {
+    return _isAppleAutofillUrlFieldKey(key) ||
+        _isAppleAutofillDomainFieldKey(key);
+  }
+
+  bool _isAppleAutofillUrlFieldKey(String key) {
+    final normalized = _normalizeAppleAutofillFieldKey(key);
+    return normalized == 'url' ||
+        normalized == 'uri' ||
+        normalized == 'website' ||
+        normalized == 'weburl' ||
+        normalized == 'loginurl' ||
+        normalized == 'kph:url' ||
+        normalized == 'kph:uri' ||
+        RegExp(r'^kph:url\d+$').hasMatch(normalized);
+  }
+
+  bool _isAppleAutofillDomainFieldKey(String key) {
+    final normalized = _normalizeAppleAutofillFieldKey(key);
+    return normalized == 'domain' ||
+        normalized == 'domains' ||
+        normalized == 'webdomain' ||
+        normalized == 'hostname' ||
+        normalized == 'host' ||
+        normalized == 'kph:domain' ||
+        normalized == 'kph:webdomain' ||
+        RegExp(r'^kph:domain\d+$').hasMatch(normalized) ||
+        RegExp(r'^kph:webdomain\d+$').hasMatch(normalized);
+  }
+
+  bool _isAppleAutofillBundleFieldKey(String key) {
+    final normalized = _normalizeAppleAutofillFieldKey(key);
+    return normalized == 'iosbundle' ||
+        normalized == 'iosbundleid' ||
+        normalized == 'bundleid' ||
+        normalized == 'applebundleid' ||
+        normalized == 'kph:iosbundle' ||
+        normalized == 'kph:iosbundleid' ||
+        normalized == 'kph:bundleid' ||
+        RegExp(r'^kph:iosbundle\d+$').hasMatch(normalized) ||
+        RegExp(r'^kph:iosbundleid\d+$').hasMatch(normalized) ||
+        RegExp(r'^kph:bundleid\d+$').hasMatch(normalized);
+  }
+
+  String _normalizeAppleAutofillFieldKey(String value) {
+    return value.trim().toLowerCase().replaceAll(RegExp(r'[\s_-]+'), '');
+  }
+
+  Iterable<String> _splitAppleAutofillCustomFieldValues(String value) sync* {
+    for (final token in value.split(RegExp(r'[,;\s]+'))) {
+      final trimmed = token.trim();
+      if (trimmed.isNotEmpty) {
+        yield trimmed;
+      }
+    }
+  }
+
+  String? _normalizeAppleAutofillBundleComparisonValue(String value) {
+    var normalized = value.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return null;
+    }
+    if (normalized.startsWith('iosbundleid:')) {
+      normalized = normalized.substring('iosbundleid:'.length);
+    }
+    normalized = normalized.replaceAll(RegExp(r'^/+'), '');
+    final delimiterIndex = _firstAppleAutofillDelimiterIndex(normalized);
+    if (delimiterIndex >= 0) {
+      normalized = normalized.substring(0, delimiterIndex);
+    }
+    normalized = normalized.replaceAll(RegExp(r'/+$'), '');
+    return normalized.isEmpty ? null : normalized;
+  }
+
   Future<void> _performSync(
     Emitter<VaultState> emit, {
     SyncConflictResolution? resolution,
@@ -1847,6 +2347,45 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
 
     return expanded.toList()..sort();
   }
+}
+
+class _AppleAutofillAssociationTarget {
+  const _AppleAutofillAssociationTarget._({
+    required this.value,
+    required this.customFieldBaseKey,
+    required this.isWeb,
+    this.compareWebAsOrigin = false,
+  });
+
+  const _AppleAutofillAssociationTarget.web(
+    String value, {
+    required bool compareAsOrigin,
+  }) : this._(
+         value: value,
+         customFieldBaseKey: 'KPH: URL',
+         isWeb: true,
+         compareWebAsOrigin: compareAsOrigin,
+       );
+
+  const _AppleAutofillAssociationTarget.bundleId(String value)
+    : this._(value: value, customFieldBaseKey: 'KPH: iosBundle', isWeb: false);
+
+  final String value;
+  final String customFieldBaseKey;
+  final bool isWeb;
+  final bool compareWebAsOrigin;
+}
+
+class _AppleAutofillAssociationUpdate {
+  const _AppleAutofillAssociationUpdate({
+    required this.url,
+    required this.customFields,
+    required this.needsUpdate,
+  });
+
+  final String url;
+  final List<VaultCustomField> customFields;
+  final bool needsUpdate;
 }
 
 extension<T> on Iterable<T> {

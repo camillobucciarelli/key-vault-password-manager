@@ -184,6 +184,62 @@ Firefox is not implemented in this MV3 service-worker extension. Do not load the
 Chrome/Edge manifest in Firefox. A separate Firefox manifest/background design is
 required before Firefox support is advertised.
 
+## Roadmap: no-match global search + partial possible matches
+
+PM policy: partial substring/token results are **possible matches only**. They
+must never become strong/direct matches, silent fill candidates, or automatic
+vault associations. Flow is always user selection -> pending association -> main
+app confirmation -> vault update.
+
+Implemented Apple pattern for iOS/macOS credential providers:
+
+- No direct match opens global credential search.
+- Global search can show partial possible matches from safe URL/domain/title
+  words when no strong service match exists.
+- User selects a credential, then fills it.
+- Extension writes a pending association for the selected entry and requested
+  service.
+- Main app asks the user to confirm the association.
+- Only after confirmation does the app update the vault.
+
+Android future parity:
+
+- Autofill auth UI opens global credential search when no package/domain match is
+  found.
+- No-match UI shows partial possible matches using target tokens derived from
+  package name, app label, web domain, and title metadata when available.
+- User must select a credential before any fill.
+- Filling a global-search result writes a pending association with the selected
+  entry and the Android package/domain target.
+- Main app asks for user confirmation before adding the association to the vault.
+- Association confirmation must preserve package signature/domain safeguards:
+  package targets include verified package identity/signature evidence; web
+  targets use normalized host/domain only.
+- No silent package/domain update from an autofill selection.
+
+Desktop browser future parity:
+
+- Extension asks the app/bridge to search by safe page metadata, not by secrets.
+- Extension/app global search supports partial possible matches from normalized
+  URL host/domain and page title tokens.
+- Credential reveal happens only after an explicit user gesture.
+- On no-match fill from global search, the bridge writes a pending association
+  for the selected entry and browser target.
+- Main app confirms before vault update.
+- Chrome/Edge first; Firefox later after a separate manifest/background design.
+
+Security invariants for every platform:
+
+- Partial token/substring matches are never strong matches and never trigger
+  automatic or silent fill.
+- No automatic vault update; every new association requires user confirmation in
+  the app.
+- No password or secret material in pending-association payloads.
+- Ignore generic tokens before ranking possible matches (examples: `login`,
+  `signin`, `auth`, `account`, `www`, TLD-only tokens).
+- No full URL path, fragment, or query is stored or used for association.
+- Existing entry URL is not overwritten by association flow.
+
 ## Security notes
 
 - The popup contains no master password, database path or key file fields.

@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 
+import '../../../domain/models/apple_autofill_v2_models.dart';
 import '../../../domain/models/database_sync_status.dart';
 import '../../../domain/models/drive_remote_file.dart';
 import '../../../domain/models/duplicate_group.dart';
@@ -42,6 +43,7 @@ class VaultState extends Equatable {
     this.isSyncReloadPending = false,
     this.duplicateGroups = const [],
     this.isDuplicatesLoading = false,
+    this.pendingAppleAutofillAssociations = const [],
   });
 
   factory VaultState.initial({required String databasePath}) {
@@ -79,6 +81,8 @@ class VaultState extends Equatable {
   final bool isSyncReloadPending;
   final List<DuplicateGroup> duplicateGroups;
   final bool isDuplicatesLoading;
+  final List<AppleAutofillV2PendingAssociation>
+  pendingAppleAutofillAssociations;
 
   int get duplicateGroupCount => duplicateGroups.length;
 
@@ -113,6 +117,7 @@ class VaultState extends Equatable {
     bool? isSyncReloadPending,
     List<DuplicateGroup>? duplicateGroups,
     bool? isDuplicatesLoading,
+    List<AppleAutofillV2PendingAssociation>? pendingAppleAutofillAssociations,
     bool clearError = false,
     bool clearInfo = false,
     bool clearSyncError = false,
@@ -156,6 +161,9 @@ class VaultState extends Equatable {
           : isSyncReloadPending ?? this.isSyncReloadPending,
       duplicateGroups: duplicateGroups ?? this.duplicateGroups,
       isDuplicatesLoading: isDuplicatesLoading ?? this.isDuplicatesLoading,
+      pendingAppleAutofillAssociations:
+          pendingAppleAutofillAssociations ??
+          this.pendingAppleAutofillAssociations,
     );
   }
 
@@ -232,6 +240,7 @@ class VaultState extends Equatable {
     isSyncReloadPending,
     duplicateGroups,
     isDuplicatesLoading,
+    pendingAppleAutofillAssociations,
   ];
 
   @override
@@ -267,6 +276,8 @@ class VaultState extends Equatable {
         'isSyncing: $isSyncing, '
         'isSyncReloadPending: $isSyncReloadPending, '
         'duplicateGroups: ${duplicateGroups.length}, '
-        'isDuplicatesLoading: $isDuplicatesLoading)';
+        'isDuplicatesLoading: $isDuplicatesLoading, '
+        'pendingAppleAutofillAssociations: '
+        '${pendingAppleAutofillAssociations.length})';
   }
 }

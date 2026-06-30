@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:loggy/loggy.dart';
 
+import '../../domain/models/apple_autofill_v2_models.dart';
 import '../../domain/models/vault_entry.dart';
 import '../../domain/repositories/autofill_ports.dart';
 import '../../domain/services/apple_autofill_v2_payload_mapper.dart';
@@ -14,6 +15,12 @@ abstract interface class AppleAutofillV2CoordinatorContract {
   });
 
   Future<void> clearCredentials({String? databasePath});
+
+  Future<List<AppleAutofillV2PendingAssociation>> readPendingAssociations({
+    String? databasePath,
+  });
+
+  Future<void> clearPendingAssociations({List<String>? ids});
 }
 
 class NoopAppleAutofillV2Coordinator
@@ -28,6 +35,16 @@ class NoopAppleAutofillV2Coordinator
 
   @override
   Future<void> clearCredentials({String? databasePath}) async {}
+
+  @override
+  Future<List<AppleAutofillV2PendingAssociation>> readPendingAssociations({
+    String? databasePath,
+  }) async {
+    return const [];
+  }
+
+  @override
+  Future<void> clearPendingAssociations({List<String>? ids}) async {}
 }
 
 class AppleAutofillV2Coordinator implements AppleAutofillV2CoordinatorContract {
@@ -78,9 +95,46 @@ class AppleAutofillV2Coordinator implements AppleAutofillV2CoordinatorContract {
     }
   }
 
-  String? _databaseIdForPath(String databasePath) {
-    final normalized = databasePath.trim();
-    if (normalized.isEmpty) {
+  @override
+  Future<List<AppleAutofillV2PendingAssociation>> readPendingAssociations({
+    String? databasePath,
+  }) async {
+    if (!client.isSupported) {
+      return const [];
+    }
+
+    final databaseId = _databaseIdForPath(databasePath);
+    if (databaseId == null) {
+      return const [];
+    }
+
+    try {
+      final pendingAssociations = await client.readPendingAssociations();
+      return pendingAssociations
+          .where((association) => association.databaseId == databaseId)
+          .toList(growable: false);
+    } catch (e, st) {
+      logWarning('Apple Autofill v2 read pending associations failed.', e, st);
+      return const [];
+    }
+  }
+
+  @override
+  Future<void> clearPendingAssociations({List<String>? ids}) async {
+    if (!client.isSupported) {
+      return;
+    }
+
+    try {
+      await client.clearPendingAssociations(ids: ids);
+    } catch (e, st) {
+      logWarning('Apple Autofill v2 clear pending associations failed.', e, st);
+    }
+  }
+
+  String? _databaseIdForPath(String? databasePath) {
+    final normalized = databasePath?.trim();
+    if (normalized == null || normalized.isEmpty) {
       return null;
     }
     return 'sha256:${sha256.convert(utf8.encode(normalized))}';
