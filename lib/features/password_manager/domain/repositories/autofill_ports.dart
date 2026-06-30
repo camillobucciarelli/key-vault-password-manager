@@ -39,5 +39,10 @@ abstract interface class AppleAutofillV2Client {
 
   Future<AppleAutofillV2ClearResult> clearCredentials({String? databaseId});
 
+  Future<List<AppleAutofillV2PendingAssociation>> readPendingAssociations();
+
+  Future<AppleAutofillV2ClearPendingAssociationsResult>
+  clearPendingAssociations({List<String>? ids});
+
   Future<AppleAutofillV2Status> getStatus();
 }

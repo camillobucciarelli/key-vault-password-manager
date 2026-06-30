@@ -7,6 +7,10 @@ private let log = Logger(
   category: "ext"
 )
 
+private struct PendingAssociationContext {
+  let serviceIdentifiers: [ASCredentialServiceIdentifier]
+}
+
 final class MacCredentialProviderViewController: ASCredentialProviderViewController {
   private let store = SharedAutofillStore()
   private var hostingController: NSHostingController<CredentialListView>?
@@ -108,7 +112,9 @@ final class MacCredentialProviderViewController: ASCredentialProviderViewControl
 
     let allCredentials = store.readCredentialMetadata()
     let credentials: [AutofillCredentialMetadata]
+    let searchableCredentials: [AutofillCredentialMetadata]
     let bestMatchId: String?
+    let isGlobalSearch: Bool
 
     if let preferredRecordIdentifier {
       guard let exact = allCredentials.first(where: { $0.id == preferredRecordIdentifier }) else {
@@ -117,25 +123,51 @@ final class MacCredentialProviderViewController: ASCredentialProviderViewControl
         return
       }
       credentials = [exact]
+      searchableCredentials = [exact]
       bestMatchId = preferredRecordIdentifier
+      isGlobalSearch = false
     } else {
       let filtered = store.filteredCredentialMetadata(
         allCredentials,
         for: serviceIdentifiers
       )
-      credentials = filtered.credentials
-      bestMatchId = filtered.bestMatchId
+      let filteredCredentials = filtered.credentials
+      isGlobalSearch = !serviceIdentifiers.isEmpty && filteredCredentials.isEmpty && !allCredentials.isEmpty
+      if isGlobalSearch {
+        let possibleMatches = AutofillMetadataSearch.possibleMatches(
+          in: allCredentials,
+          for: serviceIdentifiers
+        )
+        credentials = possibleMatches.isEmpty ? allCredentials : possibleMatches
+        searchableCredentials = allCredentials
+      } else {
+        credentials = filteredCredentials
+        searchableCredentials = filteredCredentials
+      }
+      bestMatchId = isGlobalSearch ? nil : filtered.bestMatchId
+    }
+
+    let pendingAssociationContext: PendingAssociationContext?
+    if isGlobalSearch {
+      pendingAssociationContext = PendingAssociationContext(serviceIdentifiers: serviceIdentifiers)
+    } else {
+      pendingAssociationContext = nil
     }
 
     log.info(
-      "showCredentialList reason=\(reason, privacy: .public) total=\(allCredentials.count, privacy: .public) filtered=\(credentials.count, privacy: .public) encryptedCacheExists=\(self.store.encryptedCredentialCacheExists(), privacy: .public)"
+      "showCredentialList reason=\(reason, privacy: .public) total=\(allCredentials.count, privacy: .public) shown=\(credentials.count, privacy: .public) searchable=\(searchableCredentials.count, privacy: .public) globalSearch=\(isGlobalSearch, privacy: .public) encryptedCacheExists=\(self.store.encryptedCredentialCacheExists(), privacy: .public)"
     )
 
     let rootView = CredentialListView(
       credentials: credentials,
+      searchableCredentials: searchableCredentials,
       bestMatchId: bestMatchId,
+      isGlobalSearch: isGlobalSearch,
       onSelect: { [weak self] metadata in
-        self?.completeCredentialSelection(metadata)
+        self?.completeCredentialSelection(
+          metadata,
+          pendingAssociationContext: pendingAssociationContext
+        )
       },
       onCancel: { [weak self] in
         log.info("user cancelled")
@@ -168,11 +200,20 @@ final class MacCredentialProviderViewController: ASCredentialProviderViewControl
 
   // MARK: - Fill completion
 
-  private func completeCredentialSelection(_ metadata: AutofillCredentialMetadata) {
+  private func completeCredentialSelection(
+    _ metadata: AutofillCredentialMetadata,
+    pendingAssociationContext: PendingAssociationContext? = nil
+  ) {
     do {
       let secret = try store.readCredentialSecret(id: metadata.id)
       let user = secret.username.isEmpty ? metadata.username : secret.username
       let credential = ASPasswordCredential(user: user, password: secret.password)
+      if let pendingAssociationContext {
+        store.savePendingAssociation(
+          for: metadata,
+          requestedServiceIdentifiers: pendingAssociationContext.serviceIdentifiers
+        )
+      }
       log.info("completeCredentialSelection succeeded")
       extensionContext.completeRequest(
         withSelectedCredential: credential,

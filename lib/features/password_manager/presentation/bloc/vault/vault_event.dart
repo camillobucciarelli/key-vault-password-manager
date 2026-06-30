@@ -400,3 +400,25 @@ class MergeDuplicateEntries extends VaultEvent {
   @override
   List<Object?> get props => [primaryId, secondaryId];
 }
+
+class RefreshAppleAutofillPendingAssociations extends VaultEvent {
+  const RefreshAppleAutofillPendingAssociations();
+}
+
+class ConfirmAppleAutofillPendingAssociation extends VaultEvent {
+  const ConfirmAppleAutofillPendingAssociation(this.id);
+
+  final String id;
+
+  @override
+  List<Object?> get props => [id];
+}
+
+class RejectAppleAutofillPendingAssociation extends VaultEvent {
+  const RejectAppleAutofillPendingAssociation(this.id);
+
+  final String id;
+
+  @override
+  List<Object?> get props => [id];
+}

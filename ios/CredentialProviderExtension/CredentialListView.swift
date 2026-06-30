@@ -2,23 +2,37 @@ import SwiftUI
 
 struct CredentialListView: View {
   let credentials: [AutofillCredentialMetadata]
+  let searchableCredentials: [AutofillCredentialMetadata]
   let bestMatchId: String?
+  let isGlobalSearch: Bool
   let onSelect: (AutofillCredentialMetadata) -> Void
   let onCancel: () -> Void
 
+  @State private var searchText = ""
+
   var body: some View {
     NavigationView {
-      Group {
-        if credentials.isEmpty {
-          EmptyCredentialsView()
+      VStack(spacing: 0) {
+        if isGlobalSearch {
+          GlobalSearchHeaderView(searchText: $searchText)
+          Divider()
+        }
+
+        if visibleCredentials.isEmpty {
+          if isGlobalSearch {
+            EmptyGlobalSearchView()
+          } else {
+            EmptyCredentialsView()
+          }
         } else {
-          List(credentials, id: \.id) { credential in
+          List(visibleCredentials, id: \.id) { credential in
             Button {
               onSelect(credential)
             } label: {
               CredentialRowView(
                 credential: credential,
-                isBestMatch: credential.id == bestMatchId
+                isBestMatch: credential.id == bestMatchId,
+                isPossibleMatch: isGlobalSearch
               )
             }
             .buttonStyle(.plain)
@@ -26,7 +40,7 @@ struct CredentialListView: View {
           .listStyle(.plain)
         }
       }
-      .navigationTitle("Credentials")
+      .navigationTitle(isGlobalSearch ? "Search Credentials" : "Credentials")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
@@ -34,6 +48,51 @@ struct CredentialListView: View {
         }
       }
     }
+  }
+
+  private var visibleCredentials: [AutofillCredentialMetadata] {
+    guard isGlobalSearch else { return credentials }
+    let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !query.isEmpty else { return credentials }
+    return AutofillMetadataSearch.search(searchableCredentials, query: query)
+  }
+}
+
+private struct GlobalSearchHeaderView: View {
+  @Binding var searchText: String
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("No match for this app or site")
+        .font(.headline)
+      Text("Search saved credential metadata. Passwords stay encrypted until you choose an item.")
+        .font(.footnote)
+        .foregroundColor(.secondary)
+      TextField("Search title, username, site, app", text: $searchText)
+        .textFieldStyle(.roundedBorder)
+        .autocorrectionDisabled(true)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding()
+  }
+}
+
+private struct EmptyGlobalSearchView: View {
+  var body: some View {
+    VStack(spacing: 16) {
+      Image(systemName: "magnifyingglass")
+        .font(.system(size: 48))
+        .foregroundColor(.secondary)
+      Text("No credentials found")
+        .font(.headline)
+      Text("Try another title, username, site, or app.")
+        .font(.footnote)
+        .foregroundColor(.secondary)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 32)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .padding()
   }
 }
 
@@ -59,6 +118,7 @@ private struct EmptyCredentialsView: View {
 private struct CredentialRowView: View {
   let credential: AutofillCredentialMetadata
   let isBestMatch: Bool
+  let isPossibleMatch: Bool
 
   var body: some View {
     HStack(spacing: 12) {
@@ -78,14 +138,17 @@ private struct CredentialRowView: View {
             .foregroundColor(.primary)
             .lineLimit(1)
           if isBestMatch {
-            Text("Best match")
-              .font(.caption2)
-              .fontWeight(.medium)
-              .foregroundColor(.accentColor)
-              .padding(.horizontal, 6)
-              .padding(.vertical, 2)
-              .background(Color.accentColor.opacity(0.12))
-              .clipShape(Capsule())
+            CredentialBadgeView(
+              text: "Best match",
+              foregroundColor: .accentColor,
+              backgroundColor: Color.accentColor.opacity(0.12)
+            )
+          } else if isPossibleMatch {
+            CredentialBadgeView(
+              text: "Possible match — not linked",
+              foregroundColor: .orange,
+              backgroundColor: Color.orange.opacity(0.14)
+            )
           }
         }
 
@@ -120,5 +183,23 @@ private struct CredentialRowView: View {
 
   private var initial: String {
     String(title.prefix(1)).uppercased()
+  }
+}
+
+private struct CredentialBadgeView: View {
+  let text: String
+  let foregroundColor: Color
+  let backgroundColor: Color
+
+  var body: some View {
+    Text(text)
+      .font(.caption2)
+      .fontWeight(.medium)
+      .foregroundColor(foregroundColor)
+      .lineLimit(1)
+      .padding(.horizontal, 6)
+      .padding(.vertical, 2)
+      .background(backgroundColor)
+      .clipShape(Capsule())
   }
 }

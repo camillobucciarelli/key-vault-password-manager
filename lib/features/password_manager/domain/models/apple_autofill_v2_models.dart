@@ -240,6 +240,78 @@ class AppleAutofillV2Status extends Equatable {
   ];
 }
 
+class AppleAutofillV2PendingAssociation extends Equatable {
+  const AppleAutofillV2PendingAssociation({
+    required this.id,
+    required this.databaseId,
+    required this.entryId,
+    required this.serviceIdentifierType,
+    required this.serviceIdentifierValue,
+    required this.displayService,
+    required this.createdAtEpochMs,
+    this.platform,
+  });
+
+  factory AppleAutofillV2PendingAssociation.fromMap(Map<dynamic, dynamic> map) {
+    return AppleAutofillV2PendingAssociation(
+      id: _readString(map, 'id') ?? '',
+      databaseId: _readString(map, 'databaseId') ?? '',
+      entryId: _readString(map, 'entryId') ?? '',
+      serviceIdentifierType: _readString(map, 'serviceIdentifierType') ?? '',
+      serviceIdentifierValue: _readString(map, 'serviceIdentifierValue') ?? '',
+      displayService: _readString(map, 'displayService') ?? '',
+      createdAtEpochMs: _readInt(map, 'createdAtEpochMs'),
+      platform: _readString(map, 'platform'),
+    );
+  }
+
+  final String id;
+  final String databaseId;
+  final String entryId;
+  final String serviceIdentifierType;
+  final String serviceIdentifierValue;
+  final String displayService;
+  final int createdAtEpochMs;
+  final String? platform;
+
+  @override
+  List<Object?> get props => [
+    id,
+    databaseId,
+    entryId,
+    serviceIdentifierType,
+    serviceIdentifierValue,
+    displayService,
+    createdAtEpochMs,
+    platform,
+  ];
+}
+
+class AppleAutofillV2ClearPendingAssociationsResult extends Equatable {
+  const AppleAutofillV2ClearPendingAssociationsResult({
+    required this.clearedCount,
+    this.warnings = const [],
+  });
+
+  factory AppleAutofillV2ClearPendingAssociationsResult.fromMap(
+    Map<dynamic, dynamic>? map,
+  ) {
+    return AppleAutofillV2ClearPendingAssociationsResult(
+      clearedCount: _readInt(map, 'clearedCount'),
+      warnings: _readStringList(map, 'warnings'),
+    );
+  }
+
+  const AppleAutofillV2ClearPendingAssociationsResult.unsupported()
+    : this(clearedCount: 0, warnings: const ['unsupported_platform']);
+
+  final int clearedCount;
+  final List<String> warnings;
+
+  @override
+  List<Object?> get props => [clearedCount, warnings];
+}
+
 Object? _read(Map<dynamic, dynamic>? map, String key) =>
     map == null ? null : map[key];
 

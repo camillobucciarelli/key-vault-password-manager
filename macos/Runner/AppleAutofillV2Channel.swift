@@ -28,6 +28,10 @@ final class AppleAutofillV2Channel {
       handlePublishCredentials(arguments: call.arguments, result: result)
     case "clearCredentials":
       handleClearCredentials(arguments: call.arguments, result: result)
+    case "readPendingAssociations":
+      handleReadPendingAssociations(result: result)
+    case "clearPendingAssociations":
+      handleClearPendingAssociations(arguments: call.arguments, result: result)
     case "getStatus":
       result(store.status().dictionary)
     default:
@@ -66,6 +70,20 @@ final class AppleAutofillV2Channel {
           result(self.flutterError(code: "clear_failed", error: error))
         }
       }
+    }
+  }
+
+  private func handleReadPendingAssociations(result: @escaping FlutterResult) {
+    result(store.readPendingAssociations().map { $0.dictionary })
+  }
+
+  private func handleClearPendingAssociations(arguments: Any?, result: @escaping FlutterResult) {
+    do {
+      let ids = try parsePendingAssociationIds(arguments)
+      let clearedCount = try store.clearPendingAssociations(ids: ids)
+      result(["clearedCount": clearedCount])
+    } catch {
+      result(flutterError(code: "clear_pending_associations_failed", error: error))
     }
   }
 
@@ -129,6 +147,25 @@ final class AppleAutofillV2Channel {
         throw SharedAutofillStoreError.invalidPayload("serviceIdentifier.value must be a string")
       }
       return AutofillInputServiceIdentifier(type: type, value: value)
+    }
+  }
+
+  private func parsePendingAssociationIds(_ arguments: Any?) throws -> [String]? {
+    guard let arguments else { return nil }
+    guard let dictionary = arguments as? [String: Any] else {
+      throw SharedAutofillStoreError.invalidPayload("arguments must be a map")
+    }
+    guard let rawIds = dictionary["ids"] else { return nil }
+    if rawIds is NSNull { return nil }
+    guard let ids = rawIds as? [Any] else {
+      throw SharedAutofillStoreError.invalidPayload("ids must be an array")
+    }
+
+    return try ids.map { rawId -> String in
+      guard let id = rawId as? String else {
+        throw SharedAutofillStoreError.invalidPayload("ids must contain only strings")
+      }
+      return id
     }
   }
 

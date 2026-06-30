@@ -35,6 +35,26 @@ void main() {
                   'keychainKeyCleared': true,
                   'warnings': <String>[],
                 };
+              case 'readPendingAssociations':
+                return [
+                  {
+                    'id': 'pending-1',
+                    'databaseId': 'db-1',
+                    'entryId': 'entry-1',
+                    'serviceIdentifierType': 'domain',
+                    'serviceIdentifierValue': 'example.com',
+                    'displayService': 'example.com',
+                    'createdAtEpochMs': 123,
+                    'platform': 'ios',
+                  },
+                ];
+              case 'clearPendingAssociations':
+                final args = call.arguments as Map<dynamic, dynamic>?;
+                final ids = args?['ids'] as List<dynamic>?;
+                return {
+                  'clearedCount': ids?.length ?? 1,
+                  'warnings': <String>[],
+                };
               case 'getStatus':
                 return {
                   'version': 2,
@@ -126,6 +146,44 @@ void main() {
     });
 
     test(
+      'readPendingAssociations returns metadata-only pending links',
+      () async {
+        final client = AppleAutofillV2MethodChannelClient(
+          channel: channel,
+          isSupportedOverride: true,
+        );
+
+        final associations = await client.readPendingAssociations();
+
+        expect(calls.single.method, 'readPendingAssociations');
+        expect(associations.single.id, 'pending-1');
+        expect(associations.single.databaseId, 'db-1');
+        expect(associations.single.entryId, 'entry-1');
+        expect(associations.single.serviceIdentifierType, 'domain');
+        expect(associations.single.serviceIdentifierValue, 'example.com');
+        expect(associations.single.displayService, 'example.com');
+        expect(associations.single.platform, 'ios');
+      },
+    );
+
+    test('clearPendingAssociations passes optional ids', () async {
+      final client = AppleAutofillV2MethodChannelClient(
+        channel: channel,
+        isSupportedOverride: true,
+      );
+
+      final result = await client.clearPendingAssociations(
+        ids: const ['pending-1'],
+      );
+
+      expect(result.clearedCount, 1);
+      expect(calls.single.method, 'clearPendingAssociations');
+      expect(calls.single.arguments, {
+        'ids': ['pending-1'],
+      });
+    });
+
+    test(
       'unsupported platforms are no-op and do not call MethodChannel',
       () async {
         final client = AppleAutofillV2MethodChannelClient(
@@ -138,10 +196,14 @@ void main() {
           credentials: const [],
         );
         final clear = await client.clearCredentials();
+        final pending = await client.readPendingAssociations();
+        final clearPending = await client.clearPendingAssociations();
         final status = await client.getStatus();
 
         expect(publish.warnings, contains('unsupported_platform'));
         expect(clear.warnings, contains('unsupported_platform'));
+        expect(pending, isEmpty);
+        expect(clearPending.warnings, contains('unsupported_platform'));
         expect(status.supported, isFalse);
         expect(calls, isEmpty);
       },

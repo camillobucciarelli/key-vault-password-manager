@@ -65,6 +65,36 @@ class AppleAutofillV2MethodChannelClient implements AppleAutofillV2Client {
   }
 
   @override
+  Future<List<AppleAutofillV2PendingAssociation>>
+  readPendingAssociations() async {
+    if (!isSupported) {
+      return const [];
+    }
+
+    final result = await _channel.invokeMethod<List<dynamic>>(
+      'readPendingAssociations',
+    );
+    return (result ?? const [])
+        .whereType<Map<dynamic, dynamic>>()
+        .map(AppleAutofillV2PendingAssociation.fromMap)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<AppleAutofillV2ClearPendingAssociationsResult>
+  clearPendingAssociations({List<String>? ids}) async {
+    if (!isSupported) {
+      return const AppleAutofillV2ClearPendingAssociationsResult.unsupported();
+    }
+
+    final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+      'clearPendingAssociations',
+      ids == null ? null : {'ids': ids},
+    );
+    return AppleAutofillV2ClearPendingAssociationsResult.fromMap(result);
+  }
+
+  @override
   Future<AppleAutofillV2Status> getStatus() async {
     if (!isSupported) {
       return const AppleAutofillV2Status.unsupported();
