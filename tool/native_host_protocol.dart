@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -8,6 +9,9 @@ import 'package:password_manager/features/password_manager/data/services/desktop
 const nativeHostName = 'dev.camillobucciarelli.keyvault_native_host';
 const nativeProtocolVersion = 2;
 const maxNativeMessagePayloadBytes = 64 * 1024;
+const _maxRevealUsernameBytes = 4096;
+const _maxRevealPasswordBytes = 32 * 1024;
+const _revealBridgeTimeout = Duration(seconds: 2);
 
 const supportedNativeMessageTypes = <String>[
   'hello',
@@ -290,10 +294,11 @@ Future<Map<String, Object?>> handleNativeHostRequest(
       payload: payload,
       store: effectiveStore,
     ),
-    'revealForFill' => _revealForFillResponse(
+    'revealForFill' => await _revealForFillResponse(
       id: id,
       type: type,
       payload: payload,
+      store: effectiveStore,
     ),
     _ => nativeHostErrorResponse(
       id: id,
@@ -375,6 +380,7 @@ Future<Map<String, Object?>> _queryCredentialsResponse({
   if (cache == null) {
     return _cacheUnavailableResponse(id: id, type: type);
   }
+  final bridgeAvailable = await _isRevealBridgeAvailableForCache(store, cache);
 
   final strongMatches =
       cache.entries
@@ -398,7 +404,7 @@ Future<Map<String, Object?>> _queryCredentialsResponse({
     type: type,
     data: {
       'metadataOnly': true,
-      'fillAvailable': false,
+      'fillAvailable': bridgeAvailable,
       'databaseId': cache.databaseId,
       'generatedAtEpochMs': cache.generatedAtEpochMs,
       'target': pageTarget.toJson(),
@@ -409,8 +415,9 @@ Future<Map<String, Object?>> _queryCredentialsResponse({
       'possibleMatches': possibleMatches
           .map((entry) => _metadataResult(entry, 'possible'))
           .toList(growable: false),
-      'message':
-          'Desktop browser v2 returned metadata only. Password reveal/fill remains disabled in the native host.',
+      'message': bridgeAvailable
+          ? 'Desktop browser v2 returned metadata. Exact strong matches can be filled after popup user action.'
+          : 'Desktop browser v2 returned metadata only. Unlock KeyVault desktop to enable one-shot fill.',
     },
   );
 }
@@ -513,11 +520,12 @@ Future<Map<String, Object?>> _createPendingAssociationResponse({
   );
 }
 
-Map<String, Object?> _revealForFillResponse({
+Future<Map<String, Object?>> _revealForFillResponse({
   required String? id,
   required String type,
   required Map<String, Object?> payload,
-}) {
+  required DesktopBrowserAutofillCacheStore store,
+}) async {
   final entryId = payload['entryId'];
   if (entryId is! String || entryId.trim().isEmpty || entryId.length > 256) {
     return nativeHostErrorResponse(
@@ -528,12 +536,95 @@ Map<String, Object?> _revealForFillResponse({
     );
   }
 
-  return nativeHostErrorResponse(
+  final origin = _browserOriginFromPayload(payload);
+  if (origin == null) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'invalid_request',
+      message: 'revealForFill requires the current http(s) tab origin.',
+    );
+  }
+
+  final target = DesktopBrowserAutofillMetadataMapper.targetFromUrl(origin);
+  if (target == null) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'invalid_request',
+      message: 'revealForFill origin is invalid.',
+    );
+  }
+
+  final cache = await store.readMetadataCache();
+  if (cache == null) {
+    return _cacheUnavailableResponse(id: id, type: type);
+  }
+
+  final entry = cache.entries
+      .where((candidate) => candidate.id == entryId.trim())
+      .firstOrNull;
+  if (entry == null) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'credential_unavailable',
+      message: 'Requested credential metadata is unavailable.',
+    );
+  }
+
+  if (!_isStrongBrowserMatch(entry, target, origin: origin)) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'strong_match_required',
+      message:
+          'Credential reveal requires an exact strong match for the current site.',
+    );
+  }
+
+  final descriptor = await store.readBridgeDescriptor();
+  if (descriptor == null) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'app_bridge_unavailable',
+      message:
+          'KeyVault reveal bridge is unavailable. Open and unlock the desktop app first.',
+    );
+  }
+  if (descriptor.databaseId != cache.databaseId) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'database_mismatch',
+      message: 'KeyVault database changed. Query the current site again.',
+    );
+  }
+
+  final reveal = await _requestRevealFromAppBridge(
+    descriptor: descriptor,
+    databaseId: cache.databaseId,
+    entryId: entryId.trim(),
+    origin: origin,
+  );
+  if (reveal.errorCode != null) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: reveal.errorCode!,
+      message: _publicRevealErrorMessage(reveal.errorCode!),
+    );
+  }
+
+  return _successResponse(
     id: id,
     type: type,
-    code: 'not_implemented',
-    message:
-        'Credential reveal/fill is intentionally disabled until the desktop app bridge and user-presence flow are implemented.',
+    data: {
+      'entryId': reveal.entryId,
+      'username': reveal.username,
+      'password': reveal.password,
+    },
   );
 }
 
@@ -558,6 +649,11 @@ Future<Map<String, Object?>> _statusData(
   DesktopBrowserAutofillCacheStore store,
 ) async {
   final status = await store.status();
+  final bridgeStatus = status.revealBridgeAvailable
+      ? 'available'
+      : status.cacheAvailable
+      ? 'metadata_cache_available'
+      : 'unavailable';
   return {
     'host': {
       'name': nativeHostName,
@@ -565,11 +661,15 @@ Future<Map<String, Object?>> _statusData(
       'status': 'available',
     },
     'appBridge': {
-      'connected': status.cacheAvailable,
-      'status': status.cacheAvailable
-          ? 'metadata_cache_available'
-          : 'unavailable',
-      'reason': status.cacheAvailable ? null : 'app_bridge_unavailable',
+      'connected': status.revealBridgeAvailable,
+      'status': bridgeStatus,
+      'reason': status.revealBridgeAvailable
+          ? null
+          : status.cacheAvailable
+          ? 'reveal_bridge_unavailable'
+          : 'app_bridge_unavailable',
+      'revealBridgeAvailable': status.revealBridgeAvailable,
+      'createdAtEpochMs': status.revealBridgeCreatedAtEpochMs,
     },
     'vault': {
       'connected': status.cacheAvailable,
@@ -581,11 +681,13 @@ Future<Map<String, Object?>> _statusData(
       'databaseId': status.databaseId,
       'generatedAtEpochMs': status.generatedAtEpochMs,
     },
-    'safeMode': true,
-    'metadataOnly': true,
+    'safeMode': false,
+    'metadataOnly': !status.revealBridgeAvailable,
     'cacheDirectory': status.directoryPath,
-    'message': status.cacheAvailable
-        ? 'Native Messaging v2 can read KeyVault desktop metadata. Password reveal/fill is disabled in the native host.'
+    'message': status.revealBridgeAvailable
+        ? 'Native Messaging v2 can fill exact strong matches after popup user action.'
+        : status.cacheAvailable
+        ? 'Native Messaging v2 can read metadata, but reveal bridge is unavailable. Unlock KeyVault desktop.'
         : 'Native Messaging v2 is running; open and unlock KeyVault to publish desktop browser metadata.',
   };
 }
@@ -601,6 +703,150 @@ Map<String, Object?> _cacheUnavailableResponse({
     message:
         'KeyVault desktop metadata cache is unavailable. Open and unlock the desktop app first.',
   );
+}
+
+Future<bool> _isRevealBridgeAvailableForCache(
+  DesktopBrowserAutofillCacheStore store,
+  DesktopBrowserAutofillMetadataCache cache,
+) async {
+  final descriptor = await store.readBridgeDescriptor();
+  return descriptor != null && descriptor.databaseId == cache.databaseId;
+}
+
+String? _browserOriginFromPayload(Map<String, Object?> payload) {
+  final rawOrigin = payload['origin'] ?? payload['url'];
+  if (rawOrigin is! String ||
+      rawOrigin.trim().isEmpty ||
+      rawOrigin.length > 4096) {
+    return null;
+  }
+  final uri = Uri.tryParse(rawOrigin.trim());
+  if (uri == null ||
+      uri.host.isEmpty ||
+      (uri.scheme != 'http' && uri.scheme != 'https')) {
+    return null;
+  }
+  final host = DesktopBrowserAutofillMetadataMapper.normalizedHost(uri.host);
+  if (host == null) {
+    return null;
+  }
+  return Uri(
+    scheme: uri.scheme.toLowerCase(),
+    host: host,
+    port: uri.hasPort ? uri.port : null,
+  ).toString();
+}
+
+Future<_RevealBridgeResult> _requestRevealFromAppBridge({
+  required DesktopBrowserAutofillBridgeDescriptor descriptor,
+  required String databaseId,
+  required String entryId,
+  required String origin,
+}) async {
+  final client = HttpClient()
+    ..connectionTimeout = _revealBridgeTimeout
+    ..findProxy = (_) => 'DIRECT';
+  try {
+    final uri = Uri(
+      scheme: 'http',
+      host: InternetAddress.loopbackIPv4.address,
+      port: descriptor.port,
+      path: '/reveal',
+    );
+    final request = await client.postUrl(uri).timeout(_revealBridgeTimeout);
+    request.headers.contentType = ContentType.json;
+    request.headers.set(
+      HttpHeaders.authorizationHeader,
+      'Bearer ${descriptor.token}',
+    );
+    request.write(
+      jsonEncode({
+        'version': desktopBrowserAutofillBridgeDescriptorVersion,
+        'databaseId': databaseId,
+        'entryId': entryId,
+        'origin': origin,
+      }),
+    );
+
+    final response = await request.close().timeout(_revealBridgeTimeout);
+    final bytes = await _readHttpResponseBytes(
+      response,
+      maxNativeMessagePayloadBytes,
+    ).timeout(_revealBridgeTimeout);
+    final decoded = _decodeBridgeResponse(bytes);
+    if (decoded == null) {
+      return const _RevealBridgeResult.error('app_bridge_invalid_response');
+    }
+
+    if (response.statusCode != HttpStatus.ok) {
+      final code = _safeBridgeErrorCode(decoded);
+      return _RevealBridgeResult.error(code ?? 'app_bridge_error');
+    }
+
+    final data = _asStringObjectMap(decoded['data']);
+    final returnedEntryId = data?['entryId'];
+    final username = data?['username'];
+    final password = data?['password'];
+    if (returnedEntryId != entryId ||
+        username is! String ||
+        password is! String ||
+        utf8.encode(username).length > _maxRevealUsernameBytes ||
+        utf8.encode(password).length > _maxRevealPasswordBytes) {
+      return const _RevealBridgeResult.error('app_bridge_invalid_response');
+    }
+
+    return _RevealBridgeResult.success(
+      entryId: returnedEntryId as String,
+      username: username,
+      password: password,
+    );
+  } on TimeoutException {
+    return const _RevealBridgeResult.error('app_bridge_timeout');
+  } on SocketException {
+    return const _RevealBridgeResult.error('app_bridge_unavailable');
+  } on HttpException {
+    return const _RevealBridgeResult.error('app_bridge_error');
+  } catch (_) {
+    return const _RevealBridgeResult.error('app_bridge_error');
+  } finally {
+    client.close(force: true);
+  }
+}
+
+Future<Uint8List> _readHttpResponseBytes(
+  HttpClientResponse response,
+  int maxBytes,
+) async {
+  final builder = BytesBuilder(copy: false);
+  await for (final chunk in response) {
+    builder.add(chunk);
+    if (builder.length > maxBytes) {
+      throw const HttpException('response_too_large');
+    }
+  }
+  return builder.takeBytes();
+}
+
+Map<String, Object?>? _decodeBridgeResponse(Uint8List bytes) {
+  if (bytes.isEmpty || bytes.length > maxNativeMessagePayloadBytes) {
+    return null;
+  }
+  final Object? decoded;
+  try {
+    decoded = jsonDecode(utf8.decode(bytes));
+  } catch (_) {
+    return null;
+  }
+  return _asStringObjectMap(decoded);
+}
+
+String? _safeBridgeErrorCode(Map<String, Object?> response) {
+  final error = _asStringObjectMap(response['error']);
+  final code = error?['code'];
+  if (code is! String || code.isEmpty || code.length > 64) {
+    return null;
+  }
+  return RegExp(r'^[a-z][a-z0-9_]*$').hasMatch(code) ? code : null;
 }
 
 DesktopBrowserAutofillAssociationTarget? _pageTargetFromPayload(
@@ -625,17 +871,29 @@ DesktopBrowserAutofillAssociationTarget? _pageTargetFromPayload(
 
 bool _isStrongBrowserMatch(
   DesktopBrowserAutofillCredentialMetadata entry,
-  DesktopBrowserAutofillAssociationTarget target,
-) {
+  DesktopBrowserAutofillAssociationTarget target, {
+  String? origin,
+}) {
+  final targetOrigin = origin == null
+      ? null
+      : DesktopBrowserAutofillMetadataMapper.normalizedOrigin(origin);
   for (final identifier in entry.serviceIdentifiers) {
-    if (identifier.type != 'domain' && identifier.type != 'url') {
-      continue;
+    if (identifier.type == 'url' && targetOrigin != null) {
+      final identifierOrigin =
+          DesktopBrowserAutofillMetadataMapper.normalizedOrigin(
+            identifier.value,
+          );
+      if (identifierOrigin != null && identifierOrigin == targetOrigin) {
+        return true;
+      }
     }
-    final host = DesktopBrowserAutofillMetadataMapper.normalizedHost(
-      identifier.value,
-    );
-    if (host != null && host == target.value) {
-      return true;
+    if (identifier.type == 'domain' || identifier.type == 'url') {
+      final host = DesktopBrowserAutofillMetadataMapper.normalizedHost(
+        identifier.value,
+      );
+      if (host != null && host == target.value) {
+        return true;
+      }
     }
   }
   return false;
@@ -889,6 +1147,23 @@ String? _safeRequestType(Object? value) {
   return isSafe ? value : null;
 }
 
+String _publicRevealErrorMessage(String code) {
+  return switch (code) {
+    'app_bridge_timeout' => 'KeyVault reveal bridge timed out.',
+    'app_bridge_unavailable' =>
+      'KeyVault reveal bridge is unavailable. Open and unlock the desktop app.',
+    'app_bridge_invalid_response' =>
+      'KeyVault reveal bridge returned an invalid response.',
+    'database_mismatch' => 'KeyVault database changed. Query the site again.',
+    'credential_unavailable' => 'Requested credential is unavailable.',
+    'strong_match_required' =>
+      'Credential reveal requires an exact strong match for the current site.',
+    'invalid_request' => 'Reveal request is invalid.',
+    'unauthorized' => 'KeyVault reveal bridge authentication failed.',
+    _ => 'KeyVault reveal bridge failed.',
+  };
+}
+
 bool _containsSensitiveRequestKey(Object? value) {
   if (value is Map) {
     for (final entry in value.entries) {
@@ -939,4 +1214,32 @@ class _ScoredMetadata {
 
   final DesktopBrowserAutofillCredentialMetadata entry;
   final int score;
+}
+
+class _RevealBridgeResult {
+  const _RevealBridgeResult.success({
+    required this.entryId,
+    required this.username,
+    required this.password,
+  }) : errorCode = null;
+
+  const _RevealBridgeResult.error(this.errorCode)
+    : entryId = null,
+      username = null,
+      password = null;
+
+  final String? entryId;
+  final String? username;
+  final String? password;
+  final String? errorCode;
+}
+
+extension _FirstOrNull<T> on Iterable<T> {
+  T? get firstOrNull {
+    final iterator = this.iterator;
+    if (!iterator.moveNext()) {
+      return null;
+    }
+    return iterator.current;
+  }
 }

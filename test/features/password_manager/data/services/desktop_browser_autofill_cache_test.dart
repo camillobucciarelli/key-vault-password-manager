@@ -87,16 +87,54 @@ void main() {
             displayService: 'example.org',
           ),
         );
+        await store.writeBridgeDescriptor(
+          const DesktopBrowserAutofillBridgeDescriptor(
+            version: desktopBrowserAutofillBridgeDescriptorVersion,
+            port: 49152,
+            token: 'test-token-test-token-test-token-test-token',
+            databaseId: 'db-1',
+            createdAtEpochMs: 1,
+          ),
+        );
 
         expect(await store.metadataFile!.exists(), isTrue);
         expect(await store.pendingAssociationsFile!.exists(), isTrue);
+        expect(await store.bridgeDescriptorFile!.exists(), isTrue);
 
         await store.clearCredentials();
 
         expect(await store.metadataFile!.exists(), isFalse);
         expect(await store.pendingAssociationsFile!.exists(), isFalse);
+        expect(await store.bridgeDescriptorFile!.exists(), isFalse);
       },
     );
+
+    test('bridge descriptor contains token metadata only', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'kv-desktop-cache-',
+      );
+      final store = DesktopBrowserAutofillCacheStore(directory: directory);
+
+      await store.writeBridgeDescriptor(
+        const DesktopBrowserAutofillBridgeDescriptor(
+          version: desktopBrowserAutofillBridgeDescriptorVersion,
+          port: 49152,
+          token: 'test-token-test-token-test-token-test-token',
+          databaseId: 'db-1',
+          createdAtEpochMs: 1,
+        ),
+      );
+
+      final encoded = await store.bridgeDescriptorFile!.readAsString();
+      final descriptor = await store.readBridgeDescriptor();
+
+      expect(descriptor, isNotNull);
+      expect(descriptor!.databaseId, 'db-1');
+      expect(encoded, contains('test-token'));
+      expect(encoded, isNot(contains('super-secret')));
+      expect(encoded, isNot(contains('password')));
+      expect(encoded, isNot(contains('username')));
+    });
 
     test(
       'savePendingAssociation strips URL path from direct targets',

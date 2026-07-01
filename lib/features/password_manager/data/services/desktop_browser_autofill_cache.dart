@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import '../../domain/models/vault_entry.dart';
 
 const desktopBrowserAutofillCacheVersion = 2;
+const desktopBrowserAutofillBridgeDescriptorVersion = 1;
 const desktopBrowserAutofillPlatform = 'desktop/browser';
 const desktopBrowserAutofillMaxPendingAssociations = 100;
 
@@ -16,15 +17,19 @@ class DesktopBrowserAutofillStoreStatus {
     required this.directoryPath,
     required this.metadataCount,
     required this.cacheAvailable,
+    required this.revealBridgeAvailable,
     this.databaseId,
     this.generatedAtEpochMs,
+    this.revealBridgeCreatedAtEpochMs,
   });
 
   final String? directoryPath;
   final int metadataCount;
   final bool cacheAvailable;
+  final bool revealBridgeAvailable;
   final String? databaseId;
   final int? generatedAtEpochMs;
+  final int? revealBridgeCreatedAtEpochMs;
 }
 
 class DesktopBrowserAutofillServiceIdentifier {
@@ -152,6 +157,42 @@ class DesktopBrowserAutofillMetadataCache {
   };
 }
 
+class DesktopBrowserAutofillBridgeDescriptor {
+  const DesktopBrowserAutofillBridgeDescriptor({
+    required this.version,
+    required this.port,
+    required this.token,
+    required this.databaseId,
+    required this.createdAtEpochMs,
+  });
+
+  factory DesktopBrowserAutofillBridgeDescriptor.fromJson(
+    Map<String, Object?> json,
+  ) {
+    return DesktopBrowserAutofillBridgeDescriptor(
+      version: _readInt(json, 'version'),
+      port: _readInt(json, 'port'),
+      token: _readString(json, 'token'),
+      databaseId: _readString(json, 'databaseId'),
+      createdAtEpochMs: _readInt(json, 'createdAtEpochMs'),
+    );
+  }
+
+  final int version;
+  final int port;
+  final String token;
+  final String databaseId;
+  final int createdAtEpochMs;
+
+  Map<String, Object?> toJson() => {
+    'version': version,
+    'port': port,
+    'token': token,
+    'databaseId': databaseId,
+    'createdAtEpochMs': createdAtEpochMs,
+  };
+}
+
 class DesktopBrowserAutofillPendingAssociation {
   const DesktopBrowserAutofillPendingAssociation({
     required this.id,
@@ -270,6 +311,11 @@ class DesktopBrowserAutofillCacheStore {
         : File(p.join(dir.path, 'pending_associations.json'));
   }
 
+  File? get bridgeDescriptorFile {
+    final dir = directory;
+    return dir == null ? null : File(p.join(dir.path, 'bridge.json'));
+  }
+
   static Directory? defaultDirectory({Map<String, String>? environment}) {
     if (!isPlatformSupported) {
       return null;
@@ -294,12 +340,21 @@ class DesktopBrowserAutofillCacheStore {
 
   Future<DesktopBrowserAutofillStoreStatus> status() async {
     final cache = await readMetadataCache();
+    final descriptor = await readBridgeDescriptor();
+    final bridgeMatchesCache =
+        cache != null &&
+        descriptor != null &&
+        descriptor.databaseId == cache.databaseId;
     return DesktopBrowserAutofillStoreStatus(
       directoryPath: directory?.path,
       metadataCount: cache?.entries.length ?? 0,
       cacheAvailable: cache != null,
+      revealBridgeAvailable: bridgeMatchesCache,
       databaseId: cache?.databaseId,
       generatedAtEpochMs: cache?.generatedAtEpochMs,
+      revealBridgeCreatedAtEpochMs: bridgeMatchesCache
+          ? descriptor.createdAtEpochMs
+          : null,
     );
   }
 
@@ -338,6 +393,46 @@ class DesktopBrowserAutofillCacheStore {
   Future<void> clearCredentials() async {
     await _deleteFile(metadataFile);
     await _deleteFile(pendingAssociationsFile);
+    await _deleteFile(bridgeDescriptorFile);
+  }
+
+  Future<void> writeBridgeDescriptor(
+    DesktopBrowserAutofillBridgeDescriptor descriptor,
+  ) async {
+    final file = bridgeDescriptorFile;
+    if (file == null) {
+      return;
+    }
+    await _writeJsonFile(file, descriptor.toJson());
+  }
+
+  Future<DesktopBrowserAutofillBridgeDescriptor?> readBridgeDescriptor() async {
+    final file = bridgeDescriptorFile;
+    if (file == null || !await file.exists()) {
+      return null;
+    }
+    try {
+      final decoded = jsonDecode(await file.readAsString());
+      final map = _stringObjectMap(decoded);
+      if (map == null) {
+        return null;
+      }
+      final descriptor = DesktopBrowserAutofillBridgeDescriptor.fromJson(map);
+      if (descriptor.version != desktopBrowserAutofillBridgeDescriptorVersion ||
+          descriptor.port < 1 ||
+          descriptor.port > 65535 ||
+          descriptor.token.length < 32 ||
+          descriptor.databaseId.isEmpty) {
+        return null;
+      }
+      return descriptor;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> clearBridgeDescriptor() async {
+    await _deleteFile(bridgeDescriptorFile);
   }
 
   Future<List<DesktopBrowserAutofillPendingAssociation>>
