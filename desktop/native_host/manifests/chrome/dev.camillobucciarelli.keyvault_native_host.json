@@ -1,6 +1,6 @@
 {
   "name": "dev.camillobucciarelli.keyvault_native_host",
-  "description": "KeyVault Native Messaging v2 host (safe mode)",
+  "description": "KeyVault Native Messaging v2 host (metadata search mode)",
   "path": "__HOST_PATH__",
   "type": "stdio",
   "allowed_origins": [

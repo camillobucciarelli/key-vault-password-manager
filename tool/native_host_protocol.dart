@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:password_manager/features/password_manager/data/services/desktop_browser_autofill_cache.dart';
+
 const nativeHostName = 'dev.camillobucciarelli.keyvault_native_host';
 const nativeProtocolVersion = 2;
 const maxNativeMessagePayloadBytes = 64 * 1024;
@@ -11,6 +13,8 @@ const supportedNativeMessageTypes = <String>[
   'hello',
   'status',
   'queryCredentials',
+  'searchCredentials',
+  'createPendingAssociation',
   'revealForFill',
 ];
 
@@ -203,7 +207,10 @@ Map<String, Object?> decodeNativeMessagePayload(
   return message;
 }
 
-Map<String, Object?> handleNativeHostRequest(Map<String, Object?> request) {
+Future<Map<String, Object?>> handleNativeHostRequest(
+  Map<String, Object?> request, {
+  DesktopBrowserAutofillCacheStore? store,
+}) async {
   final id = _safeRequestId(request['id']);
   final type = _safeRequestType(request['type']);
 
@@ -256,13 +263,32 @@ Map<String, Object?> handleNativeHostRequest(Map<String, Object?> request) {
     );
   }
 
+  final effectiveStore = store ?? DesktopBrowserAutofillCacheStore();
+
   return switch (type) {
-    'hello' => _helloResponse(id: id, type: type),
-    'status' => _statusResponse(id: id, type: type),
-    'queryCredentials' => _queryCredentialsResponse(
+    'hello' => await _helloResponse(id: id, type: type, store: effectiveStore),
+    'status' => await _statusResponse(
+      id: id,
+      type: type,
+      store: effectiveStore,
+    ),
+    'queryCredentials' => await _queryCredentialsResponse(
       id: id,
       type: type,
       payload: payload,
+      store: effectiveStore,
+    ),
+    'searchCredentials' => await _searchCredentialsResponse(
+      id: id,
+      type: type,
+      payload: payload,
+      store: effectiveStore,
+    ),
+    'createPendingAssociation' => await _createPendingAssociationResponse(
+      id: id,
+      type: type,
+      payload: payload,
+      store: effectiveStore,
     ),
     'revealForFill' => _revealForFillResponse(
       id: id,
@@ -296,43 +322,37 @@ Map<String, Object?> nativeHostErrorResponse({
   return response;
 }
 
-Map<String, Object?> _helloResponse({
+Future<Map<String, Object?>> _helloResponse({
   required String? id,
   required String type,
-}) {
+  required DesktopBrowserAutofillCacheStore store,
+}) async {
   return _successResponse(
     id: id,
     type: type,
-    data: {..._statusData(), 'supportedMessages': supportedNativeMessageTypes},
+    data: {
+      ...await _statusData(store),
+      'supportedMessages': supportedNativeMessageTypes,
+    },
   );
 }
 
-Map<String, Object?> _statusResponse({
+Future<Map<String, Object?>> _statusResponse({
   required String? id,
   required String type,
-}) {
-  return _successResponse(id: id, type: type, data: _statusData());
+  required DesktopBrowserAutofillCacheStore store,
+}) async {
+  return _successResponse(id: id, type: type, data: await _statusData(store));
 }
 
-Map<String, Object?> _queryCredentialsResponse({
+Future<Map<String, Object?>> _queryCredentialsResponse({
   required String? id,
   required String type,
   required Map<String, Object?> payload,
-}) {
-  final url = payload['url'];
-  if (url is! String || url.trim().isEmpty || url.length > 4096) {
-    return nativeHostErrorResponse(
-      id: id,
-      type: type,
-      code: 'invalid_request',
-      message: 'queryCredentials requires a non-empty url string.',
-    );
-  }
-
-  final uri = Uri.tryParse(url);
-  if (uri == null ||
-      uri.host.isEmpty ||
-      (uri.scheme != 'http' && uri.scheme != 'https')) {
+  required DesktopBrowserAutofillCacheStore store,
+}) async {
+  final pageTarget = _pageTargetFromPayload(payload);
+  if (pageTarget == null) {
     return nativeHostErrorResponse(
       id: id,
       type: type,
@@ -351,12 +371,145 @@ Map<String, Object?> _queryCredentialsResponse({
     );
   }
 
-  return nativeHostErrorResponse(
+  final cache = await store.readMetadataCache();
+  if (cache == null) {
+    return _cacheUnavailableResponse(id: id, type: type);
+  }
+
+  final strongMatches =
+      cache.entries
+          .where((entry) => _isStrongBrowserMatch(entry, pageTarget))
+          .toList(growable: false)
+        ..sort(_compareMetadataByDisplay);
+  final strongIds = strongMatches.map((entry) => entry.id).toSet();
+  final possibleMatches = strongMatches.isEmpty
+      ? _possibleMatches(
+          entries: cache.entries
+              .where((entry) => !strongIds.contains(entry.id))
+              .toList(growable: false),
+          pageTarget: pageTarget,
+          pageTitle: _safeOptionalString(payload['title'], maxLength: 512),
+          limit: limit is int ? limit : 5,
+        )
+      : const <DesktopBrowserAutofillCredentialMetadata>[];
+
+  return _successResponse(
     id: id,
     type: type,
-    code: 'app_bridge_unavailable',
-    message:
-        'Native Messaging v2 is available, but the KeyVault app/vault bridge is not connected yet.',
+    data: {
+      'metadataOnly': true,
+      'fillAvailable': false,
+      'databaseId': cache.databaseId,
+      'generatedAtEpochMs': cache.generatedAtEpochMs,
+      'target': pageTarget.toJson(),
+      'strongMatches': strongMatches
+          .take(limit is int ? limit : 5)
+          .map((entry) => _metadataResult(entry, 'strong'))
+          .toList(growable: false),
+      'possibleMatches': possibleMatches
+          .map((entry) => _metadataResult(entry, 'possible'))
+          .toList(growable: false),
+      'message':
+          'Desktop browser v2 returned metadata only. Password reveal/fill remains disabled in the native host.',
+    },
+  );
+}
+
+Future<Map<String, Object?>> _searchCredentialsResponse({
+  required String? id,
+  required String type,
+  required Map<String, Object?> payload,
+  required DesktopBrowserAutofillCacheStore store,
+}) async {
+  final query = _safeOptionalString(payload['query'], maxLength: 256) ?? '';
+  final limit = payload['limit'];
+  if (limit != null && (limit is! int || limit < 1 || limit > 50)) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'invalid_request',
+      message: 'searchCredentials limit must be an integer between 1 and 50.',
+    );
+  }
+  final cache = await store.readMetadataCache();
+  if (cache == null) {
+    return _cacheUnavailableResponse(id: id, type: type);
+  }
+
+  final pageTarget = _pageTargetFromPayload(payload, isRequired: false);
+  final results = _manualSearch(
+    entries: cache.entries,
+    query: query,
+    limit: limit is int ? limit : 25,
+  );
+
+  return _successResponse(
+    id: id,
+    type: type,
+    data: {
+      'metadataOnly': true,
+      'fillAvailable': false,
+      'databaseId': cache.databaseId,
+      'generatedAtEpochMs': cache.generatedAtEpochMs,
+      if (pageTarget != null) 'target': pageTarget.toJson(),
+      'results': results
+          .map((entry) => _metadataResult(entry, 'manual'))
+          .toList(growable: false),
+      'message':
+          'Global search returned metadata only. Selecting a result creates a pending association for app confirmation.',
+    },
+  );
+}
+
+Future<Map<String, Object?>> _createPendingAssociationResponse({
+  required String? id,
+  required String type,
+  required Map<String, Object?> payload,
+  required DesktopBrowserAutofillCacheStore store,
+}) async {
+  final entryId = payload['entryId'];
+  if (entryId is! String || entryId.trim().isEmpty || entryId.length > 256) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'invalid_request',
+      message: 'createPendingAssociation requires a non-empty entryId string.',
+    );
+  }
+
+  final target = _pageTargetFromPayload(payload);
+  if (target == null) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'invalid_request',
+      message:
+          'createPendingAssociation only accepts http(s) page origins for the target.',
+    );
+  }
+
+  final pending = await store.savePendingAssociation(
+    entryId: entryId,
+    target: target,
+  );
+  if (pending == null) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'pending_association_failed',
+      message:
+          'Unable to create pending association. Open and unlock KeyVault, then try again.',
+    );
+  }
+
+  return _successResponse(
+    id: id,
+    type: type,
+    data: {
+      'pendingAssociation': pending.toJson(),
+      'message':
+          'Pending association saved. Confirm or reject it in the KeyVault desktop app.',
+    },
   );
 }
 
@@ -401,7 +554,10 @@ Map<String, Object?> _successResponse({
   return response;
 }
 
-Map<String, Object?> _statusData() {
+Future<Map<String, Object?>> _statusData(
+  DesktopBrowserAutofillCacheStore store,
+) async {
+  final status = await store.status();
   return {
     'host': {
       'name': nativeHostName,
@@ -409,15 +565,290 @@ Map<String, Object?> _statusData() {
       'status': 'available',
     },
     'appBridge': {
-      'connected': false,
-      'status': 'unavailable',
-      'reason': 'app_bridge_unavailable',
+      'connected': status.cacheAvailable,
+      'status': status.cacheAvailable
+          ? 'metadata_cache_available'
+          : 'unavailable',
+      'reason': status.cacheAvailable ? null : 'app_bridge_unavailable',
     },
-    'vault': {'connected': false, 'unlocked': false, 'status': 'not_connected'},
+    'vault': {
+      'connected': status.cacheAvailable,
+      'unlocked': status.cacheAvailable,
+      'status': status.cacheAvailable
+          ? 'metadata_cache_available'
+          : 'not_connected',
+      'metadataCount': status.metadataCount,
+      'databaseId': status.databaseId,
+      'generatedAtEpochMs': status.generatedAtEpochMs,
+    },
     'safeMode': true,
-    'message':
-        'Native Messaging v2 is running; it is not connected to the KeyVault vault yet.',
+    'metadataOnly': true,
+    'cacheDirectory': status.directoryPath,
+    'message': status.cacheAvailable
+        ? 'Native Messaging v2 can read KeyVault desktop metadata. Password reveal/fill is disabled in the native host.'
+        : 'Native Messaging v2 is running; open and unlock KeyVault to publish desktop browser metadata.',
   };
+}
+
+Map<String, Object?> _cacheUnavailableResponse({
+  required String? id,
+  required String type,
+}) {
+  return nativeHostErrorResponse(
+    id: id,
+    type: type,
+    code: 'app_bridge_unavailable',
+    message:
+        'KeyVault desktop metadata cache is unavailable. Open and unlock the desktop app first.',
+  );
+}
+
+DesktopBrowserAutofillAssociationTarget? _pageTargetFromPayload(
+  Map<String, Object?> payload, {
+  bool isRequired = true,
+}) {
+  final rawUrl = payload['url'];
+  if (rawUrl == null && !isRequired) {
+    return null;
+  }
+  if (rawUrl is! String || rawUrl.trim().isEmpty || rawUrl.length > 4096) {
+    return null;
+  }
+  final uri = Uri.tryParse(rawUrl);
+  if (uri == null ||
+      uri.host.isEmpty ||
+      (uri.scheme != 'http' && uri.scheme != 'https')) {
+    return null;
+  }
+  return DesktopBrowserAutofillMetadataMapper.targetFromUrl(rawUrl);
+}
+
+bool _isStrongBrowserMatch(
+  DesktopBrowserAutofillCredentialMetadata entry,
+  DesktopBrowserAutofillAssociationTarget target,
+) {
+  for (final identifier in entry.serviceIdentifiers) {
+    if (identifier.type != 'domain' && identifier.type != 'url') {
+      continue;
+    }
+    final host = DesktopBrowserAutofillMetadataMapper.normalizedHost(
+      identifier.value,
+    );
+    if (host != null && host == target.value) {
+      return true;
+    }
+  }
+  return false;
+}
+
+List<DesktopBrowserAutofillCredentialMetadata> _possibleMatches({
+  required List<DesktopBrowserAutofillCredentialMetadata> entries,
+  required DesktopBrowserAutofillAssociationTarget pageTarget,
+  required String? pageTitle,
+  required int limit,
+}) {
+  final rawTargets = <String>[pageTarget.value];
+  if (pageTitle != null) {
+    rawTargets.add(pageTitle);
+  }
+  final tokens = _targetTokens(rawTargets);
+  if (tokens.isEmpty || limit <= 0) {
+    return const [];
+  }
+  return _rankedSearch(
+    entries: entries,
+    tokens: tokens,
+    includeUsername: false,
+    requireAllTokens: false,
+    limit: limit,
+  );
+}
+
+List<DesktopBrowserAutofillCredentialMetadata> _manualSearch({
+  required List<DesktopBrowserAutofillCredentialMetadata> entries,
+  required String query,
+  required int limit,
+}) {
+  if (limit <= 0) {
+    return const [];
+  }
+  final tokens = _manualSearchTokens(query);
+  if (tokens.isEmpty) {
+    return (List<DesktopBrowserAutofillCredentialMetadata>.of(
+      entries,
+    )..sort(_compareMetadataByDisplay)).take(limit).toList(growable: false);
+  }
+  return _rankedSearch(
+    entries: entries,
+    tokens: tokens,
+    includeUsername: true,
+    requireAllTokens: true,
+    limit: limit,
+  );
+}
+
+List<DesktopBrowserAutofillCredentialMetadata> _rankedSearch({
+  required List<DesktopBrowserAutofillCredentialMetadata> entries,
+  required List<String> tokens,
+  required bool includeUsername,
+  required bool requireAllTokens,
+  required int limit,
+}) {
+  final scored = <_ScoredMetadata>[];
+  for (final entry in entries) {
+    final score = _scoreMetadataEntry(
+      entry: entry,
+      tokens: tokens,
+      includeUsername: includeUsername,
+      requireAllTokens: requireAllTokens,
+    );
+    if (score > 0) {
+      scored.add(_ScoredMetadata(entry: entry, score: score));
+    }
+  }
+  scored.sort((a, b) {
+    final byScore = b.score.compareTo(a.score);
+    if (byScore != 0) {
+      return byScore;
+    }
+    return _compareMetadataByDisplay(a.entry, b.entry);
+  });
+  return scored.take(limit).map((match) => match.entry).toList(growable: false);
+}
+
+int _scoreMetadataEntry({
+  required DesktopBrowserAutofillCredentialMetadata entry,
+  required List<String> tokens,
+  required bool includeUsername,
+  required bool requireAllTokens,
+}) {
+  final fields = <_WeightedSearchField>[
+    _WeightedSearchField(entry.title, 6),
+    _WeightedSearchField(entry.displayService, 8),
+    if (includeUsername) _WeightedSearchField(entry.username, 5),
+  ];
+  for (final identifier in entry.serviceIdentifiers) {
+    fields.add(_WeightedSearchField(identifier.value, 9));
+    if (identifier.type == 'domain' || identifier.type == 'url') {
+      final host = DesktopBrowserAutofillMetadataMapper.normalizedHost(
+        identifier.value,
+      );
+      if (host != null) {
+        fields.add(_WeightedSearchField(host, 10));
+      }
+    }
+  }
+
+  var total = 0;
+  var matchedTokens = 0;
+  for (final token in tokens) {
+    int? bestScore;
+    for (final field in fields) {
+      final value = _normalizedSearchValue(field.value);
+      if (!value.contains(token)) {
+        continue;
+      }
+      var score = field.weight;
+      if (value == token) {
+        score += 12;
+      } else if (value.startsWith(token)) {
+        score += 6;
+      } else if (_containsComponentPrefix(token, value)) {
+        score += 4;
+      }
+      bestScore = bestScore == null ? score : math.max(bestScore, score);
+    }
+    if (bestScore != null) {
+      total += bestScore;
+      matchedTokens += 1;
+    } else if (requireAllTokens) {
+      return 0;
+    }
+  }
+  return matchedTokens > 0 ? total + (matchedTokens * 2) : 0;
+}
+
+Map<String, Object?> _metadataResult(
+  DesktopBrowserAutofillCredentialMetadata entry,
+  String matchType,
+) {
+  return {
+    'entryId': entry.id,
+    'title': entry.title,
+    'displayService': entry.displayService,
+    'matchType': matchType,
+  };
+}
+
+List<String> _targetTokens(Iterable<String> rawValues) {
+  final tokens = <String>[];
+  final seen = <String>{};
+  for (final rawValue in rawValues) {
+    for (final token in _tokensFromRawValue(rawValue)) {
+      if (seen.add(token)) {
+        tokens.add(token);
+      }
+    }
+  }
+  return tokens;
+}
+
+List<String> _manualSearchTokens(String query) {
+  final normalized = _normalizedSearchValue(query);
+  if (normalized.isEmpty) {
+    return const [];
+  }
+  return normalized
+      .split(RegExp(r'\s+'))
+      .where((token) => token.isNotEmpty)
+      .toSet()
+      .toList(growable: false);
+}
+
+List<String> _tokensFromRawValue(String rawValue) {
+  final normalized = _normalizedSearchValue(rawValue);
+  if (normalized.isEmpty) {
+    return const [];
+  }
+  return normalized
+      .split(RegExp(r'[.\-_/:\\\s]+'))
+      .map((token) => token.replaceAll(RegExp(r'^[^a-z0-9]+|[^a-z0-9]+$'), ''))
+      .where((token) => token.length >= 3)
+      .where((token) => !_genericTargetTokens.contains(token))
+      .toList(growable: false);
+}
+
+String _normalizedSearchValue(String value) {
+  return value.trim().toLowerCase();
+}
+
+bool _containsComponentPrefix(String token, String value) {
+  return value
+      .split(RegExp(r'[.\-_/:\\\s]+'))
+      .any((component) => component.startsWith(token));
+}
+
+String? _safeOptionalString(Object? value, {required int maxLength}) {
+  if (value == null) {
+    return null;
+  }
+  if (value is! String) {
+    return null;
+  }
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) {
+    return null;
+  }
+  return trimmed.length <= maxLength
+      ? trimmed
+      : trimmed.substring(0, maxLength);
+}
+
+int _compareMetadataByDisplay(
+  DesktopBrowserAutofillCredentialMetadata left,
+  DesktopBrowserAutofillCredentialMetadata right,
+) {
+  return left.sortKey.compareTo(right.sortKey);
 }
 
 Map<String, Object?>? _readPayload(Map<String, Object?> request) {
@@ -477,4 +908,35 @@ bool _containsSensitiveRequestKey(Object? value) {
     }
   }
   return false;
+}
+
+const _genericTargetTokens = <String>{
+  'www',
+  'com',
+  'net',
+  'org',
+  'login',
+  'signin',
+  'sign',
+  'auth',
+  'account',
+  'accounts',
+  'http',
+  'https',
+  'mobile',
+  'app',
+};
+
+class _WeightedSearchField {
+  const _WeightedSearchField(this.value, this.weight);
+
+  final String value;
+  final int weight;
+}
+
+class _ScoredMetadata {
+  const _ScoredMetadata({required this.entry, required this.score});
+
+  final DesktopBrowserAutofillCredentialMetadata entry;
+  final int score;
 }

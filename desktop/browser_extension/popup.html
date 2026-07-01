@@ -11,7 +11,7 @@
       <h1>KeyVault Autofill</h1>
 
       <p class="hint">
-        Native Messaging v2 is enabled in safe mode. It is not connected to the KeyVault vault yet.
+        Native Messaging v2 uses app-published metadata only. Password reveal/fill is disabled in the native host.
       </p>
 
       <section class="status-grid" aria-live="polite">
@@ -26,11 +26,17 @@
       </section>
 
       <button id="statusButton" type="button">Check host status</button>
-      <button id="queryButton" type="button">Check current site</button>
+      <button id="queryButton" type="button">Find current site</button>
+
+      <label class="search-label" for="searchInput">Global metadata search</label>
+      <div class="search-row">
+        <input id="searchInput" type="search" autocomplete="off" spellcheck="false" placeholder="Search title, user, service" />
+        <button id="searchButton" type="button">Search</button>
+      </div>
       <p id="status" class="status"></p>
 
       <section>
-        <h2>v2 milestone</h2>
+        <h2>Matches</h2>
         <div id="results" class="results"></div>
       </section>
     </main>

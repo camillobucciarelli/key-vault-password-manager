@@ -41,9 +41,11 @@ void main() {
                     'id': 'pending-1',
                     'databaseId': 'db-1',
                     'entryId': 'entry-1',
-                    'serviceIdentifierType': 'domain',
-                    'serviceIdentifierValue': 'example.com',
-                    'displayService': 'example.com',
+                    'serviceIdentifierType': 'url',
+                    'serviceIdentifierValue':
+                        'https://Example.com/login?token=secret#frag',
+                    'displayService':
+                        'https://Example.com/login?token=secret#frag',
                     'createdAtEpochMs': 123,
                     'platform': 'ios',
                   },
@@ -95,6 +97,9 @@ void main() {
               AppleAutofillV2ServiceIdentifier.domain('example.com'),
               AppleAutofillV2ServiceIdentifier.url('https://example.com'),
               AppleAutofillV2ServiceIdentifier.bundleId('com.example.app'),
+              AppleAutofillV2ServiceIdentifier.androidPackage(
+                'com.example.android',
+              ),
             ],
           ),
         ],
@@ -115,6 +120,7 @@ void main() {
         {'type': 'domain', 'value': 'example.com'},
         {'type': 'url', 'value': 'https://example.com'},
         {'type': 'bundleId', 'value': 'com.example.app'},
+        {'type': 'androidPackage', 'value': 'com.example.android'},
       ]);
     });
 
@@ -159,10 +165,18 @@ void main() {
         expect(associations.single.id, 'pending-1');
         expect(associations.single.databaseId, 'db-1');
         expect(associations.single.entryId, 'entry-1');
-        expect(associations.single.serviceIdentifierType, 'domain');
-        expect(associations.single.serviceIdentifierValue, 'example.com');
+        expect(associations.single.serviceIdentifierType, 'url');
+        expect(
+          associations.single.serviceIdentifierValue,
+          'https://example.com',
+        );
         expect(associations.single.displayService, 'example.com');
         expect(associations.single.platform, 'ios');
+        expect(associations.single.toString(), isNot(contains('token=secret')));
+        expect(
+          associations.single.props.toString(),
+          isNot(contains('token=secret')),
+        );
       },
     );
 

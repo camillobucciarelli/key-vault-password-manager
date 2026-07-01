@@ -920,7 +920,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       _safeEmit(
         emit,
         state.copyWith(
-          infoMessage: 'Apple Autofill association skipped.',
+          infoMessage: 'AutoFill association skipped.',
           clearError: true,
         ),
       );
@@ -934,9 +934,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     if (target == null) {
       _safeEmit(
         emit,
-        state.copyWith(
-          errorMessage: 'Unable to confirm Apple Autofill association.',
-        ),
+        state.copyWith(errorMessage: 'Unable to confirm AutoFill association.'),
       );
       return;
     }
@@ -954,7 +952,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       _safeEmit(
         emit,
         state.copyWith(
-          infoMessage: 'Apple Autofill association already exists.',
+          infoMessage: 'AutoFill association already exists.',
           clearError: true,
         ),
       );
@@ -991,17 +989,17 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       _safeEmit(
         emit,
         state.copyWith(
-          infoMessage: 'Apple Autofill association added.',
+          infoMessage: 'AutoFill association added.',
           clearError: true,
         ),
       );
     } catch (e, st) {
-      logError('Failed confirming Apple Autofill association.', e, st);
+      logError('Failed confirming AutoFill association.', e, st);
       _safeEmit(
         emit,
         state.copyWith(
           isSaving: false,
-          errorMessage: 'Unable to confirm Apple Autofill association.',
+          errorMessage: 'Unable to confirm AutoFill association.',
         ),
       );
     }
@@ -1772,10 +1770,17 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       );
     }
 
-    if (_customFieldsContainAppleAutofillBundleTarget(
-      entry.customFields,
-      target.value,
-    )) {
+    final containsAppTarget = target.isAndroidPackage
+        ? _customFieldsContainAppleAutofillAndroidPackageTarget(
+            entry.customFields,
+            target.value,
+          )
+        : _customFieldsContainAppleAutofillBundleTarget(
+            entry.customFields,
+            target.value,
+          );
+
+    if (containsAppTarget) {
       return _AppleAutofillAssociationUpdate(
         url: entry.url,
         customFields: entry.customFields,
@@ -1809,12 +1814,26 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       '',
     );
 
-    if (normalizedType == 'bundleid') {
-      final trimmed = value.trim();
-      if (trimmed.isEmpty) {
+    if (normalizedType == 'androidpackage' ||
+        normalizedType == 'packagename' ||
+        normalizedType == 'androidapp') {
+      final normalized = _normalizeAppleAutofillAndroidPackageComparisonValue(
+        value,
+      );
+      if (normalized == null) {
         return null;
       }
-      return _AppleAutofillAssociationTarget.bundleId(trimmed);
+      return _AppleAutofillAssociationTarget.androidPackage(normalized);
+    }
+
+    if (normalizedType == 'bundleid' ||
+        normalizedType == 'iosbundle' ||
+        normalizedType == 'iosbundleid') {
+      final normalized = _normalizeAppleAutofillBundleComparisonValue(value);
+      if (normalized == null) {
+        return null;
+      }
+      return _AppleAutofillAssociationTarget.bundleId(normalized);
     }
 
     if (normalizedType == 'domain') {
@@ -1880,6 +1899,30 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       }
       for (final value in _splitAppleAutofillCustomFieldValues(field.value)) {
         if (_normalizeAppleAutofillBundleComparisonValue(value) ==
+            normalizedTarget) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  bool _customFieldsContainAppleAutofillAndroidPackageTarget(
+    List<VaultCustomField> customFields,
+    String target,
+  ) {
+    final normalizedTarget =
+        _normalizeAppleAutofillAndroidPackageComparisonValue(target);
+    if (normalizedTarget == null) {
+      return false;
+    }
+
+    for (final field in customFields) {
+      if (!_isAppleAutofillAndroidPackageFieldKey(field.key)) {
+        continue;
+      }
+      for (final value in _splitAppleAutofillCustomFieldValues(field.value)) {
+        if (_normalizeAppleAutofillAndroidPackageComparisonValue(value) ==
             normalizedTarget) {
           return true;
         }
@@ -2002,14 +2045,17 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     String baseKey,
   ) {
     final existingKeys = customFields
-        .map((field) => field.key.trim().toLowerCase())
+        .map((field) => _normalizeAppleAutofillFieldKey(field.key))
         .toSet();
-    if (!existingKeys.contains(baseKey.toLowerCase())) {
+    final normalizedBaseKey = _normalizeAppleAutofillFieldKey(baseKey);
+    if (!existingKeys.contains(normalizedBaseKey)) {
       return baseKey;
     }
 
     var suffix = 2;
-    while (existingKeys.contains('${baseKey.toLowerCase()} $suffix')) {
+    while (existingKeys.contains(
+      _normalizeAppleAutofillFieldKey('$baseKey $suffix'),
+    )) {
       suffix += 1;
     }
     return '$baseKey $suffix';
@@ -2029,7 +2075,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         normalized == 'loginurl' ||
         normalized == 'kph:url' ||
         normalized == 'kph:uri' ||
-        RegExp(r'^kph:url\d+$').hasMatch(normalized);
+        RegExp(r'^kph:url\d+$').hasMatch(normalized) ||
+        RegExp(r'^kph:uri\d+$').hasMatch(normalized);
   }
 
   bool _isAppleAutofillDomainFieldKey(String key) {
@@ -2059,6 +2106,22 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         RegExp(r'^kph:bundleid\d+$').hasMatch(normalized);
   }
 
+  bool _isAppleAutofillAndroidPackageFieldKey(String key) {
+    final normalized = _normalizeAppleAutofillFieldKey(key);
+    return normalized == 'androidpackage' ||
+        normalized == 'androidpackageid' ||
+        normalized == 'packagename' ||
+        normalized == 'androidappid' ||
+        normalized == 'kph:androidpackage' ||
+        normalized == 'kph:androidpackageid' ||
+        normalized == 'kph:packagename' ||
+        normalized == 'kph:androidappid' ||
+        RegExp(r'^kph:androidpackage\d+$').hasMatch(normalized) ||
+        RegExp(r'^kph:androidpackageid\d+$').hasMatch(normalized) ||
+        RegExp(r'^kph:packagename\d+$').hasMatch(normalized) ||
+        RegExp(r'^kph:androidappid\d+$').hasMatch(normalized);
+  }
+
   String _normalizeAppleAutofillFieldKey(String value) {
     return value.trim().toLowerCase().replaceAll(RegExp(r'[\s_-]+'), '');
   }
@@ -2086,7 +2149,36 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       normalized = normalized.substring(0, delimiterIndex);
     }
     normalized = normalized.replaceAll(RegExp(r'/+$'), '');
-    return normalized.isEmpty ? null : normalized;
+    if (normalized.isEmpty || normalized.length > 255) {
+      return null;
+    }
+    if (!RegExp(r'^[a-z0-9.-]+$').hasMatch(normalized)) {
+      return null;
+    }
+    return normalized;
+  }
+
+  String? _normalizeAppleAutofillAndroidPackageComparisonValue(String value) {
+    var normalized = value.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return null;
+    }
+    if (normalized.startsWith('androidapp:')) {
+      normalized = normalized.substring('androidapp:'.length);
+    }
+    normalized = normalized.replaceAll(RegExp(r'^/+'), '');
+    final delimiterIndex = _firstAppleAutofillDelimiterIndex(normalized);
+    if (delimiterIndex >= 0) {
+      normalized = normalized.substring(0, delimiterIndex);
+    }
+    normalized = normalized.replaceAll(RegExp(r'/+$'), '');
+    if (normalized.isEmpty || normalized.length > 255) {
+      return null;
+    }
+    if (!RegExp(r'^[a-z0-9._]+$').hasMatch(normalized)) {
+      return null;
+    }
+    return normalized;
   }
 
   Future<void> _performSync(
@@ -2354,6 +2446,7 @@ class _AppleAutofillAssociationTarget {
     required this.value,
     required this.customFieldBaseKey,
     required this.isWeb,
+    this.isAndroidPackage = false,
     this.compareWebAsOrigin = false,
   });
 
@@ -2370,9 +2463,18 @@ class _AppleAutofillAssociationTarget {
   const _AppleAutofillAssociationTarget.bundleId(String value)
     : this._(value: value, customFieldBaseKey: 'KPH: iosBundle', isWeb: false);
 
+  const _AppleAutofillAssociationTarget.androidPackage(String value)
+    : this._(
+        value: value,
+        customFieldBaseKey: 'KPH: androidPackage',
+        isWeb: false,
+        isAndroidPackage: true,
+      );
+
   final String value;
   final String customFieldBaseKey;
   final bool isWeb;
+  final bool isAndroidPackage;
   final bool compareWebAsOrigin;
 }
 

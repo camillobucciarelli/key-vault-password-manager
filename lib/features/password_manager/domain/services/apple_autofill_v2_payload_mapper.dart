@@ -59,9 +59,25 @@ class AppleAutofillV2PayloadMapper {
         entry.url,
       ).map(AppleAutofillV2ServiceIdentifier.bundleId),
     );
+    add(
+      _packageNameFromAndroidAppUrl(
+        entry.url,
+      ).map(AppleAutofillV2ServiceIdentifier.androidPackage),
+    );
 
     for (final field in entry.customFields) {
       final key = _normalizeFieldKey(field.key);
+      if (_isAndroidPackageField(key)) {
+        for (final value in _splitCustomFieldValues(field.value)) {
+          add(
+            _normalizedAndroidPackageName(
+              value,
+            ).map(AppleAutofillV2ServiceIdentifier.androidPackage),
+          );
+        }
+        continue;
+      }
+
       if (_isAppleBundleField(key)) {
         for (final value in _splitCustomFieldValues(field.value)) {
           add(
@@ -86,6 +102,14 @@ class AppleAutofillV2PayloadMapper {
 
       if (_isUrlField(key)) {
         for (final value in _splitCustomFieldValues(field.value)) {
+          if (_isAndroidAppValue(value)) {
+            add(
+              _normalizedAndroidPackageName(
+                value,
+              ).map(AppleAutofillV2ServiceIdentifier.androidPackage),
+            );
+            continue;
+          }
           if (_isIosBundleValue(value)) {
             add(
               _normalizedBundleId(
@@ -108,6 +132,21 @@ class AppleAutofillV2PayloadMapper {
     return identifiers;
   }
 
+  bool _isAndroidPackageField(String key) {
+    return key == 'androidpackage' ||
+        key == 'androidpackageid' ||
+        key == 'packagename' ||
+        key == 'androidappid' ||
+        key == 'kph:androidpackage' ||
+        key == 'kph:androidpackageid' ||
+        key == 'kph:packagename' ||
+        key == 'kph:androidappid' ||
+        RegExp(r'^kph:androidpackage\d+$').hasMatch(key) ||
+        RegExp(r'^kph:androidpackageid\d+$').hasMatch(key) ||
+        RegExp(r'^kph:packagename\d+$').hasMatch(key) ||
+        RegExp(r'^kph:androidappid\d+$').hasMatch(key);
+  }
+
   bool _isAppleBundleField(String key) {
     return key == 'iosbundle' ||
         key == 'iosbundleid' ||
@@ -115,7 +154,10 @@ class AppleAutofillV2PayloadMapper {
         key == 'applebundleid' ||
         key == 'kph:iosbundle' ||
         key == 'kph:iosbundleid' ||
-        key == 'kph:bundleid';
+        key == 'kph:bundleid' ||
+        RegExp(r'^kph:iosbundle\d+$').hasMatch(key) ||
+        RegExp(r'^kph:iosbundleid\d+$').hasMatch(key) ||
+        RegExp(r'^kph:bundleid\d+$').hasMatch(key);
   }
 
   bool _isDomainField(String key) {
@@ -125,7 +167,9 @@ class AppleAutofillV2PayloadMapper {
         key == 'hostname' ||
         key == 'host' ||
         key == 'kph:domain' ||
-        key == 'kph:webdomain';
+        key == 'kph:webdomain' ||
+        RegExp(r'^kph:domain\d+$').hasMatch(key) ||
+        RegExp(r'^kph:webdomain\d+$').hasMatch(key);
   }
 
   bool _isUrlField(String key) {
@@ -135,7 +179,9 @@ class AppleAutofillV2PayloadMapper {
         key == 'weburl' ||
         key == 'loginurl' ||
         key == 'kph:url' ||
-        key == 'kph:uri';
+        key == 'kph:uri' ||
+        RegExp(r'^kph:url\d+$').hasMatch(key) ||
+        RegExp(r'^kph:uri\d+$').hasMatch(key);
   }
 
   String _normalizeFieldKey(String value) {
@@ -226,11 +272,22 @@ class AppleAutofillV2PayloadMapper {
     return value.trim().toLowerCase().startsWith('iosbundleid:');
   }
 
+  bool _isAndroidAppValue(String value) {
+    return value.trim().toLowerCase().startsWith('androidapp:');
+  }
+
   String? _bundleIdFromIosBundleUrl(String rawValue) {
     if (!_isIosBundleValue(rawValue)) {
       return null;
     }
     return _normalizedBundleId(rawValue);
+  }
+
+  String? _packageNameFromAndroidAppUrl(String rawValue) {
+    if (!_isAndroidAppValue(rawValue)) {
+      return null;
+    }
+    return _normalizedAndroidPackageName(rawValue);
   }
 
   String? _normalizedBundleId(String rawValue) {
@@ -256,6 +313,42 @@ class AppleAutofillV2PayloadMapper {
       return null;
     }
     return value;
+  }
+
+  String? _normalizedAndroidPackageName(String rawValue) {
+    var value = rawValue.trim().toLowerCase();
+    if (value.isEmpty) {
+      return null;
+    }
+
+    if (value.startsWith('androidapp:')) {
+      final withoutScheme = value.substring('androidapp:'.length);
+      value = withoutScheme.replaceAll(RegExp(r'^/+'), '');
+      final delimiterIndex = _firstDelimiterIndex(value);
+      if (delimiterIndex >= 0) {
+        value = value.substring(0, delimiterIndex);
+      }
+    }
+
+    value = value.replaceAll(RegExp(r'^/+|/+$'), '');
+    if (value.isEmpty || value.length > 255) {
+      return null;
+    }
+    if (!RegExp(r'^[a-z0-9._]+$').hasMatch(value)) {
+      return null;
+    }
+    return value;
+  }
+
+  int _firstDelimiterIndex(String value) {
+    var result = -1;
+    for (final delimiter in const ['/', '?', '#']) {
+      final index = value.indexOf(delimiter);
+      if (index >= 0 && (result == -1 || index < result)) {
+        result = index;
+      }
+    }
+    return result;
   }
 }
 

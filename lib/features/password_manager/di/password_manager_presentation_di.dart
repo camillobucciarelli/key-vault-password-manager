@@ -5,12 +5,16 @@ import '../presentation/bloc/database_unlock/database_unlock_bloc.dart';
 import '../presentation/bloc/vault/vault_bloc.dart';
 import '../presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import '../presentation/coordinators/database_session_coordinator.dart';
+import '../presentation/coordinators/desktop_browser_autofill_coordinator.dart';
 import '../presentation/coordinators/otpauth_deep_link_coordinator.dart';
 import '../presentation/coordinators/vault_session_coordinator.dart';
 
 void registerPasswordManagerPresentationDependencies(GetIt sl) {
   sl.registerLazySingleton<AppleAutofillV2CoordinatorContract>(
-    () => AppleAutofillV2Coordinator(client: sl(), mapper: sl()),
+    () => CompositeAutofillV2Coordinator([
+      AppleAutofillV2Coordinator(client: sl(), mapper: sl()),
+      DesktopBrowserAutofillCoordinator(store: sl(), mapper: sl()),
+    ]),
   );
 
   sl.registerLazySingleton<DatabaseSessionCoordinatorContract>(

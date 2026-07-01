@@ -15,6 +15,7 @@ import '../data/services/apple_autofill_v2_method_channel_client.dart';
 import '../data/services/database_sync_orchestrator.dart';
 import '../data/services/database_import_service.dart';
 import '../data/services/desktop_oauth_pkce_service.dart';
+import '../data/services/desktop_browser_autofill_cache.dart';
 import '../data/services/drive_auth_service.dart';
 import '../data/services/google_drive_api_service.dart';
 import '../data/services/google_oauth_config.dart';
@@ -68,6 +69,8 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
 
   sl.registerLazySingleton(() => VaultAutofillMatcher());
   sl.registerLazySingleton(() => const AppleAutofillV2PayloadMapper());
+  sl.registerLazySingleton(() => const DesktopBrowserAutofillMetadataMapper());
+  sl.registerLazySingleton(() => DesktopBrowserAutofillCacheStore());
   sl.registerLazySingleton<AppleAutofillV2Client>(
     () => AppleAutofillV2MethodChannelClient(),
   );

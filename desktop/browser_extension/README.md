@@ -1,7 +1,8 @@
-# KeyVault Chrome/Edge extension (Native Messaging v2 MVP)
+# KeyVault Chrome/Edge extension (Native Messaging v2)
 
-Current scope: safe status/query protocol only. The extension does **not** read,
-request, reveal, store, or fill vault credentials yet.
+Current scope: safe metadata search and pending-association requests. The
+extension/native host do **not** read `.kdbx`, request the master password,
+cache plaintext passwords, reveal passwords, or fill pages.
 
 Development install:
 
@@ -44,3 +45,13 @@ Firefox support.
 
 Do not put vault passwords, key file paths, database paths, credentials, or other
 secrets in extension files, console logs, DOM nodes, or browser storage.
+
+Flow:
+
+1. Unlock KeyVault desktop. The app publishes a metadata-only cache for the
+   native host.
+2. Popup **Find current site** sends only active tab origin + title.
+3. Exact normalized host matches are labeled strong. Partial/token matches are
+   labeled possible and never filled silently.
+4. Global search shows metadata results. Selecting a possible/manual result
+   creates a pending association for app confirmation.

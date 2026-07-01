@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "KeyVault Browser Autofill",
-  "version": "0.2.0",
-  "description": "Safe Native Messaging v2 status bridge for KeyVault desktop autofill.",
+  "version": "0.3.0",
+  "description": "Safe Native Messaging v2 metadata search bridge for KeyVault desktop autofill.",
   "permissions": ["activeTab", "nativeMessaging"],
   "background": {
     "service_worker": "background.js"

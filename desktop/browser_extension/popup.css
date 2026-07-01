@@ -18,7 +18,7 @@
 
 body {
   margin: 0;
-  width: 360px;
+  width: 390px;
   line-height: 1.4;
   color: var(--kv-text);
   font-family: "Avenir Next", "Segoe UI", sans-serif;
@@ -101,6 +101,67 @@ button {
   cursor: pointer;
   background: linear-gradient(124deg, var(--kv-primary), var(--kv-primary-2));
   transition: transform 140ms ease, filter 140ms ease;
+}
+
+.search-label {
+  display: block;
+  margin: 12px 0 6px;
+  color: var(--kv-text-soft);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.search-row {
+  display: grid;
+  grid-template-columns: 1fr 92px;
+  gap: 8px;
+  align-items: center;
+}
+
+.search-row button {
+  margin-top: 0;
+}
+
+input[type="search"] {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--kv-border);
+  border-radius: 11px;
+  color: var(--kv-text);
+  font-size: 12px;
+  background: var(--kv-surface-strong);
+}
+
+input[type="search"]:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 3px var(--kv-focus);
+}
+
+.secondary-button {
+  margin-top: 8px;
+  padding: 8px;
+  color: var(--kv-primary-2);
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid var(--kv-border);
+}
+
+.badge {
+  display: inline-flex;
+  margin-bottom: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.badge-strong {
+  color: #14532d;
+  background: rgba(34, 197, 94, 0.14);
+}
+
+.badge-possible {
+  color: #713f12;
+  background: rgba(245, 158, 11, 0.18);
 }
 
 button:hover {

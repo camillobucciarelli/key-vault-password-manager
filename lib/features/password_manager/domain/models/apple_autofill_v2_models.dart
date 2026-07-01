@@ -4,7 +4,8 @@ import 'package:password_manager/core/utils/redacted_value.dart';
 enum AppleAutofillV2ServiceIdentifierType {
   domain('domain'),
   url('url'),
-  bundleId('bundleId');
+  bundleId('bundleId'),
+  androidPackage('androidPackage');
 
   const AppleAutofillV2ServiceIdentifierType(this.channelValue);
 
@@ -25,6 +26,12 @@ class AppleAutofillV2ServiceIdentifier extends Equatable {
 
   const AppleAutofillV2ServiceIdentifier.bundleId(String value)
     : this(type: AppleAutofillV2ServiceIdentifierType.bundleId, value: value);
+
+  const AppleAutofillV2ServiceIdentifier.androidPackage(String value)
+    : this(
+        type: AppleAutofillV2ServiceIdentifierType.androidPackage,
+        value: value,
+      );
 
   final AppleAutofillV2ServiceIdentifierType type;
   final String value;
@@ -253,15 +260,26 @@ class AppleAutofillV2PendingAssociation extends Equatable {
   });
 
   factory AppleAutofillV2PendingAssociation.fromMap(Map<dynamic, dynamic> map) {
+    final type = _readString(map, 'serviceIdentifierType') ?? '';
+    final serviceIdentifierValue = _sanitizePendingServiceIdentifierValue(
+      type: type,
+      value: _readString(map, 'serviceIdentifierValue') ?? '',
+    );
+    final displayService = _sanitizePendingDisplayService(
+      type: type,
+      value: _readString(map, 'displayService') ?? '',
+      fallbackValue: serviceIdentifierValue,
+    );
+
     return AppleAutofillV2PendingAssociation(
       id: _readString(map, 'id') ?? '',
       databaseId: _readString(map, 'databaseId') ?? '',
       entryId: _readString(map, 'entryId') ?? '',
-      serviceIdentifierType: _readString(map, 'serviceIdentifierType') ?? '',
-      serviceIdentifierValue: _readString(map, 'serviceIdentifierValue') ?? '',
-      displayService: _readString(map, 'displayService') ?? '',
+      serviceIdentifierType: type.trim(),
+      serviceIdentifierValue: serviceIdentifierValue,
+      displayService: displayService,
       createdAtEpochMs: _readInt(map, 'createdAtEpochMs'),
-      platform: _readString(map, 'platform'),
+      platform: _readString(map, 'platform')?.trim(),
     );
   }
 
@@ -280,11 +298,24 @@ class AppleAutofillV2PendingAssociation extends Equatable {
     databaseId,
     entryId,
     serviceIdentifierType,
-    serviceIdentifierValue,
-    displayService,
+    RedactedValue(serviceIdentifierValue),
+    RedactedValue(displayService),
     createdAtEpochMs,
     platform,
   ];
+
+  @override
+  String toString() {
+    return 'AppleAutofillV2PendingAssociation('
+        'id: $id, '
+        'databaseId: $databaseId, '
+        'entryId: $entryId, '
+        'serviceIdentifierType: $serviceIdentifierType, '
+        'serviceIdentifierValue: <redacted>, '
+        'displayService: <redacted>, '
+        'createdAtEpochMs: $createdAtEpochMs, '
+        'platform: $platform)';
+  }
 }
 
 class AppleAutofillV2ClearPendingAssociationsResult extends Equatable {
@@ -341,4 +372,199 @@ List<String> _readStringList(Map<dynamic, dynamic>? map, String key) {
     return const [];
   }
   return value.whereType<String>().toList(growable: false);
+}
+
+String _sanitizePendingServiceIdentifierValue({
+  required String type,
+  required String value,
+}) {
+  final normalizedType = _normalizePendingType(type);
+  final normalized = switch (normalizedType) {
+    'domain' => _normalizedPendingHost(value),
+    'url' => _normalizedPendingOrigin(value) ?? _normalizedPendingHost(value),
+    'bundleid' ||
+    'iosbundle' ||
+    'iosbundleid' => _normalizedPendingBundleId(value),
+    'androidpackage' ||
+    'androidpackageid' ||
+    'packagename' ||
+    'androidappid' ||
+    'androidapp' => _normalizedPendingAndroidPackage(value),
+    _ => null,
+  };
+  return normalized ?? '';
+}
+
+String _sanitizePendingDisplayService({
+  required String type,
+  required String value,
+  required String fallbackValue,
+}) {
+  final normalizedType = _normalizePendingType(type);
+  if (normalizedType == 'domain' || normalizedType == 'url') {
+    final host = _normalizedPendingHost(value);
+    if (host != null && host.isNotEmpty) {
+      return host;
+    }
+  }
+
+  final normalized = _sanitizePendingServiceIdentifierValue(
+    type: type,
+    value: value,
+  );
+  return normalized.isNotEmpty ? normalized : fallbackValue;
+}
+
+String _normalizePendingType(String value) {
+  return value.trim().toLowerCase().replaceAll(RegExp(r'[\s_-]+'), '');
+}
+
+String? _normalizedPendingOrigin(String rawValue) {
+  final value = rawValue.trim();
+  if (value.isEmpty || _isNativePendingValue(value)) {
+    return null;
+  }
+  final uri = Uri.tryParse(_pendingValueWithDefaultScheme(value));
+  if (uri == null || uri.host.isEmpty) {
+    return null;
+  }
+  final scheme = uri.scheme.toLowerCase();
+  if (scheme != 'http' && scheme != 'https') {
+    return null;
+  }
+  final host = _cleanPendingHost(uri.host);
+  if (host == null) {
+    return null;
+  }
+  return Uri(
+    scheme: scheme,
+    host: host,
+    port: uri.hasPort ? uri.port : null,
+  ).toString();
+}
+
+String? _normalizedPendingHost(String rawValue) {
+  var value = rawValue.trim();
+  if (value.isEmpty || _isNativePendingValue(value)) {
+    return null;
+  }
+
+  if (value.contains('://')) {
+    final uri = Uri.tryParse(value);
+    if (uri == null || uri.host.isEmpty) {
+      return null;
+    }
+    return _cleanPendingHost(uri.host);
+  }
+
+  if (value.startsWith('//')) {
+    value = value.substring(2);
+  }
+  if (value.contains('@')) {
+    return null;
+  }
+  final delimiterIndex = _firstPendingDelimiterIndex(value);
+  if (delimiterIndex >= 0) {
+    value = value.substring(0, delimiterIndex);
+  }
+  final uri = Uri.tryParse('https://$value');
+  if (uri == null || uri.host.isEmpty) {
+    return null;
+  }
+  return _cleanPendingHost(uri.host);
+}
+
+String? _cleanPendingHost(String? rawHost) {
+  var host = rawHost?.trim().toLowerCase() ?? '';
+  if (host.startsWith('[') && host.endsWith(']')) {
+    host = host.substring(1, host.length - 1);
+  }
+  while (host.endsWith('.')) {
+    host = host.substring(0, host.length - 1);
+  }
+  for (final prefix in const ['www.', 'm.', 'mobile.']) {
+    if (host.startsWith(prefix)) {
+      host = host.substring(prefix.length);
+      break;
+    }
+  }
+  if (host.isEmpty || host.length > 253 || host.contains(RegExp(r'[\s/@:]'))) {
+    return null;
+  }
+  return host;
+}
+
+String? _normalizedPendingBundleId(String rawValue) {
+  var value = rawValue.trim().toLowerCase();
+  if (value.isEmpty) {
+    return null;
+  }
+  if (value.startsWith('iosbundleid:')) {
+    value = value
+        .substring('iosbundleid:'.length)
+        .replaceAll(RegExp(r'^/+'), '');
+  }
+  final delimiterIndex = _firstPendingDelimiterIndex(value);
+  if (delimiterIndex >= 0) {
+    value = value.substring(0, delimiterIndex);
+  }
+  value = value.replaceAll(RegExp(r'^/+|/+$'), '');
+  if (value.isEmpty || value.length > 255) {
+    return null;
+  }
+  if (!RegExp(r'^[a-z0-9.-]+$').hasMatch(value)) {
+    return null;
+  }
+  return value;
+}
+
+String? _normalizedPendingAndroidPackage(String rawValue) {
+  var value = rawValue.trim().toLowerCase();
+  if (value.isEmpty) {
+    return null;
+  }
+  if (value.startsWith('androidapp:')) {
+    value = value
+        .substring('androidapp:'.length)
+        .replaceAll(RegExp(r'^/+'), '');
+  }
+  final delimiterIndex = _firstPendingDelimiterIndex(value);
+  if (delimiterIndex >= 0) {
+    value = value.substring(0, delimiterIndex);
+  }
+  value = value.replaceAll(RegExp(r'^/+|/+$'), '');
+  if (value.isEmpty || value.length > 255) {
+    return null;
+  }
+  if (!RegExp(r'^[a-z0-9._]+$').hasMatch(value)) {
+    return null;
+  }
+  return value;
+}
+
+String _pendingValueWithDefaultScheme(String value) {
+  if (value.contains('://')) {
+    return value;
+  }
+  if (value.startsWith('//')) {
+    return 'https:$value';
+  }
+  return 'https://$value';
+}
+
+bool _isNativePendingValue(String value) {
+  final normalized = value.trim().toLowerCase();
+  return normalized.startsWith('iosbundleid:') ||
+      normalized.startsWith('androidapp:');
+}
+
+int _firstPendingDelimiterIndex(String value) {
+  var result = -1;
+  for (final delimiter in const ['/', '?', '#']) {
+    final index = value.indexOf(delimiter);
+    if (index >= 0 && (result == -1 || index < result)) {
+      result = index;
+    }
+  }
+  return result;
 }
