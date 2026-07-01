@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="autofill_service_label">KeyVault Autofill</string>
-    <string name="autofill_service_summary">KeyVault Autofill v2 is installed but not yet connected to the vault.</string>
+    <string name="autofill_service_summary">Use KeyVault to fill credentials after unlocking and publishing the encrypted autofill cache.</string>
+    <string name="autofill_dataset_select_for_site">Select KeyVault credential for this site</string>
+    <string name="autofill_dataset_select_for_app">Select KeyVault credential for this app</string>
+    <string name="autofill_dataset_selected">KeyVault credential</string>
+    <string name="autofill_picker_exact_match_title">Matching credentials</string>
+    <string name="autofill_picker_exact_match_subtitle">Choose a credential linked to this app or site.</string>
+    <string name="autofill_picker_no_exact_match_title">No exact match for this app or site</string>
+    <string name="autofill_picker_no_exact_match_subtitle">Search saved credential metadata. Choosing one fills once and creates a pending link for confirmation in KeyVault.</string>
+    <string name="autofill_picker_search_hint">Search title, username, site, app</string>
+    <string name="autofill_picker_secret_error">Unable to read selected credential.</string>
 </resources>

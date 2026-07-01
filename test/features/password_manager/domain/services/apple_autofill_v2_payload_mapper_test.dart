@@ -63,6 +63,30 @@ void main() {
       );
     });
 
+    test('maps androidapp URL and KPH androidPackage custom field', () {
+      final credential = mapper.mapEntry(
+        _entry(
+          url: 'androidapp://Com.Example.Bank/path?ignored=1',
+          customFields: const [
+            VaultCustomField(
+              key: 'KPH: androidPackage',
+              value: 'com.example.wallet; androidapp://com.example.cards/path',
+            ),
+          ],
+        ),
+      );
+
+      expect(credential!.url, isNull);
+      expect(
+        credential.serviceIdentifiers,
+        containsAll(const [
+          AppleAutofillV2ServiceIdentifier.androidPackage('com.example.bank'),
+          AppleAutofillV2ServiceIdentifier.androidPackage('com.example.wallet'),
+          AppleAutofillV2ServiceIdentifier.androidPackage('com.example.cards'),
+        ]),
+      );
+    });
+
     test('maps known custom domain and URL fields only', () {
       final credential = mapper.mapEntry(
         _entry(
@@ -93,6 +117,34 @@ void main() {
             const AppleAutofillV2ServiceIdentifier.domain('ignored.test'),
           ),
         ),
+      );
+    });
+
+    test('maps suffixed KPH association fields', () {
+      final credential = mapper.mapEntry(
+        _entry(
+          url: '',
+          customFields: const [
+            VaultCustomField(key: 'KPH: URL 2', value: 'example.com/path'),
+            VaultCustomField(key: 'KPH: iosBundle 2', value: 'com.example.ios'),
+            VaultCustomField(
+              key: 'KPH: androidPackage 2',
+              value: 'androidapp://com.example.android/path?ignored=1',
+            ),
+          ],
+        ),
+      );
+
+      expect(
+        credential!.serviceIdentifiers,
+        containsAll(const [
+          AppleAutofillV2ServiceIdentifier.url('https://example.com'),
+          AppleAutofillV2ServiceIdentifier.domain('example.com'),
+          AppleAutofillV2ServiceIdentifier.bundleId('com.example.ios'),
+          AppleAutofillV2ServiceIdentifier.androidPackage(
+            'com.example.android',
+          ),
+        ]),
       );
     });
 

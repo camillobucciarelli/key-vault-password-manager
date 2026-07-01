@@ -26,7 +26,8 @@ class AppleAutofillV2MethodChannelClient implements AppleAutofillV2Client {
     if (kIsWeb) {
       return false;
     }
-    return defaultTargetPlatform == TargetPlatform.iOS ||
+    return defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS ||
         defaultTargetPlatform == TargetPlatform.macOS;
   }
 

@@ -188,6 +188,143 @@ void main() {
       expect(appleAutofill.lastClearedPendingIds, [pending.id]);
     });
 
+    test('confirm Android package adds KPH androidPackage', () async {
+      final entry = _entry(
+        url: 'https://existing.example/login',
+        customFields: const [VaultCustomField(key: 'note', value: 'keep')],
+      );
+      final kdbx = _FakeVaultKdbxService()
+        ..snapshot = _snapshotWithEntry(entry);
+      final pending = _pendingAssociation(
+        serviceIdentifierType: 'androidPackage',
+        serviceIdentifierValue:
+            'androidapp://Com.Example.App/path?token=secret#frag',
+      );
+      final appleAutofill = _FakeAppleAutofillV2Coordinator()
+        ..pendingAssociations = [pending];
+      final bloc = _makeBloc(
+        _FakeSyncRepo(),
+        kdbx,
+        appleAutofillV2Coordinator: appleAutofill,
+      );
+      addTearDown(bloc.close);
+
+      bloc.add(const InitializeVault());
+      await _waitUntil(
+        () => bloc.state.pendingAppleAutofillAssociations.length == 1,
+      );
+
+      bloc.add(ConfirmAppleAutofillPendingAssociation(pending.id));
+      await _waitUntil(
+        () =>
+            kdbx.updateCallCount == 1 &&
+            appleAutofill.clearPendingCallCount == 1 &&
+            bloc.state.pendingAppleAutofillAssociations.isEmpty,
+      );
+
+      expect(kdbx.lastUpdatedUrl, entry.url);
+      expect(kdbx.lastUpdatedCustomFields, [
+        const VaultCustomField(key: 'note', value: 'keep'),
+        const VaultCustomField(
+          key: 'KPH: androidPackage',
+          value: 'com.example.app',
+        ),
+      ]);
+      expect(appleAutofill.lastClearedPendingIds, [pending.id]);
+    });
+
+    test('confirm iOS bundle adds sanitized KPH iosBundle', () async {
+      final entry = _entry(
+        url: 'https://existing.example/login',
+        customFields: const [VaultCustomField(key: 'note', value: 'keep')],
+      );
+      final kdbx = _FakeVaultKdbxService()
+        ..snapshot = _snapshotWithEntry(entry);
+      final pending = _pendingAssociation(
+        serviceIdentifierType: 'bundleId',
+        serviceIdentifierValue:
+            'iosbundleid://Com.Example.Ios/path?token=secret#frag',
+        platform: 'ios',
+      );
+      final appleAutofill = _FakeAppleAutofillV2Coordinator()
+        ..pendingAssociations = [pending];
+      final bloc = _makeBloc(
+        _FakeSyncRepo(),
+        kdbx,
+        appleAutofillV2Coordinator: appleAutofill,
+      );
+      addTearDown(bloc.close);
+
+      bloc.add(const InitializeVault());
+      await _waitUntil(
+        () => bloc.state.pendingAppleAutofillAssociations.length == 1,
+      );
+
+      bloc.add(ConfirmAppleAutofillPendingAssociation(pending.id));
+      await _waitUntil(
+        () =>
+            kdbx.updateCallCount == 1 &&
+            appleAutofill.clearPendingCallCount == 1 &&
+            bloc.state.pendingAppleAutofillAssociations.isEmpty,
+      );
+
+      expect(kdbx.lastUpdatedUrl, entry.url);
+      expect(kdbx.lastUpdatedCustomFields, [
+        const VaultCustomField(key: 'note', value: 'keep'),
+        const VaultCustomField(key: 'KPH: iosBundle', value: 'com.example.ios'),
+      ]);
+      expect(
+        kdbx.lastUpdatedCustomFields.toString(),
+        isNot(contains('token=secret')),
+      );
+      expect(appleAutofill.lastClearedPendingIds, [pending.id]);
+    });
+
+    test(
+      'confirm duplicate platform association only clears pending',
+      () async {
+        final entry = _entry(
+          url: 'https://existing.example/login',
+          customFields: const [
+            VaultCustomField(
+              key: 'KPH: androidPackage',
+              value: 'com.example.app',
+            ),
+          ],
+        );
+        final kdbx = _FakeVaultKdbxService()
+          ..snapshot = _snapshotWithEntry(entry);
+        final pending = _pendingAssociation(
+          serviceIdentifierType: 'androidPackage',
+          serviceIdentifierValue: 'Com.Example.App',
+          platform: 'android',
+        );
+        final appleAutofill = _FakeAppleAutofillV2Coordinator()
+          ..pendingAssociations = [pending];
+        final bloc = _makeBloc(
+          _FakeSyncRepo(),
+          kdbx,
+          appleAutofillV2Coordinator: appleAutofill,
+        );
+        addTearDown(bloc.close);
+
+        bloc.add(const InitializeVault());
+        await _waitUntil(
+          () => bloc.state.pendingAppleAutofillAssociations.length == 1,
+        );
+
+        bloc.add(ConfirmAppleAutofillPendingAssociation(pending.id));
+        await _waitUntil(
+          () =>
+              appleAutofill.clearPendingCallCount == 1 &&
+              bloc.state.pendingAppleAutofillAssociations.isEmpty,
+        );
+
+        expect(kdbx.updateCallCount, 0);
+        expect(appleAutofill.lastClearedPendingIds, [pending.id]);
+      },
+    );
+
     test('reject clears pending and does not update', () async {
       final entry = _entry(url: '');
       final kdbx = _FakeVaultKdbxService()
@@ -453,6 +590,7 @@ AppleAutofillV2PendingAssociation _pendingAssociation({
   String entryId = 'entry-1',
   String serviceIdentifierType = 'url',
   String serviceIdentifierValue = 'https://example.com',
+  String? platform,
 }) {
   return AppleAutofillV2PendingAssociation(
     id: id,
@@ -462,6 +600,7 @@ AppleAutofillV2PendingAssociation _pendingAssociation({
     serviceIdentifierValue: serviceIdentifierValue,
     displayService: serviceIdentifierValue,
     createdAtEpochMs: 1,
+    platform: platform,
   );
 }
 

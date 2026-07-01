@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
+import 'desktop_browser_autofill_cache.dart';
+
 /// Result of installing the native messaging host on macOS.
 enum NativeHostInstallResult { success, scriptNotFound, failed }
 
@@ -22,9 +24,10 @@ class BrowserSetupService {
   /// Returns whether the Flutter desktop app bridge is running and reachable.
   Future<BridgeCheckResult> checkBridgeConnection() async {
     if (!_isDesktop) return BridgeCheckResult.notRunning;
-    // Native Messaging v2 is intentionally safe-mode only in this milestone.
-    // Do not probe or trust stale v1 loopback bridge config files.
-    return BridgeCheckResult.v2AppBridgeUnavailable;
+    final status = await DesktopBrowserAutofillCacheStore().status();
+    return status.cacheAvailable
+        ? BridgeCheckResult.connected
+        : BridgeCheckResult.v2AppBridgeUnavailable;
   }
 
   // ---------------------------------------------------------------------------
@@ -62,7 +65,8 @@ class BrowserSetupService {
   String get nativeHostName => 'dev.camillobucciarelli.keyvault_native_host';
 
   String get bridgeConfigPath =>
-      'Native Messaging v2 app/vault bridge is not implemented yet';
+      DesktopBrowserAutofillCacheStore.defaultDirectory()?.path ??
+      'Desktop browser Autofill cache directory unavailable';
 
   // ---------------------------------------------------------------------------
   // Private helpers

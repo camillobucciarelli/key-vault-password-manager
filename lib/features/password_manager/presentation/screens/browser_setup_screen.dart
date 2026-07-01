@@ -274,8 +274,8 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
         case BridgeCheckResult.v2AppBridgeUnavailable:
           _connectionStatus = _StepStatus.error;
           _errorMessage =
-              'Native Messaging v2 è in safe mode e non è ancora collegato al vault/app bridge. '
-              'Il popup può verificare l\'host, ma queryCredentials/revealForFill rispondono senza segreti.';
+              'Native Messaging v2 è installato, ma non trova una cache desktop pubblicata. '
+              'Sblocca un vault per abilitare ricerca metadati e associazioni pendenti. Cache: ${_service.bridgeConfigPath}';
       }
     });
   }
@@ -352,7 +352,7 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
-                                      'Installa il bridge Native Messaging v2 in safe mode',
+                                      'Installa il bridge Native Messaging v2 metadata-only',
                                       style: Theme.of(
                                         context,
                                       ).textTheme.bodySmall,
@@ -717,7 +717,7 @@ class _TroubleshootingTips extends StatelessWidget {
           ),
           const _Tip(
             text:
-                'Safe mode v2: queryCredentials e revealForFill devono tornare errori sicuri finché il vault bridge reale non è implementato.',
+                'Modalità metadata-only v2: query/search non devono restituire password; revealForFill resta disabilitato.',
           ),
           const _Tip(
             text:

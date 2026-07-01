@@ -44,7 +44,7 @@ Future<void> main() async {
       return;
     }
 
-    final response = handleNativeHostRequest(request);
+    final response = await handleNativeHostRequest(request);
     stdout.add(encodeNativeMessage(response));
     await stdout.flush();
   }

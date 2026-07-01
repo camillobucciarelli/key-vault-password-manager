@@ -116,6 +116,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request?.type === "KEYVAULT_V2_QUERY_CREDENTIALS") {
     sendNativeV2("queryCredentials", {
       url: request.url,
+      title: request.title,
       limit: Number.isInteger(request.limit) ? request.limit : 5,
     })
       .then(sendResponse)
@@ -123,6 +124,41 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({
           version: PROTOCOL_VERSION,
           type: "queryCredentials",
+          ok: false,
+          error: normalizeError(error),
+        });
+      });
+    return true;
+  }
+
+  if (request?.type === "KEYVAULT_V2_SEARCH_CREDENTIALS") {
+    sendNativeV2("searchCredentials", {
+      query: typeof request.query === "string" ? request.query : "",
+      url: request.url,
+      limit: Number.isInteger(request.limit) ? request.limit : 25,
+    })
+      .then(sendResponse)
+      .catch((error) => {
+        sendResponse({
+          version: PROTOCOL_VERSION,
+          type: "searchCredentials",
+          ok: false,
+          error: normalizeError(error),
+        });
+      });
+    return true;
+  }
+
+  if (request?.type === "KEYVAULT_V2_CREATE_PENDING_ASSOCIATION") {
+    sendNativeV2("createPendingAssociation", {
+      entryId: request.entryId,
+      url: request.url,
+    })
+      .then(sendResponse)
+      .catch((error) => {
+        sendResponse({
+          version: PROTOCOL_VERSION,
+          type: "createPendingAssociation",
           ok: false,
           error: normalizeError(error),
         });

@@ -141,19 +141,6 @@ internal object AssistStructureCredentialParser {
                 variation == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS)
     }
 
-    private fun normalizeWebDomain(value: String?): String? {
-        if (value.isNullOrBlank()) {
-            return null
-        }
-
-        val host = value
-            .substringAfter("://", value)
-            .substringBefore('/')
-            .substringBefore(':')
-            .trim()
-            .trim('.')
-            .lowercase(Locale.ROOT)
-
-        return host.ifBlank { null }
-    }
+    private fun normalizeWebDomain(value: String?): String? =
+        AndroidAutofillNormalizer.normalizedHost(value)
 }

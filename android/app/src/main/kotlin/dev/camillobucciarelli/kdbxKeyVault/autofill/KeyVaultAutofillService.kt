@@ -1,18 +1,25 @@
 package dev.camillobucciarelli.kdbxKeyVault.autofill
 
+import android.app.PendingIntent
+import android.content.Intent
 import android.os.CancellationSignal
+import android.service.autofill.Dataset
 import android.service.autofill.AutofillService
 import android.service.autofill.FillCallback
 import android.service.autofill.FillRequest
+import android.service.autofill.FillResponse
 import android.service.autofill.SaveCallback
 import android.service.autofill.SaveRequest
+import android.view.autofill.AutofillValue
+import android.widget.RemoteViews
+import dev.camillobucciarelli.kdbxKeyVault.R
 
 /**
- * Native Android Autofill v2 shell.
+ * Native Android Autofill v2 service.
  *
- * This service intentionally returns no datasets until the Flutter/domain v2
- * vault bridge is designed. It never reads KDBX data, master passwords, or
- * credentials from native Android code.
+ * It reads only the app-published Android encrypted cache. It never opens or
+ * writes KDBX files. The fill response exposes only an authenticated picker;
+ * secrets are decrypted after explicit user selection.
  */
 class KeyVaultAutofillService : AutofillService() {
     override fun onFillRequest(
@@ -24,23 +31,73 @@ class KeyVaultAutofillService : AutofillService() {
             return
         }
 
-        request.fillContexts.lastOrNull()?.structure?.let { structure ->
+        val parsed = request.fillContexts.lastOrNull()?.structure?.let { structure ->
             AssistStructureCredentialParser.parse(structure)
-                .takeIf { it.hasCredentialFields }
-                ?.let {
-                    // Future hook: hand off a sanitized request target to Flutter
-                    // Autofill v2. Do not create credential datasets here yet.
-                    Unit
-                }
+        }
+        if (parsed == null || !parsed.hasCredentialFields) {
+            callback.onSuccess(null)
+            return
         }
 
-        if (!cancellationSignal.isCanceled) {
+        val store = AndroidAutofillStore(applicationContext)
+        if (store.readCredentialMetadata().isEmpty()) {
             callback.onSuccess(null)
+            return
+        }
+        val targets = AndroidAutofillNormalizer.normalizedRequestTargets(
+            packageName = parsed.packageName,
+            webDomains = parsed.webDomains,
+        )
+        if (targets.isEmpty()) {
+            callback.onSuccess(null)
+            return
+        }
+
+        val intent = AutofillPickerActivity.createIntent(
+            context = this,
+            usernameIds = parsed.usernameFields.map { it.autofillId },
+            passwordIds = parsed.passwordFields.map { it.autofillId },
+            packageName = parsed.packageName,
+            webDomains = parsed.webDomains.toList(),
+        )
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            request.id,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val presentation = presentation(
+            if (parsed.webDomains.isNotEmpty()) {
+                getString(R.string.autofill_dataset_select_for_site)
+            } else {
+                getString(R.string.autofill_dataset_select_for_app)
+            },
+        )
+        val dataset = Dataset.Builder(presentation)
+            .setAuthentication(pendingIntent.intentSender)
+            .apply {
+                for (field in parsed.fields) {
+                    setValue(field.autofillId, null as AutofillValue?)
+                }
+            }
+            .build()
+        val response = FillResponse.Builder()
+            .addDataset(dataset)
+            .build()
+
+        if (!cancellationSignal.isCanceled) {
+            callback.onSuccess(response)
         }
     }
 
     override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
-        // Save flows are disabled until the v2 vault bridge exists.
+        // Native save flows do not write KDBX. Associations are confirmed app-side.
         callback.onSuccess()
+    }
+
+    private fun presentation(text: String): RemoteViews {
+        return RemoteViews(packageName, android.R.layout.simple_list_item_1).apply {
+            setTextViewText(android.R.id.text1, text)
+        }
     }
 }
