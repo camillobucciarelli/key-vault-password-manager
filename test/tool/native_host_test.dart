@@ -126,17 +126,224 @@ void main() {
       },
     );
 
-    test('revealForFill is schema-validated but not implemented', () async {
+    test(
+      'revealForFill returns one-shot credentials via local bridge',
+      () async {
+        final directory = await Directory.systemTemp.createTemp(
+          'kv-native-host-',
+        );
+        final store = DesktopBrowserAutofillCacheStore(directory: directory);
+        await store.writeMetadataCache(
+          const DesktopBrowserAutofillMetadataCache(
+            version: desktopBrowserAutofillCacheVersion,
+            databaseId: 'db-1',
+            generatedAtEpochMs: 1,
+            entries: [
+              DesktopBrowserAutofillCredentialMetadata(
+                id: 'entry-123',
+                title: 'Example',
+                username: 'alice',
+                displayService: 'example.com',
+                serviceIdentifiers: [
+                  DesktopBrowserAutofillServiceIdentifier(
+                    type: 'domain',
+                    value: 'example.com',
+                  ),
+                ],
+                updatedAtEpochMs: 1,
+              ),
+            ],
+          ),
+        );
+        final bridge = await _FakeRevealBridge.start(
+          responseData: const {
+            'entryId': 'entry-123',
+            'username': 'alice',
+            'password': 'super-secret',
+          },
+        );
+        addTearDown(bridge.close);
+        await store.writeBridgeDescriptor(
+          bridge.descriptor(databaseId: 'db-1'),
+        );
+
+        final response = await handleNativeHostRequest({
+          'version': nativeProtocolVersion,
+          'id': 'reveal-1',
+          'type': 'revealForFill',
+          'payload': {'entryId': 'entry-123', 'origin': 'https://example.com'},
+        }, store: store);
+
+        expect(response['ok'], isTrue);
+        final data = response['data']! as Map<String, Object?>;
+        expect(data['entryId'], 'entry-123');
+        expect(data['username'], 'alice');
+        expect(data['password'], 'super-secret');
+        expect(bridge.requestCount, 1);
+        expect(bridge.lastPayload?['origin'], 'https://example.com');
+        final descriptorJson = await store.bridgeDescriptorFile!.readAsString();
+        expect(descriptorJson, isNot(contains('super-secret')));
+      },
+    );
+
+    test('revealForFill denies possible/manual non-exact match', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'kv-native-host-',
+      );
+      final store = DesktopBrowserAutofillCacheStore(directory: directory);
+      await store.writeMetadataCache(
+        const DesktopBrowserAutofillMetadataCache(
+          version: desktopBrowserAutofillCacheVersion,
+          databaseId: 'db-1',
+          generatedAtEpochMs: 1,
+          entries: [
+            DesktopBrowserAutofillCredentialMetadata(
+              id: 'bank',
+              title: 'Example Bank',
+              username: 'alice',
+              displayService: 'examplebank.com',
+              serviceIdentifiers: [
+                DesktopBrowserAutofillServiceIdentifier(
+                  type: 'domain',
+                  value: 'examplebank.com',
+                ),
+              ],
+              updatedAtEpochMs: 1,
+            ),
+          ],
+        ),
+      );
+      final bridge = await _FakeRevealBridge.start(
+        responseData: const {
+          'entryId': 'bank',
+          'username': 'alice',
+          'password': 'super-secret',
+        },
+      );
+      addTearDown(bridge.close);
+      await store.writeBridgeDescriptor(bridge.descriptor(databaseId: 'db-1'));
+
       final response = await handleNativeHostRequest({
         'version': nativeProtocolVersion,
-        'id': 'reveal-1',
+        'id': 'reveal-possible',
         'type': 'revealForFill',
-        'payload': {'entryId': 'entry-123'},
-      });
+        'payload': {'entryId': 'bank', 'origin': 'https://bank-login.test'},
+      }, store: store);
 
       expect(response['ok'], isFalse);
       final error = response['error']! as Map<String, Object?>;
-      expect(error['code'], 'not_implemented');
+      expect(error['code'], 'strong_match_required');
+      expect(bridge.requestCount, 0);
+      expect(jsonEncode(response), isNot(contains('super-secret')));
+    });
+
+    test(
+      'revealForFill denies example.com credential on phishing host',
+      () async {
+        final directory = await Directory.systemTemp.createTemp(
+          'kv-native-host-',
+        );
+        final store = DesktopBrowserAutofillCacheStore(directory: directory);
+        await store.writeMetadataCache(
+          const DesktopBrowserAutofillMetadataCache(
+            version: desktopBrowserAutofillCacheVersion,
+            databaseId: 'db-1',
+            generatedAtEpochMs: 1,
+            entries: [
+              DesktopBrowserAutofillCredentialMetadata(
+                id: 'example',
+                title: 'Example',
+                username: 'alice',
+                displayService: 'example.com',
+                serviceIdentifiers: [
+                  DesktopBrowserAutofillServiceIdentifier(
+                    type: 'domain',
+                    value: 'example.com',
+                  ),
+                ],
+                updatedAtEpochMs: 1,
+              ),
+            ],
+          ),
+        );
+        final bridge = await _FakeRevealBridge.start(
+          responseData: const {
+            'entryId': 'example',
+            'username': 'alice',
+            'password': 'super-secret',
+          },
+        );
+        addTearDown(bridge.close);
+        await store.writeBridgeDescriptor(
+          bridge.descriptor(databaseId: 'db-1'),
+        );
+
+        final response = await handleNativeHostRequest({
+          'version': nativeProtocolVersion,
+          'id': 'reveal-phish',
+          'type': 'revealForFill',
+          'payload': {
+            'entryId': 'example',
+            'origin': 'https://example.com.evil.com',
+          },
+        }, store: store);
+
+        expect(response['ok'], isFalse);
+        final error = response['error']! as Map<String, Object?>;
+        expect(error['code'], 'strong_match_required');
+        expect(bridge.requestCount, 0);
+        expect(jsonEncode(response), isNot(contains('super-secret')));
+      },
+    );
+
+    test('revealForFill denies descriptor/database mismatch', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'kv-native-host-',
+      );
+      final store = DesktopBrowserAutofillCacheStore(directory: directory);
+      await store.writeMetadataCache(
+        const DesktopBrowserAutofillMetadataCache(
+          version: desktopBrowserAutofillCacheVersion,
+          databaseId: 'db-1',
+          generatedAtEpochMs: 1,
+          entries: [
+            DesktopBrowserAutofillCredentialMetadata(
+              id: 'entry-123',
+              title: 'Example',
+              username: 'alice',
+              displayService: 'example.com',
+              serviceIdentifiers: [
+                DesktopBrowserAutofillServiceIdentifier(
+                  type: 'domain',
+                  value: 'example.com',
+                ),
+              ],
+              updatedAtEpochMs: 1,
+            ),
+          ],
+        ),
+      );
+      final bridge = await _FakeRevealBridge.start(
+        responseData: const {
+          'entryId': 'entry-123',
+          'username': 'alice',
+          'password': 'super-secret',
+        },
+      );
+      addTearDown(bridge.close);
+      await store.writeBridgeDescriptor(bridge.descriptor(databaseId: 'db-2'));
+
+      final response = await handleNativeHostRequest({
+        'version': nativeProtocolVersion,
+        'id': 'reveal-mismatch',
+        'type': 'revealForFill',
+        'payload': {'entryId': 'entry-123', 'origin': 'https://example.com'},
+      }, store: store);
+
+      expect(response['ok'], isFalse);
+      final error = response['error']! as Map<String, Object?>;
+      expect(error['code'], 'database_mismatch');
+      expect(bridge.requestCount, 0);
     });
 
     test('rejects legacy secret-bearing request fields', () async {
@@ -331,4 +538,82 @@ void main() {
       },
     );
   });
+}
+
+class _FakeRevealBridge {
+  _FakeRevealBridge._({
+    required this.server,
+    required this.token,
+    required this.responseData,
+  }) {
+    server.listen(_handleRequest);
+  }
+
+  static Future<_FakeRevealBridge> start({
+    required Map<String, Object?> responseData,
+  }) async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    return _FakeRevealBridge._(
+      server: server,
+      token: 'fake-token-fake-token-fake-token-fake-token',
+      responseData: responseData,
+    );
+  }
+
+  final HttpServer server;
+  final String token;
+  final Map<String, Object?> responseData;
+  int requestCount = 0;
+  Map<String, Object?>? lastPayload;
+
+  DesktopBrowserAutofillBridgeDescriptor descriptor({
+    required String databaseId,
+  }) {
+    return DesktopBrowserAutofillBridgeDescriptor(
+      version: desktopBrowserAutofillBridgeDescriptorVersion,
+      port: server.port,
+      token: token,
+      databaseId: databaseId,
+      createdAtEpochMs: 1,
+    );
+  }
+
+  Future<void> close() async {
+    await server.close(force: true);
+  }
+
+  Future<void> _handleRequest(HttpRequest request) async {
+    requestCount += 1;
+    request.response.headers.contentType = ContentType.json;
+    if (request.method != 'POST' || request.uri.path != '/reveal') {
+      request.response.statusCode = HttpStatus.notFound;
+      request.response.write(
+        jsonEncode({
+          'ok': false,
+          'error': {'code': 'not_found'},
+        }),
+      );
+      await request.response.close();
+      return;
+    }
+
+    if (request.headers.value(HttpHeaders.authorizationHeader) !=
+        'Bearer $token') {
+      request.response.statusCode = HttpStatus.unauthorized;
+      request.response.write(
+        jsonEncode({
+          'ok': false,
+          'error': {'code': 'unauthorized'},
+        }),
+      );
+      await request.response.close();
+      return;
+    }
+
+    final payload = await utf8.decoder.bind(request).join();
+    lastPayload = jsonDecode(payload) as Map<String, Object?>;
+    request.response.statusCode = HttpStatus.ok;
+    request.response.write(jsonEncode({'ok': true, 'data': responseData}));
+    await request.response.close();
+  }
 }

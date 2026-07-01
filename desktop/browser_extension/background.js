@@ -167,7 +167,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request?.type === "KEYVAULT_V2_REVEAL_FOR_FILL") {
-    sendNativeV2("revealForFill", { entryId: request.entryId })
+    sendNativeV2("revealForFill", {
+      entryId: request.entryId,
+      origin: request.origin,
+    })
       .then(sendResponse)
       .catch((error) => {
         sendResponse({

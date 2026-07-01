@@ -1,6 +1,7 @@
 import 'package:loggy/loggy.dart';
 
 import '../../data/services/desktop_browser_autofill_cache.dart';
+import '../../data/services/desktop_browser_autofill_reveal_bridge_service.dart';
 import '../../domain/models/apple_autofill_v2_models.dart';
 import '../../domain/models/vault_entry.dart';
 import 'apple_autofill_v2_coordinator.dart';
@@ -10,10 +11,12 @@ class DesktopBrowserAutofillCoordinator
   DesktopBrowserAutofillCoordinator({
     required this.store,
     required this.mapper,
+    required this.revealBridge,
   });
 
   final DesktopBrowserAutofillCacheStore store;
   final DesktopBrowserAutofillMetadataMapper mapper;
+  final DesktopBrowserAutofillRevealBridgeService revealBridge;
 
   @override
   Future<void> publishVault({
@@ -23,21 +26,39 @@ class DesktopBrowserAutofillCoordinator
     if (store.directory == null) {
       return;
     }
+    var metadataPublished = false;
     try {
       await store.writeMetadataCache(
         mapper.mapVault(databasePath: databasePath, entries: entries),
       );
+      metadataPublished = true;
+      await revealBridge.start(databasePath: databasePath, entries: entries);
     } catch (e, st) {
+      await _cleanupAfterPublishFailure(metadataPublished: metadataPublished);
       logWarning('Desktop browser Autofill cache publish failed.', e, st);
+    }
+  }
+
+  Future<void> _cleanupAfterPublishFailure({
+    required bool metadataPublished,
+  }) async {
+    try {
+      await revealBridge.stop();
+      if (!metadataPublished) {
+        await store.clearCredentials();
+      }
+    } catch (e, st) {
+      logWarning('Desktop browser Autofill cache cleanup failed.', e, st);
     }
   }
 
   @override
   Future<void> clearCredentials({String? databasePath}) async {
-    if (store.directory == null) {
-      return;
-    }
     try {
+      await revealBridge.stop();
+      if (store.directory == null) {
+        return;
+      }
       await store.clearCredentials();
     } catch (e, st) {
       logWarning('Desktop browser Autofill cache clear failed.', e, st);
