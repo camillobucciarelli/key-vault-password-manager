@@ -65,13 +65,9 @@ Future<void> _openAndroidAutofillSettings(BuildContext context) async {
 }
 
 Future<void> _openBrowserAutofillSettings(BuildContext context) async {
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-      content: Text(
-        'Browser Autofill v2 native host is being rebuilt and is not available yet.',
-      ),
-    ),
-  );
+  await Navigator.of(
+    context,
+  ).push(MaterialPageRoute<void>(builder: (_) => const BrowserSetupScreen()));
 }
 
 class _DriveSetupProgressIndicator extends StatelessWidget {

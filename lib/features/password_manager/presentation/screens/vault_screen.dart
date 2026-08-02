@@ -38,6 +38,7 @@ import '../coordinators/vault_session_coordinator.dart';
 import '../coordinators/otpauth_deep_link_coordinator.dart';
 import '../widgets/internal_key_file_manager_dialog.dart';
 import '../widgets/styled_info_container.dart';
+import 'browser_setup_screen.dart';
 import 'database_selection_screen.dart';
 import 'database_unlock_screen.dart';
 import '../utils/totp_utils.dart';

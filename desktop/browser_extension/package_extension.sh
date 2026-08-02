@@ -9,11 +9,12 @@ mkdir -p "${OUT_DIR}"
 rm -f "${OUT_FILE}"
 
 cd "${SCRIPT_DIR}"
-zip -r "${OUT_FILE}" \
+zip -X "${OUT_FILE}" \
   manifest.json \
   background.js \
   popup.html \
   popup.js \
-  popup.css
+  popup.css \
+  README.md
 
 echo "Packaged extension at ${OUT_FILE}"

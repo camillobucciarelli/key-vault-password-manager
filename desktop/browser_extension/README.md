@@ -40,6 +40,9 @@ Optional packaging from repository root:
 ./desktop/browser_extension/package_extension.sh
 ```
 
+The ZIP contains only `manifest.json`, `background.js`, popup files, and this
+README. Upload that ZIP to Chrome Web Store for beta/unlisted/private review.
+
 Firefox is not implemented in this MV3 service-worker extension. A separate
 Firefox manifest/background implementation is required before advertising
 Firefox support.
@@ -51,6 +54,10 @@ Permissions are intentionally small: `nativeMessaging` talks to the registered
 host, `activeTab` lets the popup inspect the current tab after a click, and
 `scripting` injects the one-shot fill function only after the user clicks Fill.
 No host permissions, content scripts, or extension storage are used.
+
+The popup checks native-host status automatically when opened. Manual **Check
+host status** remains a refresh button. No fill runs until the user clicks
+**Fill on this page** on an exact strong match.
 
 Flow:
 

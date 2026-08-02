@@ -21,7 +21,7 @@ class _SyncStatusStrip extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final compactActions = MediaQuery.sizeOf(context).width < 390;
     final canConfigureAndroidAutofill = false;
-    final canConfigureBrowserAutofill = false;
+    final canConfigureBrowserAutofill = BrowserSetupScreen.shouldShow;
     final databaseName = state.databasePath.trim().isEmpty
         ? 'Database'
         : path.basenameWithoutExtension(state.databasePath);
@@ -1305,7 +1305,7 @@ class _VaultSettingsSheet extends StatelessWidget {
                                   alpha: 0.6,
                                 ),
                             iconColor: colorScheme.onSecondaryContainer,
-                            label: 'Desktop Chrome extension',
+                            label: 'Desktop browser extension',
                             subtitle:
                                 'Install and connect the desktop browser host',
                             onTap: () => onSelect('browserSetup'),
