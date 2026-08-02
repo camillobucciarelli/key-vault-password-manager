@@ -504,8 +504,17 @@ searchInput.addEventListener("keydown", (event) => {
   }
 });
 
-setStatus("Click Find current site or search KeyVault metadata.");
-renderMessage(
-  "No password cache",
-  "This popup reads metadata. Exact strong matches show a Fill button after KeyVault desktop starts the local reveal bridge."
-);
+function initializePopup() {
+  setStatus("Checking native host…");
+  renderMessage(
+    "Connecting to KeyVault",
+    "This popup checks Native Messaging status automatically. Filling still requires clicking Fill on an exact strong match."
+  );
+  void checkHostStatus();
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initializePopup, { once: true });
+} else {
+  initializePopup();
+}

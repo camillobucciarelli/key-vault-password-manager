@@ -37,7 +37,7 @@ void main() {
       expect(descriptorJson, isNot(contains('super-secret')));
       expect(descriptorJson, isNot(contains('alice')));
 
-      final response = await _postReveal(
+      final response = await _postBridge(
         descriptor: descriptor!,
         body: {
           'databaseId': descriptor.databaseId,
@@ -52,6 +52,44 @@ void main() {
       expect(data['entryId'], 'entry-1');
       expect(data['username'], 'alice');
       expect(data['password'], 'super-secret');
+    });
+
+    test('returns authenticated status without credential data', () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'kv-reveal-bridge-',
+      );
+      final store = DesktopBrowserAutofillCacheStore(directory: directory);
+      final service = DesktopBrowserAutofillRevealBridgeService(
+        store: store,
+        mapper: const DesktopBrowserAutofillMetadataMapper(),
+      );
+      addTearDown(service.stop);
+      await service.start(
+        databasePath: '/vaults/example.kdbx',
+        entries: [
+          _entry(
+            id: 'entry-1',
+            username: 'alice',
+            password: 'super-secret',
+            url: 'https://example.com/login',
+          ),
+        ],
+      );
+      final descriptor = (await store.readBridgeDescriptor())!;
+
+      final response = await _postBridge(
+        descriptor: descriptor,
+        path: '/status',
+        body: const {},
+      );
+
+      expect(response.statusCode, HttpStatus.ok);
+      expect(response.json, {
+        'ok': true,
+        'data': {'databaseId': descriptor.databaseId},
+      });
+      expect(jsonEncode(response.json), isNot(contains('alice')));
+      expect(jsonEncode(response.json), isNot(contains('super-secret')));
     });
 
     test('rejects reveal without valid bearer token', () async {
@@ -78,7 +116,7 @@ void main() {
       );
 
       final descriptor = (await store.readBridgeDescriptor())!;
-      final response = await _postReveal(
+      final response = await _postBridge(
         descriptor: descriptor,
         authorizationToken: 'wrong-token',
         body: {
@@ -118,7 +156,7 @@ void main() {
       );
 
       final descriptor = (await store.readBridgeDescriptor())!;
-      final response = await _postReveal(
+      final response = await _postBridge(
         descriptor: descriptor,
         body: {
           'databaseId': descriptor.databaseId,
@@ -163,7 +201,7 @@ void main() {
       expect(await store.readBridgeDescriptor(), isNull);
       expect(await store.bridgeDescriptorFile!.exists(), isFalse);
       await expectLater(
-        _postReveal(
+        _postBridge(
           descriptor: descriptor!,
           body: {
             'databaseId': descriptor.databaseId,
@@ -177,9 +215,10 @@ void main() {
   });
 }
 
-Future<_RevealHttpResponse> _postReveal({
+Future<_RevealHttpResponse> _postBridge({
   required DesktopBrowserAutofillBridgeDescriptor descriptor,
   required Map<String, Object?> body,
+  String path = '/reveal',
   String? authorizationToken,
 }) async {
   final client = HttpClient()..findProxy = (_) => 'DIRECT';
@@ -189,7 +228,7 @@ Future<_RevealHttpResponse> _postReveal({
         scheme: 'http',
         host: InternetAddress.loopbackIPv4.address,
         port: descriptor.port,
-        path: '/reveal',
+        path: path,
       ),
     );
     request.headers.contentType = ContentType.json;

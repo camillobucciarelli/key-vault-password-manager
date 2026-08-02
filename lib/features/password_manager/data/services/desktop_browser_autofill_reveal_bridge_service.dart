@@ -109,7 +109,8 @@ class DesktopBrowserAutofillRevealBridgeService {
     request.response.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
 
     try {
-      if (request.method != 'POST' || request.uri.path != '/reveal') {
+      if (request.method != 'POST' ||
+          (request.uri.path != '/reveal' && request.uri.path != '/status')) {
         await _writeError(request, HttpStatus.notFound, 'not_found');
         return;
       }
@@ -124,6 +125,14 @@ class DesktopBrowserAutofillRevealBridgeService {
         request.headers.value(HttpHeaders.authorizationHeader),
       )) {
         await _writeError(request, HttpStatus.unauthorized, 'unauthorized');
+        return;
+      }
+
+      if (request.uri.path == '/status') {
+        await _writeJson(request, HttpStatus.ok, {
+          'ok': true,
+          'data': {'databaseId': _databaseId},
+        });
         return;
       }
 

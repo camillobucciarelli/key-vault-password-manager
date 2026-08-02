@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -5,8 +6,33 @@ import 'package:path/path.dart' as p;
 
 import 'desktop_browser_autofill_cache.dart';
 
-/// Result of installing the native messaging host on macOS.
-enum NativeHostInstallResult { success, scriptNotFound, failed }
+/// Result of installing the desktop native messaging host.
+enum NativeHostInstallResult {
+  success,
+  invalidExtensionId,
+  scriptNotFound,
+  unsupportedPlatform,
+  failed,
+}
+
+enum NativeHostBrowser { chrome, edge, chromium }
+
+enum BrowserSetupHostPlatform { macOS, windows, linux, unsupported }
+
+class NativeHostInstallCommand {
+  const NativeHostInstallCommand({
+    required this.executable,
+    required this.arguments,
+    required this.displayCommand,
+  });
+
+  final String executable;
+  final List<String> arguments;
+  final String displayCommand;
+}
+
+typedef NativeHostProcessRunner =
+    Future<ProcessResult> Function(String executable, List<String> arguments);
 
 /// Result of verifying desktop browser autofill connectivity.
 enum BridgeCheckResult {
@@ -17,6 +43,24 @@ enum BridgeCheckResult {
 }
 
 class BrowserSetupService {
+  BrowserSetupService({
+    DesktopBrowserAutofillCacheStore? cacheStore,
+    Directory? projectRoot,
+    BrowserSetupHostPlatform? platformOverride,
+    NativeHostProcessRunner? processRunner,
+  }) : _cacheStore = cacheStore ?? DesktopBrowserAutofillCacheStore(),
+       _projectRoot = projectRoot,
+       _platformOverride = platformOverride,
+       _processRunner = processRunner ?? Process.run;
+
+  static final RegExp _extensionIdPattern = RegExp(r'^[a-p]{32}$');
+  static const _bridgeProbeTimeout = Duration(seconds: 2);
+
+  final DesktopBrowserAutofillCacheStore _cacheStore;
+  final Directory? _projectRoot;
+  final BrowserSetupHostPlatform? _platformOverride;
+  final NativeHostProcessRunner _processRunner;
+
   // ---------------------------------------------------------------------------
   // Bridge connectivity check
   // ---------------------------------------------------------------------------
@@ -24,10 +68,50 @@ class BrowserSetupService {
   /// Returns whether the Flutter desktop app bridge is running and reachable.
   Future<BridgeCheckResult> checkBridgeConnection() async {
     if (!_isDesktop) return BridgeCheckResult.notRunning;
-    final status = await DesktopBrowserAutofillCacheStore().status();
-    return status.cacheAvailable
+    final cache = await _cacheStore.readMetadataCache();
+    if (cache == null) return BridgeCheckResult.noConfig;
+    final descriptor = await _cacheStore.readBridgeDescriptor();
+    if (descriptor == null || descriptor.databaseId != cache.databaseId) {
+      return BridgeCheckResult.v2AppBridgeUnavailable;
+    }
+    return await _probeBridge(descriptor)
         ? BridgeCheckResult.connected
         : BridgeCheckResult.v2AppBridgeUnavailable;
+  }
+
+  Future<bool> _probeBridge(
+    DesktopBrowserAutofillBridgeDescriptor descriptor,
+  ) async {
+    final client = HttpClient()
+      ..connectionTimeout = _bridgeProbeTimeout
+      ..findProxy = (_) => 'DIRECT';
+    try {
+      return await (() async {
+        final request = await client.postUrl(
+          Uri(
+            scheme: 'http',
+            host: InternetAddress.loopbackIPv4.address,
+            port: descriptor.port,
+            path: '/status',
+          ),
+        );
+        request.followRedirects = false;
+        request.headers.set(
+          HttpHeaders.authorizationHeader,
+          'Bearer ${descriptor.token}',
+        );
+        final response = await request.close();
+        if (response.statusCode != HttpStatus.ok) return false;
+        final decoded = jsonDecode(await utf8.decoder.bind(response).join());
+        if (decoded is! Map || decoded['ok'] != true) return false;
+        final data = decoded['data'];
+        return data is Map && data['databaseId'] == descriptor.databaseId;
+      })().timeout(_bridgeProbeTimeout);
+    } catch (_) {
+      return false;
+    } finally {
+      client.close(force: true);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -44,6 +128,116 @@ class BrowserSetupService {
     return NativeHostInstallResult.failed;
   }
 
+  Future<NativeHostInstallResult> registerNativeHost({
+    required NativeHostBrowser browser,
+    required String extensionId,
+  }) async {
+    final command = nativeHostInstallCommand(
+      browser: browser,
+      extensionId: extensionId,
+    );
+    if (!isValidExtensionId(extensionId)) {
+      return NativeHostInstallResult.invalidExtensionId;
+    }
+    if (!_isDesktop) return NativeHostInstallResult.unsupportedPlatform;
+    if (command == null) return NativeHostInstallResult.scriptNotFound;
+
+    try {
+      final result = await _processRunner(
+        command.executable,
+        command.arguments,
+      );
+      return result.exitCode == 0
+          ? NativeHostInstallResult.success
+          : NativeHostInstallResult.failed;
+    } catch (e, st) {
+      debugPrint('[BrowserSetup] native-host registration failed: $e\n$st');
+      return NativeHostInstallResult.failed;
+    }
+  }
+
+  NativeHostInstallCommand? nativeHostInstallCommand({
+    required NativeHostBrowser browser,
+    required String extensionId,
+  }) {
+    final normalizedExtensionId = extensionId.trim();
+    if (!isValidExtensionId(normalizedExtensionId)) return null;
+    final platform = _hostPlatform;
+    if (!_supportsBrowser(platform, browser)) return null;
+    final script = _installScriptPath(platform);
+    if (script == null) return null;
+
+    final arguments = _installScriptArguments(
+      platform: platform,
+      browser: browser,
+      scriptPath: script,
+      extensionId: normalizedExtensionId,
+    );
+    return NativeHostInstallCommand(
+      executable: _installScriptExecutable(platform),
+      arguments: arguments,
+      displayCommand: nativeHostInstallCommandText(
+        browser: browser,
+        extensionId: normalizedExtensionId,
+      ),
+    );
+  }
+
+  String nativeHostInstallCommandText({
+    required NativeHostBrowser browser,
+    String extensionId = '<EXTENSION_ID>',
+  }) {
+    final platform = _hostPlatform;
+    final scriptPath = _installScriptPath(platform);
+    final script = scriptPath == null
+        ? _defaultInstallScriptDisplayPath(platform)
+        : _displayPath(scriptPath, platform: platform);
+    final browserArg = _browserScriptArgument(browser, platform);
+
+    switch (platform) {
+      case BrowserSetupHostPlatform.macOS:
+        return '$script $browserArg $extensionId';
+      case BrowserSetupHostPlatform.linux:
+        return '$script --browser $browserArg $extensionId';
+      case BrowserSetupHostPlatform.windows:
+        return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File '
+            '$script -Browser $browserArg -ExtensionId $extensionId';
+      case BrowserSetupHostPlatform.unsupported:
+        return 'Native Messaging install non supportato su questa piattaforma';
+    }
+  }
+
+  String? get nativeHostBuildCommandText {
+    final root = _projectRootPath;
+    if (root == null) return null;
+    final script = p.join(root, 'tool', 'build_native_host.sh');
+    if (!File(script).existsSync()) return null;
+    return _displayPath(script, platform: _hostPlatform);
+  }
+
+  bool get canRunNativeHostInstaller =>
+      _isDesktop && _installScriptPath(_hostPlatform) != null;
+
+  List<NativeHostBrowser> get supportedBrowsers {
+    switch (_hostPlatform) {
+      case BrowserSetupHostPlatform.macOS:
+      case BrowserSetupHostPlatform.windows:
+        return const [NativeHostBrowser.chrome, NativeHostBrowser.edge];
+      case BrowserSetupHostPlatform.linux:
+        return const [
+          NativeHostBrowser.chrome,
+          NativeHostBrowser.chromium,
+          NativeHostBrowser.edge,
+        ];
+      case BrowserSetupHostPlatform.unsupported:
+        return const [];
+    }
+  }
+
+  static bool isValidExtensionId(String value) {
+    return _extensionIdPattern.hasMatch(value.trim());
+  }
+
   // ---------------------------------------------------------------------------
   // Extension folder lookup
   // ---------------------------------------------------------------------------
@@ -54,10 +248,8 @@ class BrowserSetupService {
   /// `.../desktop/native_host/`).  In a shipped `.app` this would need to
   /// resolve from the bundle, but for now dev-mode is enough.
   String? get extensionFolderPath {
-    final script = _installScriptPath();
-    if (script == null) return null;
-    // native_host/ → desktop/ → project_root/desktop/browser_extension/
-    final projectRoot = p.dirname(p.dirname(p.dirname(script)));
+    final projectRoot = _projectRootPath;
+    if (projectRoot == null) return null;
     final ext = p.join(projectRoot, 'desktop', 'browser_extension');
     return Directory(ext).existsSync() ? ext : null;
   }
@@ -65,6 +257,7 @@ class BrowserSetupService {
   String get nativeHostName => 'dev.camillobucciarelli.keyvault_native_host';
 
   String get bridgeConfigPath =>
+      _cacheStore.directory?.path ??
       DesktopBrowserAutofillCacheStore.defaultDirectory()?.path ??
       'Desktop browser Autofill cache directory unavailable';
 
@@ -74,32 +267,193 @@ class BrowserSetupService {
 
   bool get _isDesktop {
     if (kIsWeb) return false;
-    return defaultTargetPlatform == TargetPlatform.macOS ||
-        defaultTargetPlatform == TargetPlatform.windows ||
-        defaultTargetPlatform == TargetPlatform.linux;
+    return _hostPlatform != BrowserSetupHostPlatform.unsupported;
   }
 
-  /// Tries to locate `install_host_macos.sh` relative to the executable or the
-  /// project source tree (dev mode).
-  String? _installScriptPath() {
-    // Dev mode: script sits next to keyvault_native_host.sh
+  BrowserSetupHostPlatform get _hostPlatform {
+    final override = _platformOverride;
+    if (override != null) return override;
+    if (Platform.isMacOS) return BrowserSetupHostPlatform.macOS;
+    if (Platform.isWindows) return BrowserSetupHostPlatform.windows;
+    if (Platform.isLinux) return BrowserSetupHostPlatform.linux;
+    return BrowserSetupHostPlatform.unsupported;
+  }
+
+  /// Tries to locate the current platform installer relative to the executable
+  /// or the project source tree (dev mode).
+  String? _installScriptPath(BrowserSetupHostPlatform platform) {
+    final scriptName = _installScriptName(platform);
+    if (scriptName == null) return null;
+
+    final root = _projectRootPath;
+    if (root != null) {
+      final candidate = p.join(root, 'desktop', 'native_host', scriptName);
+      if (File(candidate).existsSync()) return candidate;
+    }
+
+    for (final start in [
+      Directory.current.path,
+      p.dirname(Platform.resolvedExecutable),
+    ]) {
+      final found = _findScriptFrom(start, scriptName);
+      if (found != null) return found;
+    }
+
+    debugPrint('[BrowserSetup] $scriptName not found');
+    return null;
+  }
+
+  String? get _projectRootPath {
+    final explicitRoot = _projectRoot;
+    if (explicitRoot != null && explicitRoot.existsSync()) {
+      return explicitRoot.path;
+    }
+
+    for (final start in [
+      Directory.current.path,
+      p.dirname(Platform.resolvedExecutable),
+    ]) {
+      final found = _findProjectRootFrom(start);
+      if (found != null) return found;
+    }
+    return null;
+  }
+
+  String? _findScriptFrom(String start, String scriptName) {
     final exe = Platform.resolvedExecutable;
-    // In Flutter dev: .../.dart_tool/... or .../build/macos/Build/...
-    // Walk up to find desktop/native_host/
-    var dir = p.dirname(exe);
-    for (var i = 0; i < 10; i++) {
-      final candidate = p.join(
-        dir,
-        'desktop',
-        'native_host',
-        'install_host_macos.sh',
-      );
+    var dir = start;
+    for (var i = 0; i < 12; i++) {
+      final candidate = p.join(dir, 'desktop', 'native_host', scriptName);
       if (File(candidate).existsSync()) return candidate;
       final parent = p.dirname(dir);
       if (parent == dir) break;
       dir = parent;
     }
-    debugPrint('[BrowserSetup] install_host_macos.sh not found near $exe');
+    debugPrint('[BrowserSetup] $scriptName not found near $exe');
     return null;
+  }
+
+  String? _findProjectRootFrom(String start) {
+    var dir = start;
+    for (var i = 0; i < 12; i++) {
+      if (Directory(p.join(dir, 'desktop', 'native_host')).existsSync() &&
+          Directory(p.join(dir, 'desktop', 'browser_extension')).existsSync()) {
+        return dir;
+      }
+      final parent = p.dirname(dir);
+      if (parent == dir) break;
+      dir = parent;
+    }
+    return null;
+  }
+
+  String? _installScriptName(BrowserSetupHostPlatform platform) {
+    switch (platform) {
+      case BrowserSetupHostPlatform.macOS:
+        return 'install_host_macos.sh';
+      case BrowserSetupHostPlatform.windows:
+        return 'install_host_windows.ps1';
+      case BrowserSetupHostPlatform.linux:
+        return 'install_host_linux.sh';
+      case BrowserSetupHostPlatform.unsupported:
+        return null;
+    }
+  }
+
+  String _installScriptExecutable(BrowserSetupHostPlatform platform) {
+    return switch (platform) {
+      BrowserSetupHostPlatform.windows => 'powershell.exe',
+      _ => '/bin/bash',
+    };
+  }
+
+  List<String> _installScriptArguments({
+    required BrowserSetupHostPlatform platform,
+    required NativeHostBrowser browser,
+    required String scriptPath,
+    required String extensionId,
+  }) {
+    final browserArg = _browserScriptArgument(browser, platform);
+    return switch (platform) {
+      BrowserSetupHostPlatform.macOS => [scriptPath, browserArg, extensionId],
+      BrowserSetupHostPlatform.linux => [
+        scriptPath,
+        '--browser',
+        browserArg,
+        extensionId,
+      ],
+      BrowserSetupHostPlatform.windows => [
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        scriptPath,
+        '-Browser',
+        browserArg,
+        '-ExtensionId',
+        extensionId,
+      ],
+      BrowserSetupHostPlatform.unsupported => const [],
+    };
+  }
+
+  String _browserScriptArgument(
+    NativeHostBrowser browser,
+    BrowserSetupHostPlatform platform,
+  ) {
+    return switch (browser) {
+      NativeHostBrowser.chrome =>
+        platform == BrowserSetupHostPlatform.windows ? 'Chrome' : 'chrome',
+      NativeHostBrowser.edge =>
+        platform == BrowserSetupHostPlatform.windows ? 'Edge' : 'edge',
+      NativeHostBrowser.chromium => 'chromium',
+    };
+  }
+
+  bool _supportsBrowser(
+    BrowserSetupHostPlatform platform,
+    NativeHostBrowser browser,
+  ) {
+    return switch (platform) {
+      BrowserSetupHostPlatform.macOS || BrowserSetupHostPlatform.windows =>
+        browser == NativeHostBrowser.chrome ||
+            browser == NativeHostBrowser.edge,
+      BrowserSetupHostPlatform.linux => true,
+      BrowserSetupHostPlatform.unsupported => false,
+    };
+  }
+
+  String _defaultInstallScriptDisplayPath(BrowserSetupHostPlatform platform) {
+    final scriptName = _installScriptName(platform);
+    if (scriptName == null) return '<INSTALL_SCRIPT>';
+    final raw = p.join('desktop', 'native_host', scriptName);
+    final windowsSeparator = String.fromCharCode(92);
+    return platform == BrowserSetupHostPlatform.windows
+        ? '.\\${raw.replaceAll('/', windowsSeparator)}'
+        : './$raw';
+  }
+
+  String _displayPath(
+    String path, {
+    required BrowserSetupHostPlatform platform,
+  }) {
+    final root = _projectRootPath;
+    var display = path;
+    final windowsSeparator = String.fromCharCode(92);
+    if (root != null && p.isWithin(root, path)) {
+      final relative = p.relative(path, from: root);
+      display = platform == BrowserSetupHostPlatform.windows
+          ? '.\\${relative.replaceAll('/', windowsSeparator)}'
+          : './$relative';
+    }
+    if (platform == BrowserSetupHostPlatform.windows) {
+      display = display.replaceAll('/', windowsSeparator);
+    }
+    return _quoteForDisplay(display);
+  }
+
+  String _quoteForDisplay(String value) {
+    if (!value.contains(RegExp(r'\s'))) return value;
+    return '"${value.replaceAll('"', '\\"')}"';
   }
 }
