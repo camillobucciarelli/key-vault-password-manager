@@ -40,8 +40,9 @@ Optional packaging from repository root:
 ./desktop/browser_extension/package_extension.sh
 ```
 
-The ZIP contains only `manifest.json`, `background.js`, popup files, and this
-README. Upload that ZIP to Chrome Web Store for beta/unlisted/private review.
+The ZIP contains only `manifest.json`, `background.js`, popup files, this
+README, and the four declared extension icons. Upload that ZIP to Chrome Web
+Store for beta/unlisted/private review.
 
 Firefox is not implemented in this MV3 service-worker extension. A separate
 Firefox manifest/background implementation is required before advertising

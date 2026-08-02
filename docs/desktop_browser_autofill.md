@@ -69,8 +69,8 @@ Optional package command from the repository root:
 
 The package script writes `desktop/browser_extension/dist/keyvault-browser-extension.zip`
 with only these review artifacts: `manifest.json`, `background.js`, `popup.html`,
-`popup.js`, `popup.css`, and `README.md`. It excludes repository, IDE, source,
-native-host, build and secret files.
+`popup.js`, `popup.css`, `README.md`, and the declared files under `icons/`. It
+excludes repository, IDE, source, native-host, build and secret files.
 
 ## Compile the native host
 
