@@ -15,6 +15,10 @@ zip -X "${OUT_FILE}" \
   popup.html \
   popup.js \
   popup.css \
-  README.md
+  README.md \
+  icons/icon-16.png \
+  icons/icon-32.png \
+  icons/icon-48.png \
+  icons/icon-128.png
 
 echo "Packaged extension at ${OUT_FILE}"
