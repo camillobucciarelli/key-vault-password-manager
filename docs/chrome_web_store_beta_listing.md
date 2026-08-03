@@ -97,7 +97,7 @@ a Dart application, and its strings are garbage-collected.
 
 **Privacy policy URL**
 
-https://github.com/camillobucciarelli/key-vault-password-manager/blob/main/docs/browser_extension_privacy.md
+https://camillobucciarelli.github.io/keyvault-privacy/
 
 ## Reviewer test instructions
 
