@@ -14,7 +14,7 @@ class DatabaseSelectionBloc
     on<SelectExistingDatabase>(_onSelectExistingDatabase);
     on<OpenRecentDatabase>(_onOpenRecentDatabase);
     on<CreateNewDatabase>(_onCreateNewDatabase);
-    on<SelectDriveDatabaseLocalCopy>(_onSelectDriveDatabaseLocalCopy);
+    on<SelectDriveDatabase>(_onSelectDriveDatabase);
     on<RemoveRecentDatabase>(_onRemoveRecentDatabase);
     on<ResolveDuplicateDecision>(_onResolveDuplicateDecision);
   }
@@ -142,8 +142,8 @@ class DatabaseSelectionBloc
     }
   }
 
-  Future<void> _onSelectDriveDatabaseLocalCopy(
-    SelectDriveDatabaseLocalCopy event,
+  Future<void> _onSelectDriveDatabase(
+    SelectDriveDatabase event,
     Emitter<DatabaseSelectionState> emit,
   ) async {
     _safeEmit(
@@ -151,11 +151,11 @@ class DatabaseSelectionBloc
       DatabaseSelectionLoading(recentDatabasePaths: state.recentDatabasePaths),
     );
     try {
-      final result = await databaseSessionCoordinator
-          .selectDriveDatabaseLocalCopy(
-            localPath: event.localPath,
-            remoteFileId: event.remoteFileId,
-          );
+      final result = await databaseSessionCoordinator.selectDriveDatabase(
+        remoteFileId: event.remoteFileId,
+        remoteFileName: event.remoteFileName,
+        overwriteExisting: event.overwriteExisting,
+      );
       _pendingDuplicatePrompt = null;
       _emitResult(emit, result);
     } catch (e, st) {

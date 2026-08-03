@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 
 import '../../../../../core/theme/app_icons.dart';
 import '../../../../../core/utils/mobile_file_storage.dart';
@@ -19,21 +20,34 @@ class InternalKeyFileManagerResult {
 Future<InternalKeyFileManagerResult?> showInternalKeyFileManagerDialog(
   BuildContext context, {
   String? initiallySelectedPath,
+  Set<String> protectedPaths = const {},
 }) {
   return showDialog<InternalKeyFileManagerResult>(
     context: context,
     builder: (context) {
       return _InternalKeyFileManagerDialog(
         initiallySelectedPath: initiallySelectedPath,
+        protectedPaths: protectedPaths,
       );
     },
   );
 }
 
+bool isProtectedKeyFilePath(String filePath, Iterable<String> protectedPaths) {
+  final normalizedPath = p.normalize(filePath.trim());
+  return protectedPaths.any(
+    (path) => p.equals(p.normalize(path.trim()), normalizedPath),
+  );
+}
+
 class _InternalKeyFileManagerDialog extends StatefulWidget {
-  const _InternalKeyFileManagerDialog({this.initiallySelectedPath});
+  const _InternalKeyFileManagerDialog({
+    this.initiallySelectedPath,
+    required this.protectedPaths,
+  });
 
   final String? initiallySelectedPath;
+  final Set<String> protectedPaths;
 
   @override
   State<_InternalKeyFileManagerDialog> createState() =>
@@ -146,6 +160,9 @@ class _InternalKeyFileManagerDialogState
   }
 
   Future<void> _deleteKeyFile(AppStorageFileEntry entry) async {
+    if (isProtectedKeyFilePath(entry.path, widget.protectedPaths)) {
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) {
@@ -212,6 +229,10 @@ class _InternalKeyFileManagerDialogState
                   final entry = _entries[index];
                   final isCurrent =
                       widget.initiallySelectedPath?.trim() == entry.path.trim();
+                  final isProtected = isProtectedKeyFilePath(
+                    entry.path,
+                    widget.protectedPaths,
+                  );
                   return ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: Icon(
@@ -251,18 +272,23 @@ class _InternalKeyFileManagerDialogState
                             break;
                         }
                       },
-                      itemBuilder: (context) => const [
-                        PopupMenuItem<String>(
+                      itemBuilder: (context) => [
+                        const PopupMenuItem<String>(
                           value: 'select',
                           child: Text('Select'),
                         ),
-                        PopupMenuItem<String>(
+                        const PopupMenuItem<String>(
                           value: 'export',
                           child: Text('Export'),
                         ),
                         PopupMenuItem<String>(
                           value: 'delete',
-                          child: Text('Delete'),
+                          enabled: !isProtected,
+                          child: Text(
+                            isProtected
+                                ? 'Delete (remove from vault first)'
+                                : 'Delete',
+                          ),
                         ),
                       ],
                     ),

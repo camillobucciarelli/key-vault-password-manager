@@ -6,6 +6,7 @@ import 'package:password_manager/features/password_manager/presentation/bloc/dat
 import 'package:password_manager/features/password_manager/presentation/bloc/database_selection/database_selection_event.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/database_session_coordinator.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_dedup_result.dart';
+import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
 
 void main() {
   group('DatabaseUnlockBloc', () {
@@ -132,6 +133,15 @@ class _FakeDatabaseSessionCoordinator
   Future<bool> hasStoredMasterPassword() async => false;
 
   @override
+  Future<Set<String>> getProtectedKeyFilePaths() async => const {};
+
+  @override
+  Future<bool> hasManagedDatabaseNamed(String fileName) async => false;
+
+  @override
+  Future<List<DriveRemoteFile>> listDriveDatabases() async => const [];
+
+  @override
   Future<void> unlockWithManualCredentials({
     required String databasePath,
     required String password,
@@ -197,9 +207,10 @@ class _FakeDatabaseSessionCoordinator
   }
 
   @override
-  Future<DatabaseSelectionSessionResult> selectDriveDatabaseLocalCopy({
-    required String localPath,
+  Future<DatabaseSelectionSessionResult> selectDriveDatabase({
     required String remoteFileId,
+    required String remoteFileName,
+    required bool overwriteExisting,
   }) async {
     throw UnimplementedError();
   }

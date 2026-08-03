@@ -14,16 +14,7 @@ import 'package:password_manager/features/password_manager/domain/models/sync_co
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_snapshot.dart';
-import 'package:password_manager/features/password_manager/domain/repositories/database_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
-import 'package:password_manager/features/password_manager/domain/usecases/connect_google_account_usecase.dart';
-import 'package:password_manager/features/password_manager/domain/usecases/disconnect_google_account_usecase.dart';
-import 'package:password_manager/features/password_manager/domain/usecases/get_drive_connection_status_usecase.dart';
-import 'package:password_manager/features/password_manager/domain/usecases/get_selected_key_file_path_usecase.dart';
-import 'package:password_manager/features/password_manager/domain/usecases/link_database_to_drive_usecase.dart';
-import 'package:password_manager/features/password_manager/domain/usecases/list_drive_remote_files_usecase.dart';
-import 'package:password_manager/features/password_manager/domain/usecases/set_database_auto_sync_usecase.dart';
-import 'package:password_manager/features/password_manager/domain/usecases/sync_database_now_usecase.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_bloc.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_event.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_state.dart';
@@ -655,15 +646,6 @@ class _FakeSecureDataSource implements SecureDataSource {
   Future<void> clearMasterPassword() async {}
 }
 
-class _FakeDatabaseRepository implements DatabaseRepository {
-  @override
-  Future<String?> getSelectedKeyFilePath() async => null;
-  @override
-  Future<void> saveSelectedDatabasePath(String path) async {}
-  @override
-  Future<void> saveSelectedKeyFilePath(String? path) async {}
-}
-
 class _FakeVaultKdbxService implements VaultKdbxService {
   _FakeVaultKdbxService({List<String>? operations})
     : operations = operations ?? <String>[];
@@ -815,20 +797,11 @@ VaultBloc _makeBloc(
 }) {
   return VaultBloc(
     databasePath: _kDbPath,
+    getSelectedKeyFilePath: () async => null,
     secureDataSource: _FakeSecureDataSource(),
-    getSelectedKeyFilePathUseCase: GetSelectedKeyFilePathUseCase(
-      _FakeDatabaseRepository(),
-    ),
     vaultKdbxService: kdbx,
     vaultCsvImportService: VaultCsvImportService(),
     vaultDuplicateService: VaultDuplicateService(),
-    getDriveConnectionStatusUseCase: GetDriveConnectionStatusUseCase(repo),
-    connectGoogleAccountUseCase: ConnectGoogleAccountUseCase(repo),
-    disconnectGoogleAccountUseCase: DisconnectGoogleAccountUseCase(repo),
-    linkDatabaseToDriveUseCase: LinkDatabaseToDriveUseCase(repo),
-    listDriveRemoteFilesUseCase: ListDriveRemoteFilesUseCase(repo),
-    syncDatabaseNowUseCase: SyncDatabaseNowUseCase(repo),
-    setDatabaseAutoSyncUseCase: SetDatabaseAutoSyncUseCase(repo),
     databaseSyncRepository: repo,
     appleAutofillV2Coordinator: appleAutofillV2Coordinator,
   );

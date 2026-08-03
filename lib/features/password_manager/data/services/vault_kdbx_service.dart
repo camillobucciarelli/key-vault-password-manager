@@ -10,7 +10,21 @@ import '../../domain/models/vault_entry.dart';
 import '../../domain/models/vault_group.dart';
 import '../../domain/models/vault_snapshot.dart';
 
+class KdbxCredentialChange {
+  const KdbxCredentialChange({
+    required this.databasePath,
+    required this.backupPath,
+  });
+
+  final String databasePath;
+  final String backupPath;
+}
+
 class VaultKdbxService {
+  VaultKdbxService({this.credentialTempWriter});
+
+  final Future<void> Function(File file, Uint8List bytes)? credentialTempWriter;
+
   static const maxAttachmentBytes = 20 * 1024 * 1024;
   static final _notesKey = KdbxKey('Notes');
   static final _standardEntryKeys = {
@@ -276,21 +290,39 @@ class VaultKdbxService {
     await _save(databasePath, file);
   }
 
-  Future<void> changeMasterPassword({
+  Future<void> changeCredentials({
     required String databasePath,
     required String currentPassword,
-    String? keyFilePath,
+    String? currentKeyFilePath,
     required String newPassword,
+    String? newKeyFilePath,
+  }) async {
+    final change = await beginCredentialChange(
+      databasePath: databasePath,
+      currentPassword: currentPassword,
+      currentKeyFilePath: currentKeyFilePath,
+      newPassword: newPassword,
+      newKeyFilePath: newKeyFilePath,
+    );
+    await finalizeCredentialChange(change);
+  }
+
+  Future<KdbxCredentialChange> beginCredentialChange({
+    required String databasePath,
+    required String currentPassword,
+    String? currentKeyFilePath,
+    required String newPassword,
+    String? newKeyFilePath,
   }) async {
     final file = await _openFile(
       databasePath: databasePath,
       password: currentPassword,
-      keyFilePath: keyFilePath,
+      keyFilePath: currentKeyFilePath,
     );
 
     Uint8List? keyFileBytes;
-    if (keyFilePath != null && keyFilePath.trim().isNotEmpty) {
-      final keyFile = File(keyFilePath);
+    if (newKeyFilePath != null && newKeyFilePath.trim().isNotEmpty) {
+      final keyFile = File(newKeyFilePath);
       if (!await keyFile.exists()) {
         throw Exception('Key file not found.');
       }
@@ -301,7 +333,80 @@ class VaultKdbxService {
       ProtectedValue.fromString(newPassword),
       keyFileBytes,
     );
-    await _save(databasePath, file);
+    final bytes = await file.save();
+    final suffix = DateTime.now().microsecondsSinceEpoch;
+    final directory = p.dirname(databasePath);
+    final name = p.basename(databasePath);
+    final tempFile = File(p.join(directory, '.$name.credentials-$suffix.tmp'));
+    final backupFile = File(
+      p.join(directory, '.$name.credentials-$suffix.bak'),
+    );
+    final databaseFile = File(databasePath);
+
+    try {
+      final writer = credentialTempWriter;
+      if (writer == null) {
+        await tempFile.writeAsBytes(bytes, flush: true);
+      } else {
+        await writer(tempFile, bytes);
+      }
+      await _openFile(
+        databasePath: tempFile.path,
+        password: newPassword,
+        keyFilePath: newKeyFilePath,
+      );
+
+      await databaseFile.rename(backupFile.path);
+      try {
+        await tempFile.rename(databasePath);
+      } catch (_) {
+        await backupFile.rename(databasePath);
+        rethrow;
+      }
+
+      return KdbxCredentialChange(
+        databasePath: databasePath,
+        backupPath: backupFile.path,
+      );
+    } catch (_) {
+      if (await tempFile.exists()) {
+        await tempFile.delete();
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> finalizeCredentialChange(KdbxCredentialChange change) async {
+    final backupFile = File(change.backupPath);
+    if (await backupFile.exists()) {
+      await backupFile.delete();
+    }
+  }
+
+  Future<void> rollbackCredentialChange(KdbxCredentialChange change) async {
+    final backupFile = File(change.backupPath);
+    if (!await backupFile.exists()) {
+      throw StateError('Credential backup is unavailable.');
+    }
+
+    final databaseFile = File(change.databasePath);
+    final failedFile = File(
+      '${change.databasePath}.credentials-rollback-${DateTime.now().microsecondsSinceEpoch}',
+    );
+    if (await databaseFile.exists()) {
+      await databaseFile.rename(failedFile.path);
+    }
+    try {
+      await backupFile.rename(change.databasePath);
+      if (await failedFile.exists()) {
+        await failedFile.delete();
+      }
+    } catch (_) {
+      if (await failedFile.exists() && !await databaseFile.exists()) {
+        await failedFile.rename(change.databasePath);
+      }
+      rethrow;
+    }
   }
 
   Future<void> addAttachment({

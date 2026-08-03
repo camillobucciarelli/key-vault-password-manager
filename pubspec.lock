@@ -57,14 +57,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.2"
-  catch_and_flow:
-    dependency: "direct main"
-    description:
-      name: catch_and_flow
-      sha256: "33efbf8e685ebdac9b43375753b5911a04a9f733f36dbde6257a1ed76ffb324f"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.2.1"
   characters:
     dependency: transitive
     description:

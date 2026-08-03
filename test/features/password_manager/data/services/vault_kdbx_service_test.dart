@@ -25,6 +25,237 @@ void main() {
     }
   });
 
+  test('changes password and key file together', () async {
+    final keyFile = File('${tempDir.path}/vault.key');
+    await keyFile.writeAsBytes(List<int>.generate(64, (index) => index));
+
+    await service.changeCredentials(
+      databasePath: databasePath,
+      currentPassword: password,
+      newPassword: 'new-password',
+      newKeyFilePath: keyFile.path,
+    );
+
+    await expectLater(
+      service.loadVault(
+        databasePath: databasePath,
+        password: 'new-password',
+        keyFilePath: keyFile.path,
+      ),
+      completes,
+    );
+    await expectLater(
+      service.loadVault(databasePath: databasePath, password: password),
+      throwsA(anything),
+    );
+  });
+
+  test('changes password only and rejects old password', () async {
+    await service.changeCredentials(
+      databasePath: databasePath,
+      currentPassword: password,
+      newPassword: 'new-password',
+    );
+
+    await expectLater(
+      service.loadVault(databasePath: databasePath, password: 'new-password'),
+      completes,
+    );
+    await expectLater(
+      service.loadVault(databasePath: databasePath, password: password),
+      throwsA(anything),
+    );
+  });
+
+  test('adds, changes, and removes key file atomically', () async {
+    final firstKey = File('${tempDir.path}/first.key');
+    final secondKey = File('${tempDir.path}/second.key');
+    await firstKey.writeAsBytes(List<int>.filled(64, 1));
+    await secondKey.writeAsBytes(List<int>.filled(64, 2));
+
+    await service.changeCredentials(
+      databasePath: databasePath,
+      currentPassword: password,
+      newPassword: password,
+      newKeyFilePath: firstKey.path,
+    );
+    await expectLater(
+      service.loadVault(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: firstKey.path,
+      ),
+      completes,
+    );
+
+    await service.changeCredentials(
+      databasePath: databasePath,
+      currentPassword: password,
+      currentKeyFilePath: firstKey.path,
+      newPassword: password,
+      newKeyFilePath: secondKey.path,
+    );
+    await expectLater(
+      service.loadVault(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: secondKey.path,
+      ),
+      completes,
+    );
+    await expectLater(
+      service.loadVault(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: firstKey.path,
+      ),
+      throwsA(anything),
+    );
+
+    await service.changeCredentials(
+      databasePath: databasePath,
+      currentPassword: password,
+      currentKeyFilePath: secondKey.path,
+      newPassword: password,
+    );
+    await expectLater(
+      service.loadVault(databasePath: databasePath, password: password),
+      completes,
+    );
+    await expectLater(
+      service.loadVault(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: secondKey.path,
+      ),
+      throwsA(anything),
+    );
+  });
+
+  test('changes key-only vault and removes key by adding password', () async {
+    final firstKey = File('${tempDir.path}/key-only-first.key');
+    final secondKey = File('${tempDir.path}/key-only-second.key');
+    await firstKey.writeAsBytes(List<int>.filled(64, 3));
+    await secondKey.writeAsBytes(List<int>.filled(64, 4));
+    await _createDatabase(
+      databasePath: databasePath,
+      password: '',
+      keyFilePath: firstKey.path,
+    );
+
+    await service.changeCredentials(
+      databasePath: databasePath,
+      currentPassword: '',
+      currentKeyFilePath: firstKey.path,
+      newPassword: '',
+      newKeyFilePath: secondKey.path,
+    );
+    await expectLater(
+      service.loadVault(
+        databasePath: databasePath,
+        password: '',
+        keyFilePath: secondKey.path,
+      ),
+      completes,
+    );
+
+    await service.changeCredentials(
+      databasePath: databasePath,
+      currentPassword: '',
+      currentKeyFilePath: secondKey.path,
+      newPassword: 'fallback-password',
+    );
+    await expectLater(
+      service.loadVault(
+        databasePath: databasePath,
+        password: 'fallback-password',
+      ),
+      completes,
+    );
+  });
+
+  test('wrong current credentials leave original database readable', () async {
+    final originalBytes = await File(databasePath).readAsBytes();
+
+    await expectLater(
+      service.beginCredentialChange(
+        databasePath: databasePath,
+        currentPassword: 'wrong-password',
+        newPassword: 'new-password',
+      ),
+      throwsA(anything),
+    );
+
+    expect(await File(databasePath).readAsBytes(), originalBytes);
+    await expectLater(
+      service.loadVault(databasePath: databasePath, password: password),
+      completes,
+    );
+  });
+
+  test('write failure leaves original database untouched', () async {
+    final originalBytes = await File(databasePath).readAsBytes();
+    final failingService = VaultKdbxService(
+      credentialTempWriter: (_, _) async => throw FileSystemException('write'),
+    );
+
+    await expectLater(
+      failingService.beginCredentialChange(
+        databasePath: databasePath,
+        currentPassword: password,
+        newPassword: 'new-password',
+      ),
+      throwsA(isA<FileSystemException>()),
+    );
+
+    expect(await File(databasePath).readAsBytes(), originalBytes);
+  });
+
+  test(
+    'truncated temp file fails verification without replacing original',
+    () async {
+      final originalBytes = await File(databasePath).readAsBytes();
+      final truncatingService = VaultKdbxService(
+        credentialTempWriter: (file, _) =>
+            file.writeAsBytes(const [1, 2, 3], flush: true),
+      );
+
+      await expectLater(
+        truncatingService.beginCredentialChange(
+          databasePath: databasePath,
+          currentPassword: password,
+          newPassword: 'new-password',
+        ),
+        throwsA(anything),
+      );
+
+      expect(await File(databasePath).readAsBytes(), originalBytes);
+    },
+  );
+
+  test('credential rollback restores old credentials', () async {
+    final change = await service.beginCredentialChange(
+      databasePath: databasePath,
+      currentPassword: password,
+      newPassword: 'new-password',
+    );
+    await expectLater(
+      service.loadVault(databasePath: databasePath, password: 'new-password'),
+      completes,
+    );
+
+    await service.rollbackCredentialChange(change);
+
+    await expectLater(
+      service.loadVault(databasePath: databasePath, password: password),
+      completes,
+    );
+    await expectLater(
+      service.loadVault(databasePath: databasePath, password: 'new-password'),
+      throwsA(anything),
+    );
+  });
+
   test('maps created and modified timestamps for new entries', () async {
     final rootGroupId = await _rootGroupId(service, databasePath, password);
     await service.createEntry(
@@ -388,10 +619,14 @@ void main() {
 Future<void> _createDatabase({
   required String databasePath,
   required String password,
+  String? keyFilePath,
 }) async {
+  final keyBytes = keyFilePath == null
+      ? null
+      : await File(keyFilePath).readAsBytes();
   final credentials = Credentials.composite(
     ProtectedValue.fromString(password),
-    null,
+    keyBytes,
   );
   final kdbx = KdbxFormat().create(credentials, 'Test DB');
   final bytes = await kdbx.save();

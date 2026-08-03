@@ -8,7 +8,6 @@ import '../data/datasources/local_data_source.dart';
 import '../data/datasources/secure_data_source.dart';
 import '../data/datasources/sync_metadata_data_source.dart';
 import '../data/repositories/database_registry_repository_impl.dart';
-import '../data/repositories/database_repository_impl.dart';
 import '../data/repositories/database_security_repository_impl.dart';
 import '../data/repositories/database_sync_repository_impl.dart';
 import '../data/services/apple_autofill_v2_method_channel_client.dart';
@@ -24,7 +23,6 @@ import '../data/services/vault_csv_import_service.dart';
 import '../data/services/vault_duplicate_service.dart';
 import '../data/services/vault_kdbx_service.dart';
 import '../domain/repositories/database_registry_repository.dart';
-import '../domain/repositories/database_repository.dart';
 import '../domain/repositories/database_security_repository.dart';
 import '../domain/repositories/database_sync_repository.dart';
 import '../domain/repositories/autofill_ports.dart';
@@ -32,9 +30,6 @@ import '../domain/services/apple_autofill_v2_payload_mapper.dart';
 import '../domain/services/vault_autofill_matcher.dart';
 
 void registerPasswordManagerDataDependencies(GetIt sl) {
-  sl.registerLazySingleton<DatabaseRepository>(
-    () => DatabaseRepositoryImpl(localDataSource: sl()),
-  );
   sl.registerLazySingleton<DatabaseRegistryRepository>(
     () => DatabaseRegistryRepositoryImpl(localDataSource: sl()),
   );

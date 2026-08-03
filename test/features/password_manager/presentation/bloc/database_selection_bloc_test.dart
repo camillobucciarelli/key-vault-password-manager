@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_dedup_result.dart';
+import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_import_result.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/database_selection/database_selection_bloc.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/database_selection/database_selection_event.dart';
@@ -87,6 +88,27 @@ void main() {
         await sub.cancel();
       },
     );
+
+    test('emits success for initial active database', () async {
+      coordinator.checkInitialResult = const DatabaseSelectionSessionResult(
+        status: DatabaseSessionStatus.success,
+        path: '/tmp/b.kdbx',
+        recentDatabasePaths: ['/tmp/a.kdbx', '/tmp/b.kdbx'],
+      );
+
+      final states = <DatabaseSelectionState>[];
+      final sub = bloc.stream.listen(states.add);
+
+      bloc.add(CheckInitialDatabase());
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(states.any((s) => s is DatabaseSelectionLoading), isTrue);
+      final success = states.whereType<DatabaseSelectionSuccess>().single;
+      expect(success.path, '/tmp/b.kdbx');
+      expect(success.recentDatabasePaths, ['/tmp/a.kdbx', '/tmp/b.kdbx']);
+
+      await sub.cancel();
+    });
   });
 }
 
@@ -104,14 +126,17 @@ class _FakeDatabaseSessionCoordinator
         recentDatabasePaths: [],
       );
 
+  DatabaseSelectionSessionResult checkInitialResult =
+      const DatabaseSelectionSessionResult(
+        status: DatabaseSessionStatus.unselected,
+        recentDatabasePaths: [],
+      );
+
   DatabaseDuplicateResolution? lastResolution;
 
   @override
   Future<DatabaseSelectionSessionResult> checkInitialDatabase() async {
-    return const DatabaseSelectionSessionResult(
-      status: DatabaseSessionStatus.unselected,
-      recentDatabasePaths: [],
-    );
+    return checkInitialResult;
   }
 
   @override
@@ -131,6 +156,15 @@ class _FakeDatabaseSessionCoordinator
 
   @override
   Future<bool> hasStoredMasterPassword() async => false;
+
+  @override
+  Future<Set<String>> getProtectedKeyFilePaths() async => const {};
+
+  @override
+  Future<bool> hasManagedDatabaseNamed(String fileName) async => false;
+
+  @override
+  Future<List<DriveRemoteFile>> listDriveDatabases() async => const [];
 
   @override
   Future<UnlockBootstrapResult> initializeUnlock({
@@ -174,9 +208,10 @@ class _FakeDatabaseSessionCoordinator
   }
 
   @override
-  Future<DatabaseSelectionSessionResult> selectDriveDatabaseLocalCopy({
-    required String localPath,
+  Future<DatabaseSelectionSessionResult> selectDriveDatabase({
     required String remoteFileId,
+    required String remoteFileName,
+    required bool overwriteExisting,
   }) async {
     return const DatabaseSelectionSessionResult(
       status: DatabaseSessionStatus.unselected,

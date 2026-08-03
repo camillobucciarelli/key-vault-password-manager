@@ -1,7 +1,6 @@
 import '../../domain/entities/database_record.dart';
 import '../../domain/repositories/database_registry_repository.dart';
 import '../datasources/database_registry_local_data_source.dart';
-import '../models/database_record_model.dart';
 
 class DatabaseRegistryRepositoryImpl implements DatabaseRegistryRepository {
   DatabaseRegistryRepositoryImpl({required this.localDataSource});
@@ -11,10 +10,7 @@ class DatabaseRegistryRepositoryImpl implements DatabaseRegistryRepository {
   @override
   Future<List<DatabaseRecord>> list() async {
     final raw = await localDataSource.getRecords();
-    return raw
-        .map(DatabaseRecordModel.fromMap)
-        .map((model) => model.toEntity())
-        .toList(growable: false);
+    return raw.map(_recordFromMap).toList(growable: false);
   }
 
   @override
@@ -85,11 +81,9 @@ class DatabaseRegistryRepositoryImpl implements DatabaseRegistryRepository {
       next.add(record);
     }
 
-    final encoded = next
-        .map(DatabaseRecordModel.fromEntity)
-        .map((model) => model.toMap())
-        .toList(growable: false);
-    await localDataSource.saveRecords(encoded);
+    await localDataSource.saveRecords(
+      next.map(_recordToMap).toList(growable: false),
+    );
   }
 
   @override
@@ -101,8 +95,7 @@ class DatabaseRegistryRepositoryImpl implements DatabaseRegistryRepository {
     final existing = await list();
     final next = existing
         .where((entry) => entry.databaseId != databaseId)
-        .map(DatabaseRecordModel.fromEntity)
-        .map((model) => model.toMap())
+        .map(_recordToMap)
         .toList(growable: false);
     await localDataSource.saveRecords(next);
 
@@ -122,3 +115,37 @@ class DatabaseRegistryRepositoryImpl implements DatabaseRegistryRepository {
     return localDataSource.getActiveDatabaseId();
   }
 }
+
+DatabaseRecord _recordFromMap(Map<String, dynamic> map) {
+  final sourceType = DatabaseSourceType.values.firstWhere(
+    (value) => value.name == map['sourceType'],
+    orElse: () => DatabaseSourceType.local,
+  );
+  return DatabaseRecord(
+    databaseId: map['databaseId'] as String,
+    canonicalPath: map['canonicalPath'] as String,
+    displayName: map['displayName'] as String,
+    sourceType: sourceType,
+    sourceRef: map['sourceRef'] as String?,
+    fileHash: map['fileHash'] as String?,
+    createdAt: DateTime.parse(map['createdAt'] as String).toLocal(),
+    updatedAt: DateTime.parse(map['updatedAt'] as String).toLocal(),
+    lastOpenedAt: map['lastOpenedAt'] == null
+        ? null
+        : DateTime.parse(map['lastOpenedAt'] as String).toLocal(),
+    isFavorite: map['isFavorite'] as bool? ?? false,
+  );
+}
+
+Map<String, dynamic> _recordToMap(DatabaseRecord record) => {
+  'databaseId': record.databaseId,
+  'canonicalPath': record.canonicalPath,
+  'displayName': record.displayName,
+  'sourceType': record.sourceType.name,
+  'sourceRef': record.sourceRef,
+  'fileHash': record.fileHash,
+  'createdAt': record.createdAt.toUtc().toIso8601String(),
+  'updatedAt': record.updatedAt.toUtc().toIso8601String(),
+  'lastOpenedAt': record.lastOpenedAt?.toUtc().toIso8601String(),
+  'isFavorite': record.isFavorite,
+};
