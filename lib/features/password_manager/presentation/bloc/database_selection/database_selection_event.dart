@@ -77,17 +77,23 @@ class CreateNewDatabase extends DatabaseSelectionEvent {
   ];
 }
 
-class SelectDriveDatabaseLocalCopy extends DatabaseSelectionEvent {
-  const SelectDriveDatabaseLocalCopy({
-    required this.localPath,
+class SelectDriveDatabase extends DatabaseSelectionEvent {
+  const SelectDriveDatabase({
     required this.remoteFileId,
+    required this.remoteFileName,
+    required this.overwriteExisting,
   });
 
-  final String localPath;
   final String remoteFileId;
+  final String remoteFileName;
+  final bool overwriteExisting;
 
   @override
-  List<Object> get props => [localPath, remoteFileId];
+  List<Object> get props => [
+    RedactedValue<String>(remoteFileId, redaction: '<redacted remoteFileId>'),
+    remoteFileName,
+    overwriteExisting,
+  ];
 }
 
 enum RecentDatabaseRemovalMode { removeOnly, removeAndDeleteFile }

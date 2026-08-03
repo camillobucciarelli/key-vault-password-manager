@@ -174,5 +174,18 @@ void main() {
         ),
       );
     });
+
+    test('Drive selection redacts remote file identifier', () {
+      const remoteFileId = 'drive-file-id-do-not-log';
+      const event = SelectDriveDatabase(
+        remoteFileId: remoteFileId,
+        remoteFileName: 'vault.kdbx',
+        overwriteExisting: true,
+      );
+
+      expect(event.props.toString(), isNot(contains(remoteFileId)));
+      expect(event.toString(), isNot(contains(remoteFileId)));
+      expect(event.toString(), contains('<redacted remoteFileId>'));
+    });
   });
 }

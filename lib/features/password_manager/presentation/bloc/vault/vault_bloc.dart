@@ -12,17 +12,9 @@ import '../../../domain/models/database_sync_status.dart';
 import '../../../domain/models/sync_conflict.dart';
 import '../../../domain/models/vault_custom_field.dart';
 import '../../../domain/repositories/database_sync_repository.dart';
-import '../../../domain/usecases/connect_google_account_usecase.dart';
-import '../../../domain/usecases/disconnect_google_account_usecase.dart';
-import '../../../domain/usecases/get_drive_connection_status_usecase.dart';
 import '../../../domain/models/vault_entry.dart';
 import '../../../domain/models/vault_group.dart';
 import '../../../domain/models/vault_snapshot.dart';
-import '../../../domain/usecases/get_selected_key_file_path_usecase.dart';
-import '../../../domain/usecases/link_database_to_drive_usecase.dart';
-import '../../../domain/usecases/list_drive_remote_files_usecase.dart';
-import '../../../domain/usecases/set_database_auto_sync_usecase.dart';
-import '../../../domain/usecases/sync_database_now_usecase.dart';
 import '../../coordinators/apple_autofill_v2_coordinator.dart';
 import 'vault_event.dart';
 import 'vault_state.dart';
@@ -30,18 +22,11 @@ import 'vault_state.dart';
 class VaultBloc extends Bloc<VaultEvent, VaultState> {
   VaultBloc({
     required String databasePath,
+    required this.getSelectedKeyFilePath,
     required this.secureDataSource,
-    required this.getSelectedKeyFilePathUseCase,
     required this.vaultKdbxService,
     required this.vaultCsvImportService,
     required this.vaultDuplicateService,
-    required this.getDriveConnectionStatusUseCase,
-    required this.connectGoogleAccountUseCase,
-    required this.disconnectGoogleAccountUseCase,
-    required this.linkDatabaseToDriveUseCase,
-    required this.listDriveRemoteFilesUseCase,
-    required this.syncDatabaseNowUseCase,
-    required this.setDatabaseAutoSyncUseCase,
     required this.databaseSyncRepository,
     this.appleAutofillV2Coordinator = const NoopAppleAutofillV2Coordinator(),
   }) : super(VaultState.initial(databasePath: databasePath)) {
@@ -111,18 +96,11 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     );
   }
 
+  final Future<String?> Function() getSelectedKeyFilePath;
   final SecureDataSource secureDataSource;
-  final GetSelectedKeyFilePathUseCase getSelectedKeyFilePathUseCase;
   final VaultKdbxService vaultKdbxService;
   final VaultCsvImportService vaultCsvImportService;
   final VaultDuplicateService vaultDuplicateService;
-  final GetDriveConnectionStatusUseCase getDriveConnectionStatusUseCase;
-  final ConnectGoogleAccountUseCase connectGoogleAccountUseCase;
-  final DisconnectGoogleAccountUseCase disconnectGoogleAccountUseCase;
-  final LinkDatabaseToDriveUseCase linkDatabaseToDriveUseCase;
-  final ListDriveRemoteFilesUseCase listDriveRemoteFilesUseCase;
-  final SyncDatabaseNowUseCase syncDatabaseNowUseCase;
-  final SetDatabaseAutoSyncUseCase setDatabaseAutoSyncUseCase;
   final DatabaseSyncRepository databaseSyncRepository;
   final AppleAutofillV2CoordinatorContract appleAutofillV2Coordinator;
 
@@ -156,7 +134,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
     try {
       _password = await secureDataSource.getMasterPassword() ?? '';
-      _keyFilePath = await getSelectedKeyFilePathUseCase();
+      _keyFilePath = await getSelectedKeyFilePath();
       await _preloadDriveStateFromLocalMapping(emit);
       await _reload(emit);
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
@@ -1399,7 +1377,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       ),
     );
     try {
-      await connectGoogleAccountUseCase();
+      await databaseSyncRepository.connect();
       await _refreshSyncState(emit);
       _safeEmit(
         emit,
@@ -1425,7 +1403,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     Emitter<VaultState> emit,
   ) async {
     // Silently refresh Drive state without touching syncStatus (no UI flash).
-    final connected = await getDriveConnectionStatusUseCase();
+    final connected = await databaseSyncRepository.isConnected();
     final mapping = await databaseSyncRepository.getMapping(state.databasePath);
     _safeEmit(
       emit,
@@ -1475,7 +1453,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   ) async {
     _safeEmit(emit, state.copyWith(syncStatus: DatabaseSyncStatus.syncing));
     try {
-      await disconnectGoogleAccountUseCase();
+      await databaseSyncRepository.disconnect();
       _safeEmit(
         emit,
         state.copyWith(
@@ -1523,7 +1501,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       ),
     );
     try {
-      final mapping = await linkDatabaseToDriveUseCase(
+      final mapping = await databaseSyncRepository.linkDatabaseToDrive(
         databasePath: state.databasePath,
         remoteFileId: event.remoteFileId,
         remoteFileName: event.remoteFileName,
@@ -1572,7 +1550,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     Emitter<VaultState> emit,
   ) async {
     try {
-      await setDatabaseAutoSyncUseCase(state.databasePath, event.enabled);
+      await databaseSyncRepository.setAutoSync(
+        state.databasePath,
+        event.enabled,
+      );
       _safeEmit(
         emit,
         state.copyWith(
@@ -1624,7 +1605,9 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       state.copyWith(isLoadingRemoteDriveFiles: true, clearSyncError: true),
     );
     try {
-      final files = await listDriveRemoteFilesUseCase(query: event.query);
+      final files = await databaseSyncRepository.listRemoteFiles(
+        query: event.query,
+      );
       _safeEmit(
         emit,
         state.copyWith(
@@ -1691,7 +1674,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   }
 
   Future<void> _refreshSyncState(Emitter<VaultState> emit) async {
-    final connected = await getDriveConnectionStatusUseCase();
+    final connected = await databaseSyncRepository.isConnected();
     final mapping = await databaseSyncRepository.getMapping(state.databasePath);
     _safeEmit(
       emit,
@@ -2202,7 +2185,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     }
 
     try {
-      final result = await syncDatabaseNowUseCase(
+      final result = await databaseSyncRepository.syncNow(
         state.databasePath,
         resolution: resolution,
       );

@@ -10,7 +10,6 @@ dependencies:
   flutter:
     sdk: flutter
   bloc: ^9.2.0
-  catch_and_flow: ^1.2.1
   equatable: ^2.0.8
   file_picker: ^11.0.2
   flutter_bloc: ^9.1.1

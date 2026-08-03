@@ -1,7 +1,6 @@
 import '../../domain/entities/database_security_profile.dart';
 import '../../domain/repositories/database_security_repository.dart';
 import '../datasources/database_security_local_data_source.dart';
-import '../models/database_security_profile_model.dart';
 
 class DatabaseSecurityRepositoryImpl implements DatabaseSecurityRepository {
   DatabaseSecurityRepositoryImpl({required this.localDataSource});
@@ -18,13 +17,15 @@ class DatabaseSecurityRepositoryImpl implements DatabaseSecurityRepository {
     if (raw == null) {
       return null;
     }
-    return DatabaseSecurityProfileModel.fromMap(raw).toEntity();
+    return _profileFromMap(raw);
   }
 
   @override
   Future<void> saveProfile(DatabaseSecurityProfile profile) async {
-    final model = DatabaseSecurityProfileModel.fromEntity(profile);
-    await localDataSource.saveProfile(profile.databaseId, model.toMap());
+    await localDataSource.saveProfile(
+      profile.databaseId,
+      _profileToMap(profile),
+    );
   }
 
   @override
@@ -35,3 +36,23 @@ class DatabaseSecurityRepositoryImpl implements DatabaseSecurityRepository {
     await localDataSource.removeProfile(databaseId);
   }
 }
+
+DatabaseSecurityProfile _profileFromMap(Map<String, dynamic> map) =>
+    DatabaseSecurityProfile(
+      databaseId: map['databaseId'] as String,
+      keyFilePath: map['keyFilePath'] as String?,
+      biometricProtectionEnabled:
+          map['biometricProtectionEnabled'] as bool? ?? true,
+      inactivityLockTimeoutSeconds: map['inactivityLockTimeoutSeconds'] as int?,
+      updatedAt: map['updatedAt'] == null
+          ? null
+          : DateTime.parse(map['updatedAt'] as String).toLocal(),
+    );
+
+Map<String, dynamic> _profileToMap(DatabaseSecurityProfile profile) => {
+  'databaseId': profile.databaseId,
+  'keyFilePath': profile.keyFilePath,
+  'biometricProtectionEnabled': profile.biometricProtectionEnabled,
+  'inactivityLockTimeoutSeconds': profile.inactivityLockTimeoutSeconds,
+  'updatedAt': profile.updatedAt?.toUtc().toIso8601String(),
+};

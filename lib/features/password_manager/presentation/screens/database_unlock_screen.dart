@@ -12,18 +12,17 @@ import '../bloc/database_unlock/database_unlock_bloc.dart';
 import '../bloc/database_unlock/database_unlock_event.dart';
 import '../bloc/database_unlock/database_unlock_state.dart';
 import '../coordinators/database_session_coordinator.dart';
-import 'coordinators/database_flow_coordinator.dart';
 import 'database_selection_screen.dart';
+import 'vault_screen.dart';
 import '../widgets/internal_key_file_manager_dialog.dart';
 import '../widgets/styled_info_container.dart';
+import '../utils/platform_utils.dart';
 
 part 'database_unlock_widgets.part.dart';
 
 class DatabaseUnlockScreen extends StatelessWidget {
   final String databasePath;
   final bool promptBiometricSetup;
-  static const DatabaseFlowCoordinator _flowCoordinator =
-      DatabaseFlowCoordinator();
 
   const DatabaseUnlockScreen({
     super.key,
@@ -56,13 +55,6 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
   bool _passwordVisible = false;
   bool _biometricPromptHandled = false;
 
-  bool get _usesManagedStorage {
-    if (kIsWeb) {
-      return false;
-    }
-    return true;
-  }
-
   @override
   void dispose() {
     _passwordCtrl.dispose();
@@ -70,12 +62,19 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
   }
 
   Future<void> _pickKeyFile() async {
-    if (_usesManagedStorage) {
+    if (isManagedStoragePlatform) {
       final bloc = context.read<DatabaseUnlockBloc>();
       final currentKeyFilePath = bloc.state.keyFilePath;
+      final protectedPaths = await di
+          .sl<DatabaseSessionCoordinatorContract>()
+          .getProtectedKeyFilePaths();
+      if (!mounted) {
+        return;
+      }
       final result = await showInternalKeyFileManagerDialog(
         context,
         initiallySelectedPath: currentKeyFilePath,
+        protectedPaths: {...protectedPaths, ?currentKeyFilePath},
       );
       if (!mounted || result == null) {
         return;
@@ -133,17 +132,26 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
                 _showBiometricSetupPrompt();
               });
             }
-            DatabaseUnlockScreen._flowCoordinator.onDatabaseUnlockState(
-              context,
-              state,
-            );
+            if (state.unlocked) {
+              AppNavigation.pushFadeReplacement(
+                context,
+                VaultScreen(databasePath: state.databasePath),
+              );
+              return;
+            }
+            final errorMessage = state.errorMessage;
+            if (errorMessage != null && errorMessage.isNotEmpty) {
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text(errorMessage)));
+            }
           },
           builder: (context, state) {
             if (state.isLoading) {
               return const Center(child: CircularProgressIndicator());
             }
 
-            final hasPassword = _passwordCtrl.text.trim().isNotEmpty;
+            final hasPassword = _passwordCtrl.text.isNotEmpty;
             final hasKeyFile =
                 state.keyFilePath != null &&
                 state.keyFilePath!.trim().isNotEmpty;
@@ -240,6 +248,8 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
                           TextFormField(
                             controller: _passwordCtrl,
                             obscureText: !_passwordVisible,
+                            autocorrect: false,
+                            enableSuggestions: false,
                             onChanged: (_) => setState(() {}),
                             decoration: InputDecoration(
                               labelText: 'Master password',
@@ -333,7 +343,7 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
   }
 
   Future<void> _goToDatabaseSelection() async {
-    final hasPasswordDraft = _passwordCtrl.text.trim().isNotEmpty;
+    final hasPasswordDraft = _passwordCtrl.text.isNotEmpty;
     final keyFilePath = context.read<DatabaseUnlockBloc>().state.keyFilePath;
     final hasKeyFileDraft =
         keyFilePath != null && keyFilePath.trim().isNotEmpty;

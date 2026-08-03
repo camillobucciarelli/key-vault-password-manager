@@ -377,7 +377,9 @@ class _SyncStripMenuButton extends StatelessWidget {
 
   Future<void> _exportCurrentKeyFile(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
-    final keyPath = await di.sl<GetSelectedKeyFilePathUseCase>()();
+    final keyPath = await di
+        .sl<VaultSessionCoordinator>()
+        .getSelectedKeyFilePath();
     if (keyPath == null || keyPath.trim().isEmpty) {
       messenger.showSnackBar(
         const SnackBar(content: Text('No key file configured for this vault.')),
@@ -421,11 +423,15 @@ class _SyncStripMenuButton extends StatelessWidget {
     }
 
     var databaseTitle = path.basenameWithoutExtension(currentDatabasePath);
-    final currentKeyPath = await di.sl<GetSelectedKeyFilePathUseCase>()();
+    final sessionCoordinator = di.sl<VaultSessionCoordinator>();
+    final persistedCurrentKeyPath = await sessionCoordinator
+        .getPersistedKeyFilePath(currentDatabasePath);
+    final protectedKeyFilePaths = await sessionCoordinator
+        .getProtectedKeyFilePaths();
     if (!context.mounted) {
       return;
     }
-    var selectedKeyPath = currentKeyPath;
+    var pendingSelectedKeyPath = persistedCurrentKeyPath;
     var currentPassword = '';
     var newPassword = '';
     var confirmNewPassword = '';
@@ -442,7 +448,7 @@ class _SyncStripMenuButton extends StatelessWidget {
     final initialInactivityTimeout = inactivityTimeout;
     final initialFileName = path.basename(currentDatabasePath);
     final normalizedCurrentKeyPath = _normalizeKeyPathForComparison(
-      currentKeyPath,
+      persistedCurrentKeyPath,
     );
     if (!context.mounted) {
       return;
@@ -455,7 +461,7 @@ class _SyncStripMenuButton extends StatelessWidget {
         return StatefulBuilder(
           builder: (dialogContext, setState) {
             final normalizedSelectedKeyPath = _normalizeKeyPathForComparison(
-              selectedKeyPath,
+              pendingSelectedKeyPath,
             );
             final keyFileChanged =
                 normalizedSelectedKeyPath != normalizedCurrentKeyPath;
@@ -465,6 +471,8 @@ class _SyncStripMenuButton extends StatelessWidget {
                 biometricEnabled != initialBiometricEnabled;
             final inactivityChanged =
                 inactivityTimeout != initialInactivityTimeout;
+            final hasSelectedKeyFile =
+                pendingSelectedKeyPath?.trim().isNotEmpty ?? false;
             final pendingChanges = <String>[
               if (fileNameChanged) 'Database file name',
               if (biometricChanged) 'Biometric protection',
@@ -472,6 +480,57 @@ class _SyncStripMenuButton extends StatelessWidget {
               if (keyFileChanged) 'Key file',
               if (changePassword) 'Master password',
             ];
+
+            Future<void> selectKeyFile() async {
+              if (isManagedStoragePlatform) {
+                final currentSelectedPath = pendingSelectedKeyPath;
+                final result = await showInternalKeyFileManagerDialog(
+                  dialogContext,
+                  initiallySelectedPath: currentSelectedPath,
+                  protectedPaths: {
+                    ...protectedKeyFilePaths,
+                    ?persistedCurrentKeyPath,
+                    ?pendingSelectedKeyPath,
+                  },
+                );
+                if (result == null || !dialogContext.mounted) {
+                  return;
+                }
+                setState(() {
+                  if (result.selectedPath != null) {
+                    pendingSelectedKeyPath = result.selectedPath;
+                    return;
+                  }
+                  if (result.currentSelectionDeleted &&
+                      currentSelectedPath != null &&
+                      currentSelectedPath.trim().isNotEmpty) {
+                    pendingSelectedKeyPath = null;
+                  }
+                });
+                return;
+              }
+
+              final picked = await FilePicker.pickFiles(
+                allowMultiple: false,
+                withData: false,
+              );
+              if (!dialogContext.mounted) {
+                return;
+              }
+              final selectedFile = picked?.files.single;
+              if (selectedFile == null) {
+                return;
+              }
+
+              final selectedPath = selectedFile.path;
+              if (selectedPath == null || selectedPath.isEmpty) {
+                return;
+              }
+
+              setState(() {
+                pendingSelectedKeyPath = selectedPath;
+              });
+            }
 
             return AlertDialog(
               title: const Text('Database settings'),
@@ -488,294 +547,231 @@ class _SyncStripMenuButton extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          'General',
-                          style: Theme.of(dialogContext).textTheme.labelLarge,
-                        ),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          initialValue: databaseTitle,
-                          decoration: const InputDecoration(
-                            labelText: 'Database file name',
-                            prefixIcon: Icon(AppIcons.file),
+                        _DatabaseSettingsHeader(
+                          databaseName: path.basenameWithoutExtension(
+                            currentDatabasePath,
                           ),
-                          onChanged: (value) {
-                            databaseTitle = value;
-                            setState(() {});
-                          },
-                          validator: (value) {
-                            final raw = value?.trim() ?? '';
-                            if (raw.isEmpty) {
-                              return 'Database file name is required.';
-                            }
-                            if (raw.contains(RegExp(r'[\\/:*?"<>|]'))) {
-                              return 'Invalid characters in file name.';
-                            }
-                            return null;
-                          },
                         ),
-                        const SizedBox(height: 10),
-                        SwitchListTile.adaptive(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Enable biometric protection'),
-                          value: biometricEnabled,
-                          onChanged: (value) {
-                            setState(() {
-                              biometricEnabled = value;
-                            });
-                          },
-                        ),
-                        const SizedBox(height: 10),
-                        DropdownButtonFormField<int?>(
-                          initialValue: inactivityTimeout,
-                          decoration: const InputDecoration(
-                            labelText: 'Lock on inactivity',
-                            prefixIcon: Icon(AppIcons.lock),
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                              value: null,
-                              child: Text('Never'),
-                            ),
-                            DropdownMenuItem(
-                              value: 10,
-                              child: Text('10 seconds'),
-                            ),
-                            DropdownMenuItem(
-                              value: 20,
-                              child: Text('20 seconds'),
-                            ),
-                            DropdownMenuItem(
-                              value: 30,
-                              child: Text('30 seconds'),
-                            ),
-                            DropdownMenuItem(
-                              value: 60,
-                              child: Text('1 minute'),
-                            ),
-                            DropdownMenuItem(
-                              value: 120,
-                              child: Text('2 minutes'),
-                            ),
-                            DropdownMenuItem(
-                              value: 300,
-                              child: Text('5 minutes'),
+                        const SizedBox(height: 14),
+                        _DatabaseSettingsSectionCard(
+                          icon: AppIcons.file,
+                          title: 'Vault file',
+                          subtitle: 'Change how this local database appears.',
+                          children: [
+                            TextFormField(
+                              initialValue: databaseTitle,
+                              decoration: const InputDecoration(
+                                labelText: 'Database file name',
+                                helperText:
+                                    'The .kdbx extension is added automatically.',
+                                prefixIcon: Icon(AppIcons.file),
+                              ),
+                              onChanged: (value) {
+                                databaseTitle = value;
+                                setState(() {});
+                              },
+                              validator: (value) {
+                                final raw = value?.trim() ?? '';
+                                if (raw.isEmpty) {
+                                  return 'Database file name is required.';
+                                }
+                                if (raw.contains(RegExp(r'[\\/:*?"<>|]'))) {
+                                  return 'Invalid characters in file name.';
+                                }
+                                return null;
+                              },
                             ),
                           ],
-                          onChanged: (value) {
-                            setState(() {
-                              inactivityTimeout = value;
-                            });
-                          },
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Key file',
-                          style: Theme.of(dialogContext).textTheme.labelLarge,
-                        ),
-                        const SizedBox(height: 6),
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: const Icon(AppIcons.fileKey),
-                          title: Text(
-                            selectedKeyPath == null ||
-                                    selectedKeyPath!.trim().isEmpty
-                                ? 'No key file selected'
-                                : path.basename(selectedKeyPath!),
-                          ),
-                          subtitle: selectedKeyPath == null
-                              ? null
-                              : Text(
-                                  selectedKeyPath!,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                          trailing: Wrap(
-                            spacing: 2,
-                            children: [
-                              OutlinedButton.icon(
-                                onPressed: () async {
-                                  final usesManagedStorage =
-                                      !kIsWeb &&
-                                      (defaultTargetPlatform ==
-                                              TargetPlatform.android ||
-                                          defaultTargetPlatform ==
-                                              TargetPlatform.iOS ||
-                                          defaultTargetPlatform ==
-                                              TargetPlatform.macOS);
-                                  if (usesManagedStorage) {
-                                    final currentSelectedPath = selectedKeyPath;
-                                    final result =
-                                        await showInternalKeyFileManagerDialog(
-                                          dialogContext,
-                                          initiallySelectedPath:
-                                              currentSelectedPath,
-                                        );
-                                    if (result == null) {
-                                      return;
-                                    }
-                                    setState(() {
-                                      if (result.selectedPath != null) {
-                                        selectedKeyPath = result.selectedPath;
-                                        return;
-                                      }
-                                      if (result.currentSelectionDeleted &&
-                                          currentSelectedPath != null &&
-                                          currentSelectedPath
-                                              .trim()
-                                              .isNotEmpty) {
-                                        selectedKeyPath = null;
-                                      }
-                                    });
-                                    return;
-                                  }
-
-                                  final picked = await FilePicker.pickFiles(
-                                        allowMultiple: false,
-                                        withData: false,
-                                      );
-                                  final selectedFile = picked?.files.single;
-                                  if (selectedFile == null) {
-                                    return;
-                                  }
-
-                                  final selectedPath = selectedFile.path;
-                                  if (selectedPath == null ||
-                                      selectedPath.isEmpty) {
-                                    return;
-                                  }
-
-                                  setState(() {
-                                    selectedKeyPath = selectedPath;
-                                  });
-                                },
-                                icon: const Icon(AppIcons.edit),
-                                label: const Text('Change key file'),
+                        const SizedBox(height: 12),
+                        _DatabaseSettingsSectionCard(
+                          icon: AppIcons.lock,
+                          title: 'Security & lock',
+                          subtitle:
+                              'Control quick unlock and automatic locking.',
+                          children: [
+                            SwitchListTile.adaptive(
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('Biometric protection'),
+                              subtitle: const Text(
+                                'Allow face, fingerprint, or device biometrics to unlock this vault.',
                               ),
-                              OutlinedButton.icon(
-                                onPressed: selectedKeyPath == null
-                                    ? null
-                                    : () {
-                                        setState(() {
-                                          selectedKeyPath = null;
-                                        });
-                                      },
-                                icon: const Icon(AppIcons.close),
-                                label: const Text('Remove key file'),
+                              value: biometricEnabled,
+                              onChanged: (value) {
+                                setState(() {
+                                  biometricEnabled = value;
+                                });
+                              },
+                            ),
+                            const SizedBox(height: 8),
+                            DropdownButtonFormField<int?>(
+                              initialValue: inactivityTimeout,
+                              decoration: const InputDecoration(
+                                labelText: 'Lock on inactivity',
+                                helperText:
+                                    'Automatically lock this vault after no activity.',
+                                prefixIcon: Icon(AppIcons.lock),
+                              ),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: null,
+                                  child: Text('Never'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 10,
+                                  child: Text('10 seconds'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 20,
+                                  child: Text('20 seconds'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 30,
+                                  child: Text('30 seconds'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 60,
+                                  child: Text('1 minute'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 120,
+                                  child: Text('2 minutes'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 300,
+                                  child: Text('5 minutes'),
+                                ),
+                              ],
+                              onChanged: (value) {
+                                setState(() {
+                                  inactivityTimeout = value;
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        _DatabaseSettingsSectionCard(
+                          icon: AppIcons.fileKey,
+                          title: 'Unlock credentials',
+                          subtitle:
+                              'Update the key file or master password used to open this vault.',
+                          children: [
+                            _DatabaseSettingsKeyFilePanel(
+                              selectedKeyPath: pendingSelectedKeyPath,
+                              onChange: selectKeyFile,
+                              onRemove: !hasSelectedKeyFile
+                                  ? null
+                                  : () {
+                                      setState(() {
+                                        pendingSelectedKeyPath = null;
+                                      });
+                                    },
+                            ),
+                            const SizedBox(height: 10),
+                            const _DatabaseSettingsInfoCallout(
+                              icon: AppIcons.warning,
+                              text:
+                                  'Key file changes affect the next unlock. Google Drive sync stores only the .kdbx database; it does not sync key files, so keep a separate backup.',
+                            ),
+                            const SizedBox(height: 12),
+                            SwitchListTile.adaptive(
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('Change master password'),
+                              subtitle: const Text(
+                                'Re-encrypts this vault. Use the new password the next time you unlock.',
+                              ),
+                              value: changePassword,
+                              onChanged: (value) {
+                                setState(() {
+                                  changePassword = value;
+                                });
+                              },
+                            ),
+                            if (changePassword) ...[
+                              const SizedBox(height: 8),
+                              TextFormField(
+                                initialValue: currentPassword,
+                                obscureText: true,
+                                autocorrect: false,
+                                enableSuggestions: false,
+                                decoration: const InputDecoration(
+                                  labelText: 'Current master password',
+                                  helperText:
+                                      'Leave empty only if this vault currently uses a key file without a password.',
+                                  prefixIcon: Icon(AppIcons.lock),
+                                ),
+                                onChanged: (value) {
+                                  currentPassword = value;
+                                },
+                                validator: (value) {
+                                  if (!changePassword) {
+                                    return null;
+                                  }
+                                  return null;
+                                },
+                              ),
+                              const SizedBox(height: 8),
+                              TextFormField(
+                                initialValue: newPassword,
+                                obscureText: true,
+                                autocorrect: false,
+                                enableSuggestions: false,
+                                decoration: const InputDecoration(
+                                  labelText: 'New master password',
+                                  prefixIcon: Icon(AppIcons.key),
+                                ),
+                                onChanged: (value) {
+                                  newPassword = value;
+                                },
+                                validator: (value) {
+                                  if (!changePassword) {
+                                    return null;
+                                  }
+                                  if ((value ?? '').isEmpty) {
+                                    return 'New password is required.';
+                                  }
+                                  return null;
+                                },
+                              ),
+                              const SizedBox(height: 8),
+                              TextFormField(
+                                initialValue: confirmNewPassword,
+                                obscureText: true,
+                                autocorrect: false,
+                                enableSuggestions: false,
+                                decoration: const InputDecoration(
+                                  labelText: 'Confirm new password',
+                                  prefixIcon: Icon(AppIcons.check),
+                                ),
+                                onChanged: (value) {
+                                  confirmNewPassword = value;
+                                },
+                                validator: (value) {
+                                  if (!changePassword) {
+                                    return null;
+                                  }
+                                  if ((value ?? '') != newPassword) {
+                                    return 'Passwords do not match.';
+                                  }
+                                  return null;
+                                },
+                              ),
+                              const SizedBox(height: 8),
+                              const _DatabaseSettingsInfoCallout(
+                                icon: AppIcons.lock,
+                                text:
+                                    'Password changes affect the next unlock. Confirm the change before saving security credentials.',
                               ),
                             ],
-                          ),
+                          ],
                         ),
-                        Text(
-                          'Changing key file updates the unlock credentials for this vault. Keep a backup in a separate location.',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Master password',
-                          style: Theme.of(dialogContext).textTheme.labelLarge,
-                        ),
-                        const SizedBox(height: 6),
-                        SwitchListTile.adaptive(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Change master password'),
-                          subtitle: const Text(
-                            'Re-encrypts the current database with a new password.',
-                          ),
-                          value: changePassword,
-                          onChanged: (value) {
-                            setState(() {
-                              changePassword = value;
-                            });
-                          },
-                        ),
-                        if (changePassword) ...[
-                          const SizedBox(height: 4),
-                          TextFormField(
-                            initialValue: currentPassword,
-                            obscureText: true,
-                            decoration: const InputDecoration(
-                              labelText: 'Current master password',
-                            ),
-                            onChanged: (value) {
-                              currentPassword = value;
-                            },
-                            validator: (value) {
-                              if (!changePassword) {
-                                return null;
-                              }
-                              if ((value ?? '').isEmpty) {
-                                return 'Current password is required.';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 8),
-                          TextFormField(
-                            initialValue: newPassword,
-                            obscureText: true,
-                            decoration: const InputDecoration(
-                              labelText: 'New master password',
-                            ),
-                            onChanged: (value) {
-                              newPassword = value;
-                            },
-                            validator: (value) {
-                              if (!changePassword) {
-                                return null;
-                              }
-                              if ((value ?? '').isEmpty) {
-                                return 'New password is required.';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 8),
-                          TextFormField(
-                            initialValue: confirmNewPassword,
-                            obscureText: true,
-                            decoration: const InputDecoration(
-                              labelText: 'Confirm new password',
-                            ),
-                            onChanged: (value) {
-                              confirmNewPassword = value;
-                            },
-                            validator: (value) {
-                              if (!changePassword) {
-                                return null;
-                              }
-                              if ((value ?? '') != newPassword) {
-                                return 'Passwords do not match.';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'After saving, use the new master password the next time you unlock this vault.',
-                            style: Theme.of(context).textTheme.bodySmall,
+                        if (pendingChanges.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          _DatabaseSettingsChangesSummary(
+                            changes: pendingChanges,
                           ),
                         ],
-                        const SizedBox(height: 12),
-                        if (pendingChanges.isNotEmpty)
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Theme.of(
-                                dialogContext,
-                              ).colorScheme.surfaceContainerHighest,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              'Changes to apply: ${pendingChanges.join(', ')}',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ),
-                        const SizedBox(height: 10),
-                        Text(
-                          'Google Drive sync stores only the .kdbx database. Keep key file backups in a separate location.',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
                       ],
                     ),
                   ),
@@ -787,49 +783,56 @@ class _SyncStripMenuButton extends StatelessWidget {
                   child: const Text('Cancel'),
                 ),
                 FilledButton(
-                  onPressed: () async {
-                    if (!formKey.currentState!.validate()) {
-                      return;
-                    }
-                    if (changePassword) {
-                      final securityChanges = <String>[
-                        'Master password',
-                        if (keyFileChanged) 'Key file',
-                      ];
-                      final confirmed = await showDialog<bool>(
-                        context: dialogContext,
-                        builder: (confirmContext) {
-                          return AlertDialog(
-                            title: const Text('Confirm security changes'),
-                            content: Text(
-                              'You are about to update: ${securityChanges.join(' + ')}. '
-                              'Use the new credentials to unlock this vault after saving.',
-                            ),
-                            actions: _adaptiveDialogActions(confirmContext, [
-                              TextButton(
-                                onPressed: () =>
-                                    Navigator.of(confirmContext).pop(false),
-                                child: const Text('Cancel'),
-                              ),
-                              FilledButton(
-                                onPressed: () =>
-                                    Navigator.of(confirmContext).pop(true),
-                                child: const Text('Confirm and apply'),
-                              ),
-                            ]),
-                          );
+                  onPressed: pendingChanges.isEmpty
+                      ? null
+                      : () async {
+                          if (!formKey.currentState!.validate()) {
+                            return;
+                          }
+                          if (changePassword || keyFileChanged) {
+                            final securityChanges = <String>[
+                              if (changePassword) 'Master password',
+                              if (keyFileChanged) 'Key file',
+                            ];
+                            final confirmed = await showDialog<bool>(
+                              context: dialogContext,
+                              builder: (confirmContext) {
+                                return AlertDialog(
+                                  title: const Text('Confirm security changes'),
+                                  content: Text(
+                                    'You are about to update: ${securityChanges.join(' + ')}. '
+                                    'Use the new credentials to unlock this vault after saving.',
+                                  ),
+                                  actions: _adaptiveDialogActions(
+                                    confirmContext,
+                                    [
+                                      TextButton(
+                                        onPressed: () => Navigator.of(
+                                          confirmContext,
+                                        ).pop(false),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      FilledButton(
+                                        onPressed: () => Navigator.of(
+                                          confirmContext,
+                                        ).pop(true),
+                                        child: const Text('Confirm and apply'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            );
+                            if (confirmed != true) {
+                              return;
+                            }
+                          }
+                          if (!dialogContext.mounted) {
+                            return;
+                          }
+                          Navigator.of(dialogContext).pop(true);
                         },
-                      );
-                      if (confirmed != true) {
-                        return;
-                      }
-                    }
-                    if (!dialogContext.mounted) {
-                      return;
-                    }
-                    Navigator.of(dialogContext).pop(true);
-                  },
-                  child: const Text('Save'),
+                  child: const Text('Save changes'),
                 ),
               ]),
             );
@@ -847,8 +850,8 @@ class _SyncStripMenuButton extends StatelessWidget {
     }
 
     final keyFileChanged =
-        _normalizeKeyPathForComparison(currentKeyPath) !=
-        _normalizeKeyPathForComparison(selectedKeyPath);
+        _normalizeKeyPathForComparison(persistedCurrentKeyPath) !=
+        _normalizeKeyPathForComparison(pendingSelectedKeyPath);
     final requestedPasswordChange = changePassword;
 
     try {
@@ -858,7 +861,7 @@ class _SyncStripMenuButton extends StatelessWidget {
             DatabaseSettingsUpdateRequest(
               currentDatabasePath: currentDatabasePath,
               fileName: databaseTitle.trim(),
-              keyFilePath: selectedKeyPath,
+              keyFilePath: pendingSelectedKeyPath,
               biometricProtectionEnabled: biometricEnabled,
               changePassword: changePassword,
               inactivityLockTimeoutSeconds: inactivityTimeout,
@@ -890,10 +893,12 @@ class _SyncStripMenuButton extends StatelessWidget {
         context,
         VaultScreen(databasePath: result.databasePath),
       );
-    } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('Unable to update database settings. $e')),
-      );
+    } catch (_) {
+      if (context.mounted) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Unable to update database settings.')),
+        );
+      }
     }
   }
 
@@ -948,11 +953,12 @@ class _SyncStripMenuButton extends StatelessWidget {
         case 'lockVault':
           final databasePath = state.databasePath;
           if (databasePath.trim().isNotEmpty) {
-            unawaited(
-              di.sl<VaultSessionCoordinator>().lockVault(
-                currentDatabasePath: databasePath,
-              ),
+            await di.sl<VaultSessionCoordinator>().lockVault(
+              currentDatabasePath: databasePath,
             );
+            if (!context.mounted) {
+              return;
+            }
             await AppNavigation.pushFadeReplacement(
               context,
               DatabaseUnlockScreen(databasePath: databasePath),
@@ -1021,6 +1027,372 @@ class _SyncStripMenuButton extends StatelessWidget {
   }
 }
 
+class _DatabaseSettingsHeader extends StatelessWidget {
+  const _DatabaseSettingsHeader({required this.databaseName});
+
+  final String databaseName;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colorScheme.primaryContainer.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: colorScheme.primary.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              AppIcons.fileKey,
+              size: 20,
+              color: colorScheme.onPrimaryContainer,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  databaseName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: colorScheme.onPrimaryContainer,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Manage vault name, lock behavior and unlock credentials.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onPrimaryContainer.withValues(
+                      alpha: 0.82,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DatabaseSettingsSectionCard extends StatelessWidget {
+  const _DatabaseSettingsSectionCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.children,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      elevation: 0,
+      color: colorScheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.72),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 30,
+                  height: 30,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon, size: 17, color: colorScheme.primary),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        title,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DatabaseSettingsKeyFilePanel extends StatelessWidget {
+  const _DatabaseSettingsKeyFilePanel({
+    required this.selectedKeyPath,
+    required this.onChange,
+    required this.onRemove,
+  });
+
+  final String? selectedKeyPath;
+  final VoidCallback onChange;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final keyPath = selectedKeyPath?.trim() ?? '';
+    final hasKeyFile = keyPath.isNotEmpty;
+    final title = hasKeyFile ? path.basename(keyPath) : 'No key file selected';
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.62),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.7),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                hasKeyFile ? AppIcons.fileKey : AppIcons.file,
+                size: 22,
+                color: hasKeyFile
+                    ? colorScheme.primary
+                    : colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      hasKeyFile
+                          ? 'Stored in app key storage.'
+                          : 'Add a key file for two-factor unlock with password + file.',
+                      maxLines: hasKeyFile ? 1 : 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final stackButtons = constraints.maxWidth < 360;
+              final changeButton = OutlinedButton.icon(
+                onPressed: onChange,
+                icon: const Icon(AppIcons.edit),
+                label: Text(hasKeyFile ? 'Change key file' : 'Select key file'),
+              );
+              final removeButton = OutlinedButton.icon(
+                onPressed: onRemove,
+                icon: const Icon(AppIcons.close),
+                label: const Text('Remove key file'),
+              );
+
+              if (stackButtons) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    changeButton,
+                    const SizedBox(height: 8),
+                    removeButton,
+                  ],
+                );
+              }
+
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [changeButton, removeButton],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DatabaseSettingsInfoCallout extends StatelessWidget {
+  const _DatabaseSettingsInfoCallout({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: colorScheme.secondaryContainer.withValues(alpha: 0.42),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: colorScheme.onSecondaryContainer),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSecondaryContainer,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DatabaseSettingsChangesSummary extends StatelessWidget {
+  const _DatabaseSettingsChangesSummary({required this.changes});
+
+  final List<String> changes;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      elevation: 0,
+      color: colorScheme.tertiaryContainer.withValues(alpha: 0.34),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  AppIcons.check,
+                  size: 18,
+                  color: colorScheme.onTertiaryContainer,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Changes summary',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: colorScheme.onTertiaryContainer,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ...changes.map(
+              (change) => Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '•',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onTertiaryContainer,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        change,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onTertiaryContainer,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ─── Duplicate badge ──────────────────────────────────────────────────────────
 
 class _DuplicateBadge extends StatelessWidget {
@@ -1083,7 +1455,9 @@ class _VaultSettingsSheet extends StatelessWidget {
                     width: 34,
                     height: 34,
                     decoration: BoxDecoration(
-                      color: colorScheme.primaryContainer.withValues(alpha: 0.6),
+                      color: colorScheme.primaryContainer.withValues(
+                        alpha: 0.6,
+                      ),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
@@ -1118,10 +1492,8 @@ class _VaultSettingsSheet extends StatelessWidget {
                         if (!state.isDriveConnected)
                           _SheetItem(
                             icon: AppIcons.cloud,
-                            iconContainerColor:
-                                colorScheme.primaryContainer.withValues(
-                                  alpha: 0.6,
-                                ),
+                            iconContainerColor: colorScheme.primaryContainer
+                                .withValues(alpha: 0.6),
                             iconColor: colorScheme.onPrimaryContainer,
                             label: 'Connect Google Drive',
                             subtitle: 'Enable cloud backup and sync',
@@ -1130,10 +1502,8 @@ class _VaultSettingsSheet extends StatelessWidget {
                         else if (!state.isDriveLinked)
                           _SheetItem(
                             icon: AppIcons.linkSimple,
-                            iconContainerColor:
-                                colorScheme.primaryContainer.withValues(
-                                  alpha: 0.6,
-                                ),
+                            iconContainerColor: colorScheme.primaryContainer
+                                .withValues(alpha: 0.6),
                             iconColor: colorScheme.onPrimaryContainer,
                             label: 'Link database to Drive',
                             subtitle: 'Choose a .kdbx file to sync with',
@@ -1141,17 +1511,19 @@ class _VaultSettingsSheet extends StatelessWidget {
                           ),
                         _SheetToggleItem(
                           icon: AppIcons.sync,
-                          iconContainerColor: state.isDriveConnected &&
-                                  state.isDriveLinked
+                          iconContainerColor:
+                              state.isDriveConnected && state.isDriveLinked
                               ? colorScheme.secondaryContainer.withValues(
                                   alpha: 0.7,
                                 )
                               : colorScheme.surfaceContainerHighest,
-                          iconColor: state.isDriveConnected && state.isDriveLinked
+                          iconColor:
+                              state.isDriveConnected && state.isDriveLinked
                               ? colorScheme.onSecondaryContainer
                               : colorScheme.onSurface.withValues(alpha: 0.38),
                           label: 'Auto-sync',
-                          subtitle: state.isDriveConnected && state.isDriveLinked
+                          subtitle:
+                              state.isDriveConnected && state.isDriveLinked
                               ? 'Sync automatically when the vault changes'
                               : 'Connect and link Drive first',
                           value: state.autoSyncEnabled,
@@ -1162,10 +1534,8 @@ class _VaultSettingsSheet extends StatelessWidget {
                         if (state.isDriveConnected)
                           _SheetItem(
                             icon: AppIcons.cloudOff,
-                            iconContainerColor:
-                                colorScheme.errorContainer.withValues(
-                                  alpha: 0.42,
-                                ),
+                            iconContainerColor: colorScheme.errorContainer
+                                .withValues(alpha: 0.42),
                             iconColor: colorScheme.error,
                             label: 'Disconnect Google Drive',
                             labelColor: colorScheme.error,
@@ -1183,10 +1553,8 @@ class _VaultSettingsSheet extends StatelessWidget {
                       children: [
                         _SheetItem(
                           icon: AppIcons.settings,
-                          iconContainerColor:
-                              colorScheme.secondaryContainer.withValues(
-                                alpha: 0.6,
-                              ),
+                          iconContainerColor: colorScheme.secondaryContainer
+                              .withValues(alpha: 0.6),
                           iconColor: colorScheme.onSecondaryContainer,
                           label: 'Database settings',
                           subtitle: 'Password, key file, biometrics',
@@ -1194,10 +1562,8 @@ class _VaultSettingsSheet extends StatelessWidget {
                         ),
                         _SheetItem(
                           icon: AppIcons.folderCopy,
-                          iconContainerColor:
-                              colorScheme.secondaryContainer.withValues(
-                                alpha: 0.6,
-                              ),
+                          iconContainerColor: colorScheme.secondaryContainer
+                              .withValues(alpha: 0.6),
                           iconColor: colorScheme.onSecondaryContainer,
                           label: 'Change database',
                           subtitle: 'Switch to a different .kdbx file',
@@ -1205,10 +1571,8 @@ class _VaultSettingsSheet extends StatelessWidget {
                         ),
                         _SheetItem(
                           icon: AppIcons.lock,
-                          iconContainerColor:
-                              colorScheme.tertiaryContainer.withValues(
-                                alpha: 0.6,
-                              ),
+                          iconContainerColor: colorScheme.tertiaryContainer
+                              .withValues(alpha: 0.6),
                           iconColor: colorScheme.onTertiaryContainer,
                           label: 'Lock vault',
                           subtitle: 'Require password to access again',
@@ -1226,10 +1590,8 @@ class _VaultSettingsSheet extends StatelessWidget {
                       children: [
                         _SheetItem(
                           icon: AppIcons.import,
-                          iconContainerColor:
-                              colorScheme.tertiaryContainer.withValues(
-                                alpha: 0.55,
-                              ),
+                          iconContainerColor: colorScheme.tertiaryContainer
+                              .withValues(alpha: 0.55),
                           iconColor: colorScheme.onTertiaryContainer,
                           label: 'Import from CSV',
                           subtitle: 'Add records from a spreadsheet export',
@@ -1237,10 +1599,8 @@ class _VaultSettingsSheet extends StatelessWidget {
                         ),
                         _SheetItem(
                           icon: AppIcons.export,
-                          iconContainerColor:
-                              colorScheme.tertiaryContainer.withValues(
-                                alpha: 0.55,
-                              ),
+                          iconContainerColor: colorScheme.tertiaryContainer
+                              .withValues(alpha: 0.55),
                           iconColor: colorScheme.onTertiaryContainer,
                           label: 'Export database backup',
                           subtitle: 'Save a copy of the .kdbx file',
@@ -1248,10 +1608,8 @@ class _VaultSettingsSheet extends StatelessWidget {
                         ),
                         _SheetItem(
                           icon: AppIcons.fileKey,
-                          iconContainerColor:
-                              colorScheme.tertiaryContainer.withValues(
-                                alpha: 0.55,
-                              ),
+                          iconContainerColor: colorScheme.tertiaryContainer
+                              .withValues(alpha: 0.55),
                           iconColor: colorScheme.onTertiaryContainer,
                           label: 'Export key file',
                           subtitle: 'Back up the key file to a safe location',
@@ -1270,12 +1628,11 @@ class _VaultSettingsSheet extends StatelessWidget {
                         ),
                         _SheetItem(
                           icon: AppIcons.copy,
-                          iconContainerColor:
-                              state.duplicateGroupCount > 0
-                                  ? colorScheme.tertiaryContainer.withValues(
-                                      alpha: 0.6,
-                                    )
-                                  : colorScheme.surfaceContainerHighest,
+                          iconContainerColor: state.duplicateGroupCount > 0
+                              ? colorScheme.tertiaryContainer.withValues(
+                                  alpha: 0.6,
+                                )
+                              : colorScheme.surfaceContainerHighest,
                           iconColor: state.duplicateGroupCount > 0
                               ? colorScheme.onTertiaryContainer
                               : colorScheme.onSurface.withValues(alpha: 0.7),
@@ -1288,10 +1645,8 @@ class _VaultSettingsSheet extends StatelessWidget {
                         if (canConfigureAndroidAutofill)
                           _SheetItem(
                             icon: AppIcons.fingerprint,
-                            iconContainerColor:
-                                colorScheme.secondaryContainer.withValues(
-                                  alpha: 0.6,
-                                ),
+                            iconContainerColor: colorScheme.secondaryContainer
+                                .withValues(alpha: 0.6),
                             iconColor: colorScheme.onSecondaryContainer,
                             label: 'Android autofill',
                             subtitle: 'Fill passwords in apps and browsers',
@@ -1300,10 +1655,8 @@ class _VaultSettingsSheet extends StatelessWidget {
                         if (canConfigureBrowserAutofill)
                           _SheetItem(
                             icon: AppIcons.globe,
-                            iconContainerColor:
-                                colorScheme.secondaryContainer.withValues(
-                                  alpha: 0.6,
-                                ),
+                            iconContainerColor: colorScheme.secondaryContainer
+                                .withValues(alpha: 0.6),
                             iconColor: colorScheme.onSecondaryContainer,
                             label: 'Desktop browser extension',
                             subtitle:
@@ -1531,10 +1884,7 @@ class _SheetToggleItem extends StatelessWidget {
 }
 
 class _ThemePicker extends StatelessWidget {
-  const _ThemePicker({
-    required this.themeMode,
-    required this.onSelect,
-  });
+  const _ThemePicker({required this.themeMode, required this.onSelect});
 
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onSelect;

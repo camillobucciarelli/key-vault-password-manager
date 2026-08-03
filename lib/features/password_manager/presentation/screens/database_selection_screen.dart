@@ -6,20 +6,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:path/path.dart' as p;
 
+import '../../../../../core/navigation/app_navigation.dart';
 import '../../../../../core/theme/app_backgrounds.dart';
 import '../../../../../core/theme/app_icons.dart';
 import '../../../../../core/utils/mobile_file_storage.dart';
 import '../../../../../injection_container.dart' as di;
-import '../../domain/repositories/database_sync_repository.dart';
 import '../../domain/models/database_dedup_result.dart';
-import '../../domain/usecases/connect_google_account_usecase.dart';
-import '../../domain/usecases/get_drive_connection_status_usecase.dart';
-import '../../domain/usecases/list_drive_remote_files_usecase.dart';
 import '../../domain/models/drive_remote_file.dart';
 import '../bloc/database_selection/database_selection_bloc.dart';
 import '../bloc/database_selection/database_selection_event.dart';
 import '../bloc/database_selection/database_selection_state.dart';
-import 'coordinators/database_flow_coordinator.dart';
+import '../coordinators/database_session_coordinator.dart';
+import 'database_unlock_screen.dart';
 import '../widgets/create_database_dialog.dart';
 import '../widgets/database/database_action_tile.dart';
 import '../widgets/database/recent_databases_section.dart';
@@ -27,9 +25,6 @@ import '../utils/platform_utils.dart';
 
 class DatabaseSelectionScreen extends StatelessWidget {
   const DatabaseSelectionScreen({super.key});
-
-  static const DatabaseFlowCoordinator _flowCoordinator =
-      DatabaseFlowCoordinator();
 
   Future<void> _openFromGoogleDrive(BuildContext context) async {
     if (kIsWeb) {
@@ -65,12 +60,8 @@ class DatabaseSelectionScreen extends StatelessWidget {
     showProgress('Connecting to Google Drive...');
 
     try {
-      final isConnected = await di.sl<GetDriveConnectionStatusUseCase>()();
-      if (!isConnected) {
-        await di.sl<ConnectGoogleAccountUseCase>()();
-      }
-
-      final files = await di.sl<ListDriveRemoteFilesUseCase>()();
+      final coordinator = di.sl<DatabaseSessionCoordinatorContract>();
+      final files = await coordinator.listDriveDatabases();
       hideProgressIfNeeded();
 
       if (!context.mounted) {
@@ -93,10 +84,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
 
       var overwriteExisting = false;
       if (isManagedStoragePlatform) {
-        final exists = await MobileFileStorage.fileExistsInAppDirectory(
-          fileName: selected.name,
-          subdirectory: 'databases',
-        );
+        final exists = await coordinator.hasManagedDatabaseNamed(selected.name);
         if (!context.mounted) {
           return;
         }
@@ -112,71 +100,20 @@ class DatabaseSelectionScreen extends StatelessWidget {
         }
       }
 
-      String? savePath;
-      if (isManagedStoragePlatform) {
-        savePath = selected.name;
-      } else {
-        savePath = await FilePicker.saveFile(
-          dialogTitle: 'Save a local copy of the Drive database',
-          fileName: selected.name,
-          type: FileType.custom,
-          allowedExtensions: ['kdbx'],
-        );
-
-        if (savePath == null || savePath.trim().isEmpty) {
-          return;
-        }
-
-        if (!savePath.toLowerCase().endsWith('.kdbx')) {
-          savePath = '$savePath.kdbx';
-        }
-      }
-
-      if (!context.mounted) {
-        return;
-      }
-
-      showProgress('Downloading database from Drive...');
-      final bytes = await di.sl<DatabaseSyncRepository>().downloadRemoteFile(
-        selected.id,
-      );
-      final localPath = isManagedStoragePlatform
-          ? await MobileFileStorage.saveBytesToAppDirectory(
-              bytes: bytes,
-              fileName: p.basename(savePath),
-              subdirectory: 'databases',
-              overwriteIfExists: overwriteExisting,
-            )
-          : savePath;
-
-      if (!isManagedStoragePlatform) {
-        await File(localPath).writeAsBytes(bytes, flush: true);
-      }
-      hideProgressIfNeeded();
-
-      if (!context.mounted) {
-        return;
-      }
-
-      if (isManagedStoragePlatform) {
-        messenger.showSnackBar(
-          const SnackBar(
-            content: Text('Database saved to app internal storage.'),
-          ),
-        );
-      }
-
       context.read<DatabaseSelectionBloc>().add(
-        SelectDriveDatabaseLocalCopy(
-          localPath: localPath,
+        SelectDriveDatabase(
           remoteFileId: selected.id,
+          remoteFileName: selected.name,
+          overwriteExisting: overwriteExisting,
         ),
       );
     } catch (e) {
       hideProgressIfNeeded();
-      messenger.showSnackBar(
-        SnackBar(content: Text(_buildDriveOpenErrorMessage(e))),
-      );
+      if (context.mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text(_buildDriveOpenErrorMessage(e))),
+        );
+      }
     }
   }
 
@@ -206,7 +143,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
         normalized.contains('google account not connected')) {
       return 'Google Drive session expired or unavailable. Tap "Open from Google Drive" again and complete reconnection.';
     }
-    return 'Unable to open database from Google Drive. $message';
+    return 'Unable to open database from Google Drive.';
   }
 
   void _showBlockingProgress(BuildContext context, String message) {
@@ -808,7 +745,31 @@ class DatabaseSelectionScreen extends StatelessWidget {
               _handleDuplicateDecisionPrompt(context, state);
               return;
             }
-            _flowCoordinator.onDatabaseSelectionState(context, state);
+            if (state is DatabaseSelectionSuccess) {
+              if (state.userMessage != null && state.userMessage!.isNotEmpty) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text(state.userMessage!)));
+              }
+              AppNavigation.pushFadeReplacement(
+                context,
+                DatabaseUnlockScreen(
+                  databasePath: state.path,
+                  promptBiometricSetup: state.promptBiometricSetup,
+                ),
+              );
+              return;
+            }
+            if (state is DatabaseSelectionError) {
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text(state.message)));
+            }
+            if (state is DatabaseSelectionInfo) {
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text(state.message)));
+            }
           },
           builder: (context, state) {
             if (state is DatabaseSelectionLoading ||

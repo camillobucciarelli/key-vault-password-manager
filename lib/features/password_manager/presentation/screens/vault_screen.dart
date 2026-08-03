@@ -30,7 +30,6 @@ import '../../domain/models/vault_attachment.dart';
 import '../../domain/models/vault_custom_field.dart';
 import '../../domain/models/vault_entry.dart';
 import '../../domain/models/vault_group.dart';
-import '../../domain/usecases/get_selected_key_file_path_usecase.dart';
 import '../bloc/vault/vault_bloc.dart';
 import '../bloc/vault/vault_event.dart';
 import '../bloc/vault/vault_state.dart';
@@ -42,6 +41,7 @@ import 'browser_setup_screen.dart';
 import 'database_selection_screen.dart';
 import 'database_unlock_screen.dart';
 import '../utils/totp_utils.dart';
+import '../utils/platform_utils.dart';
 
 part 'vault/vault_shell.part.dart';
 part 'vault/vault_navigation.part.dart';
