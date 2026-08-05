@@ -92,28 +92,33 @@ fallbacks keep stdout clean for Native Messaging frames and search for Dart in:
 project `.fvm/flutter_sdk/bin/dart`, `fvm` in `PATH`, `dart` in `PATH`, then
 user-local FVM stable paths under `$HOME` as last resort.
 
-## Chrome Web Store beta
+## Chrome Web Store
 
-Recommended beta publishing flow:
+The published extension ID is `ogjmlkogmogijgpflnjifiobdmnmommh`.
 
-1. Run `./desktop/browser_extension/package_extension.sh`.
-2. In Chrome Web Store Developer Dashboard, create the item and upload
-   `desktop/browser_extension/dist/keyvault-browser-extension.zip`.
-3. Set distribution to **Unlisted** for external beta testers, or **Private** for
-   a restricted organization/tester group if your account supports it.
-4. Complete store listing, privacy practices, single purpose, screenshots and
-   support/contact fields. Do not include secrets or vault data in screenshots.
-5. Permission justifications:
-   - `nativeMessaging`: talk to the locally installed KeyVault native host only.
-     Host returns metadata and reveals credentials only after explicit Fill.
-   - `activeTab`: read current tab origin/title only while the popup is opened
-     and the user clicks Find/Search/Fill. No host permissions are requested.
-   - `scripting`: inject one transient fill function only after the user clicks
-     **Fill on this page** for an exact strong match.
-6. Submit for review as beta/unlisted/private.
-7. After Chrome Web Store assigns the published extension ID, install/register
-   the native messaging host with that **published** ID, not the temporary
-   unpacked-development ID:
+End-user setup:
+
+1. Install the extension from Chrome Web Store.
+2. Open **Desktop browser extension** in KeyVault.
+3. On Windows/Linux click **Configure Chrome**. KeyVault installs the bundled
+   standalone native host for the current user; no terminal, repository, Dart,
+   or administrator access is required.
+4. On macOS download and run the signed **KeyVault Chrome Support** companion
+   package. A companion is required because the Mac App Store app sandbox cannot
+   write Chrome's system Native Messaging directory.
+5. Restart Chrome, unlock the vault, and open the extension popup.
+
+Store permission justifications:
+
+- `nativeMessaging`: talk to the locally installed KeyVault native host only.
+  Host returns metadata and reveals credentials only after explicit Fill.
+- `activeTab`: read current tab origin/title only while the popup is opened and
+  the user clicks Find/Search/Fill. No host permissions are requested.
+- `scripting`: inject one transient fill function only after the user clicks
+  **Fill on this page** for an exact strong match.
+
+Developer-mode registration remains available for local builds with a temporary
+extension ID:
 
    ```bash
    ./desktop/native_host/install_host_macos.sh chrome <PUBLISHED_EXTENSION_ID>
@@ -125,9 +130,6 @@ Recommended beta publishing flow:
    ```powershell
    .\desktop\native_host\install_host_windows.ps1 -Browser Chrome -ExtensionId <PUBLISHED_EXTENSION_ID>
    ```
-
-8. Restart Chrome and open the installed Web Store extension. Popup status should
-   run automatically; **Check host status** remains manual refresh.
 
 Edge Add-ons beta is similar but should come later: upload the same MV3 package
 to Partner Center, choose private/unlisted tester visibility, then register the

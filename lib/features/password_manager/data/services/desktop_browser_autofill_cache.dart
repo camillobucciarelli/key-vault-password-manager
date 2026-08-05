@@ -333,6 +333,22 @@ class DesktopBrowserAutofillCacheStore {
     }
 
     final home = _firstNonEmpty([env['HOME'], env['USERPROFILE']]);
+    if (Platform.isMacOS && home != null) {
+      final containersMarker = p.join('Library', 'Containers');
+      final markerIndex = home.indexOf(containersMarker);
+      final userHome = markerIndex < 0
+          ? home
+          : home.substring(0, markerIndex).replaceFirst(RegExp(r'[/\\]+$'), '');
+      return Directory(
+        p.join(
+          userHome,
+          'Library',
+          'Group Containers',
+          'group.dev.camillobucciarelli.kdbxKeyVault',
+          'browser_v2',
+        ),
+      );
+    }
     return home == null
         ? null
         : Directory(p.join(home, '.keyvault_autofill', 'browser_v2'));

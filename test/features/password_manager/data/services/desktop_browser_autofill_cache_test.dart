@@ -7,6 +7,24 @@ import 'package:password_manager/features/password_manager/domain/models/vault_e
 
 void main() {
   group('DesktopBrowserAutofillCacheStore', () {
+    test('uses macOS app group for browser cache', () {
+      if (!Platform.isMacOS) return;
+
+      final directory = DesktopBrowserAutofillCacheStore.defaultDirectory(
+        environment: const {
+          'HOME':
+              '/Users/alice/Library/Containers/'
+              'dev.camillobucciarelli.kdbxKeyVault/Data',
+        },
+      );
+
+      expect(
+        directory?.path,
+        '/Users/alice/Library/Group Containers/'
+        'group.dev.camillobucciarelli.kdbxKeyVault/browser_v2',
+      );
+    });
+
     test('publishes metadata without passwords or URL paths', () async {
       final directory = await Directory.systemTemp.createTemp(
         'kv-desktop-cache-',

@@ -6,14 +6,15 @@ Installs the KeyVault Chrome/Edge native messaging host for the current Windows 
 Browser to register. Supported values: Chrome, Edge. Default: Chrome.
 
 .PARAMETER ExtensionId
-Extension ID copied from chrome://extensions or edge://extensions.
+Extension ID copied from chrome://extensions or edge://extensions. Defaults to
+the published KeyVault Chrome extension ID.
 #>
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true, Position = 0)]
+    [Parameter(Mandatory = $false, Position = 0)]
     [ValidatePattern('^[a-p]{32}$')]
-    [string]$ExtensionId,
+    [string]$ExtensionId = 'ogjmlkogmogijgpflnjifiobdmnmommh',
 
     [Parameter(Mandatory = $false)]
     [ValidateSet('Chrome', 'Edge')]
@@ -41,8 +42,11 @@ try {
     if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
         throw 'LOCALAPPDATA is not set. Run this script from a normal Windows user session.'
     }
+    if (-not [System.IO.Path]::IsPathRooted($env:LOCALAPPDATA)) {
+        throw 'LOCALAPPDATA must be an absolute path.'
+    }
 
-    $InstallDir = Join-Path $env:LOCALAPPDATA 'KeyVault\NativeMessagingHosts'
+    $InstallDir = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'KeyVault\NativeMessagingHosts'))
     $ManifestPath = Join-Path $InstallDir "$HostName.json"
     $LauncherPath = Join-Path $InstallDir 'keyvault_native_host.cmd'
     $LauncherScriptPath = Join-Path $InstallDir 'keyvault_native_host.ps1'
@@ -57,43 +61,53 @@ try {
     }
 
     $ScriptDir = Split-Path -Parent $ScriptPath
-    $RepoRoot = (Resolve-Path (Join-Path $ScriptDir '..\..')).ProviderPath
     $TemplatePath = Join-Path $ScriptDir "manifests\$BrowserTemplateDir\$HostName.json"
-    $NativeHostDart = Join-Path $RepoRoot 'tool\native_host.dart'
-    $RepoNativeHostExe = Join-Path $ScriptDir $NativeHostExeName
+    if ($Browser -eq 'Edge' -and -not (Test-Path -LiteralPath $TemplatePath -PathType Leaf)) {
+        # Chrome and Edge use the same manifest schema. Release bundles only need
+        # the Chrome template because the production UI registers Chrome only.
+        $TemplatePath = Join-Path $ScriptDir "manifests\chrome\$HostName.json"
+    }
+    $PackagedNativeHostExe = Join-Path $ScriptDir $NativeHostExeName
 
     if (-not (Test-Path -LiteralPath $TemplatePath -PathType Leaf)) {
         throw "$Browser manifest template not found: $TemplatePath"
-    }
-    if (-not (Test-Path -LiteralPath $NativeHostDart -PathType Leaf)) {
-        throw "Dart native host entry point not found: $NativeHostDart"
     }
 
     Write-Step "Installing for $Browser extension ID: $ExtensionId"
     Write-Step "Creating install directory: $InstallDir"
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 
-    if (Test-Path -LiteralPath $RepoNativeHostExe -PathType Leaf) {
-        $SourceExeFullPath = [System.IO.Path]::GetFullPath($RepoNativeHostExe)
+    $HostPath = $null
+    if (Test-Path -LiteralPath $PackagedNativeHostExe -PathType Leaf) {
+        if ((Get-Item -LiteralPath $PackagedNativeHostExe).Length -le 0) {
+            throw "Compiled native host is empty: $PackagedNativeHostExe"
+        }
+
+        $SourceExeFullPath = [System.IO.Path]::GetFullPath($PackagedNativeHostExe)
         $InstalledExeFullPath = [System.IO.Path]::GetFullPath($InstalledNativeHostExe)
         if ([StringComparer]::OrdinalIgnoreCase.Equals($SourceExeFullPath, $InstalledExeFullPath)) {
             Write-Step "Compiled native host already in install directory: $InstalledNativeHostExe"
         }
         else {
-            Copy-Item -LiteralPath $RepoNativeHostExe -Destination $InstalledNativeHostExe -Force
+            Copy-Item -LiteralPath $PackagedNativeHostExe -Destination $InstalledNativeHostExe -Force
             Write-Step "Copied compiled native host: $InstalledNativeHostExe"
         }
-    }
-    elseif (Test-Path -LiteralPath $InstalledNativeHostExe -PathType Leaf) {
-        Write-Step "No repo compiled native host found; keeping existing installed host: $InstalledNativeHostExe"
+        $HostPath = $InstalledNativeHostExe
     }
     else {
-        Write-Step "No compiled native host found; launcher will use Dart/FVM fallback."
-    }
+        $RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $ScriptDir '..\..'))
+        $NativeHostDart = Join-Path $RepoRoot 'tool\native_host.dart'
+        $PubspecPath = Join-Path $RepoRoot 'pubspec.yaml'
+        if (-not (Test-Path -LiteralPath $PubspecPath -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $NativeHostDart -PathType Leaf)) {
+            throw "Compiled native host not found: $PackagedNativeHostExe. Dart/FVM fallback is available only from the source tree."
+        }
 
-    $EscapedNativeHostDart = $NativeHostDart.Replace("'", "''")
-    $EscapedRepoRoot = $RepoRoot.Replace("'", "''")
-    $LauncherScriptContent = @'
+        Write-Step 'No compiled native host found in source tree; installing Dart/FVM development launcher.'
+
+        $EscapedNativeHostDart = $NativeHostDart.Replace("'", "''")
+        $EscapedRepoRoot = $RepoRoot.Replace("'", "''")
+        $LauncherScriptContent = @'
 $ErrorActionPreference = 'Stop'
 
 function Write-LauncherError {
@@ -102,12 +116,6 @@ function Write-LauncherError {
 }
 
 try {
-    $NativeHostExe = Join-Path $PSScriptRoot 'keyvault_native_host.exe'
-    if (Test-Path -LiteralPath $NativeHostExe -PathType Leaf) {
-        & $NativeHostExe
-        exit $LASTEXITCODE
-    }
-
     $NativeHostDart = '__NATIVE_HOST_DART__'
     $RepoRoot = '__REPO_ROOT__'
 
@@ -170,29 +178,46 @@ catch {
     exit 127
 }
 '@
-    $LauncherScriptContent = $LauncherScriptContent.Replace('__NATIVE_HOST_DART__', $EscapedNativeHostDart)
-    $LauncherScriptContent = $LauncherScriptContent.Replace('__REPO_ROOT__', $EscapedRepoRoot)
-    $Utf8WithBom = New-Object System.Text.UTF8Encoding -ArgumentList $true
-    [System.IO.File]::WriteAllText($LauncherScriptPath, $LauncherScriptContent, $Utf8WithBom)
+        $LauncherScriptContent = $LauncherScriptContent.Replace('__NATIVE_HOST_DART__', $EscapedNativeHostDart)
+        $LauncherScriptContent = $LauncherScriptContent.Replace('__REPO_ROOT__', $EscapedRepoRoot)
+        $Utf8WithBom = New-Object System.Text.UTF8Encoding -ArgumentList $true
+        [System.IO.File]::WriteAllText($LauncherScriptPath, $LauncherScriptContent, $Utf8WithBom)
 
-    $LauncherContent = @"
+        $LauncherContent = @"
 @echo off
 setlocal
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0keyvault_native_host.ps1"
 exit /b %ERRORLEVEL%
 "@
-    Set-Content -LiteralPath $LauncherPath -Value $LauncherContent -Encoding ASCII -Force
-    Write-Step "Wrote launcher: $LauncherPath"
-    Write-Step "Wrote launcher script: $LauncherScriptPath"
+        Set-Content -LiteralPath $LauncherPath -Value $LauncherContent -Encoding ASCII -Force
+        Write-Step "Wrote launcher: $LauncherPath"
+        Write-Step "Wrote launcher script: $LauncherScriptPath"
+        $HostPath = $LauncherPath
+    }
 
     $AllowedOrigin = "chrome-extension://$ExtensionId/"
+    $AllowedOriginUri = [System.Uri]$AllowedOrigin
+    if (-not $AllowedOriginUri.IsAbsoluteUri -or
+        $AllowedOriginUri.Scheme -cne 'chrome-extension' -or
+        $AllowedOriginUri.Host -cne $ExtensionId -or
+        $AllowedOriginUri.AbsolutePath -cne '/') {
+        throw 'Generated allowed origin failed validation.'
+    }
+
     $ManifestObject = Get-Content -LiteralPath $TemplatePath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $ManifestObject.path = $LauncherPath
+    if ($ManifestObject.name -cne $HostName -or $ManifestObject.type -cne 'stdio') {
+        throw 'Manifest template has an unexpected name or type.'
+    }
+    $ManifestObject.path = $HostPath
     $ManifestObject.allowed_origins = @($AllowedOrigin)
     $Manifest = $ManifestObject | ConvertTo-Json -Depth 8
     $ManifestCheck = $Manifest | ConvertFrom-Json
     $CheckedAllowedOrigins = @($ManifestCheck.allowed_origins)
-    if ($ManifestCheck.path -cne $LauncherPath -or $CheckedAllowedOrigins.Count -ne 1 -or $CheckedAllowedOrigins[0] -cne $AllowedOrigin) {
+    if ($ManifestCheck.name -cne $HostName -or
+        $ManifestCheck.type -cne 'stdio' -or
+        $ManifestCheck.path -cne $HostPath -or
+        $CheckedAllowedOrigins.Count -ne 1 -or
+        $CheckedAllowedOrigins[0] -cne $AllowedOrigin) {
         throw 'Generated manifest failed path or allowed_origins validation.'
     }
     $Utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
@@ -206,8 +231,7 @@ exit /b %ERRORLEVEL%
     Write-Host ''
     Write-Host "KeyVault $Browser native messaging host installed successfully."
     Write-Host "Manifest: $ManifestPath"
-    Write-Host "Launcher: $LauncherPath"
-    Write-Host "Launcher script: $LauncherScriptPath"
+    Write-Host "Host: $HostPath"
     Write-Host "Restart $Browser before testing the extension."
 }
 catch {

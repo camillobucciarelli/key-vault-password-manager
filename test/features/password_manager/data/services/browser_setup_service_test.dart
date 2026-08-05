@@ -10,6 +10,22 @@ void main() {
   group('BrowserSetupService', () {
     const validExtensionId = 'abcdefghijklmnopabcdefghijklmnop';
 
+    test('uses fixed public Chrome extension details', () {
+      expect(
+        BrowserSetupService.chromeExtensionId,
+        'ogjmlkogmogijgpflnjifiobdmnmommh',
+      );
+      expect(
+        BrowserSetupService.chromeStoreListingUrl,
+        'https://chromewebstore.google.com/detail/ogjmlkogmogijgpflnjifiobdmnmommh',
+      );
+      expect(
+        BrowserSetupService.macOSChromeSupportPackageUrl,
+        'https://github.com/camillobucciarelli/key-vault-password-manager/'
+        'releases/latest/download/keyvault-chrome-support-macos.pkg',
+      );
+    });
+
     test('validates extension IDs safely', () {
       expect(BrowserSetupService.isValidExtensionId(validExtensionId), isTrue);
       expect(
@@ -185,6 +201,39 @@ void main() {
         validExtensionId,
       ]);
     });
+
+    test(
+      'installNativeHost registers Chrome with fixed extension ID',
+      () async {
+        final root = await _fakeProjectRoot(
+          scriptName: 'install_host_macos.sh',
+        );
+        addTearDown(() => root.delete(recursive: true));
+        String? executableSeen;
+        List<String>? argumentsSeen;
+
+        final service = BrowserSetupService(
+          projectRoot: root,
+          platformOverride: BrowserSetupHostPlatform.macOS,
+          processRunner: (executable, arguments) async {
+            executableSeen = executable;
+            argumentsSeen = arguments;
+            return ProcessResult(1, 0, '', '');
+          },
+        );
+
+        expect(
+          await service.installNativeHost(),
+          NativeHostInstallResult.success,
+        );
+        expect(executableSeen, '/bin/bash');
+        expect(argumentsSeen, [
+          p.join(root.path, 'desktop', 'native_host', 'install_host_macos.sh'),
+          'chrome',
+          BrowserSetupService.chromeExtensionId,
+        ]);
+      },
+    );
 
     test('returns failed when installer exits nonzero', () async {
       final root = await _fakeProjectRoot(scriptName: 'install_host_macos.sh');
