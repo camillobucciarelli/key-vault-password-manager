@@ -57,3 +57,11 @@ app.*.map.json
 .agent/state/current_task.json
 .agent/state/decision_log.jsonl
 .agent/state/checkpoints/
+
+# Local editor and agent tooling
+.agents/
+.claude/
+.lh/
+.vscode/settings.json
+opencode.jsonc
+skills-lock.json

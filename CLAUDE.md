@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A cross-platform Flutter password manager (Android, iOS, macOS, Windows, Linux, web). It uses the KeePass `.kdbx` format for encrypted vault storage, with Android/iOS autofill integration and a desktop browser autofill bridge.
+A cross-platform Flutter password manager (Android, iOS, macOS, Windows, Linux, web). It uses the KeePass `.kdbx` format for encrypted vault storage, with Android/Apple autofill integration and a desktop browser autofill bridge.
 
 ## Commands
 
 ```bash
-# Run the app
-flutter run
+# Run the app (Google OAuth ids come from the dart-define file; see .env.dart.define.example.json)
+flutter run --dart-define-from-file=.env.dart.define.json
 
 # Run all tests
 flutter test
@@ -23,13 +23,22 @@ flutter analyze
 
 # Generate app icons (after changing assets/logo/keyvault-source.png)
 flutter pub run flutter_launcher_icons
+
+# Release artifacts -> dist/prod_packages/<timestamp>/
+tool/build_prod_packages.sh --platforms android,linux
+
+# Desktop native messaging host (compiles tool/native_host.dart)
+tool/build_native_host.sh
+
+# Browser extension zip
+desktop/browser_extension/package_extension.sh
 ```
 
 ## Architecture
 
 Clean architecture with three layers under `lib/features/password_manager/`:
 
-- **`data/`** — `datasources/` (local storage, secure storage, biometric, Google OAuth), `models/` (JSON serialization), `repositories/` (implementations), `services/` (kdbx read/write, sync, autofill coordinators)
+- **`data/`** — `datasources/` (local storage, secure storage, biometric, Google OAuth token, sync metadata), `repositories/` (implementations), `services/` (kdbx read/write, sync, autofill bridges)
 - **`domain/`** — `entities/`, `models/` (pure Dart value objects), `repositories/` (abstract interfaces), `usecases/`, `services/` (e.g., autofill URL matching)
 - **`presentation/`** — `bloc/` (events/states), `coordinators/` (see below), `screens/`, `widgets/`
 
@@ -51,16 +60,18 @@ Coordinators sit between BLoCs and use cases, handling multi-step workflows that
 
 - `DatabaseSessionCoordinator` — database import/dedup/creation/unlock flow
 - `VaultSessionCoordinator` — lock/change-database/update-settings flow
+- `OtpAuthDeepLinkCoordinator` — `otpauth://` deep links, initialized in `main.dart`
 
 Prefer adding logic to coordinators rather than BLoCs.
 
 ### Autofill
 
-Three platform-specific autofill paths:
+One Dart-side contract, `AppleAutofillV2CoordinatorContract` (name is historical — it covers Android too), fanned out by `CompositeAutofillV2Coordinator` in `password_manager_presentation_di.dart` to two implementations:
 
-- **Android**: `AndroidAutofillCoordinator` — hooks into `WidgetsBindingObserver` via `flutter_autofill_service`, responds to autofill framework requests at app resume
-- **iOS**: `IosAutofillSnapshotCoordinator` — writes a JSON snapshot of vault entries that the iOS credential provider extension reads
-- **Desktop**: `DesktopAutofillBridgeService` + `desktop/native_host/` and `desktop/browser_extension/` — a native messaging host bridges the browser extension to the running app
+- **Native platforms** (`AppleAutofillV2Coordinator`): publishes credentials over the `dev.camillobucciarelli.keyvault/apple_autofill_v2` method channel. Native sides are Swift in `ios/CredentialProviderExtension/` and `macos/CredentialProviderExtension/` (`SharedAutofillStore`), and Kotlin in `android/app/src/main/kotlin/.../autofill/` (`KeyVaultAutofillService`, `AndroidAutofillV2Channel`, `AutofillPickerActivity`). No `flutter_autofill_service` package is used.
+- **Desktop browsers** (`DesktopBrowserAutofillCoordinator`): writes an on-disk metadata cache (`desktop_browser_autofill_cache.dart`) plus a reveal bridge (`desktop_browser_autofill_reveal_bridge_service.dart`). `desktop/native_host/` (built from `tool/native_host.dart` + `tool/native_host_protocol.dart`) bridges `desktop/browser_extension/` to the running app.
+
+Both directions carry pending associations (site ↔ entry links created from the native UI) back into the vault.
 
 ### Google Drive Sync
 
@@ -68,11 +79,15 @@ Three platform-specific autofill paths:
 
 ### Key Files
 
-- `lib/main.dart` — bootstrap, two entry points (`main` and `autofillEntryPoint`)
+- `lib/main.dart` — single entry point: logging setup, `di.init()`, otpauth deep-link coordinator, `runApp`
 - `lib/features/password_manager/data/services/vault_kdbx_service.dart` — all `.kdbx` read/write/edit logic via the `kdbx` package
 - `lib/core/theme/` — `AppTheme` + `ThemeCubit`
 - `lib/core/utils/mobile_file_storage.dart` — sandboxed file I/O on mobile (iOS/Android store databases in app-internal directories)
 
 ### Vault Screen Structure
 
-`vault_screen.dart` is split into several `part` files (`vault_entries.part.dart`, `vault_dialogs.part.dart`, etc.) for size management. All parts are assembled by `vault_screen.dart`.
+`presentation/screens/vault_screen.dart` is only the assembler: imports plus ten `part` directives pointing at `presentation/screens/vault/*.part.dart` (`vault_shell`, `vault_navigation`, `vault_entries`, `vault_entries_details`, `vault_dialogs`, `vault_duplicates`, `vault_recycle_bin`, …). Add vault UI to the matching part file, not to `vault_screen.dart`.
+
+## Release
+
+`.github/workflows/release.yml` bumps the build number in `pubspec.yaml` on every push to `main`, commits `chore: bump build number to vX.Y.Z+N`, tags, and pushes. Never hand-edit `version:`. CI runs no tests — run `flutter test` and `flutter analyze` locally.
