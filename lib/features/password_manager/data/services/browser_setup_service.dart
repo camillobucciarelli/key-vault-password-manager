@@ -55,6 +55,12 @@ class BrowserSetupService {
 
   static final RegExp _extensionIdPattern = RegExp(r'^[a-p]{32}$');
   static const _bridgeProbeTimeout = Duration(seconds: 2);
+  static const chromeExtensionId = 'ogjmlkogmogijgpflnjifiobdmnmommh';
+  static const chromeStoreListingUrl =
+      'https://chromewebstore.google.com/detail/$chromeExtensionId';
+  static const macOSChromeSupportPackageUrl =
+      'https://github.com/camillobucciarelli/key-vault-password-manager/'
+      'releases/latest/download/keyvault-chrome-support-macos.pkg';
 
   final DesktopBrowserAutofillCacheStore _cacheStore;
   final Directory? _projectRoot;
@@ -118,14 +124,11 @@ class BrowserSetupService {
   // Native host installation
   // ---------------------------------------------------------------------------
 
-  /// Legacy automatic install is disabled because the v2 native host manifest
-  /// must include the browser-generated extension ID. Use the explicit
-  /// `install_host_macos.sh <chrome|edge> <EXTENSION_ID>` flow instead.
-  Future<NativeHostInstallResult> installNativeHost() async {
-    debugPrint(
-      '[BrowserSetup] automatic v1 native-host install disabled; use install_host_macos.sh with the extension ID.',
+  Future<NativeHostInstallResult> installNativeHost() {
+    return registerNativeHost(
+      browser: NativeHostBrowser.chrome,
+      extensionId: chromeExtensionId,
     );
-    return NativeHostInstallResult.failed;
   }
 
   Future<NativeHostInstallResult> registerNativeHost({
@@ -291,13 +294,11 @@ class BrowserSetupService {
       if (File(candidate).existsSync()) return candidate;
     }
 
-    for (final start in [
-      Directory.current.path,
+    final found = _findScriptFrom(
       p.dirname(Platform.resolvedExecutable),
-    ]) {
-      final found = _findScriptFrom(start, scriptName);
-      if (found != null) return found;
-    }
+      scriptName,
+    );
+    if (found != null) return found;
 
     debugPrint('[BrowserSetup] $scriptName not found');
     return null;
@@ -309,14 +310,7 @@ class BrowserSetupService {
       return explicitRoot.path;
     }
 
-    for (final start in [
-      Directory.current.path,
-      p.dirname(Platform.resolvedExecutable),
-    ]) {
-      final found = _findProjectRootFrom(start);
-      if (found != null) return found;
-    }
-    return null;
+    return _findProjectRootFrom(p.dirname(Platform.resolvedExecutable));
   }
 
   String? _findScriptFrom(String start, String scriptName) {

@@ -6,6 +6,19 @@ on:
     paths-ignore:
       - "pubspec.yaml"
   workflow_dispatch:
+    inputs:
+      upload_ios_app_store:
+        description: Upload iOS artifact to App Store Connect
+        type: boolean
+        default: false
+      upload_macos_app_store:
+        description: Upload macOS artifact to App Store Connect
+        type: boolean
+        default: false
+      upload_chrome_web_store:
+        description: Upload and publish Chrome extension
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -129,8 +142,26 @@ jobs:
           ENV_DART_DEFINE: ${{ secrets.ENV_DART_DEFINE }}
         run: echo "$ENV_DART_DEFINE" > .env.dart.define.json
 
-      - name: Build and upload to App Store
+      - name: Build App Store artifact
         run: ./tool/build_prod_packages.sh --platforms ios-appstore
+
+      - name: Upload iOS artifact to release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: ${{ needs.version.outputs.tag }}
+          files: dist/prod_packages/*/password_manager-ios-appstore.ipa
+
+      - name: Upload to App Store Connect
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_ios_app_store }}
+        run: |
+          shopt -s nullglob
+          archive=(dist/prod_packages/*/Runner-ios.xcarchive)
+          (( ${#archive[@]} == 1 )) || { echo "Expected one iOS archive, found ${#archive[@]}"; exit 1; }
+          ./tool/build_prod_packages.sh \
+            --platforms ios-appstore-upload \
+            --archive-path "${archive[0]}" \
+            --no-clean
 
   macos:
     needs: version
@@ -145,8 +176,131 @@ jobs:
           ENV_DART_DEFINE: ${{ secrets.ENV_DART_DEFINE }}
         run: echo "$ENV_DART_DEFINE" > .env.dart.define.json
 
-      - name: Build and upload to App Store
+      - name: Build App Store artifact
         run: ./tool/build_prod_packages.sh --platforms macos-appstore
+
+      - name: Upload macOS artifact to release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: ${{ needs.version.outputs.tag }}
+          files: dist/prod_packages/*/password_manager-macos-appstore.pkg
+
+      - name: Build macOS Chrome Support installer
+        env:
+          NATIVE_HOST_PACKAGE_VERSION: ${{ needs.version.outputs.version_name }}.${{ needs.version.outputs.build_number }}
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+          DEVELOPER_ID_INSTALLER: ${{ secrets.DEVELOPER_ID_INSTALLER }}
+          APP_STORE_CONNECT_API_KEY_PATH: ${{ secrets.APP_STORE_CONNECT_API_KEY_PATH }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+        run: bash tool/package_native_host_macos.sh
+
+      - name: Upload macOS Chrome Support installer to release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: ${{ needs.version.outputs.tag }}
+          files: dist/keyvault-chrome-support-macos.pkg
+          fail_on_unmatched_files: true
+
+      - name: Upload to App Store Connect
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_macos_app_store }}
+        run: |
+          shopt -s nullglob
+          archive=(dist/prod_packages/*/Runner.xcarchive)
+          (( ${#archive[@]} == 1 )) || { echo "Expected one macOS archive, found ${#archive[@]}"; exit 1; }
+          ./tool/build_prod_packages.sh \
+            --platforms macos-appstore-upload \
+            --archive-path "${archive[0]}" \
+            --no-clean
+
+  chrome:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+
+      - name: Build extension artifact
+        env:
+          BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
+        run: |
+          [[ "${BUILD_NUMBER}" =~ ^[0-9]+$ ]] && (( BUILD_NUMBER <= 65535 )) || {
+            echo "Chrome extension build number must be between 0 and 65535"
+            exit 1
+          }
+          base_version=$(jq -r '.version' desktop/browser_extension/manifest.json | cut -d. -f1-3)
+          jq --arg version "${base_version}.${BUILD_NUMBER}" \
+            '.version = $version' \
+            desktop/browser_extension/manifest.json > /tmp/manifest.json
+          mv /tmp/manifest.json desktop/browser_extension/manifest.json
+          ./desktop/browser_extension/package_extension.sh
+
+      - name: Upload extension artifact to release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: ${{ needs.version.outputs.tag }}
+          files: desktop/browser_extension/dist/keyvault-browser-extension.zip
+
+      - name: Upload and publish Chrome extension
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_chrome_web_store }}
+        env:
+          CLIENT_ID: ${{ secrets.CHROME_WEB_STORE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CHROME_WEB_STORE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CHROME_WEB_STORE_REFRESH_TOKEN }}
+          PUBLISHER_ID: ${{ secrets.CHROME_WEB_STORE_PUBLISHER_ID }}
+          EXTENSION_ID: ${{ secrets.CHROME_WEB_STORE_EXTENSION_ID }}
+        run: |
+          : "${CLIENT_ID:?Missing CHROME_WEB_STORE_CLIENT_ID secret}"
+          : "${CLIENT_SECRET:?Missing CHROME_WEB_STORE_CLIENT_SECRET secret}"
+          : "${REFRESH_TOKEN:?Missing CHROME_WEB_STORE_REFRESH_TOKEN secret}"
+          : "${PUBLISHER_ID:?Missing CHROME_WEB_STORE_PUBLISHER_ID secret}"
+          : "${EXTENSION_ID:?Missing CHROME_WEB_STORE_EXTENSION_ID secret}"
+          [[ "${EXTENSION_ID}" == "ogjmlkogmogijgpflnjifiobdmnmommh" ]] || {
+            echo "CHROME_WEB_STORE_EXTENSION_ID does not match the published KeyVault extension"
+            exit 1
+          }
+
+          token_response=$(curl --fail-with-body --silent --show-error \
+            https://oauth2.googleapis.com/token \
+            --data-urlencode "client_id=${CLIENT_ID}" \
+            --data-urlencode "client_secret=${CLIENT_SECRET}" \
+            --data-urlencode "refresh_token=${REFRESH_TOKEN}" \
+            --data-urlencode "grant_type=refresh_token")
+          access_token=$(jq -er '.access_token' <<<"${token_response}")
+
+          upload_response=$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer ${access_token}" \
+            -X POST \
+            -T desktop/browser_extension/dist/keyvault-browser-extension.zip \
+            "https://chromewebstore.googleapis.com/upload/v2/publishers/${PUBLISHER_ID}/items/${EXTENSION_ID}:upload")
+          upload_state=$(jq -er '.uploadState' <<<"${upload_response}")
+
+          for _ in {1..60}; do
+            [[ "${upload_state}" == "SUCCEEDED" ]] && break
+            [[ "${upload_state}" == "IN_PROGRESS" ]] || {
+              echo "Chrome Web Store upload failed: ${upload_state}"
+              exit 1
+            }
+            sleep 5
+            status_response=$(curl --fail-with-body --silent --show-error \
+              -H "Authorization: Bearer ${access_token}" \
+              "https://chromewebstore.googleapis.com/v2/publishers/${PUBLISHER_ID}/items/${EXTENSION_ID}:fetchStatus")
+            upload_state=$(jq -er '.lastAsyncUploadState' <<<"${status_response}")
+          done
+
+          [[ "${upload_state}" == "SUCCEEDED" ]] || {
+            echo "Chrome Web Store upload timed out"
+            exit 1
+          }
+
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer ${access_token}" \
+            -X POST \
+            "https://chromewebstore.googleapis.com/v2/publishers/${PUBLISHER_ID}/items/${EXTENSION_ID}:publish"
 
   windows:
     needs: version
@@ -173,7 +327,17 @@ jobs:
       - name: Zip Windows bundle
         run: |
           $src = Get-ChildItem -Path dist\prod_packages -Recurse -Filter "password_manager-windows-release" -Directory | Select-Object -First 1
-          Compress-Archive -Path "$($src.FullName)\*" -DestinationPath "$($src.Parent.FullName)\password_manager-windows-release.zip"
+          $required = @(
+            'desktop\native_host\install_host_windows.ps1',
+            'desktop\native_host\keyvault_native_host.exe',
+            'desktop\native_host\manifests\chrome\dev.camillobucciarelli.keyvault_native_host.json'
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path (Join-Path $src.FullName $path))) {
+              throw "Missing Windows bundle file: $path"
+            }
+          }
+          Compress-Archive -Path "$($src.FullName)\*" -DestinationPath "$($src.Parent.FullName)\password_manager-windows-release.zip" -Force
         shell: pwsh
 
       - name: Upload Windows bundle to release

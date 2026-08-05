@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 HOST_NAME="dev.camillobucciarelli.keyvault_native_host"
+PUBLISHED_EXTENSION_ID="ogjmlkogmogijgpflnjifiobdmnmommh"
 
 usage() {
   cat <<'USAGE'
-Usage: install_host_linux.sh [--browser chrome|chromium|edge] <extension-id>
+Usage: install_host_linux.sh [--browser chrome|chromium|edge] [extension-id]
 
 Installs the KeyVault native messaging host manifest for the current Linux user.
-No sudo is required. The default browser target is Google Chrome.
+No sudo is required. Defaults: Google Chrome and the published extension ID.
 
 Examples:
+  ./desktop/native_host/install_host_linux.sh
   ./desktop/native_host/install_host_linux.sh abcdefghijklmnopabcdefghijklmnop
   ./desktop/native_host/install_host_linux.sh --browser chromium abcdefghijklmnopabcdefghijklmnop
   ./desktop/native_host/install_host_linux.sh --browser edge abcdefghijklmnopabcdefghijklmnop
 
-The extension ID is shown on chrome://extensions or edge://extensions after
-loading the desktop/browser_extension folder in Developer mode.
+Pass an extension ID from chrome://extensions or edge://extensions to override
+the published ID when loading desktop/browser_extension in Developer mode.
 USAGE
 }
 
@@ -50,31 +53,27 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 
-[[ -n "${EXTENSION_ID}" ]] || {
-  usage >&2
-  die "Extension ID is required"
-}
+EXTENSION_ID="${EXTENSION_ID:-${PUBLISHED_EXTENSION_ID}}"
 
 if [[ ! "${EXTENSION_ID}" =~ ^[a-p]{32}$ ]]; then
   die "Invalid extension ID '${EXTENSION_ID}'. Expected 32 lowercase characters from a to p."
 fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-HOST_PATH="${SCRIPT_DIR}/keyvault_native_host.sh"
+COMPILED_HOST="${SCRIPT_DIR}/keyvault_native_host"
+LAUNCHER="${SCRIPT_DIR}/keyvault_native_host.sh"
+SOURCE_ENTRYPOINT="${SCRIPT_DIR}/../../tool/native_host.dart"
 
-[[ -f "${HOST_PATH}" ]] || die "Native host launcher not found: ${HOST_PATH}"
+[[ -n "${HOME:-}" ]] || die "HOME is required to install the browser manifest"
 
 case "${BROWSER}" in
   chrome)
-    TEMPLATE="${SCRIPT_DIR}/manifests/chrome/${HOST_NAME}.json"
     DEST_DIR="${HOME}/.config/google-chrome/NativeMessagingHosts"
     ;;
   chromium)
-    TEMPLATE="${SCRIPT_DIR}/manifests/chrome/${HOST_NAME}.json"
     DEST_DIR="${HOME}/.config/chromium/NativeMessagingHosts"
     ;;
   edge)
-    TEMPLATE="${SCRIPT_DIR}/manifests/edge/${HOST_NAME}.json"
     DEST_DIR="${HOME}/.config/microsoft-edge/NativeMessagingHosts"
     ;;
   *)
@@ -82,34 +81,58 @@ case "${BROWSER}" in
     ;;
 esac
 
-[[ -f "${TEMPLATE}" ]] || die "Native host manifest template not found: ${TEMPLATE}"
+TEMP_PATH=""
+cleanup() {
+  if [[ -n "${TEMP_PATH}" ]]; then
+    rm -f -- "${TEMP_PATH}"
+  fi
+}
+trap cleanup EXIT
 
-if [[ ! -x "${HOST_PATH}" ]]; then
+if [[ -e "${COMPILED_HOST}" || -L "${COMPILED_HOST}" ]]; then
+  [[ -f "${COMPILED_HOST}" ]] || die "Compiled native host is not a regular file: ${COMPILED_HOST}"
+
+  DATA_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}"
+  [[ "${DATA_HOME}" = /* ]] || die "XDG_DATA_HOME must be an absolute path"
+
+  HOST_INSTALL_DIR="${DATA_HOME}/keyvault/native-host"
+  HOST_PATH="${HOST_INSTALL_DIR}/keyvault_native_host"
+  mkdir -p -- "${HOST_INSTALL_DIR}"
+  chmod 0700 "${HOST_INSTALL_DIR}"
+
+  TEMP_PATH="$(mktemp "${HOST_INSTALL_DIR}/.keyvault_native_host.XXXXXX")"
+  cp -- "${COMPILED_HOST}" "${TEMP_PATH}"
+  chmod 0700 "${TEMP_PATH}"
+  mv -f -- "${TEMP_PATH}" "${HOST_PATH}"
+  TEMP_PATH=""
+else
+  [[ -f "${LAUNCHER}" && -f "${SOURCE_ENTRYPOINT}" ]] || \
+    die "Compiled native host not found: ${COMPILED_HOST}. Build it with tool/build_native_host.sh."
+  HOST_PATH="${LAUNCHER}"
   chmod u+x "${HOST_PATH}"
 fi
 
 mkdir -p "${DEST_DIR}"
 DEST_PATH="${DEST_DIR}/${HOST_NAME}.json"
 
-python3 - "${TEMPLATE}" "${HOST_PATH}" "${EXTENSION_ID}" "${DEST_PATH}" <<'PY'
-import json
-import sys
-from pathlib import Path
+if [[ "${HOST_PATH}" =~ [[:cntrl:]] ]]; then
+  die "Native host path contains characters unsupported by JSON"
+fi
+JSON_HOST_PATH="${HOST_PATH//\\/\\\\}"
+JSON_HOST_PATH="${JSON_HOST_PATH//\"/\\\"}"
 
-template_path, host_path, extension_id, destination_path = sys.argv[1:]
-manifest = json.loads(Path(template_path).read_text(encoding="utf-8"))
-manifest["path"] = host_path
-manifest["allowed_origins"] = [f"chrome-extension://{extension_id}/"]
-Path(destination_path).write_text(
-    json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
-    encoding="utf-8",
-)
-PY
-
-python3 -m json.tool "${DEST_PATH}" >/dev/null
+TEMP_PATH="$(mktemp "${DEST_DIR}/.${HOST_NAME}.json.XXXXXX")"
+printf '{\n  "name": "%s",\n  "description": "%s",\n  "path": "%s",\n  "type": "stdio",\n  "allowed_origins": [\n    "chrome-extension://%s/"\n  ]\n}\n' \
+  "${HOST_NAME}" \
+  "KeyVault Native Messaging v2 host (metadata search and explicit fill)" \
+  "${JSON_HOST_PATH}" \
+  "${EXTENSION_ID}" >"${TEMP_PATH}"
+chmod 0600 "${TEMP_PATH}"
+mv -f -- "${TEMP_PATH}" "${DEST_PATH}"
+TEMP_PATH=""
 
 printf 'Installed KeyVault native messaging host for %s.\n' "${BROWSER}"
 printf 'Manifest: %s\n' "${DEST_PATH}"
-printf 'Host launcher: %s\n' "${HOST_PATH}"
+printf 'Host: %s\n' "${HOST_PATH}"
 printf 'Allowed origin: chrome-extension://%s/\n' "${EXTENSION_ID}"
 printf 'Restart the browser before testing the extension.\n'

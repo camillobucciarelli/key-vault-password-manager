@@ -10,6 +10,7 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 OUTPUT_DIR="${OUTPUT_ROOT}/${TIMESTAMP}"
 PLATFORMS="android,ios,macos,windows,linux"
 RUN_CLEAN=true
+APPSTORE_ARCHIVE=""
 
 print_help() {
   cat <<'EOF'
@@ -21,12 +22,13 @@ Options:
   --env-file <path>      Path to dart define json file
                           (default: .env.dart.define.json)
   --platforms <list>     Comma-separated list: android,android-playstore,ios,ios-appstore,macos,macos-appstore,windows,linux
-                          (default: all)
+                           (default: all)
+  --archive-path <path>  Archive used by ios-appstore-upload or macos-appstore-upload
   --no-clean             Skip flutter clean + flutter pub get
   --output-dir <path>    Output base directory (default: dist/prod_packages)
   -h, --help             Show this help
 
-Environment for App Store Connect uploads:
+Environment for App Store Connect signing:
   APP_STORE_CONNECT_API_KEY_PATH       Optional path to App Store Connect .p8 key
   APP_STORE_CONNECT_API_KEY_ID         Key ID for the .p8 key
   APP_STORE_CONNECT_API_ISSUER_ID      Issuer ID for the .p8 key
@@ -54,6 +56,10 @@ while [[ $# -gt 0 ]]; do
       RUN_CLEAN=false
       shift
       ;;
+    --archive-path)
+      APPSTORE_ARCHIVE="$2"
+      shift 2
+      ;;
     --output-dir)
       OUTPUT_ROOT="$2"
       OUTPUT_DIR="${OUTPUT_ROOT}/${TIMESTAMP}"
@@ -78,6 +84,10 @@ fi
 if [[ "${OUTPUT_ROOT}" != /* ]]; then
   OUTPUT_ROOT="${ROOT_DIR}/${OUTPUT_ROOT}"
   OUTPUT_DIR="${OUTPUT_ROOT}/${TIMESTAMP}"
+fi
+
+if [[ -n "${APPSTORE_ARCHIVE}" && "${APPSTORE_ARCHIVE}" != /* ]]; then
+  APPSTORE_ARCHIVE="${ROOT_DIR}/${APPSTORE_ARCHIVE}"
 fi
 
 if ! command -v flutter >/dev/null 2>&1; then
@@ -116,8 +126,16 @@ zip_dir() {
     )
     echo "Saved: ${zip_target}"
   else
-    echo "zip command not found, directory copied without zip: ${src_dir}"
+    echo "zip command not found; cannot package: ${src_dir}"
+    return 1
   fi
+}
+
+local_export_options() {
+  local source="$1"
+  local destination="$2"
+  cp "${source}" "${destination}"
+  /usr/libexec/PlistBuddy -c "Set :destination export" "${destination}"
 }
 
 run_xcodebuild_filtered() {
@@ -282,6 +300,7 @@ for raw_platform in "${selected_platforms[@]}"; do
       ARCHIVE_PATH="${OUTPUT_DIR}/Runner-ios.xcarchive"
       EXPORT_PATH="${OUTPUT_DIR}/ios-appstore-export"
       EXPORT_OPTIONS="${ROOT_DIR}/ios/ExportOptions.plist"
+      LOCAL_EXPORT_OPTIONS="${OUTPUT_DIR}/ios-export-options.plist"
 
       configure_app_store_connect_api_args
       ios_appstore_auth_args=(
@@ -303,15 +322,39 @@ for raw_platform in "${selected_platforms[@]}"; do
         CODE_SIGN_STYLE=Automatic \
         DEVELOPMENT_TEAM=A8QUU5F9G3
 
-      echo "Exporting and uploading to App Store Connect..."
+      local_export_options "${EXPORT_OPTIONS}" "${LOCAL_EXPORT_OPTIONS}"
+      echo "Exporting iOS App Store artifact..."
       run_xcodebuild_filtered "(error:|warning:|\*\* EXPORT (SUCCEEDED|FAILED) \*\*|Uploaded)" \
         xcodebuild -exportArchive \
         -archivePath "${ARCHIVE_PATH}" \
-        -exportOptionsPlist "${EXPORT_OPTIONS}" \
+        -exportOptionsPlist "${LOCAL_EXPORT_OPTIONS}" \
         -exportPath "${EXPORT_PATH}" \
         "${ios_appstore_auth_args[@]}"
 
-      echo "iOS App Store upload complete."
+      ipa_file="$(ls "${EXPORT_PATH}"/*.ipa 2>/dev/null | head -n 1 || true)"
+      if [[ -n "${ipa_file}" ]]; then
+        copy_if_exists "${ipa_file}" "${OUTPUT_DIR}/password_manager-ios-appstore.ipa"
+      else
+        echo "No .ipa found in ${EXPORT_PATH}"
+        exit 1
+      fi
+      ;;
+
+    ios-appstore-upload)
+      if [[ ! -d "${APPSTORE_ARCHIVE}" ]]; then
+        echo "iOS App Store archive not found: ${APPSTORE_ARCHIVE}"
+        exit 1
+      fi
+
+      configure_app_store_connect_api_args
+      echo "Uploading iOS archive to App Store Connect..."
+      run_xcodebuild_filtered "(error:|warning:|\*\* EXPORT (SUCCEEDED|FAILED) \*\*|Uploaded)" \
+        xcodebuild -exportArchive \
+        -archivePath "${APPSTORE_ARCHIVE}" \
+        -exportOptionsPlist "${ROOT_DIR}/ios/ExportOptions.plist" \
+        -exportPath "${OUTPUT_DIR}/ios-appstore-upload" \
+        -allowProvisioningUpdates \
+        "${app_store_connect_api_args[@]}"
       ;;
 
     macos)
@@ -328,6 +371,7 @@ for raw_platform in "${selected_platforms[@]}"; do
       ARCHIVE_PATH="${OUTPUT_DIR}/Runner.xcarchive"
       EXPORT_PATH="${OUTPUT_DIR}/macos-appstore-export"
       EXPORT_OPTIONS="${ROOT_DIR}/macos/ExportOptions.plist"
+      LOCAL_EXPORT_OPTIONS="${OUTPUT_DIR}/macos-export-options.plist"
 
       # Generate Flutter/Xcode config without signing. The archive step below
       # owns App Store signing with provisioning updates enabled.
@@ -353,33 +397,76 @@ for raw_platform in "${selected_platforms[@]}"; do
         -archivePath "${ARCHIVE_PATH}" \
         "${macos_appstore_signing_args[@]}"
 
-      echo "Exporting and uploading to App Store Connect..."
+      local_export_options "${EXPORT_OPTIONS}" "${LOCAL_EXPORT_OPTIONS}"
+      echo "Exporting macOS App Store artifact..."
       run_xcodebuild_filtered "(error:|warning:|\*\* EXPORT (SUCCEEDED|FAILED) \*\*|Uploaded)" \
         xcodebuild -exportArchive \
         -archivePath "${ARCHIVE_PATH}" \
-        -exportOptionsPlist "${EXPORT_OPTIONS}" \
+        -exportOptionsPlist "${LOCAL_EXPORT_OPTIONS}" \
         -exportPath "${EXPORT_PATH}" \
         "${macos_appstore_signing_args[@]}"
 
-      echo "macOS App Store upload complete."
+      pkg_file="$(ls "${EXPORT_PATH}"/*.pkg 2>/dev/null | head -n 1 || true)"
+      if [[ -n "${pkg_file}" ]]; then
+        copy_if_exists "${pkg_file}" "${OUTPUT_DIR}/password_manager-macos-appstore.pkg"
+      else
+        echo "No .pkg found in ${EXPORT_PATH}"
+        exit 1
+      fi
+      ;;
+
+    macos-appstore-upload)
+      if [[ ! -d "${APPSTORE_ARCHIVE}" ]]; then
+        echo "macOS App Store archive not found: ${APPSTORE_ARCHIVE}"
+        exit 1
+      fi
+
+      configure_app_store_connect_api_args
+      preflight_macos_appstore_signing "A8QUU5F9G3"
+      echo "Uploading macOS archive to App Store Connect..."
+      run_xcodebuild_filtered "(error:|warning:|\*\* EXPORT (SUCCEEDED|FAILED) \*\*|Uploaded)" \
+        xcodebuild -exportArchive \
+        -archivePath "${APPSTORE_ARCHIVE}" \
+        -exportOptionsPlist "${ROOT_DIR}/macos/ExportOptions.plist" \
+        -exportPath "${OUTPUT_DIR}/macos-appstore-upload" \
+        -allowProvisioningUpdates \
+        "${app_store_connect_api_args[@]}" \
+        CODE_SIGN_STYLE=Automatic \
+        DEVELOPMENT_TEAM=A8QUU5F9G3
       ;;
 
     windows)
       echo "Building Windows app..."
+      native_host_out="${ROOT_DIR}/build/native_host/windows/keyvault_native_host.exe"
+      (cd "${ROOT_DIR}" && NATIVE_HOST_OUT_PATH="${native_host_out}" ./tool/build_native_host.sh)
       (cd "${ROOT_DIR}" && flutter build windows "${build_args[@]}")
 
       windows_dir="${ROOT_DIR}/build/windows/x64/runner/Release"
-      copy_if_exists "${windows_dir}" "${OUTPUT_DIR}/password_manager-windows-release"
-      zip_dir "${OUTPUT_DIR}/password_manager-windows-release" "${OUTPUT_DIR}/password_manager-windows-release.zip"
+      windows_bundle="${OUTPUT_DIR}/password_manager-windows-release"
+      copy_if_exists "${windows_dir}" "${windows_bundle}"
+      native_host_bundle="${windows_bundle}/desktop/native_host"
+      mkdir -p "${native_host_bundle}/manifests/chrome"
+      copy_if_exists "${native_host_out}" "${native_host_bundle}/keyvault_native_host.exe"
+      copy_if_exists "${ROOT_DIR}/desktop/native_host/install_host_windows.ps1" "${native_host_bundle}/install_host_windows.ps1"
+      copy_if_exists "${ROOT_DIR}/desktop/native_host/manifests/chrome/dev.camillobucciarelli.keyvault_native_host.json" "${native_host_bundle}/manifests/chrome/dev.camillobucciarelli.keyvault_native_host.json"
       ;;
 
     linux)
       echo "Building Linux app..."
+      native_host_out="${ROOT_DIR}/build/native_host/linux/keyvault_native_host"
+      (cd "${ROOT_DIR}" && NATIVE_HOST_OUT_PATH="${native_host_out}" ./tool/build_native_host.sh)
       (cd "${ROOT_DIR}" && flutter build linux "${build_args[@]}")
 
       linux_dir="${ROOT_DIR}/build/linux/x64/release/bundle"
-      copy_if_exists "${linux_dir}" "${OUTPUT_DIR}/password_manager-linux-release"
-      zip_dir "${OUTPUT_DIR}/password_manager-linux-release" "${OUTPUT_DIR}/password_manager-linux-release.zip"
+      linux_bundle="${OUTPUT_DIR}/password_manager-linux-release"
+      copy_if_exists "${linux_dir}" "${linux_bundle}"
+      native_host_bundle="${linux_bundle}/desktop/native_host"
+      mkdir -p "${native_host_bundle}/manifests/chrome"
+      copy_if_exists "${native_host_out}" "${native_host_bundle}/keyvault_native_host"
+      copy_if_exists "${ROOT_DIR}/desktop/native_host/install_host_linux.sh" "${native_host_bundle}/install_host_linux.sh"
+      copy_if_exists "${ROOT_DIR}/desktop/native_host/keyvault_native_host.sh" "${native_host_bundle}/keyvault_native_host.sh"
+      copy_if_exists "${ROOT_DIR}/desktop/native_host/manifests/chrome/dev.camillobucciarelli.keyvault_native_host.json" "${native_host_bundle}/manifests/chrome/dev.camillobucciarelli.keyvault_native_host.json"
+      zip_dir "${linux_bundle}" "${OUTPUT_DIR}/password_manager-linux-release.zip"
       ;;
 
     "")
@@ -387,7 +474,7 @@ for raw_platform in "${selected_platforms[@]}"; do
 
     *)
       echo "Unsupported platform: ${platform}"
-      echo "Supported: android, android-playstore, ios, ios-appstore, macos, macos-appstore, windows, linux"
+      echo "Supported: android, android-playstore, ios, ios-appstore, ios-appstore-upload, macos, macos-appstore, macos-appstore-upload, windows, linux"
       exit 1
       ;;
   esac

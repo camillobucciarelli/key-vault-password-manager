@@ -5,6 +5,18 @@ popup-triggered fill for exact strong matches. The extension/native host do
 **not** read `.kdbx`, request the master password, cache plaintext passwords, or
 fill pages silently.
 
+Production setup:
+
+1. Install KeyVault from Chrome Web Store.
+2. Open **Desktop browser extension** in KeyVault.
+3. On Windows/Linux, click **Configure Chrome**. On macOS, download and run the
+   signed **KeyVault Chrome Support** package offered by the app.
+4. Restart Chrome, unlock the vault, then open the extension popup.
+
+The published extension ID is `ogjmlkogmogijgpflnjifiobdmnmommh`. Users never
+need to copy this ID, enable Developer mode, install Dart, or run terminal
+commands.
+
 Development install:
 
 1. Open `chrome://extensions` or `edge://extensions`.

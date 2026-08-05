@@ -3,11 +3,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
-OUT_PATH="${ROOT_DIR}/desktop/native_host/keyvault_native_host"
+OUT_PATH="${NATIVE_HOST_OUT_PATH:-${ROOT_DIR}/desktop/native_host/keyvault_native_host}"
 
 case "${OS:-$(uname -s 2>/dev/null || printf 'unknown')}" in
   Windows_NT|MINGW*|MSYS*|CYGWIN*)
-    OUT_PATH="${OUT_PATH}.exe"
+    [[ "${OUT_PATH}" == *.exe ]] || OUT_PATH="${OUT_PATH}.exe"
     ;;
 esac
 
