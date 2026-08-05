@@ -34,7 +34,9 @@ component. Do not migrate unrelated call sites in 001.
 | `lib/core/theme/app_text_styles.dart` | bundled-font named scale |
 | `lib/core/theme/app_glyph.dart` | semantic glyph-to-asset mapping |
 | `lib/core/widgets/kv_icon.dart` | SVG renderer used by gallery and migrated screens |
+| `lib/core/widgets/app_focus_ring.dart` | FR-6 external focus ring with caller-owned shared `FocusNode` |
 | `test/core/theme/app_theme_test.dart` | token, state, contrast, font and motion assertions |
+| `test/core/widgets/app_focus_ring_test.dart` | focus geometry, ownership, hit testing, semantics and switch/checkbox focus assertions |
 | `test/fixtures/001_direct_material_icons_baseline.txt` | untouched-file direct `Icons.` baseline; no-new-occurrence gate |
 | `test/goldens/organic_theme_gallery_test.dart` | fixed-surface harness |
 | `test/goldens/organic_theme_gallery_*.png` | exact four images from spec |
@@ -49,8 +51,9 @@ component. Do not migrate unrelated call sites in 001.
 | `lib/core/theme/app_backgrounds.dart` | keep `gradient()` signature, return Organic ground-compatible fill until callers migrate |
 | `lib/core/theme/app_icons.dart` | compatibility documentation only; members/types stay unchanged |
 
-No application screen file changes. No `lib/core/widgets/` kit beyond `KvIcon`,
-which has a real gallery use in this spec.
+No application screen file changes. No `lib/core/widgets/` kit beyond `KvIcon`
+and FR-6's `AppFocusRing`; both have real gallery uses in this spec. The focus
+primitive does not authorize speculative controls or wrappers.
 
 ## Sequencing and compile gates
 
@@ -58,7 +61,7 @@ which has a real gallery use in this spec.
 T1 baseline/asset manifest
  -> T2 bundled fonts + pubspec -> analyze/font test
  -> T3 tokens + compatibility aliases -> analyze/theme tests
- -> T4 AppTheme + golden harness -> analyze/widget tests
+ -> T4 AppTheme + AppFocusRing + golden harness -> analyze/widget tests
  -> T5 flutter_svg + glyphs + KvIcon -> analyze/widget tests/goldens
  -> T6 scoped sweeps
 ```
@@ -75,14 +78,14 @@ No tasks edit the same file concurrently.
 | `AppIcons` mistaken for direct `Icons` usage | Use boundary-aware regex and explicit path exclusion from spec AC-5 |
 | Global zero-icon sweep contradicts untouched screens | Require zero only in 001-touched files and diff untouched files against T1 baseline |
 | Handoff secondary opacity fails WCAG | Use neutral-700 `#665f53` light and neutral-100 @62% dark; parameterize every declared pairing |
-| Premature component API freezes wrong geometry | Build no component library; extract on second real use |
+| Premature component API freezes wrong geometry | Build no component library; allow only KvIcon and FR-6's exact AppFocusRing primitive |
 
 ## Verification
 
 T1 baseline capture, once before edits:
 
 ```bash
-rg -n '(^|[^[:alnum:]_])Icons\.' lib --glob '*.dart' --glob '!lib/core/theme/**' --glob '!lib/core/widgets/kv_icon.dart' > test/fixtures/001_direct_material_icons_baseline.txt || true
+rg -n '(^|[^[:alnum:]_])Icons\.' lib --glob '*.dart' --glob '!lib/core/theme/**' --glob '!lib/core/widgets/**' > test/fixtures/001_direct_material_icons_baseline.txt || true
 ```
 
 Final checks:
@@ -90,10 +93,11 @@ Final checks:
 ```bash
 flutter analyze
 flutter test test/core/theme/app_theme_test.dart
+flutter test test/core/widgets/app_focus_ring_test.dart
 flutter test test/goldens/organic_theme_gallery_test.dart
 flutter test --update-goldens test/goldens/organic_theme_gallery_test.dart # reviewed regeneration only
-rg -n '(^|[^[:alnum:]_])Icons\.' lib/core/theme lib/core/widgets/kv_icon.dart --glob '*.dart' --glob '!lib/core/theme/app_icons.dart'
-tmp="$(mktemp)"; rg -n '(^|[^[:alnum:]_])Icons\.' lib --glob '*.dart' --glob '!lib/core/theme/**' --glob '!lib/core/widgets/kv_icon.dart' > "$tmp" || true; diff -u test/fixtures/001_direct_material_icons_baseline.txt "$tmp"; rm "$tmp"
+rg -n '(^|[^[:alnum:]_])Icons\.' lib/core/theme lib/core/widgets --glob '*.dart' --glob '!lib/core/theme/app_icons.dart'
+tmp="$(mktemp)"; rg -n '(^|[^[:alnum:]_])Icons\.' lib --glob '*.dart' --glob '!lib/core/theme/**' --glob '!lib/core/widgets/**' > "$tmp" || true; diff -u test/fixtures/001_direct_material_icons_baseline.txt "$tmp"; rm "$tmp"
 rg -n '\bAppIcons\.' lib --glob '*.dart' --glob '!lib/core/theme/app_icons.dart'
 rg -n '0x[0-9A-Fa-f]{8}' lib/core/theme --glob '*.dart' --glob '!app_colors.dart'
 ```

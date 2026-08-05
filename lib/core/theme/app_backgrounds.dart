@@ -6,6 +6,7 @@ class AppBackgrounds {
   AppBackgrounds._();
 
   static LinearGradient gradient(BuildContext context) {
+    // Compatibility-only. Organic surfaces use KeyVaultColors.ground directly.
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colors = isDark
         ? [AppColors.darkGradientFrom, AppColors.darkGradientTo]

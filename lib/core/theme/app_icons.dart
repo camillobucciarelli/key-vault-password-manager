@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 class AppIcons {
   AppIcons._();
 
+  // Compatibility-only aliases for untouched screens. New surfaces use
+  // KvIcon(AppGlyph.*).
+
   static const IconData add = Icons.add;
   static const IconData back = Icons.arrow_back;
   static const IconData refresh = Icons.refresh;
