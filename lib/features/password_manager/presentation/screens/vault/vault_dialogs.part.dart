@@ -1,27 +1,5 @@
 part of '../vault_screen.dart';
 
-class _EntryDialogPayload {
-  const _EntryDialogPayload({
-    required this.title,
-    required this.username,
-    required this.password,
-    required this.url,
-    required this.notes,
-    required this.otpUri,
-    required this.customFields,
-    required this.attachmentPaths,
-  });
-
-  final String title;
-  final String username;
-  final String password;
-  final String url;
-  final String notes;
-  final String otpUri;
-  final List<VaultCustomField> customFields;
-  final List<String> attachmentPaths;
-}
-
 class _CustomFieldFormRow {
   _CustomFieldFormRow({
     required this.id,
@@ -34,15 +12,18 @@ class _CustomFieldFormRow {
   String value;
 }
 
-Future<_EntryDialogPayload?> _showEntryDialog(
+Future<EntryEditResult?> _showEntryDialog(
   BuildContext context, {
   VaultEntry? initial,
   OtpAuthPayload? initialOtpAuth,
+  VaultShellRouter? router,
 }) async {
-  return showDialog<_EntryDialogPayload>(
+  return (router ?? VaultShellRouterScope.of(context)).open<EntryEditResult>(
     context: context,
-    builder: (_) =>
-        _EntryDialog(initial: initial, initialOtpAuth: initialOtpAuth),
+    surface: EntrySurface<EntryEditResult>(
+      builder: (_) =>
+          _EntryDialog(initial: initial, initialOtpAuth: initialOtpAuth),
+    ),
   );
 }
 
@@ -69,6 +50,22 @@ class _EntryDialogState extends State<_EntryDialog> {
   var _nextCustomFieldId = 0;
   late List<_CustomFieldFormRow> _customFieldRows;
   final List<String> _attachmentPaths = [];
+  bool _isDirty = false;
+
+  void _markDirty() => _isDirty = true;
+
+  Future<bool> _confirmDiscard() async {
+    if (!_isDirty) {
+      return true;
+    }
+    final decision = await VaultShellRouterScope.of(context).confirm(
+      context: context,
+      title: 'Discard changes?',
+      body: 'Your unsaved record changes will be lost.',
+      confirmLabel: 'Discard',
+    );
+    return decision == ConfirmDecision.confirm;
+  }
 
   @override
   void initState() {
@@ -118,6 +115,9 @@ class _EntryDialogState extends State<_EntryDialog> {
 
   @override
   Widget build(BuildContext context) {
+    VaultOperationScope.maybeOf(
+      context,
+    )?.registerDiscardGuard(_confirmDiscard);
     final strength = _evaluatePasswordStrength(_password);
     final colorScheme = Theme.of(context).colorScheme;
     final strengthColor = switch (strength.level) {
@@ -145,7 +145,10 @@ class _EntryDialogState extends State<_EntryDialog> {
                 TextFormField(
                   initialValue: _title,
                   decoration: const InputDecoration(labelText: 'Title'),
-                  onChanged: (value) => _title = value,
+                  onChanged: (value) {
+                    _title = value;
+                    _markDirty();
+                  },
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
                       return 'Title is required.';
@@ -157,7 +160,10 @@ class _EntryDialogState extends State<_EntryDialog> {
                 TextFormField(
                   initialValue: _username,
                   decoration: const InputDecoration(labelText: 'Username'),
-                  onChanged: (value) => _username = value,
+                  onChanged: (value) {
+                    _username = value;
+                    _markDirty();
+                  },
                 ),
                 const SizedBox(height: 10),
                 Row(
@@ -183,6 +189,7 @@ class _EntryDialogState extends State<_EntryDialog> {
                         onChanged: (value) {
                           setState(() {
                             _password = value;
+                            _markDirty();
                           });
                         },
                       ),
@@ -203,8 +210,9 @@ class _EntryDialogState extends State<_EntryDialog> {
                             return;
                           }
                           setState(() {
-                            _passwordController.text = generatedPassword;
-                            _password = generatedPassword;
+                            _passwordController.text = generatedPassword.password;
+                            _password = generatedPassword.password;
+                            _markDirty();
                           });
                         },
                         child: const Icon(
@@ -238,7 +246,10 @@ class _EntryDialogState extends State<_EntryDialog> {
                 TextFormField(
                   initialValue: _url,
                   decoration: const InputDecoration(labelText: 'URL'),
-                  onChanged: (value) => _url = value,
+                  onChanged: (value) {
+                    _url = value;
+                    _markDirty();
+                  },
                 ),
                 const SizedBox(height: 10),
                 TextFormField(
@@ -246,7 +257,10 @@ class _EntryDialogState extends State<_EntryDialog> {
                   minLines: 3,
                   maxLines: 5,
                   decoration: const InputDecoration(labelText: 'Notes'),
-                  onChanged: (value) => _notes = value,
+                  onChanged: (value) {
+                    _notes = value;
+                    _markDirty();
+                  },
                 ),
                 const SizedBox(height: 10),
                 TextFormField(
@@ -270,7 +284,8 @@ class _EntryDialogState extends State<_EntryDialog> {
                                   return;
                                 }
                                 setState(() {
-                                  _otpUri = scannedOtpUri;
+                                  _otpUri = scannedOtpUri.otpUri;
+                                  _markDirty();
                                 });
                               },
                               icon: const Icon(AppIcons.qrCode),
@@ -278,7 +293,10 @@ class _EntryDialogState extends State<_EntryDialog> {
                           )
                         : null,
                   ),
-                  onChanged: (value) => _otpUri = value,
+                  onChanged: (value) {
+                    _otpUri = value;
+                    _markDirty();
+                  },
                   validator: (value) => _validateOtpUri(value ?? ''),
                 ),
                 const SizedBox(height: 10),
@@ -313,9 +331,10 @@ class _EntryDialogState extends State<_EntryDialog> {
                                 if (!mounted) {
                                   return;
                                 }
-                                setState(() {
-                                  _attachmentPaths.add(filePath);
-                                });
+setState(() {
+  _attachmentPaths.add(filePath);
+  _markDirty();
+});
                                 fieldState.didChange(null);
                               },
                               icon: const Icon(AppIcons.add, size: 16),
@@ -350,6 +369,7 @@ class _EntryDialogState extends State<_EntryDialog> {
                                   onPressed: () {
                                     setState(() {
                                       _attachmentPaths.remove(filePath);
+                                      _markDirty();
                                     });
                                     fieldState.didChange(null);
                                   },
@@ -395,6 +415,7 @@ class _EntryDialogState extends State<_EntryDialog> {
                               onPressed: () {
                                 setState(() {
                                   _customFieldRows.add(_buildCustomFieldRow());
+                                    _markDirty();
                                 });
                                 fieldState.didChange(null);
                               },
@@ -420,6 +441,7 @@ class _EntryDialogState extends State<_EntryDialog> {
                                     ),
                                     onChanged: (value) {
                                       row.key = value;
+                                      _markDirty();
                                       fieldState.didChange(null);
                                     },
                                   ),
@@ -434,6 +456,7 @@ class _EntryDialogState extends State<_EntryDialog> {
                                     ),
                                     onChanged: (value) {
                                       row.value = value;
+                                      _markDirty();
                                       fieldState.didChange(null);
                                     },
                                   ),
@@ -448,6 +471,7 @@ class _EntryDialogState extends State<_EntryDialog> {
                                         _customFieldRows.removeWhere(
                                           (candidate) => candidate.id == row.id,
                                         );
+                                        _markDirty();
                                       });
                                       fieldState.didChange(null);
                                     },
@@ -479,7 +503,7 @@ class _EntryDialogState extends State<_EntryDialog> {
       ),
       actions: _adaptiveDialogActions(context, [
         TextButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () => VaultOperationScope.of(context).cancel(),
           child: const Text('Cancel'),
         ),
         FilledButton(
@@ -488,8 +512,8 @@ class _EntryDialogState extends State<_EntryDialog> {
               return;
             }
 
-            Navigator.of(context).pop(
-              _EntryDialogPayload(
+            VaultOperationScope.of(context).complete(
+              EntryEditResult(
                 title: _title.trim(),
                 username: _username.trim(),
                 password: _passwordController.text,
@@ -524,14 +548,16 @@ bool _supportsOtpQrScan() {
   };
 }
 
-Future<String?> _scanOtpUriFromQr(BuildContext context) async {
+Future<OtpScanResult?> _scanOtpUriFromQr(BuildContext context) async {
   if (!_supportsOtpQrScan()) {
     return null;
   }
 
-  return showDialog<String>(
+  return VaultShellRouterScope.of(context).open<OtpScanResult>(
     context: context,
-    builder: (_) => const _OtpQrScannerDialog(),
+    surface: OtpScannerSurface<OtpScanResult>(
+      builder: (_) => const _OtpQrScannerDialog(),
+    ),
   );
 }
 
@@ -585,7 +611,9 @@ class _OtpQrScannerDialogState extends State<_OtpQrScannerDialog> {
                   _isHandlingCapture = true;
                   if (value.startsWith('otpauth://')) {
                     if (context.mounted) {
-                      Navigator.of(context).pop(value);
+                      VaultOperationScope.of(
+                        context,
+                      ).complete(OtpScanResult(value));
                     }
                     return;
                   }
@@ -607,7 +635,7 @@ class _OtpQrScannerDialogState extends State<_OtpQrScannerDialog> {
       ),
       actions: _adaptiveDialogActions(context, [
         TextButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () => VaultOperationScope.of(context).cancel(),
           child: const Text('Cancel'),
         ),
       ]),
@@ -615,7 +643,7 @@ class _OtpQrScannerDialogState extends State<_OtpQrScannerDialog> {
   }
 }
 
-Future<String?> _showGroupDialog(
+Future<GroupEditResult?> _showGroupDialog(
   BuildContext context, {
   String? initialName,
   String title = 'Create folder',
@@ -623,9 +651,10 @@ Future<String?> _showGroupDialog(
 }) async {
   var name = initialName ?? '';
   final formKey = GlobalKey<FormState>();
-  final result = await showDialog<String>(
+  final result = await VaultShellRouterScope.of(context).open<GroupEditResult>(
     context: context,
-    builder: (context) {
+    surface: GroupEditSurface<GroupEditResult>(
+      builder: (context) {
       return AlertDialog(
         title: Text(title),
         insetPadding: _dialogInsetPadding(context),
@@ -652,7 +681,7 @@ Future<String?> _showGroupDialog(
         ),
         actions: _adaptiveDialogActions(context, [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => VaultOperationScope.of(context).cancel(),
             child: const Text('Cancel'),
           ),
           FilledButton(
@@ -660,13 +689,16 @@ Future<String?> _showGroupDialog(
               if (!formKey.currentState!.validate()) {
                 return;
               }
-              Navigator.of(context).pop(name.trim());
+              VaultOperationScope.of(
+                context,
+              ).complete(GroupEditResult(name.trim()));
             },
             child: Text(actionLabel),
           ),
         ]),
       );
-    },
+      },
+    ),
   );
   return result;
 }
@@ -676,33 +708,16 @@ Future<bool> _showDeleteConfirm(
   required String label,
   String actionLabel = 'Delete',
 }) async {
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (context) {
-      return AlertDialog(
-        title: const Text('Confirm delete'),
-        insetPadding: _dialogInsetPadding(context),
-        contentPadding: _dialogContentPadding(context),
-        actionsOverflowDirection: VerticalDirection.down,
-        actionsOverflowButtonSpacing: 8,
-        content: Text(label),
-        actions: _adaptiveDialogActions(context, [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(actionLabel),
-          ),
-        ]),
-      );
-    },
+  final confirmed = await _showConfirmation(
+    context,
+    title: 'Confirm delete',
+    body: label,
+    confirmLabel: actionLabel,
   );
-  return confirmed ?? false;
+  return confirmed == ConfirmDecision.confirm;
 }
 
-Future<String?> _showMoveTargetDialog(
+Future<MoveTargetResult?> _showMoveTargetDialog(
   BuildContext context,
   List<VaultGroup> groups, {
   String? currentGroupId,
@@ -717,9 +732,10 @@ Future<String?> _showMoveTargetDialog(
   }
   selectedGroupId = options.first.id;
 
-  return showDialog<String>(
+  return VaultShellRouterScope.of(context).open<MoveTargetResult>(
     context: context,
-    builder: (context) {
+    surface: MoveTargetSurface<MoveTargetResult>(
+      builder: (context) {
       return StatefulBuilder(
         builder: (context, setState) {
           return AlertDialog(
@@ -751,30 +767,34 @@ Future<String?> _showMoveTargetDialog(
             ),
             actions: _adaptiveDialogActions(context, [
               TextButton(
-                onPressed: () => Navigator.of(context).pop(),
+                onPressed: () => VaultOperationScope.of(context).cancel(),
                 child: const Text('Cancel'),
               ),
               FilledButton(
-                onPressed: () => Navigator.of(context).pop(selectedGroupId),
+                onPressed: () => VaultOperationScope.of(
+                  context,
+                ).complete(MoveTargetResult(selectedGroupId)),
                 child: const Text('Move'),
               ),
             ]),
           );
         },
       );
-    },
+      },
+    ),
   );
 }
 
 enum _AttachmentAction { export, remove }
 
-Future<void> _showAttachmentsDialog(
+Future<VaultDone?> _showAttachmentsDialog(
   BuildContext context,
   VaultEntry entry,
 ) async {
-  await showDialog<void>(
+  return VaultShellRouterScope.of(context).open<VaultDone>(
     context: context,
-    builder: (dialogContext) {
+    surface: AttachmentsSurface<VaultDone>(
+      builder: (dialogContext) {
       return AlertDialog(
         title: const Text('Attachments'),
         insetPadding: _dialogInsetPadding(dialogContext),
@@ -812,7 +832,9 @@ Future<void> _showAttachmentsDialog(
                                     destinationDirectory: directory,
                                   ),
                                 );
-                                Navigator.of(dialogContext).pop();
+                                VaultOperationScope.of(
+                                  dialogContext,
+                                ).complete(const VaultDone());
                               }
                               break;
                             case _AttachmentAction.remove:
@@ -828,7 +850,9 @@ Future<void> _showAttachmentsDialog(
                                     attachmentKey: attachment.key,
                                   ),
                                 );
-                                Navigator.of(dialogContext).pop();
+                                VaultOperationScope.of(
+                                  dialogContext,
+                                ).complete(const VaultDone());
                               }
                               break;
                           }
@@ -862,37 +886,27 @@ Future<void> _showAttachmentsDialog(
                 dialogContext.read<VaultBloc>().add(
                   AddVaultAttachment(entryId: entry.id, filePath: path),
                 );
-                Navigator.of(dialogContext).pop();
+                VaultOperationScope.of(
+                  dialogContext,
+                ).complete(const VaultDone());
               }
             },
             child: const Text('Add attachment'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
+            onPressed: () => VaultOperationScope.of(
+              dialogContext,
+            ).complete(const VaultDone()),
             child: const Text('Close'),
           ),
         ]),
       );
-    },
+      },
+    ),
   );
 }
 
-class _LinkDatabaseChoice {
-  const _LinkDatabaseChoice._({this.remoteFileId, this.remoteFileName});
-
-  final String? remoteFileId;
-  final String? remoteFileName;
-
-  factory _LinkDatabaseChoice.existing(String remoteFileId) {
-    return _LinkDatabaseChoice._(remoteFileId: remoteFileId);
-  }
-
-  factory _LinkDatabaseChoice.newFile(String remoteFileName) {
-    return _LinkDatabaseChoice._(remoteFileName: remoteFileName);
-  }
-}
-
-Future<_LinkDatabaseChoice?> _showLinkDatabaseDialog(
+Future<DriveLinkResult?> _showLinkDatabaseDialog(
   BuildContext context,
 ) async {
   final vaultBloc = context.read<VaultBloc>();
@@ -905,9 +919,10 @@ Future<_LinkDatabaseChoice?> _showLinkDatabaseDialog(
   var useExisting = false;
   String? selectedExistingId;
 
-  final result = await showDialog<_LinkDatabaseChoice?>(
+  final result = await VaultShellRouterScope.of(context).open<DriveLinkResult>(
     context: context,
-    builder: (dialogContext) {
+    surface: SyncLinkSurface<DriveLinkResult>(
+      builder: (dialogContext) {
       return BlocProvider.value(
         value: vaultBloc,
         child: StatefulBuilder(
@@ -1112,7 +1127,8 @@ Future<_LinkDatabaseChoice?> _showLinkDatabaseDialog(
               ),
               actions: _adaptiveDialogActions(dialogContext, [
                 TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(null),
+                  onPressed: () =>
+                      VaultOperationScope.of(dialogContext).cancel(),
                   child: const Text('Cancel'),
                 ),
                 FilledButton(
@@ -1123,14 +1139,14 @@ Future<_LinkDatabaseChoice?> _showLinkDatabaseDialog(
                                 selectedExistingId!.isEmpty) {
                               return;
                             }
-                            Navigator.of(dialogContext).pop(
-                              _LinkDatabaseChoice.existing(selectedExistingId!),
+                            VaultOperationScope.of(dialogContext).complete(
+                              DriveLinkResult.existing(selectedExistingId!),
                             );
                             return;
                           }
 
-                          Navigator.of(dialogContext).pop(
-                            _LinkDatabaseChoice.newFile(
+                          VaultOperationScope.of(dialogContext).complete(
+                            DriveLinkResult.newFile(
                               suggestedRemoteFileName,
                             ),
                           );
@@ -1143,7 +1159,8 @@ Future<_LinkDatabaseChoice?> _showLinkDatabaseDialog(
           },
         ),
       );
-    },
+      },
+    ),
   );
   return result;
 }
@@ -1152,9 +1169,11 @@ Future<void> _showSyncConflictDialog(
   BuildContext context,
   SyncConflict conflict,
 ) async {
-  final resolution = await showDialog<SyncConflictResolution>(
+  final resolution = await VaultShellRouterScope.of(context)
+      .open<SyncConflictRouteResult>(
     context: context,
-    builder: (dialogContext) {
+    surface: SyncConflictSurface<SyncConflictRouteResult>(
+      builder: (dialogContext) {
       return AlertDialog(
         title: const Text('Sync conflict detected'),
         insetPadding: _dialogInsetPadding(dialogContext),
@@ -1220,25 +1239,27 @@ Future<void> _showSyncConflictDialog(
         ),
         actions: _adaptiveDialogActions(dialogContext, [
           TextButton(
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(SyncConflictResolution.cancel),
+            onPressed: () => VaultOperationScope.of(dialogContext).complete(
+              const SyncConflictRouteResult(SyncConflictResolution.cancel),
+            ),
             child: const Text('Cancel'),
           ),
           OutlinedButton(
-            onPressed: () => Navigator.of(
-              dialogContext,
-            ).pop(SyncConflictResolution.useRemote),
+            onPressed: () => VaultOperationScope.of(dialogContext).complete(
+              const SyncConflictRouteResult(SyncConflictResolution.useRemote),
+            ),
             child: const Text('Use remote'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(
-              dialogContext,
-            ).pop(SyncConflictResolution.keepLocal),
+            onPressed: () => VaultOperationScope.of(dialogContext).complete(
+              const SyncConflictRouteResult(SyncConflictResolution.keepLocal),
+            ),
             child: const Text('Keep local'),
           ),
         ]),
       );
-    },
+      },
+    ),
   );
 
   if (!context.mounted) {
@@ -1247,11 +1268,14 @@ Future<void> _showSyncConflictDialog(
 
   context.read<VaultBloc>().add(const ClearVaultSyncFeedback());
 
-  if (resolution == null || resolution == SyncConflictResolution.cancel) {
+  if (resolution == null ||
+      resolution.resolution == SyncConflictResolution.cancel) {
     return;
   }
 
-  context.read<VaultBloc>().add(SyncCurrentDatabaseNow(resolution: resolution));
+  context.read<VaultBloc>().add(
+    SyncCurrentDatabaseNow(resolution: resolution.resolution),
+  );
 }
 
 Widget _syncConflictDetailRow(String label, String value) {

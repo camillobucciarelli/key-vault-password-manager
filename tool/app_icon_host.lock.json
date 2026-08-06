@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "os": {
+    "name": "macOS",
+    "version": "26.6",
+    "build": "25G72",
+    "architecture": "arm64"
+  },
+  "python": {
+    "version": "3.14.6",
+    "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+    "sha256": "b502cb4c5b46b8d4192ec6bcb600ce8922f1afc396fcf646e8765c6eba74a0bf",
+    "abi": "cp314",
+    "pointer_bits": 64,
+    "free_threaded": false
+  },
+  "pillow": {
+    "version": "12.2.0",
+    "wheel": "pillow-12.2.0-cp314-cp314-macosx_11_0_arm64.whl",
+    "url": "https://files.pythonhosted.org/packages/ba/8c/1a9e46228571de18f8e28f16fabdfc20212a5d019f3e3303452b3f0a580d/pillow-12.2.0-cp314-cp314-macosx_11_0_arm64.whl",
+    "sha256": "80b2da48193b2f33ed0c32c38140f9d3186583ce7d516526d462645fd98660ae",
+    "zlib": "1.3.1.zlib-ng",
+    "freetype": "2.14.3",
+    "imaging_architecture": "arm64"
+  },
+  "renderer": "pillow-imagedraw-svg-subset-v1"
+}

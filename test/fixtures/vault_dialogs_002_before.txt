@@ -1,0 +1,23 @@
+# spec-002 T1 frozen copy snapshot — 19 FR-7 rows.
+# Format: index|function|title|body|action|resultType|mobile|rail
+# body uses {placeholder} for interpolated values; "-" means no single static body string
+# (multi-field form content). Row count MUST be exactly 19.
+01|_showPasswordGeneratorDialog|Generate secure password|-|Generate|GeneratedPasswordResult?|sheet|pane
+02|_showEntryDialog|Add record|-|Create|EntryEditResult?|route|pane
+03|_scanOtpUriFromQr|Scan OTP QR|-|Cancel|OtpScanResult?|route|pane
+04|_showGroupDialog|Create folder|-|Create|GroupEditResult?|sheet|pane
+05|_showDeleteConfirm|Confirm delete|{label}|Delete|ConfirmDecision?|sheet|sheet
+06|_showMoveTargetDialog|Move to folder|-|Move|MoveTargetResult?|sheet|pane
+07|_showAttachmentsDialog|Attachments|-|Close|VaultDone?|route|pane
+08|_showLinkDatabaseDialog|Link database to Drive|-|Link|DriveLinkResult?|route|pane
+09|_showSyncConflictDialog|Sync conflict detected|The local database and Drive file "{driveFileName}" both changed. Choose what to keep.|Use remote|SyncConflictRouteResult?|sheet|pane
+10|_showDuplicatesDialog|Manage duplicates|-|Close|VaultDone?|route|pane
+11|_showMergeReviewDialog|Review merge|-|-|ConfirmDecision?|route|pane
+12|_showRecordMetadataDialog|Record info|-|Close|VaultDone?|route|pane
+13|_showDatabaseSettings|Database settings|-|Save changes|DatabaseSettingsResult?|route|pane
+14|_showDatabaseSettings.securityConfirm|Confirm security changes|You are about to update: {securityChanges}. Use the new credentials to unlock this vault after saving.|Confirm and apply|ConfirmDecision?|sheet|sheet
+15|_showRecycleBinDialog|Recycle bin|-|-|VaultDone?|route|pane
+16|_startCsvImportFlow|Import CSV|-|Import|CsvImportResult?|route|pane
+17|_handleOtpAuthEvent|Add OTP account?|An OTP account for {otpAuth.title} was received. Review it before saving to this vault.|Review|ConfirmDecision?|sheet|sheet
+18|_closeCurrentDatabaseAndSelectAnother|Close database|Close this database and return to file selection? Saved credentials for the current database will be removed.|Close database|ConfirmDecision?|sheet|sheet
+19|_showAppleAutofillAssociationDialog|Link AutoFill credential?|Target: {target}\n\n{entrySummary}\n\nThis association updates the vault only after you confirm.|Link|ConfirmDecision?|sheet|sheet

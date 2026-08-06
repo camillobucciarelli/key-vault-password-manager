@@ -1,0 +1,36 @@
+lib/features/password_manager/presentation/screens/vault/vault_dialogs.part.dart:127:      _PasswordStrengthLevel.strong => AppColors.success,
+lib/features/password_manager/presentation/screens/vault/vault_shared.part.dart:140:    DatabaseSyncStatus.success => AppColors.success,
+lib/features/password_manager/presentation/screens/vault/vault_shared.part.dart:142:    DatabaseSyncStatus.conflict => AppColors.warning,
+lib/features/password_manager/presentation/screens/vault/vault_shared.part.dart:156:    DatabaseSyncStatus.success => AppColors.success,
+lib/features/password_manager/presentation/screens/vault/vault_shared.part.dart:157:    DatabaseSyncStatus.conflict => AppColors.warning,
+lib/features/password_manager/presentation/screens/vault/vault_entries_details.part.dart:77:              gradient: AppBackgrounds.gradient(context),
+lib/features/password_manager/presentation/screens/vault/vault_entries_details.part.dart:1107:        ThemeData.estimateBrightnessForColor(AppColors.warning) ==
+lib/features/password_manager/presentation/screens/vault/vault_entries_details.part.dart:1135:                    ? AppColors.warning.withValues(alpha: 0.78)
+lib/features/password_manager/presentation/screens/vault/vault_entries_details.part.dart:1139:                    ? Border.all(color: AppColors.warning, width: 1.1)
+lib/features/password_manager/presentation/screens/database_selection_screen.dart:741:        decoration: BoxDecoration(gradient: AppBackgrounds.gradient(context)),
+lib/features/password_manager/presentation/screens/browser_setup_screen.dart:246:        decoration: BoxDecoration(gradient: AppBackgrounds.gradient(context)),
+lib/features/password_manager/presentation/screens/database_unlock_screen.dart:121:        decoration: BoxDecoration(gradient: AppBackgrounds.gradient(context)),
+lib/features/password_manager/presentation/screens/vault/vault_shell.part.dart:494:              gradient: AppBackgrounds.gradient(context),
+lib/core/theme/app_backgrounds.dart:11:        ? [AppColors.darkGradientFrom, AppColors.darkGradientTo]
+lib/core/theme/app_backgrounds.dart:12:        : [AppColors.lightGradientFrom, AppColors.lightGradientTo];
+lib/core/theme/app_theme.dart:17:      seedColor: isDark ? AppColors.darkSeed : AppColors.primary,
+lib/core/theme/app_theme.dart:22:      primary: isDark ? AppColors.primaryLight : AppColors.primary,
+lib/core/theme/app_theme.dart:23:      secondary: isDark ? baseScheme.secondary : AppColors.secondary,
+lib/core/theme/app_theme.dart:24:      tertiary: isDark ? baseScheme.tertiary : AppColors.tertiary,
+lib/core/theme/app_theme.dart:25:      surface: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+lib/core/theme/app_theme.dart:38:          : AppColors.dividerLight,
+lib/core/theme/app_theme.dart:41:          : AppColors.textSecondaryLight,
+lib/core/theme/app_theme.dart:43:          ? AppColors.textPrimaryDark
+lib/core/theme/app_theme.dart:44:          : AppColors.textPrimaryLight,
+lib/core/theme/app_theme.dart:45:      error: AppColors.error,
+lib/core/theme/app_theme.dart:67:          ? AppColors.backgroundDark
+lib/core/theme/app_theme.dart:68:          : AppColors.backgroundLight,
+lib/core/theme/app_theme.dart:72:              ? AppColors.textSecondaryDark
+lib/core/theme/app_theme.dart:73:              : AppColors.textSecondaryLight,
+lib/core/theme/app_theme.dart:95:                ? AppColors.dividerDark.withValues(alpha: 0.9)
+lib/core/theme/app_theme.dart:96:                : AppColors.dividerLight.withValues(alpha: 0.85),
+lib/core/theme/app_theme.dart:103:            ? AppColors.dividerDark.withValues(alpha: 0.9)
+lib/core/theme/app_theme.dart:104:            : AppColors.dividerLight,
+lib/core/theme/app_theme.dart:120:              ? AppColors.textSecondaryDark
+lib/core/theme/app_theme.dart:121:              : AppColors.textSecondaryLight,
+lib/core/theme/app_colors.dart:4:  AppColors._();

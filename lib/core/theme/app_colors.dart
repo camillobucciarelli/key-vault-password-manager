@@ -3,44 +3,68 @@ import 'package:flutter/material.dart';
 class AppColors {
   AppColors._();
 
-  // Core palette
-  static const Color primary = Color(0xFF818CF8);
-  static const Color primaryLight = Color(0xFF818CF8);
-  static const Color primaryDark = Color(0xFF4C1D95);
+  static const neutral100 = Color(0xFFF9F4ED);
+  static const neutral200 = Color(0xFFEEE7DB);
+  static const neutral300 = Color(0xFFDCD3C4);
+  static const neutral400 = Color(0xFFC0B6A5);
+  static const neutral500 = Color(0xFFA19786);
+  static const neutral600 = Color(0xFF82796A);
 
-  // Companion palette
-  static const Color secondary = Color(0xFF6366F1);
-  static const Color secondaryLight = Color(0xFFA78BFA);
-  static const Color secondaryDark = Color(0xFF5B21B6);
+  /// Accessibility-approved deviation from handoff `#645c50`.
+  static const neutral700 = Color(0xFF665F53);
+  static const neutral800 = Color(0xFF474238);
+  static const neutral900 = Color(0xFF2E2B25);
 
-  static const Color tertiary = Color(0xFF4F46E5);
-  static const Color tertiaryLight = Color(0xFFC084FC);
-  static const Color tertiaryDark = Color(0xFF6B21A8);
+  static const accent100 = Color(0xFFFFF2EB);
+  static const accent200 = Color(0xFFFFE1D0);
+  static const accent300 = Color(0xFFFFC6A5);
+  static const accent400 = Color(0xFFF6A06B);
+  static const accent500 = Color(0xFFD67F48);
+  static const accent600 = Color(0xFFB2622D);
+  static const accent700 = Color(0xFF8C491A);
+  static const accent800 = Color(0xFF643312);
+  static const accent900 = Color(0xFF402310);
 
-  static const Color darkSeed = Color(0xFF818CF8);
+  static const accent2_100 = Color(0xFFF0FAE1);
+  static const accent2_200 = Color(0xFFE1EECC);
+  static const accent2_300 = Color(0xFFCCDBB2);
+  static const accent2_400 = Color(0xFFAEBF92);
+  static const accent2_500 = Color(0xFF8FA073);
+  static const accent2_600 = Color(0xFF728157);
+  static const accent2_700 = Color(0xFF56633F);
+  static const accent2_800 = Color(0xFF3D472B);
+  static const accent2_900 = Color(0xFF272E1B);
 
-  // Neutral Colors - Light Mode (tints of #020617 -> #0F172A)
-  static const Color backgroundLight = Color(0xFFEFF3FB);
-  static const Color surfaceLight = Color(0xFFFFFFFF);
-  static const Color textPrimaryLight = Color(0xFF0F172A);
-  static const Color textSecondaryLight = Color(0xFF334155);
-  static const Color dividerLight = Color(0xFFC9D3E4);
+  static const text = Color(0xFF201E1D);
+  static const divider = Color(0x29201E1D);
 
-  // Gradient helpers
-  static const Color darkGradientFrom = Color(0xFF020617);
-  static const Color darkGradientTo = Color(0xFF0F172A);
-  static const Color lightGradientFrom = Color(0xFFF0F2F8); // from #020617
-  static const Color lightGradientTo = Color(0xFFE6EBF7); // from #0F172A
-
-  // Neutral Colors - Dark Mode
-  static const Color backgroundDark = Color(0xFF020617);
-  static const Color surfaceDark = Color(0xFF0F172A);
-  static const Color textPrimaryDark = Color(0xFFE2E8F0);
-  static const Color textSecondaryDark = Color(0xFF94A3B8);
-  static const Color dividerDark = Color(0xFF1E293B);
-
-  // Semantic Colors
-  static const Color error = Color(0xFFD1435B);
-  static const Color success = Color(0xFF2F9E72);
-  static const Color warning = Color(0xFFC9832A);
+  // Compatibility-only aliases for untouched screens. New code uses Organic
+  // ramps through KeyVaultColors semantic roles.
+  static const primary = accent400;
+  static const primaryLight = accent300;
+  static const primaryDark = accent800;
+  static const secondary = accent2_400;
+  static const secondaryLight = accent2_300;
+  static const secondaryDark = accent2_800;
+  static const tertiary = accent500;
+  static const tertiaryLight = accent300;
+  static const tertiaryDark = accent900;
+  static const darkSeed = accent400;
+  static const backgroundLight = neutral100;
+  static const surfaceLight = neutral200;
+  static const textPrimaryLight = text;
+  static const textSecondaryLight = neutral700;
+  static const dividerLight = divider;
+  static const darkGradientFrom = neutral900;
+  static const darkGradientTo = neutral900;
+  static const lightGradientFrom = neutral100;
+  static const lightGradientTo = neutral100;
+  static const backgroundDark = neutral900;
+  static const surfaceDark = neutral800;
+  static const textPrimaryDark = neutral100;
+  static const textSecondaryDark = Color(0x9EF9F4ED);
+  static const dividerDark = Color(0x38F9F4ED);
+  static const error = accent800;
+  static const success = accent2_600;
+  static const warning = accent500;
 }

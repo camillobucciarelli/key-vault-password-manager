@@ -131,7 +131,7 @@ class _EntriesCardState extends State<_EntriesCard> {
     String? targetGroupId,
   }) async {
     final name = await _showGroupDialog(context);
-    if (name == null || name.trim().isEmpty || !mounted) {
+    if (name == null || name.name.trim().isEmpty || !mounted) {
       return;
     }
 
@@ -139,7 +139,7 @@ class _EntriesCardState extends State<_EntriesCard> {
     if (targetGroupId != null) {
       bloc.add(OpenGroup(targetGroupId));
     }
-    bloc.add(CreateVaultGroup(name.trim()));
+    bloc.add(CreateVaultGroup(name.name.trim()));
   }
 
   Future<void> _handleFolderAction(
@@ -207,7 +207,7 @@ class _EntriesCardState extends State<_EntriesCard> {
         final target = await _showMoveTargetDialog(context, widget.groups);
         if (target != null && mounted) {
           this.context.read<VaultBloc>().add(
-            MoveVaultEntry(entryId: entry.id, targetGroupId: target),
+            MoveVaultEntry(entryId: entry.id, targetGroupId: target.groupId),
           );
         }
         break;
@@ -239,19 +239,21 @@ class _EntriesCardState extends State<_EntriesCard> {
     }
 
     final bloc = context.read<VaultBloc>();
-    await AppNavigation.pushFade<void>(
-      context,
-      BlocProvider.value(
-        value: bloc,
-        child: _EntryDetailsPage(
-          entryId: entry.id,
-          onSelectedAction: (action) async {
-            final currentEntry = bloc.state.allEntries.firstWhere(
-              (e) => e.id == entry.id,
-              orElse: () => entry,
-            );
-            await _handleEntryAction(context, currentEntry, action);
-          },
+    await VaultShellRouterScope.of(context).open<VaultDone>(
+      context: context,
+      surface: EntrySurface<VaultDone>(
+        builder: (_) => BlocProvider.value(
+          value: bloc,
+          child: _EntryDetailsPage(
+            entryId: entry.id,
+            onSelectedAction: (action) async {
+              final currentEntry = bloc.state.allEntries.firstWhere(
+                (e) => e.id == entry.id,
+                orElse: () => entry,
+              );
+              await _handleEntryAction(context, currentEntry, action);
+            },
+          ),
         ),
       ),
     );

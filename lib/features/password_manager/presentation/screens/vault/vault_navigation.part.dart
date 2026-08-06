@@ -455,404 +455,396 @@ class _SyncStripMenuButton extends StatelessWidget {
     }
     final formKey = GlobalKey<FormState>();
 
-    final shouldApply = await showDialog<bool>(
+    final shouldApply = await VaultShellRouterScope.of(context).open<DatabaseSettingsResult>(
       context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (dialogContext, setState) {
-            final normalizedSelectedKeyPath = _normalizeKeyPathForComparison(
-              pendingSelectedKeyPath,
-            );
-            final keyFileChanged =
-                normalizedSelectedKeyPath != normalizedCurrentKeyPath;
-            final fileNameChanged =
-                _normalizeDatabaseFileName(databaseTitle) != initialFileName;
-            final biometricChanged =
-                biometricEnabled != initialBiometricEnabled;
-            final inactivityChanged =
-                inactivityTimeout != initialInactivityTimeout;
-            final hasSelectedKeyFile =
-                pendingSelectedKeyPath?.trim().isNotEmpty ?? false;
-            final pendingChanges = <String>[
-              if (fileNameChanged) 'Database file name',
-              if (biometricChanged) 'Biometric protection',
-              if (inactivityChanged) 'Inactivity lock',
-              if (keyFileChanged) 'Key file',
-              if (changePassword) 'Master password',
-            ];
+      surface: DatabaseSettingsSurface<DatabaseSettingsResult>(
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (dialogContext, setState) {
+              final normalizedSelectedKeyPath = _normalizeKeyPathForComparison(
+                pendingSelectedKeyPath,
+              );
+              final keyFileChanged =
+                  normalizedSelectedKeyPath != normalizedCurrentKeyPath;
+              final fileNameChanged =
+                  _normalizeDatabaseFileName(databaseTitle) != initialFileName;
+              final biometricChanged =
+                  biometricEnabled != initialBiometricEnabled;
+              final inactivityChanged =
+                  inactivityTimeout != initialInactivityTimeout;
+              final hasSelectedKeyFile =
+                  pendingSelectedKeyPath?.trim().isNotEmpty ?? false;
+              final pendingChanges = <String>[
+                if (fileNameChanged) 'Database file name',
+                if (biometricChanged) 'Biometric protection',
+                if (inactivityChanged) 'Inactivity lock',
+                if (keyFileChanged) 'Key file',
+                if (changePassword) 'Master password',
+              ];
 
-            Future<void> selectKeyFile() async {
-              if (isManagedStoragePlatform) {
-                final currentSelectedPath = pendingSelectedKeyPath;
-                final result = await showInternalKeyFileManagerDialog(
-                  dialogContext,
-                  initiallySelectedPath: currentSelectedPath,
-                  protectedPaths: {
-                    ...protectedKeyFilePaths,
-                    ?persistedCurrentKeyPath,
-                    ?pendingSelectedKeyPath,
-                  },
-                );
-                if (result == null || !dialogContext.mounted) {
-                  return;
-                }
-                setState(() {
-                  if (result.selectedPath != null) {
-                    pendingSelectedKeyPath = result.selectedPath;
+              Future<void> selectKeyFile() async {
+                if (isManagedStoragePlatform) {
+                  final currentSelectedPath = pendingSelectedKeyPath;
+                  final result = await showInternalKeyFileManagerDialog(
+                    dialogContext,
+                    initiallySelectedPath: currentSelectedPath,
+                    protectedPaths: {
+                      ...protectedKeyFilePaths,
+                      ?persistedCurrentKeyPath,
+                      ?pendingSelectedKeyPath,
+                    },
+                  );
+                  if (result == null || !dialogContext.mounted) {
                     return;
                   }
-                  if (result.currentSelectionDeleted &&
-                      currentSelectedPath != null &&
-                      currentSelectedPath.trim().isNotEmpty) {
-                    pendingSelectedKeyPath = null;
-                  }
+                  setState(() {
+                    if (result.selectedPath != null) {
+                      pendingSelectedKeyPath = result.selectedPath;
+                      return;
+                    }
+                    if (result.currentSelectionDeleted &&
+                        currentSelectedPath != null &&
+                        currentSelectedPath.trim().isNotEmpty) {
+                      pendingSelectedKeyPath = null;
+                    }
+                  });
+                  return;
+                }
+
+                final picked = await FilePicker.pickFiles(
+                  allowMultiple: false,
+                  withData: false,
+                );
+                if (!dialogContext.mounted) {
+                  return;
+                }
+                final selectedFile = picked?.files.single;
+                if (selectedFile == null) {
+                  return;
+                }
+
+                final selectedPath = selectedFile.path;
+                if (selectedPath == null || selectedPath.isEmpty) {
+                  return;
+                }
+
+                setState(() {
+                  pendingSelectedKeyPath = selectedPath;
                 });
-                return;
               }
 
-              final picked = await FilePicker.pickFiles(
-                allowMultiple: false,
-                withData: false,
-              );
-              if (!dialogContext.mounted) {
-                return;
-              }
-              final selectedFile = picked?.files.single;
-              if (selectedFile == null) {
-                return;
-              }
-
-              final selectedPath = selectedFile.path;
-              if (selectedPath == null || selectedPath.isEmpty) {
-                return;
-              }
-
-              setState(() {
-                pendingSelectedKeyPath = selectedPath;
-              });
-            }
-
-            return AlertDialog(
-              title: const Text('Database settings'),
-              insetPadding: _dialogInsetPadding(dialogContext),
-              contentPadding: _dialogContentPadding(dialogContext),
-              actionsOverflowDirection: VerticalDirection.down,
-              actionsOverflowButtonSpacing: 8,
-              content: SizedBox(
-                width: _dialogContentWidth(dialogContext, 520),
-                child: Form(
-                  key: formKey,
-                  child: SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _DatabaseSettingsHeader(
-                          databaseName: path.basenameWithoutExtension(
-                            currentDatabasePath,
+              return AlertDialog(
+                title: const Text('Database settings'),
+                insetPadding: _dialogInsetPadding(dialogContext),
+                contentPadding: _dialogContentPadding(dialogContext),
+                actionsOverflowDirection: VerticalDirection.down,
+                actionsOverflowButtonSpacing: 8,
+                content: SizedBox(
+                  width: _dialogContentWidth(dialogContext, 520),
+                  child: Form(
+                    key: formKey,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _DatabaseSettingsHeader(
+                            databaseName: path.basenameWithoutExtension(
+                              currentDatabasePath,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 14),
-                        _DatabaseSettingsSectionCard(
-                          icon: AppIcons.file,
-                          title: 'Vault file',
-                          subtitle: 'Change how this local database appears.',
-                          children: [
-                            TextFormField(
-                              initialValue: databaseTitle,
-                              decoration: const InputDecoration(
-                                labelText: 'Database file name',
-                                helperText:
-                                    'The .kdbx extension is added automatically.',
-                                prefixIcon: Icon(AppIcons.file),
-                              ),
-                              onChanged: (value) {
-                                databaseTitle = value;
-                                setState(() {});
-                              },
-                              validator: (value) {
-                                final raw = value?.trim() ?? '';
-                                if (raw.isEmpty) {
-                                  return 'Database file name is required.';
-                                }
-                                if (raw.contains(RegExp(r'[\\/:*?"<>|]'))) {
-                                  return 'Invalid characters in file name.';
-                                }
-                                return null;
-                              },
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        _DatabaseSettingsSectionCard(
-                          icon: AppIcons.lock,
-                          title: 'Security & lock',
-                          subtitle:
-                              'Control quick unlock and automatic locking.',
-                          children: [
-                            SwitchListTile.adaptive(
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text('Biometric protection'),
-                              subtitle: const Text(
-                                'Allow face, fingerprint, or device biometrics to unlock this vault.',
-                              ),
-                              value: biometricEnabled,
-                              onChanged: (value) {
-                                setState(() {
-                                  biometricEnabled = value;
-                                });
-                              },
-                            ),
-                            const SizedBox(height: 8),
-                            DropdownButtonFormField<int?>(
-                              initialValue: inactivityTimeout,
-                              decoration: const InputDecoration(
-                                labelText: 'Lock on inactivity',
-                                helperText:
-                                    'Automatically lock this vault after no activity.',
-                                prefixIcon: Icon(AppIcons.lock),
-                              ),
-                              items: const [
-                                DropdownMenuItem(
-                                  value: null,
-                                  child: Text('Never'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 10,
-                                  child: Text('10 seconds'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 20,
-                                  child: Text('20 seconds'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 30,
-                                  child: Text('30 seconds'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 60,
-                                  child: Text('1 minute'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 120,
-                                  child: Text('2 minutes'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 300,
-                                  child: Text('5 minutes'),
-                                ),
-                              ],
-                              onChanged: (value) {
-                                setState(() {
-                                  inactivityTimeout = value;
-                                });
-                              },
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        _DatabaseSettingsSectionCard(
-                          icon: AppIcons.fileKey,
-                          title: 'Unlock credentials',
-                          subtitle:
-                              'Update the key file or master password used to open this vault.',
-                          children: [
-                            _DatabaseSettingsKeyFilePanel(
-                              selectedKeyPath: pendingSelectedKeyPath,
-                              onChange: selectKeyFile,
-                              onRemove: !hasSelectedKeyFile
-                                  ? null
-                                  : () {
-                                      setState(() {
-                                        pendingSelectedKeyPath = null;
-                                      });
-                                    },
-                            ),
-                            const SizedBox(height: 10),
-                            const _DatabaseSettingsInfoCallout(
-                              icon: AppIcons.warning,
-                              text:
-                                  'Key file changes affect the next unlock. Google Drive sync stores only the .kdbx database; it does not sync key files, so keep a separate backup.',
-                            ),
-                            const SizedBox(height: 12),
-                            SwitchListTile.adaptive(
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text('Change master password'),
-                              subtitle: const Text(
-                                'Re-encrypts this vault. Use the new password the next time you unlock.',
-                              ),
-                              value: changePassword,
-                              onChanged: (value) {
-                                setState(() {
-                                  changePassword = value;
-                                });
-                              },
-                            ),
-                            if (changePassword) ...[
-                              const SizedBox(height: 8),
+                          const SizedBox(height: 14),
+                          _DatabaseSettingsSectionCard(
+                            icon: AppIcons.file,
+                            title: 'Vault file',
+                            subtitle: 'Change how this local database appears.',
+                            children: [
                               TextFormField(
-                                initialValue: currentPassword,
-                                obscureText: true,
-                                autocorrect: false,
-                                enableSuggestions: false,
+                                initialValue: databaseTitle,
                                 decoration: const InputDecoration(
-                                  labelText: 'Current master password',
+                                  labelText: 'Database file name',
                                   helperText:
-                                      'Leave empty only if this vault currently uses a key file without a password.',
-                                  prefixIcon: Icon(AppIcons.lock),
+                                      'The .kdbx extension is added automatically.',
+                                  prefixIcon: Icon(AppIcons.file),
                                 ),
                                 onChanged: (value) {
-                                  currentPassword = value;
+                                  databaseTitle = value;
+                                  setState(() {});
                                 },
                                 validator: (value) {
-                                  if (!changePassword) {
-                                    return null;
+                                  final raw = value?.trim() ?? '';
+                                  if (raw.isEmpty) {
+                                    return 'Database file name is required.';
+                                  }
+                                  if (raw.contains(RegExp(r'[\\/:*?"<>|]'))) {
+                                    return 'Invalid characters in file name.';
                                   }
                                   return null;
                                 },
-                              ),
-                              const SizedBox(height: 8),
-                              TextFormField(
-                                initialValue: newPassword,
-                                obscureText: true,
-                                autocorrect: false,
-                                enableSuggestions: false,
-                                decoration: const InputDecoration(
-                                  labelText: 'New master password',
-                                  prefixIcon: Icon(AppIcons.key),
-                                ),
-                                onChanged: (value) {
-                                  newPassword = value;
-                                },
-                                validator: (value) {
-                                  if (!changePassword) {
-                                    return null;
-                                  }
-                                  if ((value ?? '').isEmpty) {
-                                    return 'New password is required.';
-                                  }
-                                  return null;
-                                },
-                              ),
-                              const SizedBox(height: 8),
-                              TextFormField(
-                                initialValue: confirmNewPassword,
-                                obscureText: true,
-                                autocorrect: false,
-                                enableSuggestions: false,
-                                decoration: const InputDecoration(
-                                  labelText: 'Confirm new password',
-                                  prefixIcon: Icon(AppIcons.check),
-                                ),
-                                onChanged: (value) {
-                                  confirmNewPassword = value;
-                                },
-                                validator: (value) {
-                                  if (!changePassword) {
-                                    return null;
-                                  }
-                                  if ((value ?? '') != newPassword) {
-                                    return 'Passwords do not match.';
-                                  }
-                                  return null;
-                                },
-                              ),
-                              const SizedBox(height: 8),
-                              const _DatabaseSettingsInfoCallout(
-                                icon: AppIcons.lock,
-                                text:
-                                    'Password changes affect the next unlock. Confirm the change before saving security credentials.',
                               ),
                             ],
-                          ],
-                        ),
-                        if (pendingChanges.isNotEmpty) ...[
-                          const SizedBox(height: 12),
-                          _DatabaseSettingsChangesSummary(
-                            changes: pendingChanges,
                           ),
+                          const SizedBox(height: 12),
+                          _DatabaseSettingsSectionCard(
+                            icon: AppIcons.lock,
+                            title: 'Security & lock',
+                            subtitle:
+                                'Control quick unlock and automatic locking.',
+                            children: [
+                              SwitchListTile.adaptive(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('Biometric protection'),
+                                subtitle: const Text(
+                                  'Allow face, fingerprint, or device biometrics to unlock this vault.',
+                                ),
+                                value: biometricEnabled,
+                                onChanged: (value) {
+                                  setState(() {
+                                    biometricEnabled = value;
+                                  });
+                                },
+                              ),
+                              const SizedBox(height: 8),
+                              DropdownButtonFormField<int?>(
+                                initialValue: inactivityTimeout,
+                                decoration: const InputDecoration(
+                                  labelText: 'Lock on inactivity',
+                                  helperText:
+                                      'Automatically lock this vault after no activity.',
+                                  prefixIcon: Icon(AppIcons.lock),
+                                ),
+                                items: const [
+                                  DropdownMenuItem(
+                                    value: null,
+                                    child: Text('Never'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 10,
+                                    child: Text('10 seconds'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 20,
+                                    child: Text('20 seconds'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 30,
+                                    child: Text('30 seconds'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 60,
+                                    child: Text('1 minute'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 120,
+                                    child: Text('2 minutes'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 300,
+                                    child: Text('5 minutes'),
+                                  ),
+                                ],
+                                onChanged: (value) {
+                                  setState(() {
+                                    inactivityTimeout = value;
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          _DatabaseSettingsSectionCard(
+                            icon: AppIcons.fileKey,
+                            title: 'Unlock credentials',
+                            subtitle:
+                                'Update the key file or master password used to open this vault.',
+                            children: [
+                              _DatabaseSettingsKeyFilePanel(
+                                selectedKeyPath: pendingSelectedKeyPath,
+                                onChange: selectKeyFile,
+                                onRemove: !hasSelectedKeyFile
+                                    ? null
+                                    : () {
+                                        setState(() {
+                                          pendingSelectedKeyPath = null;
+                                        });
+                                      },
+                              ),
+                              const SizedBox(height: 10),
+                              const _DatabaseSettingsInfoCallout(
+                                icon: AppIcons.warning,
+                                text:
+                                    'Key file changes affect the next unlock. Google Drive sync stores only the .kdbx database; it does not sync key files, so keep a separate backup.',
+                              ),
+                              const SizedBox(height: 12),
+                              SwitchListTile.adaptive(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('Change master password'),
+                                subtitle: const Text(
+                                  'Re-encrypts this vault. Use the new password the next time you unlock.',
+                                ),
+                                value: changePassword,
+                                onChanged: (value) {
+                                  setState(() {
+                                    changePassword = value;
+                                  });
+                                },
+                              ),
+                              if (changePassword) ...[
+                                const SizedBox(height: 8),
+                                TextFormField(
+                                  initialValue: currentPassword,
+                                  obscureText: true,
+                                  autocorrect: false,
+                                  enableSuggestions: false,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Current master password',
+                                    helperText:
+                                        'Leave empty only if this vault currently uses a key file without a password.',
+                                    prefixIcon: Icon(AppIcons.lock),
+                                  ),
+                                  onChanged: (value) {
+                                    currentPassword = value;
+                                  },
+                                  validator: (value) {
+                                    if (!changePassword) {
+                                      return null;
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                const SizedBox(height: 8),
+                                TextFormField(
+                                  initialValue: newPassword,
+                                  obscureText: true,
+                                  autocorrect: false,
+                                  enableSuggestions: false,
+                                  decoration: const InputDecoration(
+                                    labelText: 'New master password',
+                                    prefixIcon: Icon(AppIcons.key),
+                                  ),
+                                  onChanged: (value) {
+                                    newPassword = value;
+                                  },
+                                  validator: (value) {
+                                    if (!changePassword) {
+                                      return null;
+                                    }
+                                    if ((value ?? '').isEmpty) {
+                                      return 'New password is required.';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                const SizedBox(height: 8),
+                                TextFormField(
+                                  initialValue: confirmNewPassword,
+                                  obscureText: true,
+                                  autocorrect: false,
+                                  enableSuggestions: false,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Confirm new password',
+                                    prefixIcon: Icon(AppIcons.check),
+                                  ),
+                                  onChanged: (value) {
+                                    confirmNewPassword = value;
+                                  },
+                                  validator: (value) {
+                                    if (!changePassword) {
+                                      return null;
+                                    }
+                                    if ((value ?? '') != newPassword) {
+                                      return 'Passwords do not match.';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                const SizedBox(height: 8),
+                                const _DatabaseSettingsInfoCallout(
+                                  icon: AppIcons.lock,
+                                  text:
+                                      'Password changes affect the next unlock. Confirm the change before saving security credentials.',
+                                ),
+                              ],
+                            ],
+                          ),
+                          if (pendingChanges.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            _DatabaseSettingsChangesSummary(
+                              changes: pendingChanges,
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              actions: _adaptiveDialogActions(dialogContext, [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: pendingChanges.isEmpty
-                      ? null
-                      : () async {
-                          if (!formKey.currentState!.validate()) {
-                            return;
-                          }
-                          if (changePassword || keyFileChanged) {
-                            final securityChanges = <String>[
-                              if (changePassword) 'Master password',
-                              if (keyFileChanged) 'Key file',
-                            ];
-                            final confirmed = await showDialog<bool>(
-                              context: dialogContext,
-                              builder: (confirmContext) {
-                                return AlertDialog(
-                                  title: const Text('Confirm security changes'),
-                                  content: Text(
-                                    'You are about to update: ${securityChanges.join(' + ')}. '
-                                    'Use the new credentials to unlock this vault after saving.',
-                                  ),
-                                  actions: _adaptiveDialogActions(
-                                    confirmContext,
-                                    [
-                                      TextButton(
-                                        onPressed: () => Navigator.of(
-                                          confirmContext,
-                                        ).pop(false),
-                                        child: const Text('Cancel'),
-                                      ),
-                                      FilledButton(
-                                        onPressed: () => Navigator.of(
-                                          confirmContext,
-                                        ).pop(true),
-                                        child: const Text('Confirm and apply'),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            );
-                            if (confirmed != true) {
+                actions: _adaptiveDialogActions(dialogContext, [
+                  TextButton(
+                    onPressed: () =>
+                        VaultOperationScope.of(dialogContext).cancel(),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: pendingChanges.isEmpty
+                        ? null
+                        : () async {
+                            if (!formKey.currentState!.validate()) {
                               return;
                             }
-                          }
-                          if (!dialogContext.mounted) {
-                            return;
-                          }
-                          Navigator.of(dialogContext).pop(true);
-                        },
-                  child: const Text('Save changes'),
-                ),
-              ]),
-            );
-          },
-        );
-      },
+                            if (changePassword || keyFileChanged) {
+                              final securityChanges = <String>[
+                                if (changePassword) 'Master password',
+                                if (keyFileChanged) 'Key file',
+                              ];
+                              final confirmed = await _showConfirmation(
+                                dialogContext,
+                                title: 'Confirm security changes',
+                                body:
+                                    'You are about to update: ${securityChanges.join(' + ')}. '
+                                    'Use the new credentials to unlock this vault after saving.',
+                                confirmLabel: 'Confirm and apply',
+                              );
+                              if (confirmed != ConfirmDecision.confirm) {
+                                return;
+                              }
+                            }
+                            if (!dialogContext.mounted) {
+                              return;
+                            }
+                            VaultOperationScope.of(dialogContext).complete(
+                              DatabaseSettingsResult(
+                                fileName: databaseTitle.trim(),
+                                keyFilePath: pendingSelectedKeyPath,
+                                biometricProtectionEnabled: biometricEnabled,
+                                changePassword: changePassword,
+                                inactivityLockTimeoutSeconds: inactivityTimeout,
+                                currentPassword: currentPassword,
+                                newPassword: newPassword,
+                              ),
+                            );
+                          },
+                    child: const Text('Save changes'),
+                  ),
+                ]),
+              );
+            },
+          );
+        },
+      ),
     );
 
     if (!context.mounted) {
       return;
     }
 
-    if (shouldApply != true) {
+    if (shouldApply == null) {
       return;
     }
 
     final keyFileChanged =
         _normalizeKeyPathForComparison(persistedCurrentKeyPath) !=
-        _normalizeKeyPathForComparison(pendingSelectedKeyPath);
-    final requestedPasswordChange = changePassword;
+        _normalizeKeyPathForComparison(shouldApply.keyFilePath);
+    final requestedPasswordChange = shouldApply.changePassword;
 
     try {
       final result = await di
@@ -860,13 +852,15 @@ class _SyncStripMenuButton extends StatelessWidget {
           .updateDatabaseSettings(
             DatabaseSettingsUpdateRequest(
               currentDatabasePath: currentDatabasePath,
-              fileName: databaseTitle.trim(),
-              keyFilePath: pendingSelectedKeyPath,
-              biometricProtectionEnabled: biometricEnabled,
-              changePassword: changePassword,
-              inactivityLockTimeoutSeconds: inactivityTimeout,
-              currentPassword: currentPassword,
-              newPassword: newPassword,
+              fileName: shouldApply.fileName,
+              keyFilePath: shouldApply.keyFilePath,
+              biometricProtectionEnabled:
+                  shouldApply.biometricProtectionEnabled,
+              changePassword: shouldApply.changePassword,
+              inactivityLockTimeoutSeconds:
+                  shouldApply.inactivityLockTimeoutSeconds,
+              currentPassword: shouldApply.currentPassword,
+              newPassword: shouldApply.newPassword,
             ),
           );
 

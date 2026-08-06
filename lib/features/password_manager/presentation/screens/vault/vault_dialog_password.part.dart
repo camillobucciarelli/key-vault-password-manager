@@ -14,12 +14,15 @@ class _PasswordStrengthAssessment {
   final String label;
 }
 
-Future<String?> _showPasswordGeneratorDialog(BuildContext context) async {
+Future<GeneratedPasswordResult?> _showPasswordGeneratorDialog(
+  BuildContext context,
+) async {
   var options = const PasswordGeneratorOptions.defaults();
 
-  return showDialog<String>(
+  return VaultShellRouterScope.of(context).open<GeneratedPasswordResult>(
     context: context,
-    builder: (dialogContext) {
+    surface: PasswordGeneratorSurface<GeneratedPasswordResult>(
+      builder: (dialogContext) {
       return StatefulBuilder(
         builder: (dialogContext, setState) {
           final hasEnabledCharset = options.enabledSetsCount > 0;
@@ -147,7 +150,8 @@ Future<String?> _showPasswordGeneratorDialog(BuildContext context) async {
             ),
             actions: _adaptiveDialogActions(dialogContext, [
               TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
+                onPressed: () =>
+                    VaultOperationScope.of(dialogContext).cancel(),
                 child: const Text('Cancel'),
               ),
               FilledButton(
@@ -157,7 +161,9 @@ Future<String?> _showPasswordGeneratorDialog(BuildContext context) async {
                             GetIt.instance<PasswordGeneratorService>().generate(
                               options,
                             );
-                        Navigator.of(dialogContext).pop(generatedPassword);
+                        VaultOperationScope.of(dialogContext).complete(
+                          GeneratedPasswordResult(generatedPassword),
+                        );
                       }
                     : null,
                 child: const Text('Generate'),
@@ -166,7 +172,8 @@ Future<String?> _showPasswordGeneratorDialog(BuildContext context) async {
           );
         },
       );
-    },
+      },
+    ),
   );
 }
 
