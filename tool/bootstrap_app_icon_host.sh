@@ -51,7 +51,7 @@ if [ -e "$VENV" ] || [ -L "$VENV" ]; then
   [ -x "$VENV/bin/python" ] || fail "existing venv is invalid; reset with: rm -rf '$ROOT/.dart_tool/app_icon_host'"
   "$VENV/bin/python" -c 'import PIL' 2>/dev/null || fail "existing venv is incomplete; reset with: rm -rf '$ROOT/.dart_tool/app_icon_host'"
 else
-  mkdir -p -- "$WHEEL_DIR"
+  mkdir -p "$WHEEL_DIR"
   "$PYTHON" -m venv "$VENV"
 fi
 
