@@ -460,6 +460,11 @@ for raw_platform in "${selected_platforms[@]}"; do
       linux_dir="${ROOT_DIR}/build/linux/x64/release/bundle"
       linux_bundle="${OUTPUT_DIR}/password_manager-linux-release"
       copy_if_exists "${linux_dir}" "${linux_bundle}"
+      icon_bundle="${linux_bundle}/share/icons/hicolor/512x512/apps"
+      mkdir -p "${icon_bundle}"
+      copy_if_exists \
+        "${ROOT_DIR}/linux/packaging/dev.camillobucciarelli.kdbxKeyVault.png" \
+        "${icon_bundle}/dev.camillobucciarelli.kdbxKeyVault.png"
       native_host_bundle="${linux_bundle}/desktop/native_host"
       mkdir -p "${native_host_bundle}/manifests/chrome"
       copy_if_exists "${native_host_out}" "${native_host_bundle}/keyvault_native_host"
