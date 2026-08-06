@@ -38,3 +38,19 @@ Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `ci:`), s
 ## Agent Instructions
 
 Per `.github/copilot-instructions.md`: if `graphify-out/GRAPH_REPORT.md` exists, read it before answering structural questions about the repo.
+
+## Agent Branch Workflow
+
+- Before changing files for an isolated development task, create a dedicated branch from `origin/main`, unless the user names another base.
+- Use branch names `feat/<slug>`, `fix/<slug>`, `refactor/<slug>`, or `chore/<slug>`.
+- If the shared worktree contains unrelated changes, do not switch branches. Create a separate Git worktree for the task instead.
+- Do not reuse or modify another agent's branch or worktree.
+- Do not push, merge, rebase, delete branches, open pull requests, or commit unless the user explicitly requests it.
+- Before finishing, run relevant tests and report the branch name, worktree path when applicable, and verification performed.
+
+## Agent Memory
+
+- At the start of a task, recall relevant TokenSave decisions and inspect related Git history when prior intent matters.
+- Record reusable architecture, workflow, and product decisions with TokenSave, including the reason and affected files.
+- Update this file only when a repeated practice becomes a stable repository convention.
+- Do not persist passwords, tokens, personal data, private keys, or other secrets in agent memory.
