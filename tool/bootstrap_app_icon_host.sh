@@ -70,7 +70,7 @@ actual = hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest()
 if actual != expected:
     raise SystemExit(f"wheel SHA-256 mismatch: {actual}")
 PY
-  mv -- "$tmp" "$WHEEL"
+mv "$tmp" "$WHEEL"
   trap - EXIT HUP INT TERM
 fi
 
