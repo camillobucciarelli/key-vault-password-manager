@@ -331,10 +331,10 @@ class _EntryDialogState extends State<_EntryDialog> {
                                 if (!mounted) {
                                   return;
                                 }
-                                setState(() {
-                                  _attachmentPaths.add(filePath);
-                                    _markDirty();
-                                });
+setState(() {
+  _attachmentPaths.add(filePath);
+  _markDirty();
+});
                                 fieldState.didChange(null);
                               },
                               icon: const Icon(AppIcons.add, size: 16),
