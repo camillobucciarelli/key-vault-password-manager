@@ -1,14 +1,16 @@
 part of '../vault_screen.dart';
 
-Future<void> _showDuplicatesDialog(BuildContext context) async {
+Future<VaultDone?> _showDuplicatesDialog(BuildContext context) async {
   final bloc = context.read<VaultBloc>();
   bloc.add(const LoadDuplicates());
 
-  await showDialog<void>(
+  return VaultShellRouterScope.of(context).open<VaultDone>(
     context: context,
-    builder: (dialogContext) {
+    surface: DuplicatesSurface<VaultDone>(
+      builder: (dialogContext) {
       return BlocProvider.value(value: bloc, child: const _DuplicatesDialog());
-    },
+      },
+    ),
   );
 }
 
@@ -94,7 +96,9 @@ class _DuplicatesDialog extends StatelessWidget {
             return TextButton(
               onPressed: state.isSaving
                   ? null
-                  : () => Navigator.of(context).pop(),
+                  : () => VaultOperationScope.of(
+                      context,
+                    ).complete(const VaultDone()),
               child: Text(state.isSaving ? 'Updating...' : 'Close'),
             );
           },
@@ -118,7 +122,7 @@ class _DuplicateGroupCard extends StatelessWidget {
     final service = di.sl<VaultDuplicateService>();
     final preview = service.previewMerge(primary, secondary);
     final confirmed = await _showMergeReviewDialog(context, preview);
-    if (confirmed && context.mounted) {
+    if (confirmed == ConfirmDecision.confirm && context.mounted) {
       context.read<VaultBloc>().add(
         MergeDuplicateEntries(primaryId: primary.id, secondaryId: secondary.id),
       );
@@ -403,14 +407,15 @@ class _DuplicateEntrySubCard extends StatelessWidget {
   }
 }
 
-Future<bool> _showMergeReviewDialog(
+Future<ConfirmDecision?> _showMergeReviewDialog(
   BuildContext context,
   MergePreview preview, {
   bool allowMerge = true,
 }) async {
-  final result = await showDialog<bool>(
+  return VaultShellRouterScope.of(context).open<ConfirmDecision>(
     context: context,
-    builder: (dialogContext) {
+    surface: DuplicatesSurface<ConfirmDecision>(
+      builder: (dialogContext) {
       final colorScheme = Theme.of(dialogContext).colorScheme;
       final textTheme = Theme.of(dialogContext).textTheme;
       final primaryLabel = preview.primary.title.isEmpty
@@ -490,20 +495,24 @@ Future<bool> _showMergeReviewDialog(
         ),
         actions: _adaptiveDialogActions(dialogContext, [
           TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
+            onPressed: () => VaultOperationScope.of(
+              dialogContext,
+            ).complete(ConfirmDecision.cancel),
             child: Text(allowMerge ? 'Cancel' : 'Close'),
           ),
           if (allowMerge)
             FilledButton.icon(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
+              onPressed: () => VaultOperationScope.of(
+                dialogContext,
+              ).complete(ConfirmDecision.confirm),
               icon: const Icon(AppIcons.move, size: 16),
               label: const Text('Merge and move duplicate'),
             ),
         ]),
       );
-    },
+      },
+    ),
   );
-  return result ?? false;
 }
 
 class _MergeSummaryBanner extends StatelessWidget {

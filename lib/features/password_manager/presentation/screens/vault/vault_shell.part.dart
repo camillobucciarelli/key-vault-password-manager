@@ -89,6 +89,9 @@ class _VaultView extends StatefulWidget {
 }
 
 class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
+  late final VaultShellRouter _router;
+  VaultDestination _selectedDestination = VaultDestination.vault;
+  Widget? _activePane;
   DateTime? _backgroundedAt;
   bool _isBackground = false;
   bool _isLocked = false;
@@ -103,6 +106,13 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _router = VaultShellRouter(
+      onPaneChanged: (pane) {
+        if (mounted) {
+          setState(() => _activePane = pane);
+        }
+      },
+    );
     WidgetsBinding.instance.addObserver(this);
     _otpAuthSubscription = di.sl<OtpAuthDeepLinkCoordinator>().events.listen(
       _handleOtpAuthEvent,
@@ -115,11 +125,22 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _router.dispose();
     _inactivityTimer?.cancel();
     _otpAuthSubscription?.cancel();
     di.sl<OtpAuthDeepLinkCoordinator>().markVaultUnavailable();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  Future<void> _selectDestination(VaultDestination destination) async {
+    if (destination == _selectedDestination) {
+      return;
+    }
+    if (!await _router.cancelForDestinationChange() || !mounted) {
+      return;
+    }
+    setState(() => _selectedDestination = destination);
   }
 
   void _markOtpAuthVaultAvailableIfReady(VaultState state) {
@@ -156,37 +177,24 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
 
     _isHandlingOtpAuth = true;
     try {
-      final shouldAdd = await showDialog<bool>(
+      final shouldAdd = await _router.confirm(
         context: context,
-        builder: (dialogContext) {
-          return AlertDialog(
-            title: const Text('Add OTP account?'),
-            insetPadding: _dialogInsetPadding(dialogContext),
-            contentPadding: _dialogContentPadding(dialogContext),
-            actionsOverflowDirection: VerticalDirection.down,
-            actionsOverflowButtonSpacing: 8,
-            content: Text(
-              'An OTP account for ${otpAuth.title} was received. Review it before saving to this vault.',
-            ),
-            actions: _adaptiveDialogActions(dialogContext, [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: const Text('Not now'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                child: const Text('Review'),
-              ),
-            ]),
-          );
-        },
+        title: 'Add OTP account?',
+        body:
+            'An OTP account for ${otpAuth.title} was received. Review it before saving to this vault.',
+        cancelLabel: 'Not now',
+        confirmLabel: 'Review',
       );
 
-      if (shouldAdd != true || !mounted) {
+      if (shouldAdd != ConfirmDecision.confirm || !mounted) {
         return;
       }
 
-      final payload = await _showEntryDialog(context, initialOtpAuth: otpAuth);
+      final payload = await _showEntryDialog(
+        context,
+        initialOtpAuth: otpAuth,
+        router: _router,
+      );
       if (payload == null || !mounted) {
         return;
       }
@@ -293,34 +301,18 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     // rebuilt against the new domain contracts.
   }
 
-  Future<void> _closeCurrentDatabaseAndSelectAnother() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Close database'),
-          insetPadding: _dialogInsetPadding(dialogContext),
-          contentPadding: _dialogContentPadding(dialogContext),
-          actionsOverflowDirection: VerticalDirection.down,
-          actionsOverflowButtonSpacing: 8,
-          content: const Text(
-            'Close this database and return to file selection? Saved credentials for the current database will be removed.',
-          ),
-          actions: _adaptiveDialogActions(dialogContext, [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Close database'),
-            ),
-          ]),
-        );
-      },
+  Future<void> _closeCurrentDatabaseAndSelectAnother(
+    BuildContext shellContext,
+  ) async {
+    final confirmed = await _showConfirmation(
+      shellContext,
+      title: 'Close database',
+      body:
+          'Close this database and return to file selection? Saved credentials for the current database will be removed.',
+      confirmLabel: 'Close database',
     );
 
-    if (confirmed != true || !mounted) {
+    if (confirmed != ConfirmDecision.confirm || !mounted) {
       return;
     }
 
@@ -390,52 +382,15 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
         serviceIdentifierValue: serviceIdentifierValue,
       );
 
-      final shouldLink = await showDialog<bool>(
+      final shouldLink = await _router.confirm(
         context: context,
-        builder: (dialogContext) {
-          return AlertDialog(
-            title: const Text('Link AutoFill credential?'),
-            insetPadding: _dialogInsetPadding(dialogContext),
-            contentPadding: _dialogContentPadding(dialogContext),
-            actionsOverflowDirection: VerticalDirection.down,
-            actionsOverflowButtonSpacing: 8,
-            content: SizedBox(
-              width: _dialogContentWidth(dialogContext, 420),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Target: $target'),
-                  const SizedBox(height: 12),
-                  if (entry == null)
-                    const Text('Entry unavailable.')
-                  else ...[
-                    Text(
-                      'Entry: ${entry.title.isEmpty ? '(Untitled)' : entry.title}',
-                    ),
-                    Text(
-                      'Username: ${entry.username.isEmpty ? 'No username' : entry.username}',
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  const Text(
-                    'This association updates the vault only after you confirm.',
-                  ),
-                ],
-              ),
-            ),
-            actions: _adaptiveDialogActions(dialogContext, [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: const Text('Reject'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                child: const Text('Link'),
-              ),
-            ]),
-          );
-        },
+        title: 'Link AutoFill credential?',
+        body:
+            'Target: $target\n\n'
+            '${entry == null ? 'Entry unavailable.' : 'Entry: ${entry.title.isEmpty ? '(Untitled)' : entry.title}\nUsername: ${entry.username.isEmpty ? 'No username' : entry.username}'}\n\n'
+            'This association updates the vault only after you confirm.',
+        cancelLabel: 'Reject',
+        confirmLabel: 'Link',
       );
 
       if (!mounted || shouldLink == null) {
@@ -444,6 +399,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
 
       context.read<VaultBloc>().add(
         shouldLink
+            == ConfirmDecision.confirm
             ? ConfirmAppleAutofillPendingAssociation(id)
             : RejectAppleAutofillPendingAssociation(id),
       );
@@ -484,9 +440,11 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final topInset = MediaQuery.paddingOf(context).top;
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: Stack(
+    return VaultShellRouterScope(
+      router: _router,
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Stack(
         fit: StackFit.expand,
         children: [
           DecoratedBox(
@@ -564,33 +522,48 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                             constraints.maxWidth,
                           );
 
-                          return Padding(
-                            padding: EdgeInsets.fromLTRB(
-                              spec.horizontalPadding,
-                              topInset + spec.contentTopPadding,
-                              spec.horizontalPadding,
-                              spec.horizontalPadding,
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                _VaultSyncStatusStrip(
-                                  onOpenRecycleBin: () {
-                                    _showRecycleBinDialog(context);
-                                  },
-                                  onOpenDuplicates: () {
-                                    _showDuplicatesDialog(context);
-                                  },
-                                  onChangeDatabase:
-                                      _closeCurrentDatabaseAndSelectAnother,
-                                ),
-                                const SizedBox(height: _VaultUiTokens.panelGap),
-                                const Expanded(
-                                  child: _VaultEntriesCardSection(),
-                                ),
-                              ],
-                            ),
-                          );
+                           final vaultPane = Padding(
+                             padding: EdgeInsets.fromLTRB(
+                               spec.horizontalPadding,
+                               topInset + spec.contentTopPadding,
+                               spec.horizontalPadding,
+                               spec.horizontalPadding,
+                             ),
+                             child: Column(
+                               crossAxisAlignment: CrossAxisAlignment.stretch,
+                               children: [
+                                 _VaultSyncStatusStrip(
+                                   onOpenRecycleBin: () {
+                                     _showRecycleBinDialog(context);
+                                   },
+                                   onOpenDuplicates: () {
+                                     _showDuplicatesDialog(context);
+                                   },
+                                   onChangeDatabase: () =>
+                                       _closeCurrentDatabaseAndSelectAnother(
+                                         context,
+                                       ),
+                                 ),
+                                 const SizedBox(height: _VaultUiTokens.panelGap),
+                                 const Expanded(
+                                   child: _VaultEntriesCardSection(),
+                                 ),
+                               ],
+                             ),
+                           );
+
+                           return _VaultNavigationLayout(
+                             width: constraints.maxWidth,
+                             selectedDestination: _selectedDestination,
+                             activePane: _activePane,
+                             vaultPane: vaultPane,
+                             onSelectDestination: _selectDestination,
+                             onBackFromPane: _router.requestCancelCurrentPane,
+                             onOpenDuplicates: () =>
+                                 _showDuplicatesDialog(context),
+                             onOpenSync: () => _startDriveLinkFlow(context),
+                             onOpenSettings: () => _startCsvImportFlow(context),
+                           );
                         },
                       ),
                     ),
@@ -624,6 +597,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
             ),
           ),
         ],
+        ),
       ),
     );
   }
@@ -699,4 +673,384 @@ class _VaultEntriesCardSection extends StatelessWidget {
       },
     );
   }
+}
+
+enum VaultDestination { vault, health, sync, settings }
+
+extension on VaultDestination {
+  String get label => switch (this) {
+    VaultDestination.vault => 'Vault',
+    VaultDestination.health => 'Health',
+    VaultDestination.sync => 'Sync',
+    VaultDestination.settings => 'Settings',
+  };
+
+  AppGlyph get glyph => switch (this) {
+    VaultDestination.vault => AppGlyph.folder,
+    VaultDestination.health => AppGlyph.shieldCheck,
+    VaultDestination.sync => AppGlyph.cloud,
+    VaultDestination.settings => AppGlyph.settings,
+  };
+}
+
+class _VaultNavigationLayout extends StatelessWidget {
+  const _VaultNavigationLayout({
+    required this.width,
+    required this.selectedDestination,
+    required this.activePane,
+    required this.vaultPane,
+    required this.onSelectDestination,
+    required this.onBackFromPane,
+    required this.onOpenDuplicates,
+    required this.onOpenSync,
+    required this.onOpenSettings,
+  });
+
+  final double width;
+  final VaultDestination selectedDestination;
+  final Widget? activePane;
+  final Widget vaultPane;
+  final ValueChanged<VaultDestination> onSelectDestination;
+  final Future<bool> Function() onBackFromPane;
+  final VoidCallback onOpenDuplicates;
+  final VoidCallback onOpenSync;
+  final VoidCallback onOpenSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    if (width < Breakpoints.mobile) {
+      return Column(
+        children: [
+          Expanded(
+            child: KeyedSubtree(
+              key: const ValueKey('vault-mobile-body'),
+              child: activePane == null
+                  ? _destinationBody()
+                  : _VaultPaneHost(
+                      pane: activePane!,
+                      onBack: onBackFromPane,
+                    ),
+            ),
+          ),
+          _VaultTabBar(
+            selected: selectedDestination,
+            onSelected: onSelectDestination,
+          ),
+        ],
+      );
+    }
+
+    final railWidth = selectedDestination == VaultDestination.vault ? 76.0 : 72.0;
+    return Row(
+      children: [
+        SizedBox(
+          key: const ValueKey('vault-rail'),
+          width: railWidth,
+          child: _VaultRail(
+            selected: selectedDestination,
+            onSelected: onSelectDestination,
+          ),
+        ),
+        const _VaultVerticalDivider(),
+        Expanded(child: _railBody(context, railWidth)),
+      ],
+    );
+  }
+
+  Widget _destinationBody() => switch (selectedDestination) {
+    VaultDestination.vault => vaultPane,
+    VaultDestination.health => _VaultDestinationPlaceholder(
+      destination: VaultDestination.health,
+      actionLabel: 'Manage duplicates',
+      onAction: onOpenDuplicates,
+    ),
+    VaultDestination.sync => _VaultDestinationPlaceholder(
+      destination: VaultDestination.sync,
+      actionLabel: 'Link database to Drive',
+      onAction: onOpenSync,
+    ),
+    VaultDestination.settings => _VaultDestinationPlaceholder(
+      destination: VaultDestination.settings,
+      actionLabel: 'Import from CSV',
+      onAction: onOpenSettings,
+    ),
+  };
+
+  Widget _railBody(BuildContext context, double railWidth) {
+    if (selectedDestination != VaultDestination.vault) {
+      return KeyedSubtree(
+        key: ValueKey('vault-${selectedDestination.name}-root'),
+        child: _destinationBody(),
+      );
+    }
+    if (width < 708) {
+      return KeyedSubtree(
+        key: const ValueKey('vault-single-pane'),
+        child: activePane == null
+            ? vaultPane
+            : _VaultPaneHost(pane: activePane!, onBack: onBackFromPane),
+      );
+    }
+
+    final available = width - railWidth - 1;
+    final withFolders = width >= Breakpoints.tablet;
+    final afterFolders = available - (withFolders ? 237 : 0);
+    final listWidth = (afterFolders - 301).clamp(330.0, 352.0);
+    return Row(
+      children: [
+        if (withFolders) ...[
+          const SizedBox(
+            key: ValueKey('vault-folder-pane'),
+            width: 236,
+            child: _VaultFolderPane(),
+          ),
+          const _VaultVerticalDivider(),
+        ],
+        SizedBox(
+          key: const ValueKey('vault-list-pane'),
+          width: listWidth,
+          child: vaultPane,
+        ),
+        const _VaultVerticalDivider(),
+        Expanded(
+          key: const ValueKey('vault-detail-pane'),
+          child: activePane == null
+              ? const _EntryDetailEmptyState()
+              : _VaultPaneHost(pane: activePane!, onBack: onBackFromPane),
+        ),
+      ],
+    );
+  }
+}
+
+class _VaultVerticalDivider extends StatelessWidget {
+  const _VaultVerticalDivider();
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 1,
+    child: ColoredBox(
+      color: Theme.of(context).extension<KeyVaultColors>()!.divider,
+    ),
+  );
+}
+
+class _VaultTabBar extends StatelessWidget {
+  const _VaultTabBar({required this.selected, required this.onSelected});
+
+  final VaultDestination selected;
+  final ValueChanged<VaultDestination> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return ColoredBox(
+      key: const ValueKey('vault-tab-bar'),
+      color: colors.surface,
+      child: SizedBox(
+        height: 82,
+        child: Padding(
+          padding: const EdgeInsets.only(top: 10, bottom: 22),
+          child: Row(
+            children: [
+              for (final destination in VaultDestination.values)
+                Expanded(
+                  child: Semantics(
+                    selected: destination == selected,
+                    button: true,
+                    label: destination.label,
+                    child: InkWell(
+                      onTap: () => onSelected(destination),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          KvIcon(
+                            glyph: destination.glyph,
+                            size: 23,
+                            color: destination == selected
+                                ? colors.linkText
+                                : colors.textSecondary,
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            destination.label,
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              color: destination == selected
+                                  ? colors.linkText
+                                  : colors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VaultRail extends StatelessWidget {
+  const _VaultRail({required this.selected, required this.onSelected});
+
+  final VaultDestination selected;
+  final ValueChanged<VaultDestination> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    Widget button(VaultDestination destination) => Semantics(
+      selected: destination == selected,
+      button: true,
+      label: destination.label,
+      child: SizedBox.square(
+        dimension: 36,
+        child: IconButton(
+          tooltip: destination.label,
+          padding: EdgeInsets.zero,
+          onPressed: () => onSelected(destination),
+          icon: KvIcon(
+            glyph: destination.glyph,
+            size: 22,
+            color: destination == selected
+                ? colors.linkText
+                : colors.textSecondary,
+          ),
+        ),
+      ),
+    );
+
+    return ColoredBox(
+      color: colors.surface,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: colors.actionFill,
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                alignment: Alignment.center,
+                child: KvIcon(
+                  glyph: AppGlyph.key,
+                  size: 21,
+                  color: colors.actionText,
+                ),
+              ),
+              const SizedBox(height: 20),
+              button(VaultDestination.vault),
+              const SizedBox(height: 14),
+              button(VaultDestination.health),
+              const SizedBox(height: 14),
+              button(VaultDestination.sync),
+              const Spacer(),
+              button(VaultDestination.settings),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VaultPaneHost extends StatelessWidget {
+  const _VaultPaneHost({required this.pane, required this.onBack});
+
+  final Widget pane;
+  final Future<bool> Function() onBack;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Align(
+        alignment: Alignment.centerLeft,
+        child: IconButton(
+          key: const ValueKey('vault-pane-back'),
+          tooltip: 'Back',
+          onPressed: onBack,
+          icon: const KvIcon(glyph: AppGlyph.back),
+        ),
+      ),
+      Expanded(child: pane),
+    ],
+  );
+}
+
+class _VaultDestinationPlaceholder extends StatelessWidget {
+  const _VaultDestinationPlaceholder({
+    required this.destination,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  final VaultDestination destination;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return FocusTraversalGroup(
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Semantics(
+            header: true,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                KvIcon(
+                  glyph: destination.glyph,
+                  size: 44,
+                  color: colors.linkText,
+                  semanticLabel: '${destination.label} destination',
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  destination.label,
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
+                const SizedBox(height: 16),
+                FilledButton(onPressed: onAction, child: Text(actionLabel)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VaultFolderPane extends StatelessWidget {
+  const _VaultFolderPane();
+
+  @override
+  Widget build(BuildContext context) => BlocBuilder<VaultBloc, VaultState>(
+    buildWhen: (previous, current) =>
+        previous.groups != current.groups ||
+        previous.currentGroupId != current.currentGroupId,
+    builder: (context, state) => ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        Text('Folders', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        for (final group in state.groups.where((group) => !group.isRecycleBin))
+          ListTile(
+            selected: group.id == state.currentGroupId,
+            leading: const KvIcon(glyph: AppGlyph.folder, size: 18),
+            title: Text(group.name),
+            onTap: () => context.read<VaultBloc>().add(OpenGroup(group.id)),
+          ),
+      ],
+    ),
+  );
 }
