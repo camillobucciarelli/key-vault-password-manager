@@ -18,6 +18,8 @@ components land only when later specs have real call sites.
 **In**: colour/semantic tokens, bundled deterministic fonts, typography,
 spacing/radius/elevation/motion tokens, global Material theme, deterministic
 golden harness, Lucide delivery primitive and icon manifest.
+`AppFocusRing`, the shared accessibility primitive required to implement FR-6's
+exact external focus geometry, is also in scope.
 
 **Out**: screen composition, speculative `Kv*` component library, app mark and
 launcher icons (007), extension CSS (006), removal of compatibility aliases
@@ -37,7 +39,10 @@ still used by untouched screens.
    replaces a call site atomically; `AppIcons` is removed only when its tracked
    call-site count reaches zero.
 4. 001 creates no list row, input, button, card, sheet, navigation or form widget.
-   A shared widget is extracted on its second real use per constitution VIII.
+   `AppFocusRing` is the sole accessibility-primitive exception because one
+   implementation is shared by five real FR-6 gallery call sites. No speculative
+   component kit is authorized. Other shared widgets are extracted on their
+   second real use per constitution VIII.
 
 ## Functional requirements
 
@@ -176,6 +181,15 @@ Focus is a 2 px accent ring with 2 px offset. Hover moves one ramp step; pressed
 moves one further step. Disabled state remains legible and never uses colour as
 its only signal.
 
+`lib/core/widgets/app_focus_ring.dart` implements that geometry around a child
+with a caller-owned `FocusNode`: 2 px clear external gap followed by a 2 px
+stroke, configurable border radius, unclipped paint, no added semantics and no
+hit-test interception. The same node is passed to the ring and Material control;
+the caller remains responsible for disposal. Button, input, icon, switch and
+checkbox gallery call sites use this primitive. Geometry, ownership, hit testing,
+semantics, and real focused switch/checkbox behaviour are covered by
+`test/core/widgets/app_focus_ring_test.dart`.
+
 ## Exact golden inventory — 4 files
 
 | File | Surface | Theme |
@@ -199,13 +213,16 @@ pointer-state capture in a composite golden is brittle.
    every text/background pair in FR-2 at ≥4.5:1, and reduced-motion zero
    durations. Tests explicitly pin light `textSecondary = #665f53` on
    neutral-200 and dark `textSecondary = neutral-100 @ 62%` on neutral-800.
+   The semantic-role assertion uses independent expected light/dark tables for
+   all 19 roles. Focus tests include geometric paint proof of the 2 px gap and
+   2 px ring.
 5. Direct Material icon sweep is empty only in files touched by 001 and does not
    false-match `AppIcons`:
-   `rg -n '(^|[^[:alnum:]_])Icons\.' lib/core/theme lib/core/widgets/kv_icon.dart --glob '*.dart' --glob '!lib/core/theme/app_icons.dart'`
+   `rg -n '(^|[^[:alnum:]_])Icons\.' lib/core/theme lib/core/widgets --glob '*.dart' --glob '!lib/core/theme/app_icons.dart'`
    is empty. Outside those files, T1 records
    `test/fixtures/001_direct_material_icons_baseline.txt`; final verification
-   requires no added occurrence, not global zero. Remaining compatibility use is
-   reported for later screen migrations by
+   excludes all of `lib/core/widgets/**` and requires no added occurrence, not
+   global zero. Remaining compatibility use is reported for later migrations by
    `rg -n '\bAppIcons\.' lib --glob '*.dart' --glob '!lib/core/theme/app_icons.dart'`.
 6. Theme literal sweep
    `rg -n '0x[0-9A-Fa-f]{8}' lib/core/theme --glob '*.dart' --glob '!app_colors.dart'`

@@ -62,6 +62,7 @@ app.*.map.json
 .agents/
 .claude/
 .lh/
+.serena/
 .vscode/settings.json
 opencode.jsonc
 skills-lock.json

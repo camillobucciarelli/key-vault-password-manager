@@ -410,10 +410,14 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
   }
 }
 
-void _showRecordMetadataDialog(BuildContext context, VaultEntry entry) {
-  showDialog<void>(
+Future<VaultDone?> _showRecordMetadataDialog(
+  BuildContext context,
+  VaultEntry entry,
+) {
+  return VaultShellRouterScope.of(context).open<VaultDone>(
     context: context,
-    builder: (dialogContext) {
+    surface: EntrySurface<VaultDone>(
+      builder: (dialogContext) {
       final theme = Theme.of(dialogContext);
       final colorScheme = theme.colorScheme;
 
@@ -459,12 +463,15 @@ void _showRecordMetadataDialog(BuildContext context, VaultEntry entry) {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
+            onPressed: () => VaultOperationScope.of(
+              dialogContext,
+            ).complete(const VaultDone()),
             child: const Text('Close'),
           ),
         ],
       );
-    },
+      },
+    ),
   );
 }
 

@@ -204,12 +204,16 @@ Future<void> _startDriveLinkFlow(BuildContext context) async {
     return;
   }
 
-  bloc.add(
-    LinkCurrentDatabaseToDrive(
-      remoteFileId: choice.remoteFileId,
-      remoteFileName: choice.remoteFileName,
-    ),
-  );
+  switch (choice) {
+    case ExistingDriveLinkResult():
+      bloc.add(
+        LinkCurrentDatabaseToDrive(remoteFileId: choice.remoteFileId),
+      );
+    case NewDriveLinkResult():
+      bloc.add(
+        LinkCurrentDatabaseToDrive(remoteFileName: choice.remoteFileName),
+      );
+  }
 }
 
 String _formatSyncDateTime(DateTime value) {
@@ -270,9 +274,11 @@ Future<void> _startCsvImportFlow(BuildContext context) async {
     return;
   }
 
-  final avoidDuplicatesChoice = await showDialog<bool>(
+  final importResult = await VaultShellRouterScope.of(context)
+      .open<CsvImportResult>(
     context: context,
-    builder: (dialogContext) {
+    surface: DatabaseSettingsSurface<CsvImportResult>(
+      builder: (dialogContext) {
       final formatLabel = _csvSourceFormatLabel(preview.format);
       final skipped = preview.skippedRows;
       final valid = preview.items.length;
@@ -326,27 +332,34 @@ Future<void> _startCsvImportFlow(BuildContext context) async {
             ),
             actions: _adaptiveDialogActions(dialogContext, [
               TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
+                onPressed: () =>
+                    VaultOperationScope.of(dialogContext).cancel(),
                 child: const Text('Cancel'),
               ),
               FilledButton(
                 onPressed: preview.items.isEmpty
                     ? null
-                    : () => Navigator.of(dialogContext).pop(avoidDuplicates),
+                    : () => VaultOperationScope.of(dialogContext).complete(
+                        CsvImportResult(
+                          filePath: filePath,
+                          avoidDuplicates: avoidDuplicates,
+                        ),
+                      ),
                 child: const Text('Import'),
               ),
             ]),
           );
         },
       );
-    },
+      },
+    ),
   );
 
-  if (avoidDuplicatesChoice != null && context.mounted) {
+  if (importResult != null && context.mounted) {
     context.read<VaultBloc>().add(
       ImportVaultEntriesFromCsv(
-        filePath: filePath,
-        avoidDuplicates: avoidDuplicatesChoice,
+        filePath: importResult.filePath,
+        avoidDuplicates: importResult.avoidDuplicates,
       ),
     );
   }

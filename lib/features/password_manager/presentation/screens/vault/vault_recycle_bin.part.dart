@@ -1,14 +1,16 @@
 part of '../vault_screen.dart';
 
-Future<void> _showRecycleBinDialog(BuildContext context) async {
+Future<VaultDone?> _showRecycleBinDialog(BuildContext context) async {
   final bloc = context.read<VaultBloc>();
   bloc.add(const LoadRecycleBinEntries());
 
-  await showDialog<void>(
+  return VaultShellRouterScope.of(context).open<VaultDone>(
     context: context,
-    builder: (dialogContext) {
+    surface: RecycleBinSurface<VaultDone>(
+      builder: (dialogContext) {
       return BlocProvider.value(value: bloc, child: const _RecycleBinDialog());
-    },
+      },
+    ),
   );
 }
 
@@ -89,7 +91,9 @@ class _RecycleBinDialog extends StatelessWidget {
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () => VaultOperationScope.of(
+            context,
+          ).complete(const VaultDone()),
           child: const Text('Close'),
         ),
         BlocBuilder<VaultBloc, VaultState>(

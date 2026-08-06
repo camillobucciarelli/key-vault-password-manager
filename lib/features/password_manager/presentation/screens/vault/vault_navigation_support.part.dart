@@ -159,9 +159,9 @@ Future<void> _handleChildGroupAction(
         title: 'Rename folder',
         actionLabel: 'Save',
       );
-      if (name != null && name.trim().isNotEmpty && context.mounted) {
+      if (name != null && name.name.trim().isNotEmpty && context.mounted) {
         context.read<VaultBloc>().add(
-          RenameVaultGroup(groupId: group.id, newName: name.trim()),
+          RenameVaultGroup(groupId: group.id, newName: name.name.trim()),
         );
       }
       break;
@@ -173,7 +173,7 @@ Future<void> _handleChildGroupAction(
       );
       if (target != null && context.mounted) {
         context.read<VaultBloc>().add(
-          MoveVaultGroup(groupId: group.id, targetGroupId: target),
+          MoveVaultGroup(groupId: group.id, targetGroupId: target.groupId),
         );
       }
       break;
