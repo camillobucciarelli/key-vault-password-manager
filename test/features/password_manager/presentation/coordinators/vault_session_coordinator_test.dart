@@ -9,6 +9,7 @@ import 'package:password_manager/features/password_manager/domain/entities/datab
 import 'package:password_manager/features/password_manager/domain/entities/database_security_profile.dart';
 import 'package:password_manager/features/password_manager/domain/models/apple_autofill_v2_models.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
+import 'package:password_manager/features/password_manager/domain/models/drive_account_summary.dart';
 import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
@@ -719,4 +720,8 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
   }) async {
     return const SyncNowSuccess();
   }
+
+  @override
+  Future<DriveAccountSummary> getConnectedAccount() async =>
+      DriveAccountSummary.fallback;
 }

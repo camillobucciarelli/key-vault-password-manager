@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_sign_in/google_sign_in.dart';
 
+import '../../domain/models/drive_account_summary.dart';
 import '../datasources/google_token_data_source.dart';
 import 'desktop_oauth_pkce_service.dart';
 import 'google_oauth_config.dart';
@@ -183,6 +184,24 @@ class DriveAuthService {
 
     _cacheAccessToken(accessToken);
     return accessToken;
+  }
+
+  /// C-2: mobile obtains a real email from the current `GoogleSignInAccount`
+  /// (lightweight re-authentication, no interactive prompt). Desktop
+  /// Drive-only OAuth does not guarantee identity without expanding scopes,
+  /// so it always returns the exact fallback.
+  Future<DriveAccountSummary> getConnectedAccountSummary() async {
+    if (_isDesktop) {
+      return DriveAccountSummary.fallback;
+    }
+
+    await _ensureGoogleSignInInitialized();
+    final lightweightAttempt = _googleSignIn.attemptLightweightAuthentication();
+    final user = lightweightAttempt == null ? null : await lightweightAttempt;
+    if (user == null || user.email.trim().isEmpty) {
+      return DriveAccountSummary.fallback;
+    }
+    return DriveAccountSummary(displayLabel: user.email, email: user.email);
   }
 
   Future<GoogleSignInAccount> _authenticateForDriveScopes() async {

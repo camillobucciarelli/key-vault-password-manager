@@ -7,19 +7,25 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:path/path.dart' as p;
 
 import '../../../../../core/navigation/app_navigation.dart';
-import '../../../../../core/theme/app_backgrounds.dart';
+import '../../../../../core/responsive/breakpoints.dart';
 import '../../../../../core/theme/app_icons.dart';
+import '../../../../../core/theme/app_text_styles.dart';
+import '../../../../../core/theme/keyvault_colors.dart';
 import '../../../../../core/utils/mobile_file_storage.dart';
+import '../../../../../core/widgets/kv_bottom_sheet.dart';
+import '../../../../../core/widgets/kv_pill_button.dart';
 import '../../../../../injection_container.dart' as di;
-import '../../domain/models/database_dedup_result.dart';
-import '../../domain/models/drive_remote_file.dart';
+import '../../domain/errors/database_access_failure.dart';
+import '../../domain/models/database_selection_item.dart';
 import '../bloc/database_selection/database_selection_bloc.dart';
 import '../bloc/database_selection/database_selection_event.dart';
 import '../bloc/database_selection/database_selection_state.dart';
 import '../coordinators/database_session_coordinator.dart';
+import 'create_database_screen.dart';
 import 'database_unlock_screen.dart';
-import '../widgets/create_database_dialog.dart';
-import '../widgets/database/database_action_tile.dart';
+import 'welcome_screen.dart';
+import '../widgets/database/database_selection_sheets.dart';
+import '../widgets/database/drive_picker_sheet.dart';
 import '../widgets/database/recent_databases_section.dart';
 import '../utils/platform_utils.dart';
 
@@ -28,9 +34,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
 
   Future<void> _openFromGoogleDrive(BuildContext context) async {
     if (kIsWeb) {
-      if (!context.mounted) {
-        return;
-      }
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -41,362 +45,92 @@ class DatabaseSelectionScreen extends StatelessWidget {
       return;
     }
 
-    final messenger = ScaffoldMessenger.of(context);
-    var progressVisible = false;
-
-    void showProgress(String message) {
-      progressVisible = true;
-      _showBlockingProgress(context, message);
+    final coordinator = di.sl<DatabaseSessionCoordinator>();
+    final result = await showDrivePickerSheet(
+      context,
+      loadPickerData: coordinator.getDrivePickerData,
+    );
+    if (result == null || !context.mounted) {
+      return;
     }
 
-    void hideProgressIfNeeded() {
-      if (!progressVisible || !context.mounted) {
-        return;
-      }
-      Navigator.of(context, rootNavigator: true).pop();
-      progressVisible = false;
-    }
-
-    showProgress('Connecting to Google Drive...');
-
-    try {
-      final coordinator = di.sl<DatabaseSessionCoordinatorContract>();
-      final files = await coordinator.listDriveDatabases();
-      hideProgressIfNeeded();
-
-      if (!context.mounted) {
-        return;
-      }
-
-      if (files.isEmpty) {
-        messenger.showSnackBar(
-          const SnackBar(
-            content: Text('No .kdbx files found in your Google Drive.'),
-          ),
-        );
-        return;
-      }
-
-      final selected = await _showDriveFilePickerDialog(context, files);
-      if (selected == null || !context.mounted) {
-        return;
-      }
-
-      var overwriteExisting = false;
-      if (isManagedStoragePlatform) {
-        final exists = await coordinator.hasManagedDatabaseNamed(selected.name);
-        if (!context.mounted) {
-          return;
-        }
-        if (exists) {
-          final confirm = await _showOverwriteDatabaseDialog(
-            context,
-            selected.name,
-          );
-          if (confirm != true || !context.mounted) {
-            return;
-          }
-          overwriteExisting = true;
-        }
-      }
-
-      context.read<DatabaseSelectionBloc>().add(
-        SelectDriveDatabase(
-          remoteFileId: selected.id,
-          remoteFileName: selected.name,
-          overwriteExisting: overwriteExisting,
+    if (result.switchAccount) {
+      // Reconnect flow: force a fresh connect on next open by disconnecting
+      // implicitly through the coordinator's normal connect-if-needed path.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Choose "Open from Google Drive" again to switch account.'),
         ),
       );
-    } catch (e) {
-      hideProgressIfNeeded();
-      if (context.mounted) {
-        messenger.showSnackBar(
-          SnackBar(content: Text(_buildDriveOpenErrorMessage(e))),
-        );
+      return;
+    }
+
+    if (result.createAndUpload) {
+      await _onCreateDatabase(context);
+      return;
+    }
+
+    final selected = result.file;
+    if (selected == null) {
+      return;
+    }
+
+    var overwriteExisting = false;
+    if (isManagedStoragePlatform) {
+      final exists = await coordinator.hasManagedDatabaseNamed(selected.name);
+      if (!context.mounted) return;
+      if (exists) {
+        final confirm = await _showOverwriteDatabaseSheet(context, selected.name);
+        if (confirm != true || !context.mounted) return;
+        overwriteExisting = true;
       }
     }
-  }
 
-  String _buildDriveOpenErrorMessage(Object error) {
-    final message = error.toString();
-    final normalized = message.toLowerCase();
-
-    if (normalized.contains('google sign-in cancelled')) {
-      return 'Google sign-in was cancelled during authorization. Please try again and grant Drive permissions.';
-    }
-    if (normalized.contains(
-      'google account selected, but drive permission was not granted',
-    )) {
-      return 'Account selected, but Drive permission was not granted. Please try again and accept the requested permissions.';
-    }
-    if (normalized.contains('android google sign-in is not configured')) {
-      return 'Android Google Sign-In is not configured. Check GOOGLE_ANDROID_SERVER_CLIENT_ID.';
-    }
-    if (normalized.contains('ios google sign-in is not configured')) {
-      return 'iOS Google Sign-In is not configured. Check GOOGLE_MOBILE_CLIENT_ID.';
-    }
-    if (normalized.contains('authorization was not granted')) {
-      return 'Google Drive permission was not granted. Enable Drive access and try again.';
-    }
-    if (normalized.contains('authorization needs to be renewed') ||
-        normalized.contains('authorization is outdated') ||
-        normalized.contains('google account not connected')) {
-      return 'Google Drive session expired or unavailable. Tap "Open from Google Drive" again and complete reconnection.';
-    }
-    return 'Unable to open database from Google Drive.';
-  }
-
-  void _showBlockingProgress(BuildContext context, String message) {
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return AlertDialog(
-          content: Row(
-            children: [
-              const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2.4),
-              ),
-              const SizedBox(width: 14),
-              Expanded(child: Text(message)),
-            ],
-          ),
-        );
-      },
+    if (!context.mounted) return;
+    context.read<DatabaseSelectionBloc>().add(
+      SelectDriveDatabase(
+        remoteFileId: selected.id,
+        remoteFileName: selected.name,
+        overwriteExisting: overwriteExisting,
+      ),
     );
   }
 
-  Future<DriveRemoteFile?> _showDriveFilePickerDialog(
+  Future<void> _onOpenRecentDatabase(
     BuildContext context,
-    List<DriveRemoteFile> files,
-  ) {
-    var selectedId = files.first.id;
-    return showDialog<DriveRemoteFile>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              title: const Text('Select Drive database'),
-              insetPadding: _dialogInsetPadding(dialogContext),
-              contentPadding: _dialogContentPadding(dialogContext),
-              actionsOverflowDirection: VerticalDirection.down,
-              actionsOverflowButtonSpacing: 8,
-              content: SizedBox(
-                width: _dialogContentWidth(dialogContext, 460),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Choose a .kdbx file from Google Drive.'),
-                    const SizedBox(height: 12),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 300),
-                      child: ListView.separated(
-                        shrinkWrap: true,
-                        itemCount: files.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 6),
-                        itemBuilder: (_, index) {
-                          final file = files[index];
-                          final selected = selectedId == file.id;
-                          final isDark =
-                              Theme.of(context).brightness == Brightness.dark;
-                          final modifiedAt = file.modifiedTime == null
-                              ? 'Unknown date'
-                              : _formatDriveFileDate(file.modifiedTime!);
+    DatabaseSelectionItem item,
+  ) async {
+    context.read<DatabaseSelectionBloc>().add(OpenRecentDatabase(item.canonicalPath));
+  }
 
-                          return InkWell(
-                            borderRadius: BorderRadius.circular(10),
-                            onTap: () {
-                              setState(() {
-                                selectedId = file.id;
-                              });
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 8,
-                              ),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
-                                  color: selected
-                                      ? Theme.of(context).colorScheme.primary
-                                      : Theme.of(
-                                          context,
-                                        ).colorScheme.outlineVariant,
-                                ),
-                                color: selected
-                                    ? Theme.of(
-                                        context,
-                                      ).colorScheme.primaryContainer.withValues(
-                                        alpha: isDark ? 0.28 : 0.52,
-                                      )
-                                    : Theme.of(context)
-                                          .colorScheme
-                                          .surfaceContainerHighest
-                                          .withValues(
-                                            alpha: isDark ? 0.24 : 0.62,
-                                          ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    AppIcons.file,
-                                    size: 18,
-                                    color: selected
-                                        ? Theme.of(context).colorScheme.primary
-                                        : Theme.of(
-                                            context,
-                                          ).colorScheme.onSurfaceVariant,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          file.name,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodyMedium
-                                              ?.copyWith(
-                                                fontWeight: selected
-                                                    ? FontWeight.w600
-                                                    : FontWeight.w500,
-                                              ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          'Modified: $modifiedAt',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .labelMedium
-                                              ?.copyWith(
-                                                color: Theme.of(
-                                                  context,
-                                                ).colorScheme.onSurfaceVariant,
-                                              ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Icon(
-                                    selected
-                                        ? AppIcons.check
-                                        : AppIcons.chevronRight,
-                                    size: selected ? 18 : 16,
-                                    color: selected
-                                        ? Theme.of(context).colorScheme.primary
-                                        : Theme.of(
-                                            context,
-                                          ).colorScheme.onSurfaceVariant,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: _adaptiveDialogActions(dialogContext, [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () {
-                    final selected = files.firstWhere(
-                      (file) => file.id == selectedId,
-                    );
-                    Navigator.of(dialogContext).pop(selected);
-                  },
-                  child: const Text('Continue'),
-                ),
-              ]),
-            );
-          },
-        );
-      },
+  Future<void> _onLocateDatabase(
+    BuildContext context,
+    DatabaseSelectionItem item,
+  ) async {
+    final result = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['kdbx'],
     );
-  }
+    if (result == null || !context.mounted) return;
+    final selectedPath = result.files.single.path;
+    if (selectedPath == null || selectedPath.trim().isEmpty) return;
 
-  String _formatDriveFileDate(DateTime value) {
-    final local = value.toLocal();
-    final year = local.year.toString().padLeft(4, '0');
-    final month = local.month.toString().padLeft(2, '0');
-    final day = local.day.toString().padLeft(2, '0');
-    final hour = local.hour.toString().padLeft(2, '0');
-    final minute = local.minute.toString().padLeft(2, '0');
-    return '$day-$month-$year $hour:$minute';
-  }
-
-  double _dialogContentWidth(BuildContext context, double preferredWidth) {
-    final viewport = MediaQuery.sizeOf(context).width;
-    final availableWidth = viewport - 56;
-    if (availableWidth < 280) {
-      return viewport - 24;
-    }
-    return availableWidth < preferredWidth ? availableWidth : preferredWidth;
-  }
-
-  bool _isVeryCompactDialogWidth(BuildContext context) {
-    return MediaQuery.sizeOf(context).width < 340;
-  }
-
-  EdgeInsets _dialogInsetPadding(BuildContext context) {
-    if (_isVeryCompactDialogWidth(context)) {
-      return const EdgeInsets.symmetric(horizontal: 12, vertical: 20);
-    }
-    return const EdgeInsets.symmetric(horizontal: 20, vertical: 24);
-  }
-
-  EdgeInsets _dialogContentPadding(BuildContext context) {
-    if (_isVeryCompactDialogWidth(context)) {
-      return const EdgeInsets.fromLTRB(12, 10, 12, 6);
-    }
-    return const EdgeInsets.fromLTRB(20, 18, 20, 12);
-  }
-
-  List<Widget> _adaptiveDialogActions(
-    BuildContext context,
-    List<Widget> actions,
-  ) {
-    if (MediaQuery.sizeOf(context).width >= 360) {
-      return actions;
-    }
-
-    return actions
-        .map((action) => SizedBox(width: double.infinity, child: action))
-        .toList(growable: false);
-  }
-
-  Future<void> _onOpenRecentDatabase(BuildContext context, String path) async {
-    context.read<DatabaseSelectionBloc>().add(OpenRecentDatabase(path));
+    context.read<DatabaseSelectionBloc>().add(
+      LocateMissingDatabase(databaseId: item.databaseId, selectedPath: selectedPath),
+    );
   }
 
   Future<void> _onExportRecentDatabase(
     BuildContext context,
-    String path,
+    DatabaseSelectionItem item,
   ) async {
     final messenger = ScaffoldMessenger.of(context);
+    final path = item.canonicalPath;
 
     if (kIsWeb) {
       messenger.showSnackBar(
         const SnackBar(
-          content: Text(
-            'Export is currently available on desktop/mobile only.',
-          ),
+          content: Text('Export is currently available on desktop/mobile only.'),
         ),
       );
       return;
@@ -417,10 +151,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
       type: FileType.custom,
       allowedExtensions: const ['kdbx'],
     );
-
-    if (savePath == null || savePath.trim().isEmpty) {
-      return;
-    }
+    if (savePath == null || savePath.trim().isEmpty) return;
 
     final resolvedPath = savePath.toLowerCase().endsWith('.kdbx')
         ? savePath
@@ -445,9 +176,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
       withData: kIsWeb || isManagedStoragePlatform,
     );
 
-    if (result == null || !context.mounted) {
-      return;
-    }
+    if (result == null || !context.mounted) return;
 
     final selectedFile = result.files.single;
     final selectedPath = selectedFile.path;
@@ -464,22 +193,15 @@ class DatabaseSelectionScreen extends StatelessWidget {
         fileName: fileName,
         subdirectory: 'databases',
       );
-      if (!context.mounted) {
-        return;
-      }
+      if (!context.mounted) return;
       if (exists) {
-        final confirm = await _showOverwriteDatabaseDialog(context, fileName);
-        if (confirm != true || !context.mounted) {
-          return;
-        }
+        final confirm = await _showOverwriteDatabaseSheet(context, fileName);
+        if (confirm != true || !context.mounted) return;
         overwriteExisting = true;
       }
     }
 
-    if (!context.mounted) {
-      return;
-    }
-
+    if (!context.mounted) return;
     context.read<DatabaseSelectionBloc>().add(
       SelectExistingDatabase(
         fileName: fileName,
@@ -491,9 +213,8 @@ class DatabaseSelectionScreen extends StatelessWidget {
   }
 
   Future<void> _onCreateDatabase(BuildContext context) async {
-    final credentials = await showDialog<CreateDatabaseCredentials>(
-      context: context,
-      builder: (_) => const CreateDatabaseDialog(),
+    final credentials = await Navigator.of(context).push<CreateDatabaseCredentials>(
+      MaterialPageRoute(builder: (_) => const CreateDatabaseScreen()),
     );
     if (credentials != null && context.mounted) {
       context.read<DatabaseSelectionBloc>().add(
@@ -511,165 +232,168 @@ class DatabaseSelectionScreen extends StatelessWidget {
 
   Future<void> _onRemoveRecentDatabase(
     BuildContext context,
-    String path,
+    DatabaseSelectionItem item,
   ) async {
-    final mode = await _showRecentDatabaseRemovalDialog(context, path);
-    if (mode == null || !context.mounted) {
-      return;
-    }
+    final mode = await _showRecentDatabaseRemovalSheet(context, item.displayName);
+    if (mode == null || !context.mounted) return;
 
     if (mode == RecentDatabaseRemovalMode.removeAndDeleteFile) {
-      final confirmed = await _showDeleteFileConfirmationDialog(context, path);
-      if (confirmed != true || !context.mounted) {
-        return;
-      }
+      final confirmed = await _showDeleteFileConfirmationSheet(
+        context,
+        item.displayName,
+      );
+      if (confirmed != true || !context.mounted) return;
     }
 
     context.read<DatabaseSelectionBloc>().add(
-      RemoveRecentDatabase(path: path, mode: mode),
+      RemoveRecentDatabase(path: item.canonicalPath, mode: mode),
     );
   }
 
-  Future<RecentDatabaseRemovalMode?> _showRecentDatabaseRemovalDialog(
-    BuildContext context,
-    String path,
-  ) {
-    final fileName = p.basename(path);
-    return showDialog<RecentDatabaseRemovalMode>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Remove recent database'),
-          insetPadding: _dialogInsetPadding(dialogContext),
-          contentPadding: _dialogContentPadding(dialogContext),
-          actionsOverflowDirection: VerticalDirection.down,
-          actionsOverflowButtonSpacing: 8,
-          content: Text('Choose how to remove "$fileName".'),
-          actions: _adaptiveDialogActions(dialogContext, [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(
-                dialogContext,
-              ).pop(RecentDatabaseRemovalMode.removeOnly),
-              child: const Text('Remove from list'),
-            ),
-            FilledButton.tonal(
-              onPressed: kIsWeb
-                  ? null
-                  : () => Navigator.of(
-                      dialogContext,
-                    ).pop(RecentDatabaseRemovalMode.removeAndDeleteFile),
-              child: const Text('Remove and delete file'),
-            ),
-          ]),
-        );
-      },
-    );
-  }
-
-  Future<bool?> _showDeleteFileConfirmationDialog(
-    BuildContext context,
-    String path,
-  ) {
-    final fileName = p.basename(path);
-    return showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Delete file?'),
-          insetPadding: _dialogInsetPadding(dialogContext),
-          contentPadding: _dialogContentPadding(dialogContext),
-          actionsOverflowDirection: VerticalDirection.down,
-          actionsOverflowButtonSpacing: 8,
-          content: Text(
-            'This will try to permanently delete "$fileName" from disk.',
-          ),
-          actions: _adaptiveDialogActions(dialogContext, [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Delete file'),
-            ),
-          ]),
-        );
-      },
-    );
-  }
-
-  Future<bool?> _showOverwriteDatabaseDialog(
+  Future<RecentDatabaseRemovalMode?> _showRecentDatabaseRemovalSheet(
     BuildContext context,
     String fileName,
   ) {
-    return showDialog<bool>(
+    return KvBottomSheet.show<RecentDatabaseRemovalMode>(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Replace existing database?'),
-          insetPadding: _dialogInsetPadding(dialogContext),
-          contentPadding: _dialogContentPadding(dialogContext),
-          actionsOverflowDirection: VerticalDirection.down,
-          actionsOverflowButtonSpacing: 8,
-          content: Text(
-            'A database named "$fileName" already exists in app storage. Do you want to replace it?',
+      builder: (sheetContext) {
+        final colors = Theme.of(sheetContext).extension<KeyVaultColors>()!;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 26),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Remove recent database',
+                style: AppTextStyles.sheetTitle.copyWith(color: colors.textPrimary),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Choose how to remove "$fileName".',
+                style: AppTextStyles.body.copyWith(color: colors.textSecondary),
+              ),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: () => Navigator.of(sheetContext).pop(
+                  RecentDatabaseRemovalMode.removeOnly,
+                ),
+                child: const Text('Remove from list'),
+              ),
+              KvSecondaryPillButton(
+                label: 'Remove and delete file',
+                onPressed: kIsWeb
+                    ? null
+                    : () => Navigator.of(sheetContext).pop(
+                        RecentDatabaseRemovalMode.removeAndDeleteFile,
+                      ),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.of(sheetContext).pop(),
+                child: const Text('Cancel'),
+              ),
+            ],
           ),
-          actions: _adaptiveDialogActions(dialogContext, [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Replace'),
-            ),
-          ]),
         );
       },
     );
   }
 
-  Widget _buildRecentDatabasesSection(
+  Future<bool?> _showDeleteFileConfirmationSheet(
     BuildContext context,
-    List<String> recentDatabasePaths,
+    String fileName,
   ) {
-    return RecentDatabasesSection(
-      recentDatabasePaths: recentDatabasePaths,
-      onOpen: (path) => _onOpenRecentDatabase(context, path),
-      onExport: (path) => _onExportRecentDatabase(context, path),
-      onRemove: (path) => _onRemoveRecentDatabase(context, path),
+    return KvBottomSheet.show<bool>(
+      context: context,
+      barrierAlpha: 0.3,
+      builder: (sheetContext) {
+        final colors = Theme.of(sheetContext).extension<KeyVaultColors>()!;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 26),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Delete file?',
+                style: AppTextStyles.sheetTitle.copyWith(color: colors.textPrimary),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'This will try to permanently delete "$fileName" from disk.',
+                style: AppTextStyles.body.copyWith(color: colors.textSecondary),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.of(sheetContext).pop(false),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: KvPillButton(
+                      compact: true,
+                      label: 'Delete file',
+                      onPressed: () => Navigator.of(sheetContext).pop(true),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildPrimaryActions(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        DatabaseActionTile(
-          icon: AppIcons.folderOpen,
-          title: 'Open existing database',
-          subtitle: 'Choose a .kdbx file from your device',
-          onTap: () => _onSelectExistingDatabase(context),
-        ),
-        const SizedBox(height: 10),
-        DatabaseActionTile(
-          icon: AppIcons.add,
-          title: 'Create new database',
-          subtitle: 'Create a protected vault with password and key file',
-          onTap: () => _onCreateDatabase(context),
-        ),
-        const SizedBox(height: 10),
-        DatabaseActionTile(
-          icon: AppIcons.cloud,
-          title: 'Open from Google Drive',
-          subtitle: 'Download a .kdbx and open a local copy',
-          onTap: () => _openFromGoogleDrive(context),
-        ),
-      ],
+  Future<bool?> _showOverwriteDatabaseSheet(BuildContext context, String fileName) {
+    return KvBottomSheet.show<bool>(
+      context: context,
+      barrierAlpha: 0.3,
+      builder: (sheetContext) {
+        final colors = Theme.of(sheetContext).extension<KeyVaultColors>()!;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 26),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Replace existing database?',
+                style: AppTextStyles.sheetTitle.copyWith(color: colors.textPrimary),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'A database named "$fileName" already exists in app storage. Do you want to replace it?',
+                style: AppTextStyles.body.copyWith(color: colors.textSecondary),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.of(sheetContext).pop(false),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: KvPillButton(
+                      compact: true,
+                      label: 'Replace',
+                      onPressed: () => Navigator.of(sheetContext).pop(true),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -677,68 +401,39 @@ class DatabaseSelectionScreen extends StatelessWidget {
     BuildContext context,
     DatabaseSelectionDuplicateDecisionRequired state,
   ) async {
-    final decision = await showDialog<DatabaseDuplicateResolution>(
-      context: context,
-      builder: (dialogContext) {
-        final imported = state.duplicatePrompt.imported.fileName;
-        final existing = state.duplicatePrompt.existingRecord.displayName;
-        return AlertDialog(
-          title: const Text('Duplicate database detected'),
-          content: Text(
-            'Imported: $imported\nExisting: $existing\n\nChoose how to continue.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(
-                dialogContext,
-              ).pop(DatabaseDuplicateResolution.cancel),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(
-                dialogContext,
-              ).pop(DatabaseDuplicateResolution.keepBoth),
-              child: const Text('Keep both'),
-            ),
-            FilledButton.tonal(
-              onPressed: () => Navigator.of(
-                dialogContext,
-              ).pop(DatabaseDuplicateResolution.replaceExisting),
-              child: const Text('Replace existing'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(
-                dialogContext,
-              ).pop(DatabaseDuplicateResolution.useExisting),
-              child: const Text('Use existing'),
-            ),
-          ],
-        );
-      },
+    final decision = await showDuplicateDatabaseSheet(
+      context,
+      importedName: state.duplicatePrompt.imported.fileName,
+      existingName: state.duplicatePrompt.existingRecord.displayName,
     );
+    if (!context.mounted || decision == null) return;
 
-    if (!context.mounted || decision == null) {
+    context.read<DatabaseSelectionBloc>().add(ResolveDuplicateDecision(decision));
+  }
+
+  Future<void> _handleTypedFailure(
+    BuildContext context,
+    DatabaseSelectionError state,
+  ) async {
+    final failure = state.failure;
+    if (failure is InvalidDatabaseFileFailure) {
+      await showInvalidDatabaseFileSheet(context, basename: failure.basename);
       return;
     }
-
-    context.read<DatabaseSelectionBloc>().add(
-      ResolveDuplicateDecision(decision),
-    );
+    if (failure is CorruptDatabaseFailure) {
+      await showCorruptDatabaseFileSheet(context, basename: failure.basename);
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message)));
   }
 
   @override
   Widget build(BuildContext context) {
-    final topInset = MediaQuery.paddingOf(context).top + kToolbarHeight;
-    final viewportWidth = MediaQuery.sizeOf(context).width;
-    final horizontalPadding = viewportWidth < 420
-        ? 16.0
-        : (viewportWidth - 600) * 0.5;
-    final cardPadding = viewportWidth < 420 ? 18.0 : 24.0;
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
 
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      body: Container(
-        decoration: BoxDecoration(gradient: AppBackgrounds.gradient(context)),
+      backgroundColor: colors.ground,
+      body: SafeArea(
         child: BlocConsumer<DatabaseSelectionBloc, DatabaseSelectionState>(
           listener: (context, state) {
             if (state is DatabaseSelectionDuplicateDecisionRequired) {
@@ -761,9 +456,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
               return;
             }
             if (state is DatabaseSelectionError) {
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(SnackBar(content: Text(state.message)));
+              _handleTypedFailure(context, state);
             }
             if (state is DatabaseSelectionInfo) {
               ScaffoldMessenger.of(
@@ -777,71 +470,170 @@ class DatabaseSelectionScreen extends StatelessWidget {
               return const Center(child: CircularProgressIndicator());
             }
 
-            return Center(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(
-                  horizontalPadding,
-                  topInset + 20,
-                  horizontalPadding,
-                  24,
+            if (state.items.isEmpty) {
+              return WelcomeScreen(
+                onCreateDatabase: () => _onCreateDatabase(context),
+                onOpenExistingDatabase: () => _onSelectExistingDatabase(context),
+                onOpenFromGoogleDrive: () => _openFromGoogleDrive(context),
+              );
+            }
+
+            final viewportWidth = MediaQuery.sizeOf(context).width;
+            final isTablet = viewportWidth >= Breakpoints.mobile;
+
+            final header = _RecentHeader(onAdd: () => _onCreateDatabase(context));
+            final list = RecentDatabasesSection(
+              items: state.items,
+              onOpen: (item) => _onOpenRecentDatabase(context, item),
+              onExport: (item) => _onExportRecentDatabase(context, item),
+              onRemove: (item) => _onRemoveRecentDatabase(context, item),
+              onLocate: (item) => _onLocateDatabase(context, item),
+            );
+            final addSection = _AddSection(
+              onOpenExisting: () => _onSelectExistingDatabase(context),
+              onOpenFromDrive: () => _openFromGoogleDrive(context),
+            );
+
+            if (!isTablet) {
+              return SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [header, const SizedBox(height: 18), list, const SizedBox(height: 16), addSection],
                 ),
-                child: TweenAnimationBuilder<double>(
-                  duration: MediaQuery.of(context).disableAnimations
-                      ? Duration.zero
-                      : const Duration(milliseconds: 300),
-                  curve: Curves.easeOutCubic,
-                  tween: Tween(begin: 0.98, end: 1),
-                  builder: (context, value, child) {
-                    return Transform.scale(
-                      scale: value,
-                      child: Opacity(opacity: value, child: child),
-                    );
-                  },
-                  child: Card(
-                    child: Padding(
-                      padding: EdgeInsets.all(cardPadding),
+              );
+            }
+
+            // Tablet ≥600: identity/actions left, database cards right.
+            return Padding(
+              padding: const EdgeInsets.all(24),
+              child: Row(
+                key: const ValueKey('selection-two-column-row'),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 260,
+                    child: SingleChildScrollView(
                       child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Image.asset(
-                            'assets/logo/keyvault-source.png',
-                            width: 120,
-                            height: 120,
-                          ),
-                          const SizedBox(height: 20),
-                          Text(
-                            state.recentDatabasePaths.length > 1
-                                ? 'Choose a database to continue'
-                                : 'Welcome to your vault',
-                            style: Theme.of(context).textTheme.headlineSmall
-                                ?.copyWith(fontWeight: FontWeight.w700),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            state.recentDatabasePaths.length > 1
-                                ? 'Multiple databases are available. Pick one from recent list or open another file.'
-                                : 'Open an existing KDBX database or create a new one to start securely storing your credentials.',
-                            textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
-                          const SizedBox(height: 20),
-                          _buildRecentDatabasesSection(
-                            context,
-                            state.recentDatabasePaths,
-                          ),
-                          const SizedBox(height: 6),
-                          _buildPrimaryActions(context),
-                        ],
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [header, const SizedBox(height: 18), addSection],
                       ),
                     ),
                   ),
-                ),
+                  const SizedBox(width: 24),
+                  Expanded(child: SingleChildScrollView(child: list)),
+                ],
               ),
             );
           },
         ),
       ),
+    );
+  }
+}
+
+class _RecentHeader extends StatelessWidget {
+  const _RecentHeader({required this.onAdd});
+
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return Row(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Image.asset(
+            'assets/logo/keyvault-source.png',
+            width: 40,
+            height: 40,
+            fit: BoxFit.cover,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Tooltip(
+            message: 'Choose a database to continue',
+            child: Text(
+              'Databases',
+              style: AppTextStyles.screenTitle.copyWith(color: colors.textPrimary),
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 40,
+          height: 40,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: colors.actionFill,
+              shape: BoxShape.circle,
+            ),
+            child: IconButton(
+              onPressed: onAdd,
+              icon: Icon(AppIcons.add, color: colors.actionText),
+              padding: EdgeInsets.zero,
+              tooltip: 'Create new database',
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AddSection extends StatelessWidget {
+  const _AddSection({required this.onOpenExisting, required this.onOpenFromDrive});
+
+  final VoidCallback onOpenExisting;
+  final VoidCallback onOpenFromDrive;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+
+    Widget row({required IconData icon, required String label, required VoidCallback onTap}) {
+      return InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Row(
+            children: [
+              Icon(icon, size: 18, color: colors.iconNeutral),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  label,
+                  style: AppTextStyles.rowTitle.copyWith(color: colors.textPrimary),
+                ),
+              ),
+              Icon(AppIcons.chevronRight, size: 17, color: colors.iconNeutral),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Add',
+          style: AppTextStyles.panelTitleLarge.copyWith(color: colors.textPrimary),
+        ),
+        const SizedBox(height: 8),
+        row(
+          icon: AppIcons.folderOpen,
+          label: 'Open existing database',
+          onTap: onOpenExisting,
+        ),
+        row(
+          icon: AppIcons.cloud,
+          label: 'Open from Google Drive',
+          onTap: onOpenFromDrive,
+        ),
+      ],
     );
   }
 }

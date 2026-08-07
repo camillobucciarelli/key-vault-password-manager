@@ -1,22 +1,28 @@
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as p;
 
 import '../../../../../core/theme/app_icons.dart';
+import '../../../../../core/theme/app_text_styles.dart';
+import '../../../../../core/theme/keyvault_colors.dart';
+import '../../../domain/models/database_selection_item.dart';
 import 'database_item_tile.dart';
 
+/// FR-1: reused as the metadata/missing row list. Accepts C-1
+/// [DatabaseSelectionItem]s instead of the former path-only list.
 class RecentDatabasesSection extends StatefulWidget {
   const RecentDatabasesSection({
     super.key,
-    required this.recentDatabasePaths,
+    required this.items,
     required this.onOpen,
     required this.onExport,
     required this.onRemove,
+    required this.onLocate,
   });
 
-  final List<String> recentDatabasePaths;
-  final Future<void> Function(String path) onOpen;
-  final Future<void> Function(String path) onExport;
-  final Future<void> Function(String path) onRemove;
+  final List<DatabaseSelectionItem> items;
+  final Future<void> Function(DatabaseSelectionItem item) onOpen;
+  final Future<void> Function(DatabaseSelectionItem item) onExport;
+  final Future<void> Function(DatabaseSelectionItem item) onRemove;
+  final Future<void> Function(DatabaseSelectionItem item) onLocate;
 
   @override
   State<RecentDatabasesSection> createState() => _RecentDatabasesSectionState();
@@ -27,39 +33,34 @@ class _RecentDatabasesSectionState extends State<RecentDatabasesSection> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.recentDatabasePaths.isEmpty) {
+    if (widget.items.isEmpty) {
       return const SizedBox.shrink();
     }
 
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
     final normalizedQuery = _query.trim().toLowerCase();
-    var filtered = widget.recentDatabasePaths
-        .where((path) {
-          if (normalizedQuery.isEmpty) {
-            return true;
-          }
-          final fileName = p.basename(path).toLowerCase();
-          return fileName.contains(normalizedQuery) ||
-              path.toLowerCase().contains(normalizedQuery);
-        })
-        .toList(growable: false);
-
-    filtered = filtered.reversed.toList(growable: false);
-    final showSearch = widget.recentDatabasePaths.length > 5;
+    final filtered = widget.items.where((item) {
+      if (normalizedQuery.isEmpty) {
+        return true;
+      }
+      return item.displayName.toLowerCase().contains(normalizedQuery) ||
+          item.canonicalPath.toLowerCase().contains(normalizedQuery);
+    }).toList(growable: false);
+    final showSearch = widget.items.length > 5;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            const Icon(AppIcons.refresh, size: 18),
-            const SizedBox(width: 8),
-            Text(
-              'Managed databases',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+        Semantics(
+          hint: widget.items.length > 1
+              ? 'Multiple databases are available. Pick one from recent list or open another file.'
+              : null,
+          child: Text(
+            'Recent',
+            style: AppTextStyles.panelTitleLarge.copyWith(
+              color: colors.textPrimary,
             ),
-          ],
+          ),
         ),
         const SizedBox(height: 12),
         if (showSearch) ...[
@@ -76,21 +77,15 @@ class _RecentDatabasesSectionState extends State<RecentDatabasesSection> {
           ),
           const SizedBox(height: 8),
         ],
-        ...filtered.asMap().entries.map((entry) {
-          final index = entry.key;
-          final pathValue = entry.value;
-          final fileName = p.basename(pathValue);
-          final isMostRecent = index == 0;
-
+        ...filtered.map((item) {
           return Padding(
-            padding: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.only(bottom: 8),
             child: DatabaseItemTile(
-              fileName: fileName,
-              path: pathValue,
-              isMostRecent: isMostRecent,
-              onOpen: () => widget.onOpen(pathValue),
-              onExport: () => widget.onExport(pathValue),
-              onRemove: () => widget.onRemove(pathValue),
+              item: item,
+              onOpen: () => widget.onOpen(item),
+              onExport: () => widget.onExport(item),
+              onRemove: () => widget.onRemove(item),
+              onLocate: item.isMissing ? () => widget.onLocate(item) : null,
             ),
           );
         }),
@@ -99,10 +94,11 @@ class _RecentDatabasesSectionState extends State<RecentDatabasesSection> {
             padding: const EdgeInsets.symmetric(vertical: 10),
             child: Text(
               'No recent database matches your search.',
-              style: Theme.of(context).textTheme.bodySmall,
+              style: AppTextStyles.secondary.copyWith(
+                color: colors.textSecondary,
+              ),
             ),
           ),
-        const SizedBox(height: 12),
       ],
     );
   }

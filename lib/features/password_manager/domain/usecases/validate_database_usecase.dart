@@ -4,17 +4,22 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:loggy/loggy.dart';
 
+/// Typed validation result instead of a bool-only collapse, so callers can
+/// distinguish "file absent" from "file present but not a valid KDBX
+/// structure" (C-3: these map to different `DatabaseAccessFailure`s).
+enum DatabaseFileValidation { valid, missing, invalidStructure }
+
 class ValidateDatabaseUseCase {
-  Future<bool> call(String path) async {
+  Future<DatabaseFileValidation> call(String path) async {
     if (kIsWeb) {
-      // On web we cannot reliably use dart:io File. Return true to assume valid
-      // or implement web-specific validation.
-      return true;
+      // On web we cannot reliably use dart:io File. Assume valid; a
+      // web-specific validation path can be added later.
+      return DatabaseFileValidation.valid;
     }
 
     final file = File(path);
     if (!await file.exists()) {
-      return false;
+      return DatabaseFileValidation.missing;
     }
 
     try {
@@ -22,7 +27,7 @@ class ValidateDatabaseUseCase {
       // Ensure file has at least 8 bytes for checking signatures
       if (await file.length() < 8) {
         await raf.close();
-        return false;
+        return DatabaseFileValidation.invalidStructure;
       }
 
       final Uint8List headerBytes = await raf.read(8);
@@ -36,13 +41,13 @@ class ValidateDatabaseUseCase {
       // Signature 1: 0x9AA2D903
       // Signature 2: 0xB54BFB67 (KDBX 3.x and 4.x)
       if (sig1 == 0x9AA2D903 && sig2 == 0xB54BFB67) {
-        return true;
+        return DatabaseFileValidation.valid;
       }
 
-      return false;
+      return DatabaseFileValidation.invalidStructure;
     } catch (e, st) {
       logError('Failed while validating KDBX file header.', e, st);
-      return false;
+      return DatabaseFileValidation.invalidStructure;
     }
   }
 }

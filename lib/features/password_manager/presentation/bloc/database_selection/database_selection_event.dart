@@ -2,6 +2,9 @@ import 'package:equatable/equatable.dart';
 import 'package:password_manager/core/utils/redacted_value.dart';
 
 import '../../../domain/models/database_dedup_result.dart';
+import '../../../domain/models/recent_database_removal_mode.dart';
+
+export '../../../domain/models/recent_database_removal_mode.dart';
 
 abstract class DatabaseSelectionEvent extends Equatable {
   const DatabaseSelectionEvent();
@@ -96,8 +99,6 @@ class SelectDriveDatabase extends DatabaseSelectionEvent {
   ];
 }
 
-enum RecentDatabaseRemovalMode { removeOnly, removeAndDeleteFile }
-
 class RemoveRecentDatabase extends DatabaseSelectionEvent {
   const RemoveRecentDatabase({required this.path, required this.mode});
 
@@ -115,4 +116,47 @@ class ResolveDuplicateDecision extends DatabaseSelectionEvent {
 
   @override
   List<Object> get props => [decision];
+}
+
+/// FR-1 Locate: only valid for an `isMissing` recent item.
+class LocateMissingDatabase extends DatabaseSelectionEvent {
+  const LocateMissingDatabase({
+    required this.databaseId,
+    required this.selectedPath,
+  });
+
+  final String databaseId;
+  final String selectedPath;
+
+  @override
+  List<Object> get props => [databaseId, selectedPath];
+}
+
+/// C-5 create-flow wizard events. None of these carry plaintext password —
+/// only non-secret validation facts (non-empty, confirmation match).
+/// [CreateNewDatabase] above remains the sole event carrying the password,
+/// transiently, via [RedactedValue].
+class StartCreateDatabaseFlow extends DatabaseSelectionEvent {
+  const StartCreateDatabaseFlow();
+}
+
+class AdvanceCreateDatabaseStep extends DatabaseSelectionEvent {
+  const AdvanceCreateDatabaseStep({
+    required this.fieldsNonEmpty,
+    this.confirmationMatches = true,
+  });
+
+  final bool fieldsNonEmpty;
+  final bool confirmationMatches;
+
+  @override
+  List<Object> get props => [fieldsNonEmpty, confirmationMatches];
+}
+
+class GoBackCreateDatabaseStep extends DatabaseSelectionEvent {
+  const GoBackCreateDatabaseStep();
+}
+
+class CancelCreateDatabaseFlow extends DatabaseSelectionEvent {
+  const CancelCreateDatabaseFlow();
 }

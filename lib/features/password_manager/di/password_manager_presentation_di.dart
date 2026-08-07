@@ -21,17 +21,17 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
     ]),
   );
 
-  sl.registerLazySingleton<DatabaseSessionCoordinatorContract>(
+  sl.registerLazySingleton<DatabaseSessionCoordinator>(
     () => DatabaseSessionCoordinator(
-      localDataSource: sl(),
+      databaseFileRepository: sl(),
+      databaseSessionRepository: sl(),
       databaseRegistryRepository: sl(),
       databaseSecurityRepository: sl(),
-      getActiveDatabaseUseCase: sl(),
-      secureDataSource: sl(),
-      databaseImportService: sl(),
-      resolveDatabaseDuplicateUseCase: sl(),
       databaseSyncRepository: sl(),
+      getActiveDatabaseUseCase: sl(),
+      resolveDatabaseDuplicateUseCase: sl(),
       unlockDatabaseUseCase: sl(),
+      createDatabaseUseCase: sl(),
       appleAutofillV2Coordinator: sl(),
     ),
   );
