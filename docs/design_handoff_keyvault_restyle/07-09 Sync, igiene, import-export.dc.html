@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/organic-65909d1a-d72b-4efc-bf5f-af616dd5b6cf/styles.css">
+<script src="_ds/organic-65909d1a-d72b-4efc-bf5f-af616dd5b6cf/_ds_bundle.js"></script>
+<style>
+body{margin:0;background:var(--color-neutral-300);color:var(--color-text);font-family:var(--font-body)}
+a{color:var(--color-accent-800);text-decoration:none}
+a:hover{color:var(--color-accent-900)}
+.dv-turn{padding:44px 48px 40px}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 6px}
+.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:var(--color-neutral-900);color:var(--color-neutral-100);border-radius:6px}
+.dv-tname{font-family:var(--font-heading);font-size:20px}
+.grp{margin:28px 0 0;display:flex;flex-direction:column;gap:14px}
+.grp-h{font-family:var(--font-heading);font-size:17px;display:flex;align-items:center;gap:10px}
+.grp-n{width:26px;height:26px;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-900);display:grid;place-items:center;font-size:11px}
+.opts{display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start}
+.item{flex:none;display:flex;flex-direction:column;gap:9px;width:390px}
+.st{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600}
+.cap{font-size:12px;color:var(--color-neutral-700);line-height:1.5;margin:0}
+.ph{width:390px;height:844px;border-radius:46px;background:var(--color-neutral-100);box-shadow:var(--shadow-lg);overflow:hidden;display:flex;flex-direction:column;position:relative}
+.sbar{height:52px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 26px 6px;font-size:13px;font-weight:600}
+.h1{font-family:var(--font-heading);font-size:28px;line-height:1.14}
+.sub{font-size:13.5px;color:var(--color-neutral-600);line-height:1.45}
+.lbl{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--color-neutral-600)}
+.frow{padding:13px 16px;border-radius:22px;background:var(--color-neutral-200);display:flex;align-items:center;gap:12px}
+.ic{width:36px;height:36px;flex:none;border-radius:999px;display:grid;place-items:center;color:var(--color-neutral-700);background:var(--color-neutral-100)}
+.sq{width:40px;height:40px;flex:none;border-radius:14px;display:grid;place-items:center}
+.pill{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:52px;border-radius:999px;font-family:var(--font-heading);font-size:15px}
+.pillp{background:var(--color-accent-300);color:var(--color-accent-900)}
+.pills{border:1px solid var(--color-divider);color:var(--color-text)}
+.av{width:40px;height:40px;flex:none;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-900);display:grid;place-items:center;font-family:var(--font-heading);font-size:16px}
+.sheet{position:absolute;left:0;right:0;bottom:0;border-radius:32px 32px 0 0;background:var(--color-neutral-100);box-shadow:var(--shadow-lg);padding:20px 18px 26px;display:flex;flex-direction:column;gap:14px}
+.veil{position:absolute;inset:0;background:color-mix(in srgb, var(--color-neutral-900) 42%, transparent)}
+.tb{width:1024px;height:768px;border-radius:22px;background:var(--color-neutral-100);box-shadow:var(--shadow-lg);overflow:hidden;display:flex}
+.tabbar{flex:none;height:82px;padding:10px 14px 22px;display:flex;align-items:flex-start;gap:4px;background:var(--color-neutral-200)}
+.tabi{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;color:var(--color-neutral-600)}
+.tag-accent{background:var(--color-accent-200);color:var(--color-accent-900)}
+.tag-accent-2{background:var(--color-accent-2-200);color:var(--color-accent-2-900)}
+.mono{font-family:ui-monospace,Menlo,monospace}
+</style>
+</helmet>
+
+<section class="dv-turn" id="t5">
+<div class="dv-thd"><span class="dv-tid">5</span><span class="dv-tname">Journey 07 · Sync Drive — 08 · Igiene del vault — 09 · Import &amp; export</span></div>
+<p style="margin:0;max-width:96ch;font-size:13.5px;color:var(--color-neutral-700)">Tab <strong>Sync</strong> e <strong>Health</strong> del modello 1a. Stati e testi presi dal codice: i sei valori di <em>DatabaseSyncStatus</em>, il conflitto con <em>Keep local / Use remote / Cancel</em> e i checksum di <em>SyncConflict</em>, i gruppi duplicati per <em>sharedUrl + sharedUsername</em>, il <em>MergePreview</em> con le sue quattro cose copiabili, il cestino con <em>Restore / Delete permanently / Empty bin (n)</em>, e l'import CSV con <em>Detected format / Rows found / Valid records / Skipped rows / Avoid duplicates</em>. <strong>Proposta</strong> dove aggiungo.</p>
+
+<div class="grp">
+<div class="grp-h"><span class="grp-n">07</span>Google Drive</div>
+<div class="opts">
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">disconnected</span>Account non connesso</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:8px 20px 0"><div class="h1">Sync</div><div class="sub">Personal.kdbx</div></div>
+<div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:18px;padding:0 24px">
+<span style="width:70px;height:70px;border-radius:26px;background:var(--color-neutral-200);color:var(--color-neutral-600);display:grid;place-items:center"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M3 3l18 18"/><path d="M7 18a4 4 0 0 1 .4-8 6 6 0 0 1 3-3.4M13.5 6.6A6 6 0 0 1 19 11.5a3.5 3.5 0 0 1-1.6 6.4H11"/></svg></span>
+<div><div class="h1" style="font-size:24px">This database lives only here</div><p class="sub" style="margin:8px 0 0">Connect a Google account to keep <strong>Personal.kdbx</strong> in sync across your devices. KeyVault uploads the encrypted file as-is — the master password never leaves this device.</p></div>
+<div style="display:flex;flex-direction:column;gap:10px"><span class="pill pillp">Connect Google account</span><span class="pill pills">Export a backup instead</span></div>
+</div>
+<div class="tabbar">
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="8" width="18" height="13" rx="4"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>Vault</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 21s7-4.2 7-10V6l-7-3-7 3v5c0 5.8 7 10 7 10Z"/><path d="m9 12 2 2 4-4"/></svg>Health</span>
+<span class="tabi" style="color:var(--color-accent-800)"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M18 6.5A7 7 0 0 0 5.5 9"/><path d="M6 17.5A7 7 0 0 0 18.5 15"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>Sync</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M4.2 7.5l2.2 1.3M17.6 15.2l2.2 1.3M4.2 16.5l2.2-1.3M17.6 8.8l2.2-1.3"/></svg>Settings</span>
+</div>
+</div>
+<p class="cap">Lo stato <em>disconnected</em> diventa una schermata che spiega il modello di sicurezza prima di chiedere l'accesso — e offre l'alternativa che l'app ha già (<em>Database backup exported</em>).</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">connected · not linked</span>Da collegare</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:8px 20px 0"><div class="h1">Sync</div><div class="sub">Personal.kdbx</div></div>
+<div style="padding:18px 20px 0;display:flex;flex-direction:column;gap:10px">
+<div class="frow"><span class="av">C</span><div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:600">camillo@bucciarelli.dev</div><div style="font-size:12px;color:var(--color-neutral-600)">Google account connected</div></div><span style="font-size:12.5px;color:var(--color-accent-800);font-weight:600">Change</span></div>
+<div style="padding:16px;border-radius:22px;background:var(--color-accent-100);display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;gap:12px;align-items:flex-start">
+<span class="sq" style="background:var(--color-accent-300);color:var(--color-accent-900)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 9v5M12 17h.01"/><path d="M10.3 4.3 3 17a2 2 0 0 0 1.7 3h14.6A2 2 0 0 0 21 17L13.7 4.3a2 2 0 0 0-3.4 0Z"/></svg></span>
+<div style="flex:1;font-size:13px;color:var(--color-accent-900)">This database isn’t linked to a Drive file yet. Nothing is uploaded until you choose one.</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<span style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:18px;background:var(--color-neutral-100);font-size:14px;font-weight:600"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Create a new file on Drive<span style="margin-left:auto;font-size:11.5px;font-weight:400;color:var(--color-neutral-600)">My Drive root</span></span>
+<span style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:18px;background:var(--color-neutral-100);font-size:14px;font-weight:600"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>Pick an existing .kdbx</span>
+</div>
+</div>
+<div class="frow"><div style="flex:1"><div style="font-size:14px;font-weight:600">Auto-sync</div><div style="font-size:12px;color:var(--color-neutral-600)">On open, on save and when the app resumes</div></div><span style="width:44px;height:26px;border-radius:999px;background:var(--color-accent-2-400);display:flex;align-items:center;justify-content:flex-end;padding:3px"><span style="width:20px;height:20px;border-radius:999px;background:var(--color-neutral-100)"></span></span></div>
+</div>
+<div style="margin-top:auto;padding:0 20px 16px"><p class="cap" style="margin:0">KeyVault only ever touches the file you link. It never reads the rest of your Drive.</p></div>
+<div class="tabbar">
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="8" width="18" height="13" rx="4"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>Vault</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 21s7-4.2 7-10V6l-7-3-7 3v5c0 5.8 7 10 7 10Z"/><path d="m9 12 2 2 4-4"/></svg>Health</span>
+<span class="tabi" style="color:var(--color-accent-800)"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M18 6.5A7 7 0 0 0 5.5 9"/><path d="M6 17.5A7 7 0 0 0 18.5 15"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>Sync</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M4.2 7.5l2.2 1.3M17.6 15.2l2.2 1.3M4.2 16.5l2.2-1.3M17.6 8.8l2.2-1.3"/></svg>Settings</span>
+</div>
+</div>
+<p class="cap">Le due strade del dialog <em>Link database to Drive</em>: creare un file nuovo (“A new file will be created in My Drive root.”) o cercarne uno esistente. Auto-sync è il toggle che il bloc ha già.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">picker</span>Scelta file remoto</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 18px 0;display:flex;align-items:center;gap:12px">
+<span class="ic" style="background:var(--color-neutral-200)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></span>
+<div style="font-family:var(--font-heading);font-size:17px">Link to a Drive file</div>
+</div>
+<div style="padding:16px 20px 12px"><div class="frow" style="min-height:46px;padding:0 16px;color:var(--color-neutral-600);font-size:14.5px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>Search .kdbx file</div></div>
+<div style="padding:0 20px;display:flex;flex-direction:column;gap:9px">
+<div class="frow" style="padding:11px 14px"><span class="sq" style="background:var(--color-accent-2-200);color:var(--color-accent-2-900)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M14 3v5h5"/><path d="M6 3h8l5 5v13H6Z"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:600">Personal.kdbx</div><div style="font-size:11.5px;color:var(--color-neutral-600)">Modified 12 Mar 2026 · 2.4 MB</div></div><span style="width:20px;height:20px;border-radius:999px;background:var(--color-accent-400);box-shadow:inset 0 0 0 4px var(--color-neutral-200)"></span></div>
+<div class="frow" style="padding:11px 14px"><span class="sq" style="background:var(--color-neutral-100);color:var(--color-neutral-600)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M14 3v5h5"/><path d="M6 3h8l5 5v13H6Z"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:600">Personal-old.kdbx</div><div style="font-size:11.5px;color:var(--color-neutral-600)">Modified 4 Aug 2024 · 1.9 MB</div></div><span style="width:20px;height:20px;border-radius:999px;border:1.5px solid var(--color-divider)"></span></div>
+<div class="frow" style="padding:11px 14px"><span class="sq" style="background:var(--color-neutral-100);color:var(--color-neutral-600)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M14 3v5h5"/><path d="M6 3h8l5 5v13H6Z"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:600">Work.kdbx</div><div style="font-size:11.5px;color:var(--color-neutral-600)">Modified 2 Aug 2026 · 3.1 MB · linked to Work</div></div><span style="width:20px;height:20px;border-radius:999px;border:1.5px solid var(--color-divider)"></span></div>
+</div>
+<div style="padding:20px 20px 0"><div style="padding:14px 16px;border-radius:20px;background:var(--color-neutral-200);font-size:12.5px;color:var(--color-neutral-700)">Linking replaces nothing right away: the next sync compares checksums and asks you if they differ.</div></div>
+<div style="margin-top:auto;padding:0 20px 30px;display:flex;gap:10px"><span class="pill pills" style="flex:1">Cancel</span><span class="pill pillp" style="flex:1.4">Link</span></div>
+</div>
+<p class="cap">Il picker usa i campi reali di <em>DriveRemoteFile</em> (nome, <em>modifiedTime</em>, checksum) e segnala i file già collegati ad altri database, per evitare il doppio link.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-accent-2">success</span>Sincronizzato</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:8px 20px 0"><div class="h1">Sync</div><div class="sub">Personal.kdbx</div></div>
+<div style="padding:18px 20px 0;display:flex;flex-direction:column;gap:12px">
+<div style="padding:20px;border-radius:26px;background:var(--color-accent-2-100);display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:center;gap:14px">
+<span style="width:52px;height:52px;flex:none;border-radius:999px;background:var(--color-accent-2-300);color:var(--color-accent-2-900);display:grid;place-items:center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M7 18a4 4 0 0 1 .4-8A6 6 0 0 1 19 11.5a3.5 3.5 0 0 1-.5 6.5Z"/><path d="m9.5 13 2 2 3.5-3.5"/></svg></span>
+<div><div style="font-family:var(--font-heading);font-size:20px;color:var(--color-accent-2-900)">Up to date</div><div style="font-size:12.5px;color:var(--color-accent-2-900)">Last sync 2 minutes ago</div></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:7px;font-size:12.5px;color:var(--color-accent-2-900)">
+<div style="display:flex;justify-content:space-between"><span>Drive file</span><span style="font-weight:600">Personal.kdbx</span></div>
+<div style="display:flex;justify-content:space-between"><span>Auto-sync</span><span style="font-weight:600">On</span></div>
+<div style="display:flex;justify-content:space-between"><span>Local checksum</span><span class="mono">a91f…7c40</span></div>
+</div>
+</div>
+<div style="display:flex;gap:10px"><span class="pill pillp" style="flex:1">Sync now</span><span class="pill pills" style="flex:1">Unlink</span></div>
+<div class="lbl" style="margin-top:8px">Recent activity</div>
+<div class="frow" style="padding:11px 14px"><span class="sq" style="background:var(--color-neutral-100);color:var(--color-accent-2-700)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 4v11M8 8l4-4 4 4M5 20h14"/></svg></span><div style="flex:1"><div style="font-size:13.5px;font-weight:600">Uploaded local changes</div><div style="font-size:11.5px;color:var(--color-neutral-600)">2 minutes ago · 1 record changed</div></div></div>
+<div class="frow" style="padding:11px 14px"><span class="sq" style="background:var(--color-neutral-100);color:var(--color-neutral-700)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 20V9M8 16l4 4 4-4M5 4h14"/></svg></span><div style="flex:1"><div style="font-size:13.5px;font-weight:600">Downloaded remote version</div><div style="font-size:11.5px;color:var(--color-neutral-600)">Yesterday, 18:04 · from MacBook</div></div></div>
+</div>
+<div class="tabbar" style="margin-top:auto">
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="8" width="18" height="13" rx="4"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>Vault</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 21s7-4.2 7-10V6l-7-3-7 3v5c0 5.8 7 10 7 10Z"/><path d="m9 12 2 2 4-4"/></svg>Health</span>
+<span class="tabi" style="color:var(--color-accent-800)"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M18 6.5A7 7 0 0 0 5.5 9"/><path d="M6 17.5A7 7 0 0 0 18.5 15"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>Sync</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M4.2 7.5l2.2 1.3M17.6 15.2l2.2 1.3M4.2 16.5l2.2-1.3M17.6 8.8l2.2-1.3"/></svg>Settings</span>
+</div>
+</div>
+<p class="cap">Stato <em>success</em> con <em>lastSyncAt</em> e il checksum locale che il metadata store già tiene. <strong>Proposta</strong>: la lista “recent activity” — oggi la cronologia non è esposta da nessuna parte.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">syncing / offline</span>In corso e senza rete</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M3 3l18 18"/><path d="M5 13a10 10 0 0 1 8-2.9"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:8px 20px 0"><div class="h1">Sync</div><div class="sub">Personal.kdbx</div></div>
+<div style="padding:18px 20px 0;display:flex;flex-direction:column;gap:12px">
+<div style="padding:20px;border-radius:26px;background:var(--color-neutral-200);display:flex;align-items:center;gap:14px">
+<span style="width:52px;height:52px;flex:none;border-radius:999px;border:4px solid var(--color-neutral-300);border-top-color:var(--color-accent-400)"></span>
+<div><div style="font-family:var(--font-heading);font-size:20px">Syncing…</div><div style="font-size:12.5px;color:var(--color-neutral-600)">Comparing checksums with Drive</div></div>
+</div>
+<div class="lbl" style="margin-top:6px">Poi, senza rete</div>
+<div style="padding:20px;border-radius:26px;background:var(--color-accent-100);display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:center;gap:14px">
+<span style="width:52px;height:52px;flex:none;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-900);display:grid;place-items:center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M3 3l18 18"/><path d="M7 18a4 4 0 0 1 .4-8 6 6 0 0 1 3-3.4M13.5 6.6A6 6 0 0 1 19 11.5a3.5 3.5 0 0 1-1.6 6.4H11"/></svg></span>
+<div><div style="font-family:var(--font-heading);font-size:20px;color:var(--color-accent-900)">Waiting for a connection</div><div style="font-size:12.5px;color:var(--color-accent-900)">2 local changes not uploaded yet</div></div>
+</div>
+<div style="font-size:12.5px;color:var(--color-accent-900)">Your edits are already saved in the local file. KeyVault will upload them automatically as soon as you’re back online.</div>
+<span style="align-self:flex-start;padding:9px 15px;border-radius:999px;background:var(--color-neutral-100);font-size:13px;font-weight:600">Retry now</span>
+</div>
+</div>
+<div class="tabbar" style="margin-top:auto">
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="8" width="18" height="13" rx="4"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>Vault</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 21s7-4.2 7-10V6l-7-3-7 3v5c0 5.8 7 10 7 10Z"/><path d="m9 12 2 2 4-4"/></svg>Health</span>
+<span class="tabi" style="color:var(--color-accent-800)"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M18 6.5A7 7 0 0 0 5.5 9"/><path d="M6 17.5A7 7 0 0 0 18.5 15"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>Sync</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M4.2 7.5l2.2 1.3M17.6 15.2l2.2 1.3M4.2 16.5l2.2-1.3M17.6 8.8l2.2-1.3"/></svg>Settings</span>
+</div>
+</div>
+<p class="cap">Due stati nella stessa scheda per confronto. <em>syncing</em> dice cosa sta facendo (confronto checksum, che è ciò che l'orchestrator fa davvero); l'offline è una <strong>proposta</strong>: oggi l'assenza di rete finisce in <em>syncError</em> come qualunque altro errore.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-accent">error</span>Autorizzazione scaduta</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:8px 20px 0"><div class="h1">Sync</div><div class="sub">Personal.kdbx</div></div>
+<div style="padding:18px 20px 0;display:flex;flex-direction:column;gap:12px">
+<div style="padding:20px;border-radius:26px;background:var(--color-accent-100);display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:center;gap:14px">
+<span style="width:52px;height:52px;flex:none;border-radius:999px;background:var(--color-accent-300);color:var(--color-accent-900);display:grid;place-items:center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg></span>
+<div><div style="font-family:var(--font-heading);font-size:20px;color:var(--color-accent-900)">Reconnect Google Drive</div><div style="font-size:12.5px;color:var(--color-accent-900)">Authorization expired 3 days ago</div></div>
+</div>
+<div style="font-size:13px;color:var(--color-accent-900)">Sync is paused, nothing was lost. Sign in again to resume uploading changes to <strong>Personal.kdbx</strong>.</div>
+<span class="pill pillp" style="height:46px">Reconnect</span>
+</div>
+<div class="frow" style="align-items:flex-start"><div style="flex:1"><div class="lbl">Last successful sync</div><div style="font-size:14px">1 Aug 2026, 08:12</div></div></div>
+<div class="frow" style="align-items:flex-start"><div style="flex:1"><div class="lbl">Local changes since then</div><div style="font-size:14px">7 records</div></div></div>
+</div>
+<div class="tabbar" style="margin-top:auto">
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="8" width="18" height="13" rx="4"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>Vault</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 21s7-4.2 7-10V6l-7-3-7 3v5c0 5.8 7 10 7 10Z"/><path d="m9 12 2 2 4-4"/></svg>Health</span>
+<span class="tabi" style="color:var(--color-accent-800)"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M18 6.5A7 7 0 0 0 5.5 9"/><path d="M6 17.5A7 7 0 0 0 18.5 15"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>Sync</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M4.2 7.5l2.2 1.3M17.6 15.2l2.2 1.3M4.2 16.5l2.2-1.3M17.6 8.8l2.2-1.3"/></svg>Settings</span>
+</div>
+</div>
+<p class="cap">Il codice riconosce già questa famiglia di errori (“authorization expired”, “reconnect google drive”) e mostra uno snackbar con azione <em>Reconnect</em>. Qui lo stato è persistente: finché non riconnetti, la scheda Sync lo dice.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-accent">conflict</span>Conflitto</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="flex:1;opacity:.4;padding:8px 20px 0"><div class="h1">Sync</div><div class="sub">Personal.kdbx</div></div>
+<div class="veil"></div>
+<div class="sheet">
+<span style="width:46px;height:5px;border-radius:999px;background:var(--color-neutral-300);align-self:center"></span>
+<div><div class="h1" style="font-size:23px">Both versions changed</div><p class="sub" style="margin:6px 0 0">This device and <strong>Personal.kdbx</strong> on Drive were both edited since the last sync. Pick which one to keep — the other is not deleted, it stays as a Drive revision.</p></div>
+<div style="display:flex;flex-direction:column;gap:9px">
+<div style="padding:14px 16px;border-radius:20px;background:var(--color-accent-100);display:flex;gap:12px;align-items:flex-start">
+<span class="sq" style="background:var(--color-accent-300);color:var(--color-accent-900)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="5"/><path d="M9 12h6"/></svg></span>
+<div style="flex:1"><div style="font-size:14.5px;font-weight:600">This device</div><div style="font-size:12px;color:var(--color-accent-900)">128 records · saved 6 minutes ago</div><div class="mono" style="font-size:11px;color:var(--color-accent-800);margin-top:3px">a91f…7c40</div></div>
+</div>
+<div style="padding:14px 16px;border-radius:20px;background:var(--color-neutral-200);display:flex;gap:12px;align-items:flex-start">
+<span class="sq" style="background:var(--color-neutral-100);color:var(--color-neutral-700)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M7 18a4 4 0 0 1 .4-8A6 6 0 0 1 19 11.5a3.5 3.5 0 0 1-.5 6.5Z"/></svg></span>
+<div style="flex:1"><div style="font-size:14.5px;font-weight:600">Drive</div><div style="font-size:12px;color:var(--color-neutral-600)">Modified today, 08:41 · from MacBook</div><div class="mono" style="font-size:11px;color:var(--color-neutral-600);margin-top:3px">3d0c…b18e</div></div>
+</div>
+</div>
+<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--color-neutral-700)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg>Technical details</div>
+<div style="display:flex;flex-direction:column;gap:9px">
+<span class="pill pillp">Keep local</span>
+<span class="pill pills">Use remote</span>
+<span style="text-align:center;font-size:13px;color:var(--color-neutral-600)">Cancel</span>
+</div>
+</div>
+</div>
+<p class="cap">Le tre risoluzioni sono quelle di <em>SyncConflictResolution</em>, con gli stessi nomi dei pulsanti attuali. In più: quale versione è quale, con i checksum troncati e <em>remoteModifiedTime</em> — dati che il conflitto porta già con sé e che oggi stanno solo dentro “Technical details”.</p>
+</div>
+
+</div>
+</div>
+
+<div class="grp">
+<div class="grp-h"><span class="grp-n">08</span>Igiene: duplicati, cestino, salute</div>
+<div class="opts">
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Health</span>Panoramica salute</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:8px 20px 0"><div class="h1">Health</div><div class="sub">128 records in Personal.kdbx</div></div>
+<div style="padding:18px 20px 0;display:flex;flex-direction:column;gap:10px">
+<div style="padding:18px;border-radius:26px;background:var(--color-neutral-200);display:flex;align-items:center;gap:16px">
+<span style="width:64px;height:64px;flex:none;border-radius:999px;background:var(--color-accent-2-200);color:var(--color-accent-2-900);display:grid;place-items:center;font-family:var(--font-heading);font-size:22px">86</span>
+<div style="flex:1"><div style="font-family:var(--font-heading);font-size:18px">Mostly healthy</div><div style="font-size:12.5px;color:var(--color-neutral-700)">11 records need attention</div></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div class="frow"><span class="sq" style="background:var(--color-accent-200);color:var(--color-accent-900)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 9v5M12 17h.01"/><path d="M10.3 4.3 3 17a2 2 0 0 0 1.7 3h14.6A2 2 0 0 0 21 17L13.7 4.3a2 2 0 0 0-3.4 0Z"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Weak passwords</div><div style="font-size:12px;color:var(--color-neutral-600)">Under 40 bits of entropy</div></div><span style="font-family:var(--font-heading);font-size:18px">4</span><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-500)"><path d="m9 6 6 6-6 6"/></svg></div>
+<div class="frow"><span class="sq" style="background:var(--color-accent-200);color:var(--color-accent-900)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="9" cy="9" r="5"/><circle cx="15" cy="15" r="5"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Reused passwords</div><div style="font-size:12px;color:var(--color-neutral-600)">Same password in 2+ records</div></div><span style="font-family:var(--font-heading);font-size:18px">3</span><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-500)"><path d="m9 6 6 6-6 6"/></svg></div>
+<div class="frow"><span class="sq" style="background:var(--color-neutral-100);color:var(--color-neutral-700)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Not changed in 2 years</div><div style="font-size:12px;color:var(--color-neutral-600)">From last password change</div></div><span style="font-family:var(--font-heading);font-size:18px">4</span><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-500)"><path d="m9 6 6 6-6 6"/></svg></div>
+<div class="frow"><span class="sq" style="background:var(--color-accent-2-200);color:var(--color-accent-2-900)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 12h10l1-12"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Recycle bin</div><div style="font-size:12px;color:var(--color-neutral-600)">Deleted, still recoverable</div></div><span style="font-family:var(--font-heading);font-size:18px">3</span><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-500)"><path d="m9 6 6 6-6 6"/></svg></div>
+<div class="frow"><span class="sq" style="background:var(--color-accent-2-200);color:var(--color-accent-2-900)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/><path d="M11 7.5h9M4 16.5h9"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Duplicates</div><div style="font-size:12px;color:var(--color-neutral-600)">Same site and username</div></div><span style="font-family:var(--font-heading);font-size:18px">4</span><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-500)"><path d="m9 6 6 6-6 6"/></svg></div>
+</div>
+</div>
+<div class="tabbar" style="margin-top:auto">
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="8" width="18" height="13" rx="4"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>Vault</span>
+<span class="tabi" style="color:var(--color-accent-800)"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 21s7-4.2 7-10V6l-7-3-7 3v5c0 5.8 7 10 7 10Z"/><path d="m9 12 2 2 4-4"/></svg>Health</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M18 6.5A7 7 0 0 0 5.5 9"/><path d="M6 17.5A7 7 0 0 0 18.5 15"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>Sync</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M4.2 7.5l2.2 1.3M17.6 15.2l2.2 1.3M4.2 16.5l2.2-1.3M17.6 8.8l2.2-1.3"/></svg>Settings</span>
+</div>
+</div>
+<p class="cap"><strong>Proposta</strong>, ma senza dati nuovi: la soglia dei 40 bit è quella di <em>_evaluatePasswordStrength</em>, i duplicati vengono da <em>VaultDuplicateService</em>, il cestino dal <em>recycleBinEntries</em>, l'età da <em>lastPasswordChangedAt</em>. Riunisce in un posto quello che oggi è sparso tra strip e dialog.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Duplicati</span>Gruppi rilevati</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 18px 0;display:flex;align-items:center;gap:12px">
+<span class="ic" style="background:var(--color-neutral-200)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></span>
+<div style="flex:1"><div style="font-family:var(--font-heading);font-size:19px">Manage duplicates</div><div style="font-size:12px;color:var(--color-neutral-600)">4 groups · 9 records</div></div>
+<span class="ic" style="background:var(--color-neutral-200)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 4v6h6M20 20v-6h-6"/><path d="M20 10A8 8 0 0 0 6 6M4 14a8 8 0 0 0 14 4"/></svg></span>
+</div>
+<div style="padding:16px 20px 0;display:flex;flex-direction:column;gap:12px">
+<div style="border-radius:24px;background:var(--color-neutral-200);padding:14px;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:center;gap:10px"><span class="av" style="width:34px;height:34px;font-size:14px">N</span><div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:600">netflix.com</div><div style="font-size:12px;color:var(--color-neutral-600)">famiglia@bucciarelli.dev · 2 records</div></div></div>
+<div style="display:flex;flex-direction:column;gap:7px">
+<div style="padding:11px 13px;border-radius:16px;background:var(--color-neutral-100);display:flex;align-items:center;gap:10px"><span class="tag tag-accent-2" style="font-size:10px">Keep</span><div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">Netflix</div><div style="font-size:11.5px;color:var(--color-neutral-600)">Modified 2 Aug 2026 · has notes, OTP</div></div></div>
+<div style="padding:11px 13px;border-radius:16px;background:var(--color-neutral-100);display:flex;align-items:center;gap:10px"><span class="tag tag-neutral" style="font-size:10px">Merge</span><div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">Netflix famiglia</div><div style="font-size:11.5px;color:var(--color-neutral-600)">Modified 4 Jan 2024 · 1 attachment</div></div></div>
+</div>
+<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-accent-900);background:var(--color-accent-100);padding:9px 12px;border-radius:14px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>Some data will be copied</div>
+<span style="align-self:stretch;text-align:center;padding:11px;border-radius:999px;background:var(--color-accent-300);color:var(--color-accent-900);font-family:var(--font-heading);font-size:14px">Merge and move duplicate</span>
+</div>
+<div style="border-radius:24px;background:var(--color-neutral-200);padding:14px;display:flex;align-items:center;gap:10px">
+<span class="av" style="width:34px;height:34px;font-size:14px">A</span>
+<div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:600">aruba.it</div><div style="font-size:12px;color:var(--color-neutral-600)">studio@bucciarelli.it · 3 records</div></div>
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-500)"><path d="m9 6 6 6-6 6"/></svg>
+</div>
+<div style="border-radius:24px;background:var(--color-neutral-200);padding:14px;display:flex;align-items:center;gap:10px">
+<span class="av" style="width:34px;height:34px;font-size:14px">G</span>
+<div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:600">google.com</div><div style="font-size:12px;color:var(--color-neutral-600)">camillo@bucciarelli.dev · 2 records</div></div>
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-500)"><path d="m9 6 6 6-6 6"/></svg>
+</div>
+</div>
+</div>
+<p class="cap">Il gruppo è quello del modello: <em>sharedUrl</em> + <em>sharedUsername</em>, voci ordinate dalla più recente. “Keep” è il <em>primary</em> del <em>MergePreview</em> (il più recente per updatedAt/createdAt), “Merge” il <em>secondary</em> che finisce nel cestino; l'avviso “Some data will be copied” è la stringa del codice.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Merge</span>Anteprima unione</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="flex:1;opacity:.4;padding:16px 20px 0;display:flex;flex-direction:column;gap:10px"><div class="frow" style="height:120px"></div><div class="frow" style="height:70px"></div></div>
+<div class="veil"></div>
+<div class="sheet">
+<span style="width:46px;height:5px;border-radius:999px;background:var(--color-neutral-300);align-self:center"></span>
+<div><div class="h1" style="font-size:22px">What the merge does</div><p class="sub" style="margin:6px 0 0">Keeps <strong>Netflix</strong> and moves <strong>Netflix famiglia</strong> to the recycle bin, after copying what’s missing.</p></div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div class="frow" style="padding:11px 14px"><span class="ic" style="width:30px;height:30px;background:var(--color-accent-2-200);color:var(--color-accent-2-900)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="m5 13 4 4L19 7"/></svg></span><div style="flex:1;font-size:13.5px">Notes — kept item has none</div></div>
+<div class="frow" style="padding:11px 14px"><span class="ic" style="width:30px;height:30px;background:var(--color-accent-2-200);color:var(--color-accent-2-900)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="m5 13 4 4L19 7"/></svg></span><div style="flex:1;font-size:13.5px">1 attachment — <span class="mono" style="font-size:12px">tv-codes.txt</span></div></div>
+<div class="frow" style="padding:11px 14px"><span class="ic" style="width:30px;height:30px;background:var(--color-accent-2-200);color:var(--color-accent-2-900)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="m5 13 4 4L19 7"/></svg></span><div style="flex:1;font-size:13.5px">Custom field — <em>Codice contratto</em></div></div>
+<div class="frow" style="padding:11px 14px;opacity:.55"><span class="ic" style="width:30px;height:30px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></span><div style="flex:1;font-size:13.5px">One-time code — kept item already has one</div></div>
+</div>
+<div style="font-size:12.5px;color:var(--color-neutral-600)">Passwords are never merged: the kept record keeps its own.</div>
+<div style="display:flex;flex-direction:column;gap:9px"><span class="pill pillp">Merge and move duplicate</span><span class="pill pills">Cancel</span></div>
+</div>
+</div>
+<p class="cap">Le quattro voci sono esattamente i campi di <em>MergePreview</em>: <em>willCopyNotes</em>, <em>willCopyAttachments</em>, <em>customFieldKeysToCopy</em>, <em>willCopyOtp</em> — con lo stato spento quando non c'è nulla da copiare.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-accent-2">Empty</span>Nessun duplicato</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 18px 0;display:flex;align-items:center;gap:12px">
+<span class="ic" style="background:var(--color-neutral-200)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></span>
+<div style="font-family:var(--font-heading);font-size:19px">Manage duplicates</div>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:16px;padding:0 30px">
+<span style="width:74px;height:74px;border-radius:999px;background:var(--color-accent-2-200);color:var(--color-accent-2-900);display:grid;place-items:center"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="m5 13 4 4L19 7"/></svg></span>
+<div><div class="h1" style="font-size:24px">No duplicates found</div><p class="sub" style="margin:8px 0 0">No two records share the same site and username. KeyVault checks again every time you open the vault.</p></div>
+<span class="pill pills" style="padding:0 22px">Check again</span>
+</div>
+</div>
+<p class="cap">Empty state con il criterio scritto — stesso sito e stesso username — così si capisce cosa è stato controllato e cosa no.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Bin</span>Cestino con elementi</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 18px 0;display:flex;align-items:center;gap:12px">
+<span class="ic" style="background:var(--color-neutral-200)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></span>
+<div style="flex:1"><div style="font-family:var(--font-heading);font-size:19px">Recycle bin</div><div style="font-size:12px;color:var(--color-neutral-600)">3 records</div></div>
+<span class="ic" style="background:var(--color-neutral-200)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 4v6h6M20 20v-6h-6"/><path d="M20 10A8 8 0 0 0 6 6M4 14a8 8 0 0 0 14 4"/></svg></span>
+</div>
+<div style="padding:16px 20px 0;display:flex;flex-direction:column;gap:9px">
+<div class="frow"><span class="sq" style="background:var(--color-accent-200);color:var(--color-accent-900)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 12h10l1-12"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:600">Netflix famiglia</div><div style="font-size:12px;color:var(--color-neutral-600)">famiglia@bucciarelli.dev</div></div><span style="font-size:12.5px;color:var(--color-accent-800);font-weight:600">Restore</span><span class="ic" style="width:32px;height:32px"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></span></div>
+<div class="frow"><span class="sq" style="background:var(--color-accent-200);color:var(--color-accent-900)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 12h10l1-12"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:600">(Untitled)</div><div style="font-size:12px;color:var(--color-neutral-600)">No username</div></div><span style="font-size:12.5px;color:var(--color-accent-800);font-weight:600">Restore</span><span class="ic" style="width:32px;height:32px"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></span></div>
+
+<div class="frow"><span class="sq" style="background:var(--color-accent-200);color:var(--color-accent-900)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 12h10l1-12"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:600">Old router admin</div><div style="font-size:12px;color:var(--color-neutral-600)">192.168.1.1</div></div><span style="font-size:12.5px;color:var(--color-accent-800);font-weight:600">Restore</span><span class="ic" style="width:32px;height:32px"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></span></div>
+</div>
+<div style="margin-top:auto;padding:0 20px 30px;display:flex;flex-direction:column;gap:10px">
+<div style="font-size:12.5px;color:var(--color-neutral-600)">Deleted records stay here until you restore or remove them. They are still inside the .kdbx file.</div>
+<span class="pill" style="background:var(--color-accent-300);color:var(--color-accent-900)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 12h10l1-12M10 11v5M14 11v5"/></svg>Empty bin (3)</span>
+</div>
+</div>
+<p class="cap">Le righe hanno le due azioni del menu attuale — <em>Restore</em> e <em>Delete permanently</em> — con Restore promosso in linea perché è quella che si usa. Il pulsante distruttivo tiene il conteggio, come nel codice: <em>Empty bin (n)</em>.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-accent-2">Empty</span>Cestino vuoto + conferma svuota</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 18px 0;display:flex;align-items:center;gap:12px">
+<span class="ic" style="background:var(--color-neutral-200)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></span>
+<div style="font-family:var(--font-heading);font-size:19px">Recycle bin</div>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:16px;padding:0 30px">
+<span style="width:74px;height:74px;border-radius:999px;background:var(--color-neutral-200);color:var(--color-neutral-600);display:grid;place-items:center"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 12h10l1-12"/></svg></span>
+<div><div class="h1" style="font-size:24px">Recycle bin is empty</div><p class="sub" style="margin:8px 0 0">Deleted records will appear here until they are restored or removed.</p></div>
+</div>
+<div class="veil" style="background:color-mix(in srgb, var(--color-neutral-900) 30%, transparent)"></div>
+<div class="sheet">
+<span style="width:46px;height:5px;border-radius:999px;background:var(--color-neutral-300);align-self:center"></span>
+<span style="width:52px;height:52px;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-900);display:grid;place-items:center"><svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 12h10l1-12M10 11v5M14 11v5"/></svg></span>
+<div><div class="h1" style="font-size:22px">Empty the bin?</div><p class="sub" style="margin:6px 0 0">This will permanently remove all items from recycle bin. This action cannot be undone.</p></div>
+<div style="display:flex;flex-direction:column;gap:9px"><span class="pill" style="background:var(--color-accent-300);color:var(--color-accent-900)">Empty bin</span><span class="pill pills">Cancel</span></div>
+</div>
+</div>
+<p class="cap">Empty state e conferma con i testi letterali del codice (<em>“Recycle bin is empty”</em>, <em>“Deleted records will appear here…”</em>, <em>“This will permanently remove all items from recycle bin. This action cannot be undone.”</em>).</p>
+</div>
+
+</div>
+</div>
+
+<div class="grp">
+<div class="grp-h"><span class="grp-n">09</span>Import &amp; export</div>
+<div class="opts">
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">CSV</span>Anteprima import</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 18px 0;display:flex;align-items:center;gap:12px">
+<span class="ic" style="background:var(--color-neutral-200)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></span>
+<div style="font-family:var(--font-heading);font-size:19px">Import CSV</div>
+</div>
+<div style="padding:18px 20px 0;display:flex;flex-direction:column;gap:12px">
+<div class="frow" style="padding:12px 14px"><span class="sq" style="background:var(--color-neutral-100);color:var(--color-neutral-700)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M14 3v5h5"/><path d="M6 3h8l5 5v13H6Z"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600">chrome-passwords.csv</div><div style="font-size:11.5px;color:var(--color-neutral-600)">312 KB · picked from Files</div></div></div>
+<div style="padding:16px;border-radius:22px;background:var(--color-neutral-200);display:flex;flex-direction:column;gap:9px;font-size:13.5px">
+<div style="display:flex;justify-content:space-between"><span style="color:var(--color-neutral-700)">Detected format</span><span style="font-weight:600">Chrome / Edge</span></div>
+<div style="display:flex;justify-content:space-between"><span style="color:var(--color-neutral-700)">Rows found</span><span style="font-weight:600">214</span></div>
+<div style="display:flex;justify-content:space-between"><span style="color:var(--color-neutral-700)">Valid records</span><span style="font-weight:600;color:var(--color-accent-2-800)">208</span></div>
+<div style="display:flex;justify-content:space-between"><span style="color:var(--color-neutral-700)">Skipped rows</span><span style="font-weight:600;color:var(--color-accent-800)">6</span></div>
+</div>
+<div class="frow" style="align-items:flex-start"><div style="flex:1"><div style="font-size:14px;font-weight:600">Avoid duplicates</div><div style="font-size:12px;color:var(--color-neutral-600)">Skip rows that match a record already in this vault</div></div><span style="width:44px;height:26px;border-radius:999px;background:var(--color-accent-2-400);display:flex;align-items:center;justify-content:flex-end;padding:3px"><span style="width:20px;height:20px;border-radius:999px;background:var(--color-neutral-100)"></span></span></div>
+<div style="padding:14px 16px;border-radius:20px;background:var(--color-neutral-200);font-size:12.5px;color:var(--color-neutral-700)">Imported records land in <strong>All items</strong>. Delete the CSV afterwards — it holds your passwords in clear text.</div>
+</div>
+<div style="margin-top:auto;padding:0 20px 30px;display:flex;gap:10px"><span class="pill pills" style="flex:1">Cancel</span><span class="pill pillp" style="flex:1.4">Import 208</span></div>
+</div>
+<p class="cap">Le quattro righe di riepilogo sono quelle del dialog attuale (<em>Detected format</em>, <em>Rows found</em>, <em>Valid records</em>, <em>Skipped rows</em>) più il toggle <em>Avoid duplicates</em>. <strong>Proposta</strong>: il promemoria di cancellare il CSV in chiaro.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-accent">Error</span>Esito con righe scartate</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 18px 0;display:flex;align-items:center;gap:12px">
+<span class="ic" style="background:var(--color-neutral-200)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></span>
+<div style="font-family:var(--font-heading);font-size:19px">Import finished</div>
+</div>
+<div style="padding:20px 20px 0;display:flex;flex-direction:column;gap:12px">
+<div style="padding:20px;border-radius:26px;background:var(--color-accent-2-100);display:flex;align-items:center;gap:14px">
+<span style="width:52px;height:52px;flex:none;border-radius:999px;background:var(--color-accent-2-300);color:var(--color-accent-2-900);display:grid;place-items:center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="m5 13 4 4L19 7"/></svg></span>
+<div><div style="font-family:var(--font-heading);font-size:20px;color:var(--color-accent-2-900)">203 records added</div><div style="font-size:12.5px;color:var(--color-accent-2-900)">5 skipped as duplicates</div></div>
+</div>
+<div class="lbl">6 rows could not be read</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div class="frow" style="padding:11px 14px"><span class="mono" style="width:34px;flex:none;font-size:12px;color:var(--color-neutral-600)">14</span><div style="flex:1;font-size:13px">No password column value</div></div>
+<div class="frow" style="padding:11px 14px"><span class="mono" style="width:34px;flex:none;font-size:12px;color:var(--color-neutral-600)">61</span><div style="flex:1;font-size:13px">Malformed quoting, row ends early</div></div>
+<div class="frow" style="padding:11px 14px"><span class="mono" style="width:34px;flex:none;font-size:12px;color:var(--color-neutral-600)">88</span><div style="flex:1;font-size:13px">No title and no URL to name it by</div></div>
+<div class="frow" style="padding:11px 14px;opacity:.7"><span class="mono" style="width:34px;flex:none;font-size:12px;color:var(--color-neutral-600)">+3</span><div style="flex:1;font-size:13px">Same reasons</div></div>
+</div>
+</div>
+<div style="margin-top:auto;padding:0 20px 30px;display:flex;flex-direction:column;gap:10px"><span class="pill pillp">Done</span><span class="pill pills">Export the skipped rows</span></div>
+</div>
+<p class="cap"><strong>Proposta</strong>: oggi l'esito è uno snackbar con i numeri. Qui le righe scartate hanno numero e motivo, così si possono correggere e reimportare — l'informazione esiste già nel <em>VaultCsvImportService</em>.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Export</span>Backup ed esportazioni</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:8px 20px 0"><div class="h1">Backups</div><div class="sub">Personal.kdbx</div></div>
+<div style="padding:18px 20px 0;display:flex;flex-direction:column;gap:10px">
+<div class="frow" style="align-items:flex-start"><span class="sq" style="background:var(--color-accent-200);color:var(--color-accent-900)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 4v11M8 11l4 4 4-4M5 20h14"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Export the database</div><div style="font-size:12px;color:var(--color-neutral-600)">A copy of the encrypted .kdbx file</div></div><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-500);margin-top:10px"><path d="m9 6 6 6-6 6"/></svg></div>
+<div class="frow" style="align-items:flex-start"><span class="sq" style="background:var(--color-accent-200);color:var(--color-accent-900)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 11v10M9 21h6"/><circle cx="12" cy="7" r="4"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Export the key file</div><div style="font-size:12px;color:var(--color-neutral-600)">work-keyfile.keyx · keep it apart from the database</div></div><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-500);margin-top:10px"><path d="m9 6 6 6-6 6"/></svg></div>
+<div class="frow" style="align-items:flex-start"><span class="sq" style="background:var(--color-neutral-100);color:var(--color-neutral-700)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M14 3v5h5"/><path d="M6 3h8l5 5v13H6Z"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Import from CSV</div><div style="font-size:12px;color:var(--color-neutral-600)">Chrome, Bitwarden, 1Password exports</div></div><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-500);margin-top:10px"><path d="m9 6 6 6-6 6"/></svg></div>
+<div style="padding:14px 16px;border-radius:20px;background:var(--color-accent-100);font-size:12.5px;color:var(--color-accent-900);display:flex;gap:10px;align-items:flex-start"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="flex:none"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg><span>On mobile the database lives in app storage: if you delete KeyVault without a backup, the file goes with it.</span></div>
+<div class="lbl" style="margin-top:6px">Last exports</div>
+<div class="frow" style="padding:11px 14px"><div style="flex:1"><div style="font-size:13.5px;font-weight:600">Personal-2026-08-01.kdbx</div><div style="font-size:11.5px;color:var(--color-neutral-600)">1 Aug 2026 · to Files</div></div></div>
+</div>
+<div class="tabbar" style="margin-top:auto">
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="8" width="18" height="13" rx="4"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>Vault</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 21s7-4.2 7-10V6l-7-3-7 3v5c0 5.8 7 10 7 10Z"/><path d="m9 12 2 2 4-4"/></svg>Health</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M18 6.5A7 7 0 0 0 5.5 9"/><path d="M6 17.5A7 7 0 0 0 18.5 15"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>Sync</span>
+<span class="tabi" style="color:var(--color-accent-800)"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M4.2 7.5l2.2 1.3M17.6 15.2l2.2 1.3M4.2 16.5l2.2-1.3M17.6 8.8l2.2-1.3"/></svg>Settings</span>
+</div>
+</div>
+<p class="cap">Le tre azioni esistono già come voci di menu con i loro snackbar (<em>Database backup exported</em>, <em>Key file backup exported</em>, <em>No key file configured for this vault</em>): qui stanno insieme sotto Settings. <strong>Proposta</strong>: l'elenco degli ultimi export.</p>
+</div>
+
+</div>
+</div>
+
+<div class="grp">
+<div class="grp-h"><span class="grp-n" style="background:var(--color-accent-2-200);color:var(--color-accent-2-900)">NEW</span>Conflitto risolto punto per punto — nuova feature</div>
+<p style="margin:0;max-width:96ch;font-size:13px;color:var(--color-neutral-700)">Oggi il conflitto è una scelta secca a livello di file: <em>Keep local</em>, <em>Use remote</em> o <em>Cancel</em>. Chi ha modificato voci diverse sui due dispositivi perde comunque un lato. Questo flusso apre il file remoto in memoria, confronta voce per voce e lascia decidere: tre schermate — che cosa è cambiato, il diff della singola voce, il riepilogo prima di scrivere. Lato codice significa un merge a livello di record dentro il sync orchestrator, non solo un confronto di checksum: è la parte nuova da costruire.</p>
+<div class="opts">
+
+<div class="item">
+<div class="st"><span class="tag tag-accent-2">NEW · 1 di 3</span>Che cosa è cambiato</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 18px 0;display:flex;align-items:center;gap:12px">
+<span class="ic" style="background:var(--color-neutral-200)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></span>
+<div style="flex:1"><div style="font-family:var(--font-heading);font-size:18px">Review changes</div><div style="font-size:12px;color:var(--color-neutral-600)">Step 1 of 3 · 6 differences</div></div>
+</div>
+<div style="padding:14px 20px 10px">
+<div style="display:flex;gap:6px">
+<span style="flex:1;height:4px;border-radius:999px;background:var(--color-accent-400)"></span>
+<span style="flex:1;height:4px;border-radius:999px;background:var(--color-neutral-300)"></span>
+<span style="flex:1;height:4px;border-radius:999px;background:var(--color-neutral-300)"></span>
+</div>
+</div>
+<div style="padding:6px 20px 0;display:flex;gap:8px;align-items:center">
+<span style="flex:1;text-align:center;padding:9px;border-radius:999px;background:var(--color-neutral-200);font-size:12.5px;font-weight:600">Keep all local</span>
+<span style="flex:1;text-align:center;padding:9px;border-radius:999px;background:var(--color-neutral-200);font-size:12.5px;font-weight:600">Take all remote</span>
+</div>
+<div style="padding:16px 20px 0;display:flex;flex-direction:column;gap:9px">
+<div class="frow" style="padding:12px 14px"><span class="sq" style="background:var(--color-accent-2-200);color:var(--color-accent-2-900)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600">Vercel</div><div style="font-size:11.5px;color:var(--color-neutral-600)">Only on this device · new record</div></div><span class="tag tag-accent-2" style="font-size:10px">Local</span></div>
+<div class="frow" style="padding:12px 14px"><span class="sq" style="background:var(--color-neutral-100);color:var(--color-neutral-700)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600">Trenitalia</div><div style="font-size:11.5px;color:var(--color-neutral-600)">Only on Drive · added from MacBook</div></div><span class="tag tag-neutral" style="font-size:10px">Remote</span></div>
+<div class="frow" style="padding:12px 14px;background:var(--color-accent-100)"><span class="sq" style="background:var(--color-accent-300);color:var(--color-accent-900)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 9h16M4 15h16"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600">GitHub</div><div style="font-size:11.5px;color:var(--color-accent-900)">Password and notes differ</div></div><span style="font-size:11.5px;color:var(--color-accent-900);font-weight:600">Choose</span></div>
+<div class="frow" style="padding:12px 14px;background:var(--color-accent-100)"><span class="sq" style="background:var(--color-accent-300);color:var(--color-accent-900)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 9h16M4 15h16"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600">Banca Sella</div><div style="font-size:11.5px;color:var(--color-accent-900)">One-time code differs</div></div><span style="font-size:11.5px;color:var(--color-accent-900);font-weight:600">Choose</span></div>
+<div class="frow" style="padding:12px 14px"><span class="sq" style="background:var(--color-neutral-100);color:var(--color-neutral-700)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 12h10l1-12"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600">Old router admin</div><div style="font-size:11.5px;color:var(--color-neutral-600)">Deleted here, still on Drive</div></div><span style="font-size:11.5px;color:var(--color-accent-800);font-weight:600">Choose</span></div>
+<div class="frow" style="padding:12px 14px"><span class="sq" style="background:var(--color-neutral-100);color:var(--color-neutral-700)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M3 8a2 2 0 0 1 2-2h3.5l2 2.5H19a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600">Folder “Casa”</div><div style="font-size:11.5px;color:var(--color-neutral-600)">Renamed on Drive to “Home”</div></div><span style="font-size:11.5px;color:var(--color-accent-800);font-weight:600">Choose</span></div>
+</div>
+<div style="margin-top:auto;padding:0 20px 30px;display:flex;flex-direction:column;gap:8px">
+<span class="pill pillp">Review 4 conflicts</span>
+<p class="cap" style="margin:0;text-align:center">Nothing is written until the last step.</p>
+</div>
+</div>
+<p class="cap">La lista distingue le tre nature del conflitto: presente da un solo lato (si tiene, non si sceglie), stesso record con campi diversi (serve una decisione), cancellazioni e rinomine. Le due scorciatoie in alto ricreano il comportamento di oggi in un tocco.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-accent-2">NEW · 2 di 3</span>Diff della singola voce</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 18px 0;display:flex;align-items:center;gap:12px">
+<span class="ic" style="background:var(--color-neutral-200)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></span>
+<div style="flex:1"><div style="font-family:var(--font-heading);font-size:18px">GitHub</div><div style="font-size:12px;color:var(--color-neutral-600)">Conflict 1 of 4 · 2 fields differ</div></div>
+</div>
+<div style="padding:14px 20px 0;display:flex;gap:8px">
+<span style="flex:1;text-align:center;padding:9px;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-900);font-size:12.5px;font-weight:600">This device</span>
+<span style="flex:1;text-align:center;padding:9px;border-radius:999px;background:var(--color-neutral-200);font-size:12.5px;font-weight:600">Drive</span>
+</div>
+<div style="padding:16px 20px 0;display:flex;flex-direction:column;gap:12px">
+<div style="border-radius:24px;background:var(--color-neutral-200);padding:14px;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:center;gap:8px"><div class="lbl" style="flex:1">Password</div><span class="tag tag-accent" style="font-size:10px">differs</span></div>
+<div style="padding:12px 14px;border-radius:18px;background:var(--color-neutral-100);border:2px solid var(--color-accent-400);display:flex;align-items:center;gap:10px">
+<span style="width:20px;height:20px;flex:none;border-radius:999px;background:var(--color-accent-400);box-shadow:inset 0 0 0 4px var(--color-neutral-100)"></span>
+<div style="flex:1;min-width:0"><div style="font-size:11px;color:var(--color-neutral-600)">This device · 6 min ago</div><div class="mono" style="font-size:13.5px;word-break:break-all">t7$Krm-4Qz!p2Vwe</div></div>
+</div>
+<div style="padding:12px 14px;border-radius:18px;background:var(--color-neutral-100);display:flex;align-items:center;gap:10px">
+<span style="width:20px;height:20px;flex:none;border-radius:999px;border:1.5px solid var(--color-divider)"></span>
+<div style="flex:1;min-width:0"><div style="font-size:11px;color:var(--color-neutral-600)">Drive · today 08:41</div><div class="mono" style="font-size:13.5px;word-break:break-all">9Xb!ptw-3Vze%Qkr</div></div>
+</div>
+</div>
+<div style="border-radius:24px;background:var(--color-neutral-200);padding:14px;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:center;gap:8px"><div class="lbl" style="flex:1">Notes</div><span class="tag tag-accent" style="font-size:10px">differs</span></div>
+<div style="padding:12px 14px;border-radius:18px;background:var(--color-neutral-100);display:flex;gap:10px;align-items:flex-start">
+<span style="width:20px;height:20px;flex:none;border-radius:999px;border:1.5px solid var(--color-divider);margin-top:2px"></span>
+<div style="flex:1"><div style="font-size:11px;color:var(--color-neutral-600)">This device</div><div style="font-size:13px">Recovery codes in the attachment.</div></div>
+</div>
+<div style="padding:12px 14px;border-radius:18px;background:var(--color-neutral-100);border:2px solid var(--color-accent-400);display:flex;gap:10px;align-items:flex-start">
+<span style="width:20px;height:20px;flex:none;border-radius:999px;background:var(--color-accent-400);box-shadow:inset 0 0 0 4px var(--color-neutral-100);margin-top:2px"></span>
+<div style="flex:1"><div style="font-size:11px;color:var(--color-neutral-600)">Drive</div><div style="font-size:13px">Recovery codes in the attachment. SSO via Google disabled on purpose.</div></div>
+</div>
+<span style="align-self:flex-start;font-size:12px;color:var(--color-accent-800);font-weight:600">Keep both, one under the other</span>
+</div>
+<div style="padding:13px 16px;border-radius:20px;background:var(--color-neutral-200);font-size:12.5px;color:var(--color-neutral-700);display:flex;gap:10px;align-items:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="flex:none"><path d="m5 13 4 4L19 7"/></svg>Username, URL and attachment are identical — nothing to choose.</div>
+</div>
+<div style="margin-top:auto;padding:0 20px 30px;display:flex;gap:10px"><span class="pill pills" style="flex:1">Skip</span><span class="pill pillp" style="flex:1.6">Next conflict</span></div>
+</div>
+<p class="cap">Il cuore della feature: un campo per riga, i due valori con la loro data, il selezionato con bordo pesca. I campi identici sono riassunti in una riga sola. Per le note, dove unire è sensato, c'è la terza via “tieni entrambe”.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-accent-2">NEW · 3 di 3</span>Riepilogo e scrittura</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 18px 0;display:flex;align-items:center;gap:12px">
+<span class="ic" style="background:var(--color-neutral-200)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></span>
+<div style="flex:1"><div style="font-family:var(--font-heading);font-size:18px">Ready to merge</div><div style="font-size:12px;color:var(--color-neutral-600)">Step 3 of 3</div></div>
+</div>
+<div style="padding:14px 20px 10px"><div style="display:flex;gap:6px"><span style="flex:1;height:4px;border-radius:999px;background:var(--color-accent-400)"></span><span style="flex:1;height:4px;border-radius:999px;background:var(--color-accent-400)"></span><span style="flex:1;height:4px;border-radius:999px;background:var(--color-accent-400)"></span></div></div>
+<div style="padding:10px 20px 0;display:flex;flex-direction:column;gap:10px">
+<div style="padding:18px;border-radius:26px;background:var(--color-accent-2-100);display:flex;flex-direction:column;gap:8px">
+<div style="font-family:var(--font-heading);font-size:19px;color:var(--color-accent-2-900)">The merged vault will have 130 records</div>
+<div style="font-size:12.5px;color:var(--color-accent-2-900)">128 here + 3 from Drive − 1 you deleted on both sides.</div>
+</div>
+<div class="lbl">Your decisions</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div class="frow" style="padding:11px 14px"><span class="tag tag-accent-2" style="font-size:10px">Local</span><div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">GitHub · password</div></div><span style="font-size:12px;color:var(--color-accent-800)">Change</span></div>
+<div class="frow" style="padding:11px 14px"><span class="tag tag-neutral" style="font-size:10px">Remote</span><div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">GitHub · notes</div></div><span style="font-size:12px;color:var(--color-accent-800)">Change</span></div>
+<div class="frow" style="padding:11px 14px"><span class="tag tag-accent-2" style="font-size:10px">Local</span><div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">Banca Sella · one-time code</div></div><span style="font-size:12px;color:var(--color-accent-800)">Change</span></div>
+<div class="frow" style="padding:11px 14px"><span class="tag tag-neutral" style="font-size:10px">Remote</span><div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">Folder renamed to “Home”</div></div><span style="font-size:12px;color:var(--color-accent-800)">Change</span></div>
+<div class="frow" style="padding:11px 14px"><span class="tag tag-accent-2" style="font-size:10px">Local</span><div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">Old router admin stays deleted</div></div><span style="font-size:12px;color:var(--color-accent-800)">Change</span></div>
+</div>
+<div style="padding:13px 16px;border-radius:20px;background:var(--color-neutral-200);font-size:12.5px;color:var(--color-neutral-700)">A copy of both versions is kept: <span class="mono">Personal-local-2026-08-04.kdbx</span> stays on this device and the previous Drive file remains as a revision.</div>
+</div>
+<div style="margin-top:auto;padding:0 20px 30px;display:flex;flex-direction:column;gap:9px"><span class="pill pillp">Merge and upload</span><span class="pill pills">Back</span></div>
+</div>
+<p class="cap">Prima di scrivere: il conteggio finale, ogni decisione modificabile, e il salvagente — una copia locale con data e la revisione Drive precedente. È la garanzia che rende accettabile un merge automatico.</p>
+</div>
+
+</div>
+</div>
+
+<div class="grp">
+<div class="grp-h"><span class="grp-n">TB</span>Tablet / desktop</div>
+<div class="opts">
+
+<div style="display:flex;flex-direction:column;gap:9px;width:1024px">
+<div class="st"><span class="tag tag-accent-2">NEW · 1024×768</span>Conflitto a due colonne</div>
+<div class="tb">
+<div style="width:72px;flex:none;background:var(--color-neutral-200);display:flex;flex-direction:column;align-items:center;padding:18px 0;gap:14px">
+<img src="assets/keyvault-icon.png" alt="KeyVault" style="width:38px;height:38px;border-radius:13px">
+<span class="ic" style="background:transparent"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="8" width="18" height="13" rx="4"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg></span>
+<span class="ic" style="background:transparent"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 21s7-4.2 7-10V6l-7-3-7 3v5c0 5.8 7 10 7 10Z"/><path d="m9 12 2 2 4-4"/></svg></span>
+<span class="ic" style="background:var(--color-accent-200);color:var(--color-accent-900)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M18 6.5A7 7 0 0 0 5.5 9"/><path d="M6 17.5A7 7 0 0 0 18.5 15"/><path d="M18 3v4h-4M6 21v-4h4"/></svg></span>
+</div>
+<div style="width:330px;flex:none;padding:22px 18px;display:flex;flex-direction:column;gap:10px;border-right:1px solid var(--color-divider)">
+<div><div style="font-family:var(--font-heading);font-size:20px">Review changes</div><div style="font-size:12px;color:var(--color-neutral-600)">6 differences · 4 need a choice</div></div>
+<div style="display:flex;gap:8px"><span style="flex:1;text-align:center;padding:8px;border-radius:999px;background:var(--color-neutral-200);font-size:12px;font-weight:600">Keep all local</span><span style="flex:1;text-align:center;padding:8px;border-radius:999px;background:var(--color-neutral-200);font-size:12px;font-weight:600">Take all remote</span></div>
+<div style="display:flex;flex-direction:column;gap:7px">
+<div class="frow" style="padding:10px 12px;background:var(--color-accent-200)"><span class="sq" style="width:32px;height:32px;background:var(--color-accent-300);color:var(--color-accent-900)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 9h16M4 15h16"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">GitHub</div><div style="font-size:11.5px;color:var(--color-accent-900)">2 fields</div></div></div>
+<div class="frow" style="padding:10px 12px"><span class="sq" style="width:32px;height:32px;background:var(--color-neutral-100);color:var(--color-neutral-700)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 9h16M4 15h16"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">Banca Sella</div><div style="font-size:11.5px;color:var(--color-neutral-600)">1 field</div></div></div>
+<div class="frow" style="padding:10px 12px"><span class="sq" style="width:32px;height:32px;background:var(--color-neutral-100);color:var(--color-neutral-700)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 12h10l1-12"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">Old router admin</div><div style="font-size:11.5px;color:var(--color-neutral-600)">Deleted here</div></div></div>
+<div class="frow" style="padding:10px 12px"><span class="sq" style="width:32px;height:32px;background:var(--color-neutral-100);color:var(--color-neutral-700)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M3 8a2 2 0 0 1 2-2h3.5l2 2.5H19a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">Folder “Casa”</div><div style="font-size:11.5px;color:var(--color-neutral-600)">Renamed on Drive</div></div></div>
+<div class="lbl" style="margin-top:8px">No choice needed</div>
+<div class="frow" style="padding:10px 12px;opacity:.7"><span class="tag tag-accent-2" style="font-size:10px">Local</span><div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">Vercel</div></div></div>
+<div class="frow" style="padding:10px 12px;opacity:.7"><span class="tag tag-neutral" style="font-size:10px">Remote</span><div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">Trenitalia</div></div></div>
+</div>
+<span style="margin-top:auto;text-align:center;padding:12px;border-radius:999px;background:var(--color-accent-300);color:var(--color-accent-900);font-family:var(--font-heading);font-size:14px">Merge and upload</span>
+</div>
+<div style="flex:1;padding:26px 28px;display:flex;flex-direction:column;gap:16px;min-width:0;background:var(--color-neutral-200)">
+<div style="display:flex;align-items:center gap:12px"><div style="flex:1"><div style="font-family:var(--font-heading);font-size:24px">GitHub</div><div style="font-size:12.5px;color:var(--color-neutral-600)">Devs · 2 of 5 fields differ</div></div></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+<div style="display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:center;gap:8px"><span class="tag tag-accent-2" style="font-size:10px">This device</span><span style="font-size:11.5px;color:var(--color-neutral-600)">saved 6 min ago</span></div>
+<div style="padding:14px;border-radius:20px;background:var(--color-neutral-100);border:2px solid var(--color-accent-400)"><div class="lbl">Password</div><div class="mono" style="font-size:13.5px;margin-top:4px;word-break:break-all">t7$Krm-4Qz!p2Vwe</div></div>
+<div style="padding:14px;border-radius:20px;background:var(--color-neutral-100)"><div class="lbl">Notes</div><div style="font-size:13px;margin-top:4px">Recovery codes in the attachment.</div></div>
+<div style="padding:14px;border-radius:20px;background:var(--color-neutral-100);opacity:.6"><div class="lbl">Username · identical</div><div style="font-size:13px;margin-top:4px">camillo@bucciarelli.dev</div></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:center;gap:8px"><span class="tag tag-neutral" style="font-size:10px">Drive</span><span style="font-size:11.5px;color:var(--color-neutral-600)">today 08:41 · MacBook</span></div>
+<div style="padding:14px;border-radius:20px;background:var(--color-neutral-100)"><div class="lbl">Password</div><div class="mono" style="font-size:13.5px;margin-top:4px;word-break:break-all">9Xb!ptw-3Vze%Qkr</div></div>
+<div style="padding:14px;border-radius:20px;background:var(--color-neutral-100);border:2px solid var(--color-accent-400)"><div class="lbl">Notes</div><div style="font-size:13px;margin-top:4px">Recovery codes in the attachment. SSO via Google disabled on purpose.</div></div>
+<div style="padding:14px;border-radius:20px;background:var(--color-neutral-100);opacity:.6"><div class="lbl">Username · identical</div><div style="font-size:13px;margin-top:4px">camillo@bucciarelli.dev</div></div>
+</div>
+</div>
+<div style="display:flex;gap:10px;align-items:center;padding:13px 16px;border-radius:20px;background:var(--color-neutral-100);font-size:12.5px;color:var(--color-neutral-700)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="flex:none"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>Click a card to pick it. For notes you can also keep both, one under the other.</div>
+<div style="margin-top:auto;display:flex;gap:10px"><span style="padding:11px 20px;border-radius:999px;background:var(--color-neutral-100);font-size:13.5px">Previous</span><span style="padding:11px 20px;border-radius:999px;background:var(--color-accent-300);color:var(--color-accent-900);font-family:var(--font-heading);font-size:14px">Next conflict</span></div>
+</div>
+</div>
+<p class="cap">Su schermo largo il diff è affiancato: locale a sinistra, Drive a destra, la scelta è la card con il bordo. La lista a sinistra separa ciò che richiede una decisione da ciò che verrà unito comunque.</p>
+</div>
+
+</div>
+</div>
+
+<p style="margin:26px 0 0;font-size:12.5px;color:var(--color-neutral-700)">Prossimo: "ok, passa a 10 sicurezza e impostazioni" · "sul diff aggiungi il confronto degli allegati" · "accetta la proposta del cestino con scadenza"</p>
+</section></x-dc>
+</body>
+</html>

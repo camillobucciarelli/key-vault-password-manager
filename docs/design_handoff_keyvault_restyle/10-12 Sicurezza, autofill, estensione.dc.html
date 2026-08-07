@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/organic-65909d1a-d72b-4efc-bf5f-af616dd5b6cf/styles.css">
+<script src="_ds/organic-65909d1a-d72b-4efc-bf5f-af616dd5b6cf/_ds_bundle.js"></script>
+<style>
+body{margin:0;background:var(--color-neutral-300);color:var(--color-text);font-family:var(--font-body)}
+a{color:var(--color-accent-800);text-decoration:none}
+a:hover{color:var(--color-accent-900)}
+.dv-turn{padding:44px 48px 40px}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 6px}
+.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:var(--color-neutral-900);color:var(--color-neutral-100);border-radius:6px}
+.dv-tname{font-family:var(--font-heading);font-size:20px}
+.grp{margin:28px 0 0;display:flex;flex-direction:column;gap:14px}
+.grp-h{font-family:var(--font-heading);font-size:17px;display:flex;align-items:center;gap:10px}
+.grp-n{width:26px;height:26px;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-900);display:grid;place-items:center;font-size:11px}
+.opts{display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start}
+.item{flex:none;display:flex;flex-direction:column;gap:9px;width:390px}
+.st{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600}
+.cap{font-size:12px;color:var(--color-neutral-700);line-height:1.5;margin:0}
+.ph{width:390px;height:844px;border-radius:46px;background:var(--color-neutral-100);box-shadow:var(--shadow-lg);overflow:hidden;display:flex;flex-direction:column;position:relative}
+.sbar{height:52px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 26px 6px;font-size:13px;font-weight:600}
+.h1{font-family:var(--font-heading);font-size:28px;line-height:1.14}
+.sub{font-size:13.5px;color:var(--color-neutral-600);line-height:1.45}
+.lbl{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--color-neutral-600)}
+.frow{padding:13px 16px;border-radius:22px;background:var(--color-neutral-200);display:flex;align-items:center;gap:12px}
+.fld{display:flex;align-items:center;gap:10px;min-height:52px;padding:8px 16px;border-radius:22px;background:var(--color-neutral-200);font-size:15px}
+.ic{width:36px;height:36px;flex:none;border-radius:999px;display:grid;place-items:center;color:var(--color-neutral-700);background:var(--color-neutral-100)}
+.sq{width:40px;height:40px;flex:none;border-radius:14px;display:grid;place-items:center}
+.pill{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:52px;border-radius:999px;font-family:var(--font-heading);font-size:15px}
+.pillp{background:var(--color-accent-300);color:var(--color-accent-900)}
+.pills{border:1px solid var(--color-divider);color:var(--color-text)}
+.sw{width:44px;height:26px;flex:none;border-radius:999px;display:flex;align-items:center;padding:3px}
+.swOn{background:var(--color-accent-2-400);justify-content:flex-end}
+.swOff{background:var(--color-neutral-300)}
+.knob{width:20px;height:20px;border-radius:999px;background:var(--color-neutral-100)}
+.sheet{position:absolute;left:0;right:0;bottom:0;border-radius:32px 32px 0 0;background:var(--color-neutral-100);box-shadow:var(--shadow-lg);padding:20px 18px 26px;display:flex;flex-direction:column;gap:14px}
+.veil{position:absolute;inset:0;background:color-mix(in srgb, var(--color-neutral-900) 42%, transparent)}
+.tabbar{flex:none;height:82px;padding:10px 14px 22px;display:flex;align-items:flex-start;gap:4px;background:var(--color-neutral-200)}
+.tabi{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;color:var(--color-neutral-600)}
+.tag-accent{background:var(--color-accent-200);color:var(--color-accent-900)}
+.tag-accent-2{background:var(--color-accent-2-200);color:var(--color-accent-2-900)}
+.mono{font-family:ui-monospace,Menlo,monospace}
+.pop{width:400px;flex:none;border-radius:16px;background:var(--color-neutral-100);box-shadow:var(--shadow-lg);overflow:hidden;display:flex;flex-direction:column}
+.br{width:900px;flex:none;border-radius:14px;overflow:hidden;box-shadow:var(--shadow-lg);background:var(--color-neutral-100)}
+</style>
+</helmet>
+
+<section class="dv-turn" id="t6">
+<div class="dv-thd"><span class="dv-tid">6</span><span class="dv-tname">Journey 10 · Sicurezza e impostazioni — 11 · Autofill — 12 · Estensione Chrome</span></div>
+<p style="margin:0;max-width:96ch;font-size:13.5px;color:var(--color-neutral-700)">Testi dal codice: <em>Database settings</em> con <em>Database file name</em>, <em>Lock on inactivity</em>, <em>Biometric protection</em>, <em>Change master password</em> (current / new / confirm), <em>Confirm security changes</em> → <em>Confirm and apply</em>, <em>Save changes</em>; il prompt <em>Link AutoFill credential?</em> con Target/Entry/Username e Reject/Link; il setup desktop con i suoi passi in italiano (<em>Carica l'estensione beta</em>, <em>Registra Native Messaging Host</em>, <em>Host registrato ✓</em>); il popup con <em>Native host</em>, <em>App / vault bridge</em>, <em>Find current site</em>, <em>Global metadata search</em>, <em>Matches</em>, <em>Fill on this page</em>. <strong>Proposta</strong> dove aggiungo.</p>
+
+<div class="grp">
+<div class="grp-h"><span class="grp-n">10</span>Sicurezza &amp; impostazioni</div>
+<div class="opts">
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Settings</span>Impostazioni database</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:8px 20px 0"><div class="h1">Settings</div><div class="sub">Personal.kdbx</div></div>
+<div style="padding:18px 20px 0;display:flex;flex-direction:column;gap:16px">
+<div style="display:flex;flex-direction:column;gap:8px">
+<div class="lbl">This database</div>
+<div><div style="font-size:12px;color:var(--color-neutral-600);margin-bottom:6px">Database file name</div><div class="fld">Personal.kdbx</div></div>
+<div class="frow" style="align-items:flex-start"><span class="sq" style="background:var(--color-accent-2-200);color:var(--color-accent-2-900)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M6 12a6 6 0 0 1 12 0"/><path d="M9 13v3M12 12v5M15 13v3"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Biometric protection</div><div style="font-size:12px;color:var(--color-neutral-600)">Unlock requires Face ID when available</div></div><span class="sw swOn"><span class="knob"></span></span></div>
+<div class="frow"><span class="sq" style="background:var(--color-neutral-100);color:var(--color-neutral-700)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Lock on inactivity</div><div style="font-size:12px;color:var(--color-neutral-600)">After 2 minutes</div></div><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-500)"><path d="m9 6 6 6-6 6"/></svg></div>
+<div class="frow"><span class="sq" style="background:var(--color-neutral-100);color:var(--color-neutral-700)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="4" y="10" width="16" height="10" rx="4"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Change master password</div><div style="font-size:12px;color:var(--color-neutral-600)">Re-encrypts the whole file</div></div><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-500)"><path d="m9 6 6 6-6 6"/></svg></div>
+<div class="frow"><span class="sq" style="background:var(--color-neutral-100);color:var(--color-neutral-700)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 11v10M9 21h6"/><circle cx="12" cy="7" r="4"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Key file</div><div style="font-size:12px;color:var(--color-neutral-600)">None configured</div></div><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-500)"><path d="m9 6 6 6-6 6"/></svg></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div class="lbl">App</div>
+<div class="frow"><span class="sq" style="background:var(--color-neutral-100);color:var(--color-neutral-700)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 3v2M12 19v2M4.5 7.5l1.7 1M17.8 15.5l1.7 1M4.5 16.5l1.7-1M17.8 8.5l1.7-1"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Appearance</div><div style="font-size:12px;color:var(--color-neutral-600)">Follow the system</div></div><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-500)"><path d="m9 6 6 6-6 6"/></svg></div>
+<div class="frow"><span class="sq" style="background:var(--color-neutral-100);color:var(--color-neutral-700)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="5" width="18" height="12" rx="3"/><path d="M8 21h8"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Autofill &amp; browsers</div><div style="font-size:12px;color:var(--color-neutral-600)">Face ID keyboard, desktop helper</div></div><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-500)"><path d="m9 6 6 6-6 6"/></svg></div>
+<div class="frow"><span class="sq" style="background:var(--color-neutral-100);color:var(--color-neutral-700)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 4v11M8 11l4 4 4-4M5 20h14"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Backups &amp; import</div></div><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-500)"><path d="m9 6 6 6-6 6"/></svg></div>
+</div>
+<span class="pill pills" style="color:var(--color-accent-800)">Close database</span>
+</div>
+<div class="tabbar" style="margin-top:auto">
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="8" width="18" height="13" rx="4"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>Vault</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 21s7-4.2 7-10V6l-7-3-7 3v5c0 5.8 7 10 7 10Z"/><path d="m9 12 2 2 4-4"/></svg>Health</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M18 6.5A7 7 0 0 0 5.5 9"/><path d="M6 17.5A7 7 0 0 0 18.5 15"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>Sync</span>
+<span class="tabi" style="color:var(--color-accent-800)"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M4.2 7.5l2.2 1.3M17.6 15.2l2.2 1.3M4.2 16.5l2.2-1.3M17.6 8.8l2.2-1.3"/></svg>Settings</span>
+</div>
+</div>
+<p class="cap">Il dialog <em>Database settings</em> — che oggi contiene nome file, biometria, timeout, cambio master password e key file in un unico form con <em>Save changes</em> — diventa una tab: le cose del database sopra, quelle dell'app sotto. Ogni voce apre la sua schermata e salva da sé.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Master password</span>Cambio e conferma</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 18px 0;display:flex;align-items:center;gap:12px">
+<span class="ic" style="background:var(--color-neutral-200)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></span>
+<div style="font-family:var(--font-heading);font-size:18px">Change master password</div>
+</div>
+<div style="padding:18px 20px 0;display:flex;flex-direction:column;gap:14px">
+<div><div class="lbl" style="margin-bottom:6px">Current master password</div><div class="fld"><span style="letter-spacing:.2em">••••••••••</span></div></div>
+<div><div class="lbl" style="margin-bottom:6px">New master password</div><div class="fld" style="border:2px solid var(--color-accent-400)"><span style="letter-spacing:.2em">••••••••••••••</span></div>
+<div style="display:flex;align-items:center;gap:8px;margin-top:8px"><span style="flex:1;height:6px;border-radius:999px;background:var(--color-accent-2-400)"></span><span style="flex:1;height:6px;border-radius:999px;background:var(--color-accent-2-400)"></span><span style="flex:1;height:6px;border-radius:999px;background:var(--color-accent-2-400)"></span><span style="flex:1;height:6px;border-radius:999px;background:var(--color-neutral-300)"></span><span style="font-size:12px;color:var(--color-accent-2-900);font-weight:600">Good</span></div>
+</div>
+<div><div class="lbl" style="margin-bottom:6px">Confirm new password</div><div class="fld"><span style="letter-spacing:.2em">••••••••••••••</span><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="margin-left:auto;color:var(--color-accent-2-700)"><path d="m5 13 4 4L19 7"/></svg></div></div>
+<div style="padding:14px 16px;border-radius:20px;background:var(--color-accent-100);font-size:12.5px;color:var(--color-accent-900);display:flex;gap:10px;align-items:flex-start"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="flex:none"><path d="M12 9v5M12 17h.01"/><path d="M10.3 4.3 3 17a2 2 0 0 0 1.7 3h14.6A2 2 0 0 0 21 17L13.7 4.3a2 2 0 0 0-3.4 0Z"/></svg><span>Devices with the old password will refuse to open this file after the next sync. Update them, or export a backup first.</span></div>
+</div>
+<div class="veil" style="background:color-mix(in srgb, var(--color-neutral-900) 34%, transparent)"></div>
+<div class="sheet">
+<span style="width:46px;height:5px;border-radius:999px;background:var(--color-neutral-300);align-self:center"></span>
+<div><div class="h1" style="font-size:22px">Confirm security changes</div><p class="sub" style="margin:6px 0 0">The file will be re-encrypted with the new master password. This cannot be undone from inside the app.</p></div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div class="frow" style="padding:11px 14px"><span class="tag tag-accent" style="font-size:10px">Change</span><div style="flex:1;font-size:13.5px">Master password</div></div>
+<div class="frow" style="padding:11px 14px;opacity:.7"><span class="tag tag-neutral" style="font-size:10px">Keep</span><div style="flex:1;font-size:13.5px">Key file · none</div></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:9px"><span class="pill pillp">Confirm and apply</span><span class="pill pills">Cancel</span></div>
+</div>
+</div>
+<p class="cap">Gli stessi tre campi del form attuale, con la conferma <em>Confirm security changes</em> → <em>Confirm and apply</em> che il codice ha già. La sheet elenca cosa cambia e cosa resta, perché lo stesso salvataggio può toccare password e key file insieme (i tre messaggi di successo distinti nel codice lo confermano).</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Lock</span>Auto-lock e privacy overlay</div>
+<div class="ph" style="background:var(--color-neutral-900);color:var(--color-neutral-100)">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding:0 34px;text-align:center">
+<img src="assets/keyvault-icon.png" alt="KeyVault" style="width:76px;height:76px;border-radius:24px">
+<div><div class="h1" style="font-size:28px">Locked after 2 minutes</div><p style="margin:8px 0 0;font-size:14px;color:color-mix(in srgb, #f9f4ed 62%, transparent)">Personal.kdbx is still open in memory. Confirm it’s you to continue where you left off.</p></div>
+<div style="display:flex;flex-direction:column;gap:10px;width:100%">
+<span class="pill" style="background:var(--color-accent-300);color:var(--color-accent-900)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M6 12a6 6 0 0 1 12 0"/><path d="M9 13v3M12 12v5M15 13v3"/></svg>Unlock with Face ID</span>
+<span class="pill" style="border:1px solid color-mix(in srgb, #f9f4ed 20%, transparent);color:var(--color-neutral-100)">Use master password</span>
+<span style="font-size:12.5px;color:color-mix(in srgb, #f9f4ed 50%, transparent)">Close the database instead</span>
+</div>
+</div>
+</div>
+<p class="cap">L'overlay di lock esiste già (timer di inattività + 30 secondi in background): qui dice quanto tempo è passato e offre la terza via, chiudere il database. Il privacy overlay usa lo stesso fondo scuro con il solo marchio, senza testo — così nella app switcher non si legge nulla.</p>
+</div>
+
+</div>
+</div>
+
+<div class="grp">
+<div class="grp-h"><span class="grp-n">11</span>Autofill</div>
+<div class="opts">
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Onboarding</span>Attivazione autofill di sistema</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 18px 0;display:flex;align-items:center;gap:12px">
+<span class="ic" style="background:var(--color-neutral-200)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></span>
+<div style="font-family:var(--font-heading);font-size:18px">Autofill &amp; browsers</div>
+</div>
+<div style="padding:18px 20px 0;display:flex;flex-direction:column;gap:12px">
+<div style="padding:18px;border-radius:26px;background:var(--color-accent-100);display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;gap:12px;align-items:center">
+<span class="sq" style="background:var(--color-accent-300);color:var(--color-accent-900)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="6" width="18" height="12" rx="3"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/></svg></span>
+<div style="flex:1"><div style="font-size:15px;font-weight:600;color:var(--color-accent-900)">Not enabled yet</div><div style="font-size:12px;color:var(--color-accent-900)">iOS asks you once, in Settings</div></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;gap:10px;align-items:center;font-size:13px;color:var(--color-accent-900)"><span style="width:22px;height:22px;flex:none;border-radius:999px;background:var(--color-neutral-100);display:grid;place-items:center;font-size:11px;font-weight:700">1</span>Settings → General → AutoFill &amp; Passwords</div>
+<div style="display:flex;gap:10px;align-items:center;font-size:13px;color:var(--color-accent-900)"><span style="width:22px;height:22px;flex:none;border-radius:999px;background:var(--color-neutral-100);display:grid;place-items:center;font-size:11px;font-weight:700">2</span>Turn on <strong>AutoFill Passwords</strong></div>
+<div style="display:flex;gap:10px;align-items:center;font-size:13px;color:var(--color-accent-900)"><span style="width:22px;height:22px;flex:none;border-radius:999px;background:var(--color-neutral-100);display:grid;place-items:center;font-size:11px;font-weight:700">3</span>Pick <strong>KeyVault</strong> in the list</div>
+</div>
+<span class="pill pillp" style="height:46px">Open iOS settings</span>
+</div>
+<div class="frow" style="align-items:flex-start"><span class="sq" style="background:var(--color-neutral-100);color:var(--color-neutral-700)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M9 7h6"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Entries shared with AutoFill</div><div style="font-size:12px;color:var(--color-neutral-600)">128 titles, usernames and sites. Passwords stay in the vault until you pick one.</div></div></div>
+<div class="frow"><span class="sq" style="background:var(--color-neutral-100);color:var(--color-neutral-700)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="5" width="18" height="12" rx="3"/><path d="M8 21h8"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Desktop browsers</div><div style="font-size:12px;color:var(--color-neutral-600)">Set up on your Mac or PC</div></div><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-500)"><path d="m9 6 6 6-6 6"/></svg></div>
+</div>
+<div style="margin-top:auto;padding:0 20px 30px"><p class="cap" style="margin:0">KeyVault never fills a field without you choosing the record first.</p></div>
+</div>
+<p class="cap"><strong>Proposta</strong>: l'onboarding autofill v1 è disattivato nel codice (<em>_maybeShowAutofillOnboardingDialog</em> è volutamente vuoto in attesa delle integrazioni v2). Questa schermata è il posto dove riattivarlo, con i tre passi di sistema e il perimetro dei dati condivisi — che è ciò che lo snapshot iOS pubblica davvero.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Prompt</span>Collega credenziale AutoFill</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="flex:1;opacity:.4;padding:14px 20px 0;display:flex;flex-direction:column;gap:10px"><div class="frow" style="height:60px"></div><div class="frow" style="height:60px"></div><div class="frow" style="height:60px"></div></div>
+<div class="veil"></div>
+<div class="sheet">
+<span style="width:46px;height:5px;border-radius:999px;background:var(--color-neutral-300);align-self:center"></span>
+<div><div class="h1" style="font-size:22px">Link AutoFill credential?</div><p class="sub" style="margin:6px 0 0">iOS asked to associate a login you just used. The vault is updated only after you confirm.</p></div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div class="frow" style="padding:12px 14px"><div style="flex:1"><div class="lbl">Target</div><div style="font-size:14px">app.trenitalia.it</div></div></div>
+<div class="frow" style="padding:12px 14px"><div style="flex:1"><div class="lbl">Entry</div><div style="font-size:14px">Trenitalia</div></div></div>
+<div class="frow" style="padding:12px 14px"><div style="flex:1"><div class="lbl">Username</div><div style="font-size:14px">camillo@bucciarelli.dev</div></div></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:9px"><span class="pill pillp">Link</span><span class="pill pills">Reject</span></div>
+</div>
+</div>
+<p class="cap">Stessi tre dati e stesse due azioni del dialog reale (<em>Target</em>, <em>Entry</em>, <em>Username</em>, <em>Reject</em> / <em>Link</em>), con la frase sul fatto che il vault cambia solo dopo la conferma — già presente nel codice.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Setup desktop</span>Native host, tre passi</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 18px 0;display:flex;align-items:center;gap:12px">
+<span class="ic" style="background:var(--color-neutral-200)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></span>
+<div style="flex:1"><div style="font-family:var(--font-heading);font-size:18px">Estensione browser desktop</div><div style="font-size:12px;color:var(--color-neutral-600)">macOS · Chrome</div></div>
+</div>
+<div style="padding:16px 20px 0;display:flex;flex-direction:column;gap:10px">
+<div style="padding:16px;border-radius:24px;background:var(--color-accent-2-100);display:flex;gap:12px;align-items:flex-start">
+<span class="sq" style="background:var(--color-accent-2-300);color:var(--color-accent-2-900)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="m5 13 4 4L19 7"/></svg></span>
+<div style="flex:1"><div style="font-size:14.5px;font-weight:600;color:var(--color-accent-2-900)">1 · Carica l'estensione beta</div><div style="font-size:12.5px;color:var(--color-accent-2-900)">Estensione caricata ✓</div></div>
+</div>
+<div style="padding:16px;border-radius:24px;background:var(--color-neutral-200);display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;gap:12px;align-items:flex-start">
+<span class="sq" style="background:var(--color-accent-300);color:var(--color-accent-900)">2</span>
+<div style="flex:1"><div style="font-size:14.5px;font-weight:600">Registra Native Messaging Host (macOS)</div><div style="font-size:12.5px;color:var(--color-neutral-600)">Incolla l'ID estensione, poi esegui il comando nel terminale</div></div>
+</div>
+<div><div class="lbl" style="margin-bottom:6px">Extension ID</div><div class="fld" style="background:var(--color-neutral-100);min-height:46px"><span class="mono" style="font-size:12.5px;flex:1;word-break:break-all">nkbihfbeogaeaoehlefnkodbefgpgknn</span><span style="font-size:12px;color:var(--color-accent-800);font-weight:600">Incolla</span></div></div>
+<div style="padding:12px 14px;border-radius:18px;background:var(--color-neutral-900);color:var(--color-neutral-100);display:flex;align-items:center;gap:10px">
+<span class="mono" style="flex:1;font-size:11.5px;word-break:break-all">./desktop/native_host/install_host_macos.sh nkbi…knn</span>
+<span class="ic" style="background:color-mix(in srgb, #f9f4ed 12%, transparent);color:var(--color-neutral-100);width:30px;height:30px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="9" y="9" width="11" height="11" rx="3"/><path d="M15 5.5A2.5 2.5 0 0 0 12.5 4H7a3 3 0 0 0-3 3v5.5A2.5 2.5 0 0 0 6.5 15"/></svg></span>
+</div>
+<span style="align-self:flex-start;padding:10px 16px;border-radius:999px;background:var(--color-accent-300);color:var(--color-accent-900);font-size:13.5px;font-weight:600">Ho fatto</span>
+</div>
+<div style="padding:16px;border-radius:24px;background:var(--color-neutral-200);display:flex;gap:12px;align-items:flex-start;opacity:.6">
+<span class="sq" style="background:var(--color-neutral-100);color:var(--color-neutral-700)">3</span>
+<div style="flex:1"><div style="font-size:14.5px;font-weight:600">Verifica il collegamento</div><div style="font-size:12.5px;color:var(--color-neutral-600)">Si attiva dopo la registrazione dell'host</div></div>
+</div>
+</div>
+<div style="margin-top:auto;padding:0 20px 30px"><div style="padding:14px 16px;border-radius:20px;background:var(--color-neutral-200);font-size:12.5px;color:var(--color-neutral-700)">L'host non legge il .kdbx e non conosce la master password: pubblica solo metadati e rivela una password su richiesta esplicita.</div></div>
+</div>
+<p class="cap">La <em>BrowserSetupScreen</em> reale, ripulita: i suoi passi e le sue etichette in italiano (<em>Carica l'estensione beta</em>, <em>Ho fatto</em>, <em>Estensione caricata ✓</em>, <em>Registra Native Messaging Host</em>, <em>Incolla</em>) con lo stato di ciascuno visibile e il comando copiabile. La frase finale riassume il perimetro dichiarato nel README dell'estensione.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-accent">Error</span>Host non trovato</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 18px 0;display:flex;align-items:center;gap:12px">
+<span class="ic" style="background:var(--color-neutral-200)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></span>
+<div style="font-family:var(--font-heading);font-size:18px">Verifica collegamento</div>
+</div>
+<div style="padding:18px 20px 0;display:flex;flex-direction:column;gap:12px">
+<div style="padding:18px;border-radius:26px;background:var(--color-accent-100);display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;gap:12px;align-items:center">
+<span class="sq" style="background:var(--color-accent-300);color:var(--color-accent-900)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg></span>
+<div style="flex:1"><div style="font-size:15px;font-weight:600;color:var(--color-accent-900)">Host non raggiungibile</div><div style="font-size:12px;color:var(--color-accent-900)">Chrome non trova dev.camillobucciarelli.keyvault_native_host</div></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:7px;font-size:12.5px;color:var(--color-accent-900)">
+<div style="display:flex;gap:8px"><span>·</span><span>L'ID estensione registrato non corrisponde a quello caricato</span></div>
+<div style="display:flex;gap:8px"><span>·</span><span>Lo script di installazione è stato eseguito per un altro browser</span></div>
+<div style="display:flex;gap:8px"><span>·</span><span>Chrome è stato aperto prima della registrazione</span></div>
+</div>
+</div>
+<div class="frow" style="align-items:flex-start"><div style="flex:1"><div class="lbl">Manifest atteso in</div><div class="mono" style="font-size:12px;margin-top:3px;word-break:break-all">~/Library/Application Support/Google/Chrome/NativeMessagingHosts/</div></div></div>
+<div style="display:flex;flex-direction:column;gap:9px"><span class="pill pillp">Riprova la verifica</span><span class="pill pills">Rivedi il passo 2</span></div>
+</div>
+<div style="margin-top:auto;padding:0 20px 30px"><p class="cap" style="margin:0">Il resto di KeyVault continua a funzionare: senza host manca solo il riempimento automatico nel browser.</p></div>
+</div>
+<p class="cap"><strong>Proposta</strong>: la diagnostica. Il nome host <em>dev.camillobucciarelli.keyvault_native_host</em> e le cause elencate vengono dal README e dagli script di installazione; oggi il fallimento è un messaggio secco.</p>
+</div>
+
+</div>
+</div>
+
+<div class="grp">
+<div class="grp-h"><span class="grp-n">12</span>Estensione Chrome</div>
+<div class="opts">
+
+<div style="display:flex;flex-direction:column;gap:9px;width:400px">
+<div class="st"><span class="tag tag-accent-2">Popup</span>Match sul sito corrente</div>
+<div class="pop">
+<div style="height:38px;flex:none;background:var(--color-neutral-200);display:flex;align-items:center;gap:8px;padding:0 12px">
+<img src="assets/keyvault-icon.png" alt="KeyVault" style="width:22px;height:22px;border-radius:7px">
+<span style="font-size:12.5px;font-weight:600">KeyVault Autofill</span>
+<span class="tag tag-accent-2" style="margin-left:auto;font-size:10px">beta</span>
+</div>
+<div style="padding:14px;display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;gap:8px">
+<div style="flex:1;padding:10px 12px;border-radius:14px;background:var(--color-accent-2-100)"><div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-2-900)">Native host</div><div style="font-size:13px;font-weight:600;color:var(--color-accent-2-900)">Connected</div></div>
+<div style="flex:1;padding:10px 12px;border-radius:14px;background:var(--color-accent-2-100)"><div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-2-900)">App / vault bridge</div><div style="font-size:13px;font-weight:600;color:var(--color-accent-2-900)">Unlocked</div></div>
+</div>
+<div style="display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:14px;background:var(--color-neutral-200)">
+<span style="width:26px;height:26px;flex:none;border-radius:8px;background:var(--color-neutral-100);display:grid;place-items:center;font-size:11px;font-weight:700">gh</span>
+<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600">github.com</div><div style="font-size:11px;color:var(--color-neutral-600)">Current tab</div></div>
+<span style="font-size:11.5px;color:var(--color-accent-800);font-weight:600">Refresh</span>
+</div>
+<div>
+<div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);margin-bottom:8px">Matches · 2</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="padding:11px 12px;border-radius:14px;background:var(--color-neutral-200);display:flex;align-items:center;gap:10px">
+<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">GitHub</div><div style="font-size:11px;color:var(--color-neutral-600)">camillo@bucciarelli.dev</div></div>
+<span class="tag tag-accent-2" style="font-size:10px">strong</span>
+<span style="padding:7px 12px;border-radius:999px;background:var(--color-accent-300);color:var(--color-accent-900);font-size:12px;font-weight:600">Fill</span>
+</div>
+<div style="padding:11px 12px;border-radius:14px;background:var(--color-neutral-200);display:flex;align-items:center;gap:10px">
+<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">GitHub work</div><div style="font-size:11px;color:var(--color-neutral-600)">camillo@studio.it</div></div>
+<span class="tag tag-accent-2" style="font-size:10px">strong</span>
+<span style="padding:7px 12px;border-radius:999px;background:var(--color-accent-300);color:var(--color-accent-900);font-size:12px;font-weight:600">Fill</span>
+</div>
+</div>
+</div>
+<div style="display:flex;align-items:center;gap:9px;padding:0 2px">
+<div style="flex:1;display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:999px;background:var(--color-neutral-200);font-size:12px;color:var(--color-neutral-600)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>Search title, user, service</div>
+</div>
+<div style="font-size:11px;color:var(--color-neutral-600);line-height:1.5">Passwords are revealed only when you click Fill on an exact match, and dropped right after.</div>
+</div>
+</div>
+<p class="cap">Il popup attuale è una colonna di controlli grezzi (due pulsanti “Check host status” e “Find current site”, un campo di ricerca, un contenitore <em>Matches</em>). Qui: i due stati come coppia di badge, il tab corrente rilevato da solo (il codice già controlla l'host all'apertura), i match con l'etichetta <em>strong</em> e il fill a un clic. Larghezza 400px come il popup Chrome.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:9px;width:400px">
+<div class="st"><span class="tag tag-accent">Popup</span>App bloccata / host assente / nessun match</div>
+<div style="display:flex;flex-direction:column;gap:14px">
+<div class="pop">
+<div style="height:38px;flex:none;background:var(--color-neutral-200);display:flex;align-items:center;gap:8px;padding:0 12px">
+<img src="assets/keyvault-icon.png" alt="KeyVault" style="width:22px;height:22px;border-radius:7px;opacity:.5">
+<span style="font-size:12.5px;font-weight:600">KeyVault Autofill</span>
+</div>
+<div style="padding:14px;display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;gap:8px">
+<div style="flex:1;padding:10px 12px;border-radius:14px;background:var(--color-accent-2-100)"><div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-2-900)">Native host</div><div style="font-size:13px;font-weight:600;color:var(--color-accent-2-900)">Connected</div></div>
+<div style="flex:1;padding:10px 12px;border-radius:14px;background:var(--color-accent-100)"><div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-900)">App / vault bridge</div><div style="font-size:13px;font-weight:600;color:var(--color-accent-900)">Locked</div></div>
+</div>
+<div style="display:flex;gap:10px;align-items:flex-start;padding:12px;border-radius:14px;background:var(--color-accent-100)">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="flex:none;color:var(--color-accent-900)"><rect x="4" y="10" width="16" height="10" rx="4"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+<div style="flex:1;font-size:12px;color:var(--color-accent-900)">KeyVault is locked. Unlock the desktop app to search and fill.</div>
+</div>
+<span style="text-align:center;padding:9px;border-radius:999px;background:var(--color-accent-300);color:var(--color-accent-900);font-size:12.5px;font-weight:600">Open KeyVault</span>
+</div>
+</div>
+<div class="pop">
+<div style="height:38px;flex:none;background:var(--color-neutral-200);display:flex;align-items:center;gap:8px;padding:0 12px">
+<img src="assets/keyvault-icon.png" alt="KeyVault" style="width:22px;height:22px;border-radius:7px;opacity:.5">
+<span style="font-size:12.5px;font-weight:600">KeyVault Autofill</span>
+</div>
+<div style="padding:14px;display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;gap:8px">
+<div style="flex:1;padding:10px 12px;border-radius:14px;background:var(--color-accent-100)"><div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-900)">Native host</div><div style="font-size:13px;font-weight:600;color:var(--color-accent-900)">Not found</div></div>
+<div style="flex:1;padding:10px 12px;border-radius:14px;background:var(--color-neutral-200)"><div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600)">App / vault bridge</div><div style="font-size:13px;font-weight:600;color:var(--color-neutral-600)">Unknown</div></div>
+</div>
+<div style="font-size:12px;color:var(--color-neutral-700);line-height:1.55">The messaging host isn’t registered for this browser. KeyVault’s desktop app can walk you through it in <strong>Estensione browser desktop</strong>.</div>
+<div style="display:flex;gap:8px"><span style="flex:1;text-align:center;padding:9px;border-radius:999px;background:var(--color-accent-300);color:var(--color-accent-900);font-size:12.5px;font-weight:600">Show me how</span><span style="flex:1;text-align:center;padding:9px;border-radius:999px;border:1px solid var(--color-divider);font-size:12.5px">Check again</span></div>
+</div>
+</div>
+<div class="pop">
+<div style="height:38px;flex:none;background:var(--color-neutral-200);display:flex;align-items:center;gap:8px;padding:0 12px">
+<img src="assets/keyvault-icon.png" alt="KeyVault" style="width:22px;height:22px;border-radius:7px">
+<span style="font-size:12.5px;font-weight:600">KeyVault Autofill</span>
+</div>
+<div style="padding:14px;display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:14px;background:var(--color-neutral-200)">
+<span style="width:26px;height:26px;flex:none;border-radius:8px;background:var(--color-neutral-100);display:grid;place-items:center;font-size:11px;font-weight:700">ic</span>
+<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600">inps.it</div><div style="font-size:11px;color:var(--color-neutral-600)">No exact match</div></div>
+</div>
+<div style="display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:999px;background:var(--color-neutral-200);font-size:12px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-accent-800)"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>inps</div>
+<div>
+<div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);margin-bottom:8px">Possible · 1</div>
+<div style="padding:11px 12px;border-radius:14px;background:var(--color-neutral-200);display:flex;align-items:center;gap:10px">
+<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">INPS</div><div style="font-size:11px;color:var(--color-neutral-600)">serviziweb2.inps.it</div></div>
+<span class="tag tag-accent" style="font-size:10px">possible</span>
+<span style="padding:7px 12px;border-radius:999px;border:1px solid var(--color-divider);font-size:12px">Ask app</span>
+</div>
+</div>
+<div style="font-size:11px;color:var(--color-neutral-600);line-height:1.5">Possible matches can’t be filled directly: selecting one asks the app to confirm the association first.</div>
+</div>
+</div>
+</div>
+<p class="cap">I tre stati che il popup oggi non distingue visivamente. La differenza fra <em>strong</em> e <em>possible</em> è quella del protocollo: solo il match esatto può riempire, gli altri creano una richiesta di associazione da confermare nell'app — esattamente il flusso del README.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:9px;width:900px">
+<div class="st"><span class="tag tag-accent-2">NEW</span>Overlay in-page sul campo di login</div>
+<div class="br">
+<div style="height:44px;background:var(--color-neutral-200);display:flex;align-items:center;gap:10px;padding:0 14px">
+<span style="display:flex;gap:6px"><span style="width:11px;height:11px;border-radius:999px;background:var(--color-neutral-400)"></span><span style="width:11px;height:11px;border-radius:999px;background:var(--color-neutral-400)"></span><span style="width:11px;height:11px;border-radius:999px;background:var(--color-neutral-400)"></span></span>
+<div style="flex:1;height:26px;border-radius:999px;background:var(--color-neutral-100);display:flex;align-items:center;padding:0 12px;font-size:11.5px;color:var(--color-neutral-700)">github.com/login</div>
+<img src="assets/keyvault-icon.png" alt="KeyVault" style="width:22px;height:22px;border-radius:7px">
+</div>
+<div style="height:420px;background:var(--color-neutral-100);position:relative;display:flex;flex-direction:column;align-items:center;padding-top:56px">
+<div style="width:320px;display:flex;flex-direction:column;gap:14px">
+<div style="height:26px;border-radius:8px;background:var(--color-neutral-200);width:52%"></div>
+<div><div style="font-size:11px;color:var(--color-neutral-600);margin-bottom:6px">Username or email</div><div style="height:40px;border-radius:12px;background:var(--color-neutral-200);display:flex;align-items:center;padding:0 12px;font-size:13px">camillo@bucciarelli.dev</div></div>
+<div><div style="font-size:11px;color:var(--color-neutral-600);margin-bottom:6px">Password</div><div style="height:40px;border-radius:12px;background:var(--color-neutral-200);border:2px solid var(--color-accent-400);display:flex;align-items:center;padding:0 12px;gap:8px"><span style="letter-spacing:.2em;flex:1">••••••</span><img src="assets/keyvault-icon.png" alt="KeyVault" style="width:20px;height:20px;border-radius:6px"></div></div>
+<div style="height:40px;border-radius:12px;background:var(--color-neutral-300)"></div>
+</div>
+<div style="position:absolute;left:50%;top:266px;transform:translateX(-50%);width:320px;border-radius:16px;background:var(--color-neutral-100);box-shadow:var(--shadow-lg);overflow:hidden">
+<div style="padding:10px 12px;display:flex;align-items:center;gap:8px;background:var(--color-neutral-200)">
+<img src="assets/keyvault-icon.png" alt="KeyVault" style="width:18px;height:18px;border-radius:6px">
+<span style="font-size:11.5px;font-weight:600;flex:1">KeyVault · 2 matches for github.com</span>
+<span style="font-size:11px;color:var(--color-neutral-600)">esc</span>
+</div>
+<div style="padding:8px;display:flex;flex-direction:column;gap:6px">
+<div style="padding:9px 10px;border-radius:12px;background:var(--color-accent-200);display:flex;align-items:center;gap:9px"><div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600">GitHub</div><div style="font-size:11px;color:var(--color-accent-900)">camillo@bucciarelli.dev</div></div><span style="font-size:11px;color:var(--color-accent-900);font-weight:600">↵ fill</span></div>
+<div style="padding:9px 10px;border-radius:12px;display:flex;align-items:center;gap:9px"><div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600">GitHub work</div><div style="font-size:11px;color:var(--color-neutral-600)">camillo@studio.it</div></div></div>
+<div style="padding:7px 10px;font-size:11px;color:var(--color-neutral-600);border-top:1px solid var(--color-divider);margin-top:2px;display:flex;gap:8px;align-items:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 3v4M3 5h4M13 3l2.5 6.5L22 12l-6.5 2.5L13 21l-2.5-6.5L4 12l6.5-2.5Z"/></svg>Generate a new password instead</div>
+</div>
+</div>
+</div>
+</div>
+<p class="cap"><strong>Nuova feature</strong>: oggi il riempimento parte solo dal popup (il manifest non ha content script e l'iniezione avviene una volta sola, dopo il clic su Fill). L'overlay ancorato al campo richiede un content script e va deciso con attenzione: qui è disegnato come suggerimento su richiesta — appare al focus sul campo password, si chiude con esc, non legge la pagina né compila da solo.</p>
+</div>
+
+</div>
+</div>
+
+<p style="margin:26px 0 0;font-size:12.5px;color:var(--color-neutral-700)">Con questo i dodici journey sono coperti. Prossimo: "dark mode per tutte le schermate" · "accetta l'overlay in-page" · "prepara il pacchetto di handoff"</p>
+</section>
+</x-dc>
+</body>
+</html>
