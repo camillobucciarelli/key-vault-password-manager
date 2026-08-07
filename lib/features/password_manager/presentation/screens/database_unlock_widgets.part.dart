@@ -180,7 +180,11 @@ class _UnlockFailureView extends StatelessWidget {
 }
 
 /// FR-5 ready state: feature square 66/radius24, title 32, password field
-/// 56, primary pill, two inline links separated by a 1×14 divider.
+/// 56, primary pill. Mobile shows either the "Use a key file" / "Face ID"
+/// inline links (1×14 divider, no key file yet) or a single "Manage key
+/// files" caption (key file selected); desktop shows a "Key file…"
+/// secondary pill next to the primary one and a "Switch database" caption
+/// instead (mock 01-02 "Unlock" / "Unlock · desktop").
 class _UnlockReadyForm extends StatelessWidget {
   const _UnlockReadyForm({
     required this.state,
@@ -192,6 +196,7 @@ class _UnlockReadyForm extends StatelessWidget {
     required this.onClearKeyFile,
     required this.onSubmit,
     required this.onBack,
+    required this.onFaceIdRetry,
   });
 
   final DatabaseUnlockState state;
@@ -205,6 +210,12 @@ class _UnlockReadyForm extends StatelessWidget {
   /// Null disables the primary pill (C-5-adjacent: no credential entered).
   final VoidCallback? onSubmit;
   final VoidCallback onBack;
+
+  /// Mobile-only "Face ID" link: on-demand biometric attempt from the
+  /// ready state. Reuses `RetryBiometricAuthentication` — the same gate
+  /// path the bootstrap flow already drives — instead of a new biometric
+  /// entry point.
+  final VoidCallback onFaceIdRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -222,7 +233,7 @@ class _UnlockReadyForm extends StatelessWidget {
         ? state.errorMessage
         : null;
 
-    return Center(
+    final content = Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: ConstrainedBox(
@@ -299,34 +310,194 @@ class _UnlockReadyForm extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
-                _KeyFileSelector(
-                  keyFilePath: state.keyFilePath,
-                  onPickKeyFile: onPickKeyFile,
-                  onClearKeyFile: onClearKeyFile,
-                ),
+                // Mobile only: desktop drops the card for the "Key file…"
+                // secondary pill below (mock TB/02 "Unlock · desktop").
+                if (!isDesktopWidth && hasKeyFile) ...[
+                  const SizedBox(height: 16),
+                  _KeyFileSelector(
+                    keyFilePath: state.keyFilePath!,
+                    onPickKeyFile: onPickKeyFile,
+                    onClearKeyFile: onClearKeyFile,
+                  ),
+                ],
                 const SizedBox(height: 20),
-                KvPillButton(
-                  label: hasKeyFile ? 'Unlock with key file' : 'Unlock vault',
-                  onPressed: onSubmit,
-                ),
-                  const SizedBox(height: 14),
-                  Center(
-                    child: Wrap(
-                      alignment: WrapAlignment.center,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        TextButton(
-                          onPressed: onBack,
-                          child: const Text('Back to database list'),
+                if (isDesktopWidth)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: KvPillButton(
+                          label: hasKeyFile
+                              ? 'Unlock with key file'
+                              : 'Unlock vault',
+                          onPressed: onSubmit,
                         ),
-                      ],
+                      ),
+                      const SizedBox(width: 10),
+                      KvSecondaryPillButton(
+                        label: 'Key file\u2026',
+                        expand: false,
+                        onPressed: () => onPickKeyFile(),
+                      ),
+                    ],
+                  )
+                else
+                  KvPillButton(
+                    label: hasKeyFile ? 'Unlock with key file' : 'Unlock vault',
+                    onPressed: onSubmit,
+                  ),
+                const SizedBox(height: 14),
+                if (isDesktopWidth)
+                  Center(
+                    child: _UnlockCaptionLink(
+                      label: 'Switch database',
+                      onTap: onBack,
                     ),
+                  )
+                else if (hasKeyFile)
+                  Center(
+                    child: _UnlockCaptionLink(
+                      label: 'Manage key files',
+                      onTap: () => onPickKeyFile(),
+                      trailingChevron: true,
+                    ),
+                  )
+                else
+                  _UnlockLinkRow(
+                    onPickKeyFile: () => onPickKeyFile(),
+                    biometricAvailable: state.biometricAvailable,
+                    onFaceIdRetry: onFaceIdRetry,
                   ),
               ],
             ),
           ),
         ),
+      ),
+    );
+
+    if (isDesktopWidth) {
+      return content;
+    }
+
+    // Mobile: circular back icon replaces the old "Back to database list"
+    // text link (mock 02 "Unlock" default) — same pattern as
+    // `_CreateHeader` in create_database_screen.dart.
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: IconButton(
+                    onPressed: onBack,
+                    icon: const Icon(AppIcons.back),
+                    padding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+            ),
+            Expanded(child: content),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// FR-5 mobile default: "Use a key file" link, plus (only when
+/// `biometricAvailable`) a 1×14 divider and "Face ID" — 13 px `linkText`
+/// inline links (mock 01-02 "Unlock" default state).
+class _UnlockLinkRow extends StatelessWidget {
+  const _UnlockLinkRow({
+    required this.onPickKeyFile,
+    required this.biometricAvailable,
+    required this.onFaceIdRetry,
+  });
+
+  final VoidCallback onPickKeyFile;
+  final bool biometricAvailable;
+  final VoidCallback onFaceIdRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+
+    Widget link(IconData icon, String label, VoidCallback onTap) {
+      return InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 17, color: colors.linkText),
+              const SizedBox(width: 7),
+              Text(
+                label,
+                style: AppTextStyles.body.copyWith(
+                  fontSize: 13,
+                  color: colors.linkText,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Center(
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 14,
+        children: [
+          link(AppIcons.key, 'Use a key file', onPickKeyFile),
+          if (biometricAvailable) ...[
+            Container(width: 1, height: 14, color: colors.divider),
+            link(AppIcons.fingerprint, 'Face ID', onFaceIdRetry),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Single caption-style link: "Manage key files" (mobile, key file
+/// selected) or "Switch database" (desktop).
+class _UnlockCaptionLink extends StatelessWidget {
+  const _UnlockCaptionLink({
+    required this.label,
+    required this.onTap,
+    this.trailingChevron = false,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+  final bool trailingChevron;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return InkWell(
+      onTap: onTap,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: AppTextStyles.body.copyWith(
+              fontSize: 13.5,
+              color: colors.linkText,
+            ),
+          ),
+          if (trailingChevron)
+            Icon(AppIcons.chevronRight, size: 14, color: colors.linkText),
+        ],
       ),
     );
   }
@@ -339,21 +510,13 @@ class _KeyFileSelector extends StatelessWidget {
     required this.onClearKeyFile,
   });
 
-  final String? keyFilePath;
+  final String keyFilePath;
   final Future<void> Function() onPickKeyFile;
   final VoidCallback onClearKeyFile;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
-
-    if (keyFilePath == null) {
-      return OutlinedButton.icon(
-        onPressed: onPickKeyFile,
-        icon: const Icon(AppIcons.attachment),
-        label: const Text('Select key file'),
-      );
-    }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -370,7 +533,7 @@ class _KeyFileSelector extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  !kIsWeb ? p.basename(keyFilePath!) : keyFilePath!,
+                  !kIsWeb ? p.basename(keyFilePath) : keyFilePath,
                   overflow: TextOverflow.ellipsis,
                   style: AppTextStyles.body.copyWith(color: colors.textPrimary),
                 ),

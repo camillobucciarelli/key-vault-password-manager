@@ -93,69 +93,74 @@ const _approvedSupersededLiterals = <String>{
   // strings (spec-003 copy contract: "decrypting and Face ID strings").
   'Enable biometric protection?',
   'This database came from Google Drive. Do you want to require biometric authentication before unlock when available?',
+  // FR-5 mock alignment (post-round mock delivery): the always-visible
+  // "Select key file" outlined button is superseded by the "Use a key
+  // file" inline link shown only when no key file is selected yet;
+  // `_KeyFileSelector` is now only built once a key file exists.
+  'Select key file',
 };
 
 void main() {
-  test(
-    'every pre-spec-003 literal still appears in its surface\'s current '
-    'source, or is on the reviewed approved-superseded list',
-    () {
-      final projectRoot = _findProjectRoot();
-      final fixtureFile = File(
-        p.join(projectRoot, 'test', 'fixtures', 'strings_003_before.txt'),
-      );
-      expect(fixtureFile.existsSync(), isTrue);
+  test('every pre-spec-003 literal still appears in its surface\'s current '
+      'source, or is on the reviewed approved-superseded list', () {
+    final projectRoot = _findProjectRoot();
+    final fixtureFile = File(
+      p.join(projectRoot, 'test', 'fixtures', 'strings_003_before.txt'),
+    );
+    expect(fixtureFile.existsSync(), isTrue);
 
-      final lines = fixtureFile.readAsLinesSync();
-      String? currentSection;
-      final missing = <String>[];
-      var checked = 0;
+    final lines = fixtureFile.readAsLinesSync();
+    String? currentSection;
+    final missing = <String>[];
+    var checked = 0;
 
-      for (final rawLine in lines) {
-        final sectionMatch = RegExp(r'^## (.+)$').firstMatch(rawLine);
-        if (sectionMatch != null) {
-          currentSection = sectionMatch.group(1);
-          continue;
-        }
-        if (rawLine.startsWith('#') || rawLine.trim().isEmpty) {
-          continue;
-        }
-        final section = currentSection;
-        if (section == null) {
-          continue;
-        }
-        final files = _sectionToCurrentFiles[section];
-        if (files == null) {
-          continue;
-        }
-
-        final haystack = files
-            .map((relative) => File(p.join(projectRoot, relative)).readAsStringSync())
-            .join('\n');
-        checked += 1;
-        if (!haystack.contains(rawLine) &&
-            !_approvedSupersededLiterals.contains(rawLine)) {
-          missing.add('[$section] "$rawLine"');
-        }
+    for (final rawLine in lines) {
+      final sectionMatch = RegExp(r'^## (.+)$').firstMatch(rawLine);
+      if (sectionMatch != null) {
+        currentSection = sectionMatch.group(1);
+        continue;
+      }
+      if (rawLine.startsWith('#') || rawLine.trim().isEmpty) {
+        continue;
+      }
+      final section = currentSection;
+      if (section == null) {
+        continue;
+      }
+      final files = _sectionToCurrentFiles[section];
+      if (files == null) {
+        continue;
       }
 
-      expect(
-        checked,
-        greaterThan(50),
-        reason: 'Sanity check: the fixture should have parsed >50 literals.',
-      );
+      final haystack = files
+          .map(
+            (relative) =>
+                File(p.join(projectRoot, relative)).readAsStringSync(),
+          )
+          .join('\n');
+      checked += 1;
+      if (!haystack.contains(rawLine) &&
+          !_approvedSupersededLiterals.contains(rawLine)) {
+        missing.add('[$section] "$rawLine"');
+      }
+    }
 
-      expect(
-        missing,
-        isEmpty,
-        reason:
-            'Copy preservation violation(s) — each of these pre-spec-003 '
-            'literals must still exist verbatim in its mapped file(s), '
-            'unless newly approved by the spec-003 copy contract:\n'
-            '${missing.join('\n')}',
-      );
-    },
-  );
+    expect(
+      checked,
+      greaterThan(50),
+      reason: 'Sanity check: the fixture should have parsed >50 literals.',
+    );
+
+    expect(
+      missing,
+      isEmpty,
+      reason:
+          'Copy preservation violation(s) — each of these pre-spec-003 '
+          'literals must still exist verbatim in its mapped file(s), '
+          'unless newly approved by the spec-003 copy contract:\n'
+          '${missing.join('\n')}',
+    );
+  });
 }
 
 String _findProjectRoot() {
