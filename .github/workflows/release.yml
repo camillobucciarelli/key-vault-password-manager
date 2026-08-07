@@ -6,19 +6,6 @@ on:
     paths-ignore:
       - "pubspec.yaml"
   workflow_dispatch:
-    inputs:
-      upload_ios_app_store:
-        description: Upload iOS artifact to App Store Connect
-        type: boolean
-        default: false
-      upload_macos_app_store:
-        description: Upload macOS artifact to App Store Connect
-        type: boolean
-        default: false
-      upload_chrome_web_store:
-        description: Upload and publish Chrome extension
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -152,15 +139,45 @@ jobs:
           name: ${{ needs.version.outputs.tag }}
           files: dist/prod_packages/*/password_manager-ios-appstore.ipa
 
-      - name: Upload to App Store Connect
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_ios_app_store }}
+      - name: Locate xcarchive
+        id: locate
         run: |
           shopt -s nullglob
           archive=(dist/prod_packages/*/Runner-ios.xcarchive)
           (( ${#archive[@]} == 1 )) || { echo "Expected one iOS archive, found ${#archive[@]}"; exit 1; }
+          echo "archive_dir=$(dirname "${archive[0]}")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload xcarchive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-xcarchive
+          path: ${{ steps.locate.outputs.archive_dir }}/Runner-ios.xcarchive
+          retention-days: 1
+
+  ios-app-store-publish:
+    needs: [ version, ios ]
+    runs-on: self-hosted
+    environment: app-store-ios
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+
+      - name: Setup env file
+        env:
+          ENV_DART_DEFINE: ${{ secrets.ENV_DART_DEFINE }}
+        run: echo "$ENV_DART_DEFINE" > .env.dart.define.json
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-xcarchive
+          path: dist/ios-xcarchive
+
+      - name: Upload to App Store Connect
+        run: |
           ./tool/build_prod_packages.sh \
             --platforms ios-appstore-upload \
-            --archive-path "${archive[0]}" \
+            --archive-path dist/ios-xcarchive/Runner-ios.xcarchive \
             --no-clean
 
   macos:
@@ -204,15 +221,45 @@ jobs:
           files: dist/keyvault-chrome-support-macos.pkg
           fail_on_unmatched_files: true
 
-      - name: Upload to App Store Connect
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_macos_app_store }}
+      - name: Locate xcarchive
+        id: locate
         run: |
           shopt -s nullglob
           archive=(dist/prod_packages/*/Runner.xcarchive)
           (( ${#archive[@]} == 1 )) || { echo "Expected one macOS archive, found ${#archive[@]}"; exit 1; }
+          echo "archive_dir=$(dirname "${archive[0]}")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload xcarchive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-xcarchive
+          path: ${{ steps.locate.outputs.archive_dir }}/Runner.xcarchive
+          retention-days: 1
+
+  macos-app-store-publish:
+    needs: [ version, macos ]
+    runs-on: self-hosted
+    environment: app-store-macos
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+
+      - name: Setup env file
+        env:
+          ENV_DART_DEFINE: ${{ secrets.ENV_DART_DEFINE }}
+        run: echo "$ENV_DART_DEFINE" > .env.dart.define.json
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-xcarchive
+          path: dist/macos-xcarchive
+
+      - name: Upload to App Store Connect
+        run: |
           ./tool/build_prod_packages.sh \
             --platforms macos-appstore-upload \
-            --archive-path "${archive[0]}" \
+            --archive-path dist/macos-xcarchive/Runner.xcarchive \
             --no-clean
 
   chrome:
@@ -245,8 +292,24 @@ jobs:
           name: ${{ needs.version.outputs.tag }}
           files: desktop/browser_extension/dist/keyvault-browser-extension.zip
 
+      - name: Upload extension zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-extension-zip
+          path: desktop/browser_extension/dist/keyvault-browser-extension.zip
+          retention-days: 1
+
+  chrome-web-store-publish:
+    needs: [ version, chrome ]
+    runs-on: ubuntu-latest
+    environment: chrome-web-store
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: chrome-extension-zip
+          path: desktop/browser_extension/dist
+
       - name: Upload and publish Chrome extension
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_chrome_web_store }}
         env:
           CLIENT_ID: ${{ secrets.CHROME_WEB_STORE_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CHROME_WEB_STORE_CLIENT_SECRET }}
