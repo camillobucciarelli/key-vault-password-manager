@@ -8,6 +8,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:password_manager/core/theme/app_theme.dart';
+import 'package:password_manager/core/utils/clipboard_guard.dart';
 import 'package:password_manager/core/theme/theme_cubit.dart';
 import 'package:password_manager/features/password_manager/data/datasources/biometric_data_source.dart';
 import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
@@ -140,6 +141,14 @@ Future<Widget> pumpableEntryScreen({
 
   di.sl.registerLazySingleton<OtpAuthDeepLinkCoordinator>(
     () => OtpAuthDeepLinkCoordinator(),
+  );
+  // `dispose:` matters here: mirrors the production lazy singleton
+  // (password_manager_presentation_di.dart), and lets `resetEntryTestDi()`'s
+  // `di.sl.reset()` cancel any pending 30s clear timer a test left running,
+  // so it can't fire in — or leak into — the next test.
+  di.sl.registerLazySingleton<ClipboardGuard>(
+    () => ClipboardGuard(),
+    dispose: (guard) => guard.dispose(),
   );
   di.sl.registerLazySingleton<VaultSessionCoordinator>(
     () => _FakeVaultSessionCoordinator(resolvedHarness),

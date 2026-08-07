@@ -8,10 +8,13 @@ import 'package:flutter/services.dart';
 /// the meantime, [ClipboardData] on fire is compared before touching
 /// anything. Spec-004 FR-3 "Proposal — 30 s clipboard clear".
 ///
-/// One guard instance is meant to live for the lifetime of a screen (e.g. an
-/// entry detail screen); each [copy] call cancels the previous pending
-/// timer and schedules a new one. Call [dispose] when the owning widget is
-/// disposed so a backgrounded app never leaks a timer.
+/// One guard instance is meant to live for the lifetime of the app (a DI
+/// lazy singleton — see `password_manager_presentation_di.dart`), shared by
+/// every copy affordance across vault screens; each [copy] call cancels the
+/// previous pending timer and schedules a new one. A per-screen instance
+/// would have its pending timer cancelled by that screen's `dispose()` the
+/// moment the user navigates away right after copying — the single most
+/// common flow — so [dispose] is not called by screens in production.
 class ClipboardGuard {
   Timer? _timer;
   String? _lastWritten;
@@ -38,10 +41,13 @@ class ClipboardGuard {
     }
   }
 
-  /// Cancels the pending clear without touching the clipboard. Call from
-  /// the owning widget's `dispose()`.
+  /// Cancels the pending clear without touching the clipboard. Production
+  /// code never calls this — [ClipboardGuard] is a DI lazy singleton that
+  /// lives for the app's lifetime (see `password_manager_presentation_di.dart`);
+  /// kept for tests that construct standalone instances.
   void dispose() {
     _timer?.cancel();
     _timer = null;
+    _lastWritten = null;
   }
 }

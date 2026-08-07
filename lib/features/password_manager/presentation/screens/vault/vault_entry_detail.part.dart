@@ -76,14 +76,12 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
   Timer? _ticker;
   DateTime _nowUtc = debugEntryDetailNowOverride().toUtc();
   late final RevealController _revealController;
-  late final ClipboardGuard _clipboardGuard;
   bool _isCheckingBiometrics = false;
 
   @override
   void initState() {
     super.initState();
     _revealController = RevealController()..addListener(_onRevealChanged);
-    _clipboardGuard = ClipboardGuard();
     _configureTicker();
   }
 
@@ -101,7 +99,6 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
     _ticker?.cancel();
     _revealController.removeListener(_onRevealChanged);
     _revealController.dispose();
-    _clipboardGuard.dispose();
     super.dispose();
   }
 
@@ -120,7 +117,7 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
 
   Future<void> _copy({required String text, required String message}) async {
     if (text.isEmpty) return;
-    await _clipboardGuard.copy(text);
+    await di.sl<ClipboardGuard>().copy(text);
     if (!mounted) return;
     _showCenteredCopyToast(context, message);
   }

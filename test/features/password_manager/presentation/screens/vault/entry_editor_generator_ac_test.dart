@@ -2,6 +2,7 @@
 // AC7 (canGenerate disables the primary action), AC8 (tablet metadata grid
 // has exactly 3 rows), AC9 (detail/editor push no route on tablet).
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'entry_editor_generator_test_utils.dart';
@@ -89,6 +90,76 @@ void main() {
 
       await tester.pumpWidget(const SizedBox());
     });
+  });
+
+  group('FR-3 regression: clipboard clears even after the screen that '
+      'copied is disposed before the 30s window elapses', () {
+    testWidgets(
+      'copy password, navigate away immediately, clipboard still clears at 30s',
+      (tester) async {
+        // Bug (spec-004, Copilot review): ClipboardGuard used to be
+        // instantiated per-widget and disposed in the entry detail screen's
+        // dispose() — which cancelled its pending clear timer. Copy-then-
+        // navigate-away (the single most common real flow, e.g. copy a
+        // password then go paste it elsewhere) meant the clipboard was
+        // NEVER cleared. Fix: ClipboardGuard is now a DI app-lifetime
+        // singleton, so its timer outlives the screen that started it.
+        String? clipboardContent;
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        messenger.setMockMethodCallHandler(SystemChannels.platform, (
+          call,
+        ) async {
+          switch (call.method) {
+            case 'Clipboard.setData':
+              clipboardContent = (call.arguments as Map)['text'] as String?;
+              return null;
+            case 'Clipboard.getData':
+              return {'text': clipboardContent};
+            default:
+              return null;
+          }
+        });
+        addTearDown(
+          () =>
+              messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+        );
+
+        await setSize(tester, const Size(390, 844));
+        await tester.pumpWidget(await pumpableEntryScreen());
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('GitHub').first);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Copy password'));
+        await tester.pump();
+
+        expect(
+          clipboardContent,
+          isNotEmpty,
+          reason: 'copy must write the password to the clipboard',
+        );
+
+        // Navigate away / close the entry detail screen well before the 30s
+        // clear window — this is exactly the flow the old per-widget guard
+        // got wrong: its dispose() cancelled the pending clear.
+        await tester.pumpWidget(const SizedBox());
+
+        await tester.pump(const Duration(seconds: 29));
+        expect(clipboardContent, isNotEmpty, reason: 'not cleared before 30s');
+
+        await tester.pump(const Duration(seconds: 2));
+        expect(
+          clipboardContent,
+          isEmpty,
+          reason:
+              'the shared ClipboardGuard singleton must still clear the '
+              'clipboard at 30s even though the screen that copied was '
+              'disposed long before the timer fired — the old per-widget '
+              'guard left the clipboard populated forever in this flow',
+        );
+      },
+    );
   });
 
   group('AC9: detail and editor are a pane on tablet — no route pushed', () {

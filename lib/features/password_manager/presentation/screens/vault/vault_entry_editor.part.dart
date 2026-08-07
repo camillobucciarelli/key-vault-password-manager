@@ -227,7 +227,7 @@ class _EntryDialogState extends State<_EntryDialog> {
     if (result != null && mounted) {
       setState(() {
         _passwordController.text = result.password;
-        _markDirty('password');
+        _dirtyFields.add('password');
       });
     }
   }
@@ -362,7 +362,7 @@ class _EntryDialogState extends State<_EntryDialog> {
                     showRegenerateAsPill: true,
                     onUse: (password) => setState(() {
                       _passwordController.text = password;
-                      _markDirty('password');
+                      _dirtyFields.add('password');
                       _showTabletGenerator = false;
                     }),
                   ),
