@@ -156,9 +156,7 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
                 errorMessage: state.errorMessage,
               );
             case UnlockPhase.decrypting:
-              return _DecryptingView(
-                basename: p.basename(state.databasePath),
-              );
+              return _DecryptingView(basename: p.basename(state.databasePath));
             case UnlockPhase.failure:
               return _UnlockFailureView(
                 state: state,
@@ -182,6 +180,9 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
                 onPickKeyFile: _pickKeyFile,
                 onClearKeyFile: () => context.read<DatabaseUnlockBloc>().add(
                   const UpdateKeyFilePath(null),
+                ),
+                onFaceIdRetry: () => context.read<DatabaseUnlockBloc>().add(
+                  const RetryBiometricAuthentication(),
                 ),
                 onSubmit: canSubmit
                     ? () {
@@ -239,8 +240,7 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
                   children: [
                     Expanded(
                       child: TextButton(
-                        onPressed: () =>
-                            Navigator.of(sheetContext).pop(false),
+                        onPressed: () => Navigator.of(sheetContext).pop(false),
                         child: const Text('Stay here'),
                       ),
                     ),

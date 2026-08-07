@@ -138,6 +138,16 @@ void main() {
     testWidgets('selecting then removing a key file updates the form', (
       tester,
     ) async {
+      // FR-5: the key-file card (with its Change/Remove buttons) is mobile
+      // only — desktop uses a "Key file…" secondary pill instead. Pin the
+      // viewport to mobile width so this card-focused test exercises the
+      // surface it targets rather than the default (desktop-width) test
+      // window.
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
       final result = await pumpableUnlockScreen(
         databasePath: path,
         records: records,
@@ -163,7 +173,9 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.text('Unlock vault'), findsOneWidget);
-      expect(find.text('Select key file'), findsOneWidget);
+      // FR-5 mock alignment: the always-visible "Select key file" button is
+      // gone; the no-key-file state now shows the "Use a key file" link.
+      expect(find.text('Use a key file'), findsOneWidget);
     });
   });
 

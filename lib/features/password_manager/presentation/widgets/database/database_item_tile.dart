@@ -73,9 +73,7 @@ class DatabaseItemTile extends StatelessWidget {
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(AppRadii.card),
-              color: active
-                  ? const Color(0xFFFFE1D0) // accent-200, active row tint
-                  : colors.surface,
+              color: active ? colors.attentionTint : colors.surface,
             ),
             child: Row(
               children: [
@@ -121,17 +119,16 @@ class DatabaseItemTile extends StatelessWidget {
                         style: AppTextStyles.secondary.copyWith(
                           color: item.isMissing
                               ? colors.attentionText
-                              : (active ? colors.actionText : colors.textSecondary),
+                              : (active
+                                    ? colors.actionText
+                                    : colors.textSecondary),
                         ),
                       ),
                     ],
                   ),
                 ),
                 if (item.isMissing)
-                  TextButton(
-                    onPressed: onLocate,
-                    child: const Text('Locate'),
-                  ),
+                  TextButton(onPressed: onLocate, child: const Text('Locate')),
                 DatabaseActionMenu(
                   onOpen: () => onOpen(),
                   onExport: () => onExport(),
