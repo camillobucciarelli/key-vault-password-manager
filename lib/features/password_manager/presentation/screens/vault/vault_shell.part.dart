@@ -102,13 +102,26 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   bool _otpAuthVaultMarkedAvailable = false;
   bool _isHandlingOtpAuth = false;
   String? _activeAppleAutofillAssociationDialogId;
+  // Guards against `_router.dispose()` (below) synchronously cancelling any
+  // open session and calling back into `onPaneChanged` -> `setState` while
+  // *this* State's own `dispose()` is still running. `mounted` alone does
+  // not catch this: `State.mounted` only reflects whether `_element` has
+  // been cleared, which happens *after* `dispose()` returns, so it is still
+  // `true` for the whole duration of `dispose()` even though the Element's
+  // lifecycle has already moved past "active" — calling `setState` in that
+  // window trips a framework assertion. Found while adding spec-004's entry
+  // detail/editor/generator golden tests (the first tests that ever tear
+  // down `VaultScreen` while a pane/sheet session is open); the same crash
+  // would hit a real user who closes/backgrounds the app with an entry,
+  // editor, or generator open.
+  bool _isDisposing = false;
 
   @override
   void initState() {
     super.initState();
     _router = VaultShellRouter(
       onPaneChanged: (pane) {
-        if (mounted) {
+        if (mounted && !_isDisposing) {
           setState(() => _activePane = pane);
         }
       },
@@ -125,6 +138,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _isDisposing = true;
     _router.dispose();
     _inactivityTimer?.cancel();
     _otpAuthSubscription?.cancel();
@@ -398,8 +412,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
       }
 
       context.read<VaultBloc>().add(
-        shouldLink
-            == ConfirmDecision.confirm
+        shouldLink == ConfirmDecision.confirm
             ? ConfirmAppleAutofillPendingAssociation(id)
             : RejectAppleAutofillPendingAssociation(id),
       );
@@ -445,158 +458,157 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
       child: Scaffold(
         backgroundColor: Colors.transparent,
         body: Stack(
-        fit: StackFit.expand,
-        children: [
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: AppBackgrounds.gradient(context),
+          fit: StackFit.expand,
+          children: [
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: AppBackgrounds.gradient(context),
+              ),
             ),
-          ),
-          BlocListener<VaultBloc, VaultState>(
-            listener: (context, state) {
-              _markOtpAuthVaultAvailableIfReady(state);
-              if (state.errorMessage != null &&
-                  state.errorMessage!.isNotEmpty) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text(state.errorMessage!)));
-                context.read<VaultBloc>().add(const ClearVaultError());
-              }
-              if (state.infoMessage != null && state.infoMessage!.isNotEmpty) {
-                final isSyncInfo =
-                    state.infoMessage!.toLowerCase().contains('sync') ||
-                    state.infoMessage!.toLowerCase().contains('google drive');
-                if (isSyncInfo) {
-                  _showSyncSnackBar(
-                    context,
-                    state.infoMessage!,
-                    status: state.syncStatus,
-                  );
-                } else {
+            BlocListener<VaultBloc, VaultState>(
+              listener: (context, state) {
+                _markOtpAuthVaultAvailableIfReady(state);
+                if (state.errorMessage != null &&
+                    state.errorMessage!.isNotEmpty) {
                   ScaffoldMessenger.of(
                     context,
-                  ).showSnackBar(SnackBar(content: Text(state.infoMessage!)));
+                  ).showSnackBar(SnackBar(content: Text(state.errorMessage!)));
+                  context.read<VaultBloc>().add(const ClearVaultError());
                 }
-                context.read<VaultBloc>().add(const ClearVaultInfo());
-              }
-              if (state.syncError != null && state.syncError!.isNotEmpty) {
-                final needsReconnectAction = _syncErrorNeedsReconnectAction(
-                  state.syncError!,
-                );
-                _showSyncSnackBar(
-                  context,
-                  state.syncError!,
-                  status: state.syncStatus,
-                  action: needsReconnectAction
-                      ? SnackBarAction(
-                          label: 'Reconnect',
-                          onPressed: () {
-                            context.read<VaultBloc>().add(
-                              const ConnectGoogleDrive(),
+                if (state.infoMessage != null &&
+                    state.infoMessage!.isNotEmpty) {
+                  final isSyncInfo =
+                      state.infoMessage!.toLowerCase().contains('sync') ||
+                      state.infoMessage!.toLowerCase().contains('google drive');
+                  if (isSyncInfo) {
+                    _showSyncSnackBar(
+                      context,
+                      state.infoMessage!,
+                      status: state.syncStatus,
+                    );
+                  } else {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text(state.infoMessage!)));
+                  }
+                  context.read<VaultBloc>().add(const ClearVaultInfo());
+                }
+                if (state.syncError != null && state.syncError!.isNotEmpty) {
+                  final needsReconnectAction = _syncErrorNeedsReconnectAction(
+                    state.syncError!,
+                  );
+                  _showSyncSnackBar(
+                    context,
+                    state.syncError!,
+                    status: state.syncStatus,
+                    action: needsReconnectAction
+                        ? SnackBarAction(
+                            label: 'Reconnect',
+                            onPressed: () {
+                              context.read<VaultBloc>().add(
+                                const ConnectGoogleDrive(),
+                              );
+                            },
+                          )
+                        : null,
+                  );
+                  context.read<VaultBloc>().add(const ClearVaultSyncFeedback());
+                }
+                if (state.pendingSyncConflict != null) {
+                  _showSyncConflictDialog(context, state.pendingSyncConflict!);
+                }
+                _maybeShowAppleAutofillAssociationDialog(state);
+              },
+              child: BlocSelector<VaultBloc, VaultState, bool>(
+                selector: (state) => state.isLoading,
+                builder: (context, isLoading) {
+                  if (isLoading) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  return Stack(
+                    children: [
+                      Listener(
+                        onPointerDown: (_) => _resetInactivityTimer(),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final spec = _VaultLayoutSpec.fromWidth(
+                              constraints.maxWidth,
+                            );
+
+                            final vaultPane = Padding(
+                              padding: EdgeInsets.fromLTRB(
+                                spec.horizontalPadding,
+                                topInset + spec.contentTopPadding,
+                                spec.horizontalPadding,
+                                spec.horizontalPadding,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  _VaultSyncStatusStrip(
+                                    onOpenRecycleBin: () {
+                                      _showRecycleBinDialog(context);
+                                    },
+                                    onOpenDuplicates: () {
+                                      _showDuplicatesDialog(context);
+                                    },
+                                    onChangeDatabase: () =>
+                                        _closeCurrentDatabaseAndSelectAnother(
+                                          context,
+                                        ),
+                                  ),
+                                  const SizedBox(
+                                    height: _VaultUiTokens.panelGap,
+                                  ),
+                                  const Expanded(
+                                    child: _VaultEntriesCardSection(),
+                                  ),
+                                ],
+                              ),
+                            );
+
+                            return _VaultNavigationLayout(
+                              width: constraints.maxWidth,
+                              selectedDestination: _selectedDestination,
+                              activePane: _activePane,
+                              vaultPane: vaultPane,
+                              onSelectDestination: _selectDestination,
+                              onBackFromPane: _router.requestCancelCurrentPane,
+                              onOpenDuplicates: () =>
+                                  _showDuplicatesDialog(context),
+                              onOpenSync: () => _startDriveLinkFlow(context),
+                              onOpenSettings: () =>
+                                  _startCsvImportFlow(context),
                             );
                           },
-                        )
-                      : null,
-                );
-                context.read<VaultBloc>().add(const ClearVaultSyncFeedback());
-              }
-              if (state.pendingSyncConflict != null) {
-                _showSyncConflictDialog(context, state.pendingSyncConflict!);
-              }
-              _maybeShowAppleAutofillAssociationDialog(state);
-            },
-            child: BlocSelector<VaultBloc, VaultState, bool>(
-              selector: (state) => state.isLoading,
-              builder: (context, isLoading) {
-                if (isLoading) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+                        ),
+                      ),
+                      BlocSelector<VaultBloc, VaultState, bool>(
+                        selector: (state) => state.isSaving,
+                        builder: (context, isSaving) {
+                          if (!isSaving) {
+                            return const SizedBox.shrink();
+                          }
 
-                return Stack(
-                  children: [
-                    Listener(
-                      onPointerDown: (_) => _resetInactivityTimer(),
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          final spec = _VaultLayoutSpec.fromWidth(
-                            constraints.maxWidth,
-                          );
-
-                           final vaultPane = Padding(
-                             padding: EdgeInsets.fromLTRB(
-                               spec.horizontalPadding,
-                               topInset + spec.contentTopPadding,
-                               spec.horizontalPadding,
-                               spec.horizontalPadding,
-                             ),
-                             child: Column(
-                               crossAxisAlignment: CrossAxisAlignment.stretch,
-                               children: [
-                                 _VaultSyncStatusStrip(
-                                   onOpenRecycleBin: () {
-                                     _showRecycleBinDialog(context);
-                                   },
-                                   onOpenDuplicates: () {
-                                     _showDuplicatesDialog(context);
-                                   },
-                                   onChangeDatabase: () =>
-                                       _closeCurrentDatabaseAndSelectAnother(
-                                         context,
-                                       ),
-                                 ),
-                                 const SizedBox(height: _VaultUiTokens.panelGap),
-                                 const Expanded(
-                                   child: _VaultEntriesCardSection(),
-                                 ),
-                               ],
-                             ),
-                           );
-
-                           return _VaultNavigationLayout(
-                             width: constraints.maxWidth,
-                             selectedDestination: _selectedDestination,
-                             activePane: _activePane,
-                             vaultPane: vaultPane,
-                             onSelectDestination: _selectDestination,
-                             onBackFromPane: _router.requestCancelCurrentPane,
-                             onOpenDuplicates: () =>
-                                 _showDuplicatesDialog(context),
-                             onOpenSync: () => _startDriveLinkFlow(context),
-                             onOpenSettings: () => _startCsvImportFlow(context),
-                           );
+                          return const _SavingOverlay();
                         },
                       ),
-                    ),
-                    BlocSelector<VaultBloc, VaultState, bool>(
-                      selector: (state) => state.isSaving,
-                      builder: (context, isSaving) {
-                        if (!isSaving) {
-                          return const SizedBox.shrink();
-                        }
-
-                        return Container(
-                          color: Colors.black.withValues(alpha: 0.15),
-                          child: const Center(
-                            child: CircularProgressIndicator(),
-                          ),
-                        );
-                      },
-                    ),
-                    if (_isBackground && !_isLocked) const _PrivacyOverlay(),
-                    if (_isLocked)
-                      _LockOverlay(
-                        databasePath: context
-                            .read<VaultBloc>()
-                            .state
-                            .databasePath,
-                        onUnlocked: _dismissLock,
-                      ),
-                  ],
-                );
-              },
+                      if (_isBackground && !_isLocked) const _PrivacyOverlay(),
+                      if (_isLocked)
+                        _LockOverlay(
+                          databasePath: context
+                              .read<VaultBloc>()
+                              .state
+                              .databasePath,
+                          onUnlocked: _dismissLock,
+                        ),
+                    ],
+                  );
+                },
+              ),
             ),
-          ),
-        ],
+          ],
         ),
       ),
     );
@@ -726,10 +738,7 @@ class _VaultNavigationLayout extends StatelessWidget {
               key: const ValueKey('vault-mobile-body'),
               child: activePane == null
                   ? _destinationBody()
-                  : _VaultPaneHost(
-                      pane: activePane!,
-                      onBack: onBackFromPane,
-                    ),
+                  : _VaultPaneHost(pane: activePane!, onBack: onBackFromPane),
             ),
           ),
           _VaultTabBar(
@@ -740,7 +749,9 @@ class _VaultNavigationLayout extends StatelessWidget {
       );
     }
 
-    final railWidth = selectedDestination == VaultDestination.vault ? 76.0 : 72.0;
+    final railWidth = selectedDestination == VaultDestination.vault
+        ? 76.0
+        : 72.0;
     return Row(
       children: [
         SizedBox(

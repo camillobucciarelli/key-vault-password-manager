@@ -983,6 +983,9 @@ class _SyncStripMenuButton extends StatelessWidget {
         case 'databaseSettings':
           await _showDatabaseSettings(context);
           break;
+        case 'passwordGenerator':
+          await _showPasswordGeneratorSheet(context, standalone: true);
+          break;
       }
     }
 
@@ -1582,6 +1585,15 @@ class _VaultSettingsSheet extends StatelessWidget {
                       icon: AppIcons.fileText,
                       iconColor: colorScheme.tertiary,
                       children: [
+                        _SheetItem(
+                          icon: AppIcons.magic,
+                          iconContainerColor: colorScheme.tertiaryContainer
+                              .withValues(alpha: 0.55),
+                          iconColor: colorScheme.onTertiaryContainer,
+                          label: 'Password generator',
+                          subtitle: 'Generate and copy a strong password',
+                          onTap: () => onSelect('passwordGenerator'),
+                        ),
                         _SheetItem(
                           icon: AppIcons.import,
                           iconContainerColor: colorScheme.tertiaryContainer
