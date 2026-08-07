@@ -9,6 +9,7 @@ import '../data/datasources/secure_data_source.dart';
 import '../data/datasources/sync_metadata_data_source.dart';
 import '../data/repositories/database_registry_repository_impl.dart';
 import '../data/repositories/database_security_repository_impl.dart';
+import '../data/repositories/database_session_repository_impl.dart';
 import '../data/repositories/database_sync_repository_impl.dart';
 import '../data/services/apple_autofill_v2_method_channel_client.dart';
 import '../data/services/database_sync_orchestrator.dart';
@@ -22,8 +23,10 @@ import '../data/services/google_oauth_config.dart';
 import '../data/services/vault_csv_import_service.dart';
 import '../data/services/vault_duplicate_service.dart';
 import '../data/services/vault_kdbx_service.dart';
+import '../domain/repositories/database_file_repository.dart';
 import '../domain/repositories/database_registry_repository.dart';
 import '../domain/repositories/database_security_repository.dart';
+import '../domain/repositories/database_session_repository.dart';
 import '../domain/repositories/database_sync_repository.dart';
 import '../domain/repositories/autofill_ports.dart';
 import '../domain/services/apple_autofill_v2_payload_mapper.dart';
@@ -40,6 +43,12 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
     () => DatabaseSyncRepositoryImpl(
       driveAuthService: sl(),
       databaseSyncOrchestrator: sl(),
+    ),
+  );
+  sl.registerLazySingleton<DatabaseSessionRepository>(
+    () => DatabaseSessionRepositoryImpl(
+      localDataSource: sl(),
+      secureDataSource: sl(),
     ),
   );
 
@@ -79,6 +88,7 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
   sl.registerLazySingleton(
     () => DatabaseImportService(validateDatabaseUseCase: sl()),
   );
+  sl.registerLazySingleton<DatabaseFileRepository>(() => sl<DatabaseImportService>());
   sl.registerLazySingleton(() => GoogleOAuthConfig.fromEnvironment());
   sl.registerLazySingleton(() => DesktopOAuthPkceService(httpClient: sl()));
   sl.registerLazySingleton(

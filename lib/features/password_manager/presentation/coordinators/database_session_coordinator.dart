@@ -1,30 +1,27 @@
-import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:crypto/crypto.dart';
-import 'package:kdbx/kdbx.dart';
 import 'package:loggy/loggy.dart';
 import 'package:path/path.dart' as p;
 
-import '../../../../core/utils/mobile_file_storage.dart';
-import '../../data/datasources/local_data_source.dart';
-import '../../data/datasources/secure_data_source.dart';
-import '../../data/services/database_import_service.dart';
 import '../../domain/entities/database_record.dart';
 import '../../domain/entities/database_security_profile.dart';
+import '../../domain/errors/database_access_failure.dart';
+import '../../domain/models/create_database_step.dart';
 import '../../domain/models/database_dedup_result.dart';
 import '../../domain/models/database_import_result.dart';
-import '../../domain/models/drive_remote_file.dart';
+import '../../domain/models/database_import_transaction.dart';
+import '../../domain/models/database_selection_item.dart';
+import '../../domain/models/drive_account_summary.dart';
+import '../../domain/models/recent_database_removal_mode.dart';
+import '../../domain/repositories/database_file_repository.dart';
 import '../../domain/repositories/database_registry_repository.dart';
 import '../../domain/repositories/database_security_repository.dart';
+import '../../domain/repositories/database_session_repository.dart';
 import '../../domain/repositories/database_sync_repository.dart';
+import '../../domain/usecases/create_database_usecase.dart';
 import '../../domain/usecases/get_active_database_usecase.dart';
 import '../../domain/usecases/resolve_database_duplicate_usecase.dart';
 import '../../domain/usecases/unlock_database_usecase.dart';
-import '../bloc/database_selection/database_selection_event.dart';
 import 'apple_autofill_v2_coordinator.dart';
 
 enum DatabaseSessionStatus {
@@ -49,10 +46,14 @@ class DatabaseDuplicatePrompt {
   final StagedDatabaseImport? stagedImport;
 }
 
+/// C-1: replaces the former `List<String> recentDatabasePaths` with typed
+/// [DatabaseSelectionItem]s built from registry/security/sync metadata plus
+/// file existence — never from a directory listing, and never by decrypting
+/// the vault.
 class DatabaseSelectionSessionResult {
   const DatabaseSelectionSessionResult({
     required this.status,
-    required this.recentDatabasePaths,
+    required this.items,
     this.path,
     this.message,
     this.promptBiometricSetup = false,
@@ -60,7 +61,7 @@ class DatabaseSelectionSessionResult {
   });
 
   final DatabaseSessionStatus status;
-  final List<String> recentDatabasePaths;
+  final List<DatabaseSelectionItem> items;
   final String? path;
   final String? message;
   final bool promptBiometricSetup;
@@ -79,126 +80,76 @@ class UnlockBootstrapResult {
   final bool biometricAvailable;
 }
 
-abstract class DatabaseSessionCoordinatorContract {
-  Future<DatabaseSelectionSessionResult> checkInitialDatabase();
-
-  Future<DatabaseSelectionSessionResult> selectExistingDatabase({
-    required String fileName,
-    String? selectedPath,
-    List<int>? selectedBytes,
-    bool overwriteExisting = false,
-  });
-
-  Future<DatabaseSelectionSessionResult> openRecentDatabase(String path);
-
-  Future<List<DriveRemoteFile>> listDriveDatabases();
-
-  Future<bool> hasManagedDatabaseNamed(String fileName);
-
-  Future<DatabaseSelectionSessionResult> selectDriveDatabase({
-    required String remoteFileId,
-    required String remoteFileName,
-    required bool overwriteExisting,
-  });
-
-  Future<DatabaseSelectionSessionResult> createNewDatabase({
-    required String databaseFileName,
-    required String password,
-    String? keyFilePath,
-    required bool biometricProtectionEnabled,
-    required bool generateKeyFile,
-    String? generatedKeyFilePath,
-  });
-
-  Future<DatabaseSelectionSessionResult> removeRecentDatabase({
-    required String path,
-    required RecentDatabaseRemovalMode mode,
-  });
-
-  Future<DatabaseSelectionSessionResult> resolveDuplicateDecision({
-    required DatabaseDuplicatePrompt duplicatePrompt,
-    required DatabaseDuplicateResolution decision,
-  });
-
-  Future<UnlockBootstrapResult> initializeUnlock({
-    required String databasePath,
-    required bool biometricAvailable,
-  });
-
-  Future<void> updateKeyFilePath({
-    required String databasePath,
-    required String? keyFilePath,
-  });
-
-  Future<void> updateBiometricProtection({
-    required String databasePath,
-    required bool enabled,
-  });
-
-  Future<void> unlockWithManualCredentials({
-    required String databasePath,
-    required String password,
-    required String? keyFilePath,
-  });
-
-  Future<void> unlockWithStoredCredentials({
-    required String databasePath,
-    required String? keyFilePath,
-  });
-
-  Future<bool> hasStoredMasterPassword();
-
-  Future<Set<String>> getProtectedKeyFilePaths();
-}
-
-class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
+/// C-7 coordinator: sequences multi-step selection/unlock/create workflows.
+/// Depends only on domain ports/use cases and presentation coordinator
+/// contracts — never on `data/`, `dart:io`, Flutter, `FilePicker`, `crypto`
+/// or `kdbx`. `database_session_coordinator_imports_test.dart` enforces this
+/// with an analyzer-based import-URI gate.
+///
+/// This is the single concrete coordinator (no `Contract` interface): BLoCs
+/// depend on this class directly, and tests fake the domain ports/use cases
+/// it is built from instead of faking the coordinator itself.
+class DatabaseSessionCoordinator {
   DatabaseSessionCoordinator({
-    required this.localDataSource,
+    required this.databaseFileRepository,
+    required this.databaseSessionRepository,
     required this.databaseRegistryRepository,
     required this.databaseSecurityRepository,
-    required this.getActiveDatabaseUseCase,
-    required this.secureDataSource,
-    required this.databaseImportService,
-    required this.resolveDatabaseDuplicateUseCase,
     required this.databaseSyncRepository,
+    required this.getActiveDatabaseUseCase,
+    required this.resolveDatabaseDuplicateUseCase,
     required this.unlockDatabaseUseCase,
+    required this.createDatabaseUseCase,
     this.appleAutofillV2Coordinator = const NoopAppleAutofillV2Coordinator(),
   });
 
-  final LocalDataSource localDataSource;
+  final DatabaseFileRepository databaseFileRepository;
+  final DatabaseSessionRepository databaseSessionRepository;
   final DatabaseRegistryRepository databaseRegistryRepository;
   final DatabaseSecurityRepository databaseSecurityRepository;
-  final GetActiveDatabaseUseCase getActiveDatabaseUseCase;
-  final SecureDataSource secureDataSource;
-  final DatabaseImportService databaseImportService;
-  final ResolveDatabaseDuplicateUseCase resolveDatabaseDuplicateUseCase;
   final DatabaseSyncRepository databaseSyncRepository;
+  final GetActiveDatabaseUseCase getActiveDatabaseUseCase;
+  final ResolveDatabaseDuplicateUseCase resolveDatabaseDuplicateUseCase;
   final UnlockDatabaseUseCase unlockDatabaseUseCase;
+  final CreateDatabaseUseCase createDatabaseUseCase;
   final AppleAutofillV2CoordinatorContract appleAutofillV2Coordinator;
 
-  @override
   Future<DatabaseSelectionSessionResult> checkInitialDatabase() async {
-    final recent = await _loadRecentDatabasePaths();
+    final items = await _loadSelectionItems();
     final activeRecord = await getActiveDatabaseUseCase();
     final activePath = activeRecord?.canonicalPath;
     final validActivePath =
-        activePath != null && _containsPath(recent, activePath)
+        activePath != null && _itemsContainPath(items, activePath)
         ? activePath
         : null;
 
-    if (recent.length > 1 && validActivePath == null) {
+    if (items.length > 1 && validActivePath == null) {
       return DatabaseSelectionSessionResult(
         status: DatabaseSessionStatus.unselected,
-        recentDatabasePaths: recent,
+        items: items,
       );
     }
 
-    final path = validActivePath ?? (recent.length == 1 ? recent.first : null);
+    final path = validActivePath ?? (items.length == 1 ? items.first.canonicalPath : null);
 
     if (path == null || path.isEmpty) {
       return DatabaseSelectionSessionResult(
         status: DatabaseSessionStatus.unselected,
-        recentDatabasePaths: recent,
+        items: items,
+      );
+    }
+
+    // A registered-but-missing active database routes to the selection
+    // list (FR-1 Locate), not a generic open failure: nothing was
+    // corrupted, the file is simply absent.
+    final resolvedItem = items.cast<DatabaseSelectionItem?>().firstWhere(
+      (item) => item != null && _containsPath([item.canonicalPath], path),
+      orElse: () => null,
+    );
+    if (resolvedItem != null && resolvedItem.isMissing) {
+      return DatabaseSelectionSessionResult(
+        status: DatabaseSessionStatus.unselected,
+        items: items,
       );
     }
 
@@ -211,11 +162,11 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
       }
       return await _openExistingDatabase(path, clearCredentials: false);
     } catch (e) {
-      final updatedRecent = await _loadRecentDatabasePaths();
+      final updatedItems = await _loadSelectionItems();
       return DatabaseSelectionSessionResult(
         status: DatabaseSessionStatus.error,
         message: 'Database file not found or corrupted.',
-        recentDatabasePaths: updatedRecent,
+        items: updatedItems,
       );
     }
   }
@@ -227,14 +178,20 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     );
   }
 
-  @override
+  bool _itemsContainPath(List<DatabaseSelectionItem> items, String target) {
+    return _containsPath(
+      items.map((item) => item.canonicalPath).toList(growable: false),
+      target,
+    );
+  }
+
   Future<DatabaseSelectionSessionResult> selectExistingDatabase({
     required String fileName,
     String? selectedPath,
     List<int>? selectedBytes,
     bool overwriteExisting = false,
   }) async {
-    final staged = await databaseImportService.stageLocalSelection(
+    final staged = await databaseFileRepository.stageLocalSelection(
       fileName: fileName,
       selectedPath: selectedPath,
       selectedBytes: selectedBytes,
@@ -249,7 +206,7 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
         status: DatabaseSessionStatus.duplicateDecisionRequired,
         message:
             'A database with the same source or content already exists. Choose how to continue.',
-        recentDatabasePaths: await _loadRecentDatabasePaths(),
+        items: await _loadSelectionItems(),
         duplicatePrompt: DatabaseDuplicatePrompt(
           imported: staged.imported,
           existingRecord: dedup.existingRecord!,
@@ -264,24 +221,86 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     );
   }
 
-  @override
   Future<DatabaseSelectionSessionResult> openRecentDatabase(String path) async {
     final trimmed = path.trim();
     if (trimmed.isEmpty) {
       return DatabaseSelectionSessionResult(
         status: DatabaseSessionStatus.unselected,
-        recentDatabasePaths: await _loadRecentDatabasePaths(),
+        items: await _loadSelectionItems(),
       );
     }
 
     return _openExistingDatabase(trimmed, clearCredentials: true);
   }
 
+  /// FR-1 Locate: only valid for a missing recent item. Requires a stored
+  /// hash match when available; mismatch or invalid/corrupt selection
+  /// mutates nothing (the thrown `DatabaseAccessFailure` propagates to the
+  /// caller before any registry write).
+  Future<DatabaseSelectionSessionResult> locateMissingDatabase({
+    required String databaseId,
+    required String selectedPath,
+  }) async {
+    final record = await databaseRegistryRepository.getById(databaseId);
+    if (record == null) {
+      return DatabaseSelectionSessionResult(
+        status: DatabaseSessionStatus.error,
+        message: 'Database record not found.',
+        items: await _loadSelectionItems(),
+      );
+    }
+
+    final imported = await databaseFileRepository.openExistingPath(
+      selectedPath,
+    );
+
+    final storedHash = record.fileHash;
+    if (storedHash != null &&
+        storedHash.isNotEmpty &&
+        storedHash != imported.fileHash) {
+      return DatabaseSelectionSessionResult(
+        status: DatabaseSessionStatus.error,
+        message:
+            'Selected file does not match the missing database. Use "Open existing database" instead.',
+        items: await _loadSelectionItems(),
+      );
+    }
+
+    final now = DateTime.now();
+    final updatedRecord = record.copyWith(
+      canonicalPath: imported.path,
+      fileHash: imported.fileHash,
+      updatedAt: now,
+      lastOpenedAt: now,
+    );
+    await databaseRegistryRepository.upsert(updatedRecord);
+    if (record.sourceType == DatabaseSourceType.drive) {
+      try {
+        await databaseSyncRepository.moveMappingPath(
+          fromDatabasePath: record.canonicalPath,
+          toDatabasePath: imported.path,
+        );
+      } catch (e, st) {
+        logWarning('Unable to move sync mapping after Locate.', e, st);
+      }
+    }
+    await databaseRegistryRepository.setActive(updatedRecord.databaseId);
+    await databaseSessionRepository.cacheDatabasePath(
+      updatedRecord.canonicalPath,
+    );
+
+    return DatabaseSelectionSessionResult(
+      status: DatabaseSessionStatus.success,
+      path: updatedRecord.canonicalPath,
+      items: await _loadSelectionItems(),
+    );
+  }
+
   Future<DatabaseSelectionSessionResult> _openExistingDatabase(
     String path, {
     required bool clearCredentials,
   }) async {
-    final imported = await databaseImportService.openExistingPath(path);
+    final imported = await databaseFileRepository.openExistingPath(path);
     final existingRecord = await _findRecordByPath(imported.path);
     final now = DateTime.now();
     final recordToSave =
@@ -306,42 +325,45 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
 
     await databaseRegistryRepository.upsert(recordToSave);
     await databaseRegistryRepository.setActive(recordToSave.databaseId);
-    await localDataSource.cacheDatabasePath(recordToSave.canonicalPath);
+    await databaseSessionRepository.cacheDatabasePath(
+      recordToSave.canonicalPath,
+    );
     if (clearCredentials) {
-      await localDataSource.cacheKeyFilePath(null);
-      await secureDataSource.clearMasterPassword();
+      await databaseSessionRepository.cacheKeyFilePath(null);
+      await databaseSessionRepository.clearMasterPassword();
       await appleAutofillV2Coordinator.clearCredentials();
     }
 
     return DatabaseSelectionSessionResult(
       status: DatabaseSessionStatus.success,
       path: recordToSave.canonicalPath,
-      recentDatabasePaths: await _loadRecentDatabasePaths(),
+      items: await _loadSelectionItems(),
     );
   }
 
-  @override
-  Future<List<DriveRemoteFile>> listDriveDatabases() async {
+  /// C-2: Drive files for the picker plus the connected account summary
+  /// (mobile email, or the exact desktop fallback).
+  Future<DrivePickerData> getDrivePickerData() async {
     if (!await databaseSyncRepository.isConnected()) {
       await databaseSyncRepository.connect();
     }
-    return databaseSyncRepository.listRemoteFiles();
+    final files = await databaseSyncRepository.listRemoteFiles();
+    final account = await databaseSyncRepository.getConnectedAccount();
+    return DrivePickerData(files: files, account: account);
   }
 
-  @override
   Future<bool> hasManagedDatabaseNamed(String fileName) async {
-    final path = await databaseImportService.managedDatabasePath(fileName);
-    return File(path).exists();
+    final path = await databaseFileRepository.managedDatabasePath(fileName);
+    return databaseFileRepository.fileExists(path);
   }
 
-  @override
   Future<DatabaseSelectionSessionResult> selectDriveDatabase({
     required String remoteFileId,
     required String remoteFileName,
     required bool overwriteExisting,
   }) async {
     final bytes = await databaseSyncRepository.downloadRemoteFile(remoteFileId);
-    final staged = await databaseImportService.stageDriveDownload(
+    final staged = await databaseFileRepository.stageDriveDownload(
       fileName: remoteFileName,
       bytes: bytes,
       remoteFileId: remoteFileId,
@@ -356,7 +378,7 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
         status: DatabaseSessionStatus.duplicateDecisionRequired,
         message:
             'A database with the same source or content already exists. Choose how to continue.',
-        recentDatabasePaths: await _loadRecentDatabasePaths(),
+        items: await _loadSelectionItems(),
         duplicatePrompt: DatabaseDuplicatePrompt(
           imported: staged.imported,
           existingRecord: dedup.existingRecord!,
@@ -378,10 +400,10 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     DatabaseRecord? duplicateRecord,
   }) async {
     if (decision == DatabaseDuplicateResolution.cancel) {
-      await databaseImportService.discardStagedDatabase(staged);
+      await databaseFileRepository.discardStagedDatabase(staged);
       return DatabaseSelectionSessionResult(
         status: DatabaseSessionStatus.unselected,
-        recentDatabasePaths: await _loadRecentDatabasePaths(),
+        items: await _loadSelectionItems(),
       );
     }
 
@@ -393,9 +415,11 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
           duplicateRecord.copyWith(updatedAt: now, lastOpenedAt: now),
         );
         await databaseRegistryRepository.setActive(duplicateRecord.databaseId);
-        await localDataSource.cacheDatabasePath(duplicateRecord.canonicalPath);
+        await databaseSessionRepository.cacheDatabasePath(
+          duplicateRecord.canonicalPath,
+        );
         await _clearSessionCredentials();
-        final recentDatabasePaths = await _loadRecentDatabasePaths();
+        final items = await _loadSelectionItems();
         if (staged.imported.sourceType == DatabaseSourceType.drive) {
           await databaseSyncRepository.linkDatabaseToDrive(
             databasePath: duplicateRecord.canonicalPath,
@@ -405,14 +429,14 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
         return DatabaseSelectionSessionResult(
           status: DatabaseSessionStatus.success,
           path: duplicateRecord.canonicalPath,
-          recentDatabasePaths: recentDatabasePaths,
+          items: items,
           promptBiometricSetup:
               staged.imported.sourceType == DatabaseSourceType.drive,
           message: 'Existing database reused to avoid duplicates.',
         );
       } finally {
         try {
-          await databaseImportService.discardStagedDatabase(staged);
+          await databaseFileRepository.discardStagedDatabase(staged);
         } catch (_) {}
       }
     }
@@ -423,7 +447,7 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
       targetPath = duplicateRecord.canonicalPath;
     } else if (decision != DatabaseDuplicateResolution.keepBoth &&
         overwriteExisting) {
-      targetPath = await databaseImportService.managedDatabasePath(
+      targetPath = await databaseFileRepository.managedDatabasePath(
         staged.preferredFileName,
       );
     }
@@ -440,9 +464,10 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
             recordToReplace.databaseId,
           );
     final originalActive = await getActiveDatabaseUseCase();
-    final originalKeyFilePath = await localDataSource.getCachedKeyFilePath();
-    final originalPassword = await secureDataSource.getMasterPassword();
-    final commit = await databaseImportService.commitStagedDatabase(
+    final originalKeyFilePath = await databaseSessionRepository
+        .getCachedKeyFilePath();
+    final originalPassword = await databaseSessionRepository.getMasterPassword();
+    final commit = await databaseFileRepository.commitStagedDatabase(
       staged,
       targetPath: targetPath,
     );
@@ -479,9 +504,11 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
         );
       }
       await databaseRegistryRepository.setActive(recordToSave.databaseId);
-      await localDataSource.cacheDatabasePath(recordToSave.canonicalPath);
+      await databaseSessionRepository.cacheDatabasePath(
+        recordToSave.canonicalPath,
+      );
       await _clearSessionCredentials();
-      final recentDatabasePaths = await _loadRecentDatabasePaths();
+      final items = await _loadSelectionItems();
       if (staged.imported.sourceType == DatabaseSourceType.drive) {
         await databaseSyncRepository.linkDatabaseToDrive(
           databasePath: recordToSave.canonicalPath,
@@ -489,14 +516,14 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
         );
       }
       try {
-        await databaseImportService.finalizeDatabaseCommit(commit);
+        await databaseFileRepository.finalizeDatabaseCommit(commit);
       } catch (_) {
         // Database and metadata are committed. Keep bounded backup for recovery.
       }
       return DatabaseSelectionSessionResult(
         status: DatabaseSessionStatus.success,
         path: recordToSave.canonicalPath,
-        recentDatabasePaths: recentDatabasePaths,
+        items: items,
         promptBiometricSetup:
             staged.imported.sourceType == DatabaseSourceType.drive,
         message: decision == DatabaseDuplicateResolution.keepBoth
@@ -507,7 +534,7 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
       );
     } catch (_) {
       try {
-        await databaseImportService.rollbackDatabaseCommit(commit);
+        await databaseFileRepository.rollbackDatabaseCommit(commit);
       } catch (_) {}
       try {
         if (recordToReplace == null) {
@@ -529,21 +556,20 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
         }
       } catch (_) {}
       try {
-        await localDataSource.cacheDatabasePath(
+        await databaseSessionRepository.cacheDatabasePath(
           originalActive?.canonicalPath ?? '',
         );
-        await localDataSource.cacheKeyFilePath(originalKeyFilePath);
+        await databaseSessionRepository.cacheKeyFilePath(originalKeyFilePath);
         if (originalPassword == null) {
-          await secureDataSource.clearMasterPassword();
+          await databaseSessionRepository.clearMasterPassword();
         } else {
-          await secureDataSource.saveMasterPassword(originalPassword);
+          await databaseSessionRepository.saveMasterPassword(originalPassword);
         }
       } catch (_) {}
       rethrow;
     }
   }
 
-  @override
   Future<DatabaseSelectionSessionResult> createNewDatabase({
     required String databaseFileName,
     required String password,
@@ -552,45 +578,27 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     required bool generateKeyFile,
     String? generatedKeyFilePath,
   }) async {
-    var outputFile = await _resolveOutputFilePath(databaseFileName);
-    if (outputFile == null || outputFile.trim().isEmpty) {
-      return DatabaseSelectionSessionResult(
-        status: DatabaseSessionStatus.unselected,
-        recentDatabasePaths: await _loadRecentDatabasePaths(),
-      );
-    }
-
-    if (!outputFile.toLowerCase().endsWith('.kdbx')) {
-      outputFile += '.kdbx';
-    }
-
-    String? selectedKeyFilePath;
-    if (!Platform.environment.containsKey('FLUTTER_TEST')) {
-      selectedKeyFilePath = await _prepareKeyFilePath(
+    final created = await createDatabaseUseCase(
+      CreateDatabaseRequest(
+        databaseFileName: databaseFileName,
+        password: password,
         keyFilePath: keyFilePath,
         generateKeyFile: generateKeyFile,
         generatedKeyFilePath: generatedKeyFilePath,
+      ),
+    );
+
+    if (created == null) {
+      return DatabaseSelectionSessionResult(
+        status: DatabaseSessionStatus.unselected,
+        items: await _loadSelectionItems(),
       );
     }
 
-    final credentials = Credentials.composite(
-      ProtectedValue.fromString(password),
-      selectedKeyFilePath == null || selectedKeyFilePath.trim().isEmpty
-          ? null
-          : await File(selectedKeyFilePath).readAsBytes(),
-    );
-    final kdbx = KdbxFormat().create(credentials, 'New Database');
-    final savedBytes = await kdbx.save();
-    outputFile = await databaseImportService.createDatabase(
-      outputFile: outputFile,
-      databaseBytes: savedBytes,
-    );
-
-    final fileHash = await _hashFile(outputFile);
     final imported = DatabaseImportResult(
-      path: outputFile,
-      fileName: p.basename(outputFile),
-      fileHash: fileHash,
+      path: created.databasePath,
+      fileName: p.basename(created.databasePath),
+      fileHash: created.fileHash,
       sourceType: DatabaseSourceType.created,
     );
     final result = await _applyImportedDatabase(
@@ -601,27 +609,47 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     if (result.path != null) {
       await _saveSecurityProfile(
         path: result.path!,
-        keyFilePath: selectedKeyFilePath,
+        keyFilePath: created.keyFilePath,
         biometricProtectionEnabled: biometricProtectionEnabled,
       );
-      await secureDataSource.saveMasterPassword(password);
-      await localDataSource.cacheKeyFilePath(selectedKeyFilePath);
+      await databaseSessionRepository.saveMasterPassword(password);
+      await databaseSessionRepository.cacheKeyFilePath(created.keyFilePath);
     }
 
     return DatabaseSelectionSessionResult(
       status: result.status,
       path: result.path,
-      recentDatabasePaths: result.recentDatabasePaths,
-      message: result.path == null
-          ? result.message
-          : _buildCreationMessage(
-              databasePath: result.path!,
-              keyFilePath: selectedKeyFilePath,
-            ),
+      items: result.items,
+      message: result.path == null ? result.message : 'Database created.',
     );
   }
 
-  @override
+  /// FR-2 create-flow step policy (C-5): pure decision, no I/O. Returns the
+  /// next step, or `current` unchanged when the supplied validation facts do
+  /// not allow advancing.
+  CreateDatabaseStep resolveCreateDatabaseStepAdvance({
+    required CreateDatabaseStep current,
+    required bool fieldsNonEmpty,
+    bool confirmationMatches = true,
+  }) {
+    if (!fieldsNonEmpty || !confirmationMatches) {
+      return current;
+    }
+    return switch (current) {
+      CreateDatabaseStep.nameAndStorage => CreateDatabaseStep.masterPassword,
+      CreateDatabaseStep.masterPassword => CreateDatabaseStep.optionalLocks,
+      CreateDatabaseStep.optionalLocks => CreateDatabaseStep.optionalLocks,
+    };
+  }
+
+  CreateDatabaseStep resolveCreateDatabaseStepBack(CreateDatabaseStep current) {
+    return switch (current) {
+      CreateDatabaseStep.nameAndStorage => CreateDatabaseStep.nameAndStorage,
+      CreateDatabaseStep.masterPassword => CreateDatabaseStep.nameAndStorage,
+      CreateDatabaseStep.optionalLocks => CreateDatabaseStep.masterPassword,
+    };
+  }
+
   Future<DatabaseSelectionSessionResult> removeRecentDatabase({
     required String path,
     required RecentDatabaseRemovalMode mode,
@@ -630,7 +658,7 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     if (trimmed.isEmpty) {
       return DatabaseSelectionSessionResult(
         status: DatabaseSessionStatus.unselected,
-        recentDatabasePaths: await _loadRecentDatabasePaths(),
+        items: await _loadSelectionItems(),
       );
     }
 
@@ -638,9 +666,9 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     final activeRecord = await getActiveDatabaseUseCase();
     if (activeRecord != null &&
         _containsPath([activeRecord.canonicalPath], trimmed)) {
-      await localDataSource.cacheDatabasePath('');
-      await localDataSource.cacheKeyFilePath(null);
-      await secureDataSource.clearMasterPassword();
+      await databaseSessionRepository.cacheDatabasePath('');
+      await databaseSessionRepository.cacheKeyFilePath(null);
+      await databaseSessionRepository.clearMasterPassword();
       await databaseRegistryRepository.setActive(null);
     }
 
@@ -657,9 +685,8 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     }
 
     if (mode == RecentDatabaseRemovalMode.removeAndDeleteFile) {
-      final file = File(trimmed);
-      if (await file.exists()) {
-        await file.delete();
+      if (await databaseFileRepository.fileExists(trimmed)) {
+        await databaseFileRepository.deleteFile(trimmed);
         userMessage = 'Database removed from list and file deleted.';
       } else {
         userMessage = 'Database removed from list. File was already missing.';
@@ -669,11 +696,10 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     return DatabaseSelectionSessionResult(
       status: DatabaseSessionStatus.info,
       message: userMessage,
-      recentDatabasePaths: await _loadRecentDatabasePaths(),
+      items: await _loadSelectionItems(),
     );
   }
 
-  @override
   Future<UnlockBootstrapResult> initializeUnlock({
     required String databasePath,
     required bool biometricAvailable,
@@ -688,17 +714,17 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     var profileKeyFileWasMissing = false;
 
     if (profileKeyFilePath != null &&
-        !await _keyFileExists(profileKeyFilePath)) {
+        !await databaseFileRepository.keyFileExists(profileKeyFilePath)) {
       keyFilePath = null;
       profileKeyFileWasMissing = true;
     }
 
     final cachedKeyFilePath = _normalizeKeyFilePath(
-      await localDataSource.getCachedKeyFilePath(),
+      await databaseSessionRepository.getCachedKeyFilePath(),
     );
     var cachedKeyFileWasMissing = false;
     if (keyFilePath == null && record == null && cachedKeyFilePath != null) {
-      if (await _keyFileExists(cachedKeyFilePath)) {
+      if (await databaseFileRepository.keyFileExists(cachedKeyFilePath)) {
         keyFilePath = cachedKeyFilePath;
       } else {
         cachedKeyFileWasMissing = true;
@@ -711,7 +737,7 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     if (profileKeyFileWasMissing ||
         cachedKeyFileWasMissing ||
         selectedKeyFileNeedsSync) {
-      await localDataSource.cacheKeyFilePath(keyFilePath);
+      await databaseSessionRepository.cacheKeyFilePath(keyFilePath);
       if (record != null && profileKeyFileWasMissing) {
         await _saveSecurityProfile(
           path: record.canonicalPath,
@@ -729,22 +755,20 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     );
   }
 
-  @override
   Future<void> updateKeyFilePath({
     required String databasePath,
     required String? keyFilePath,
   }) async {
     final normalizedKeyFilePath = _normalizeKeyFilePath(keyFilePath);
     if (normalizedKeyFilePath != null &&
-        !await _keyFileExists(normalizedKeyFilePath)) {
-      throw Exception('Selected key file not found.');
+        !await databaseFileRepository.keyFileExists(normalizedKeyFilePath)) {
+      throw const KeyFileMissingFailure();
     }
 
-    final persistedKeyFilePath = await _ensureManagedKeyFilePath(
-      normalizedKeyFilePath,
-    );
+    final persistedKeyFilePath = await databaseFileRepository
+        .ensureManagedKeyFilePath(normalizedKeyFilePath);
 
-    await localDataSource.cacheKeyFilePath(persistedKeyFilePath);
+    await databaseSessionRepository.cacheKeyFilePath(persistedKeyFilePath);
     final record = await _findRecordByPath(databasePath);
     if (record == null) {
       return;
@@ -756,7 +780,6 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     );
   }
 
-  @override
   Future<void> updateBiometricProtection({
     required String databasePath,
     required bool enabled,
@@ -781,20 +804,20 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     await databaseSecurityRepository.saveProfile(profile);
   }
 
-  @override
   Future<void> unlockWithManualCredentials({
     required String databasePath,
     required String password,
     required String? keyFilePath,
   }) async {
-    final persistedKeyFilePath = await _ensureManagedKeyFilePath(keyFilePath);
+    final persistedKeyFilePath = await databaseFileRepository
+        .ensureManagedKeyFilePath(keyFilePath);
     await unlockDatabaseUseCase(
       databasePath: databasePath,
       password: password,
       keyFilePath: persistedKeyFilePath,
     );
-    await localDataSource.cacheKeyFilePath(persistedKeyFilePath);
-    await secureDataSource.saveMasterPassword(password);
+    await databaseSessionRepository.cacheKeyFilePath(persistedKeyFilePath);
+    await databaseSessionRepository.saveMasterPassword(password);
     await _saveSecurityProfile(
       path: databasePath,
       keyFilePath: persistedKeyFilePath,
@@ -802,12 +825,12 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     );
   }
 
-  @override
   Future<void> unlockWithStoredCredentials({
     required String databasePath,
     required String? keyFilePath,
   }) async {
-    final storedPassword = await secureDataSource.getMasterPassword() ?? '';
+    final storedPassword =
+        await databaseSessionRepository.getMasterPassword() ?? '';
     await unlockDatabaseUseCase(
       databasePath: databasePath,
       password: storedPassword,
@@ -815,13 +838,11 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     );
   }
 
-  @override
   Future<bool> hasStoredMasterPassword() async {
-    final value = await secureDataSource.getMasterPassword();
+    final value = await databaseSessionRepository.getMasterPassword();
     return value != null && value.isNotEmpty;
   }
 
-  @override
   Future<Set<String>> getProtectedKeyFilePaths() async {
     final protectedPaths = <String>{};
     for (final record in await databaseRegistryRepository.list()) {
@@ -837,8 +858,8 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
   }
 
   Future<void> _clearSessionCredentials() async {
-    await localDataSource.cacheKeyFilePath(null);
-    await secureDataSource.clearMasterPassword();
+    await databaseSessionRepository.cacheKeyFilePath(null);
+    await databaseSessionRepository.clearMasterPassword();
     await appleAutofillV2Coordinator.clearCredentials();
   }
 
@@ -858,7 +879,7 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
         status: DatabaseSessionStatus.duplicateDecisionRequired,
         message:
             'A database with the same source or content already exists. Choose how to continue.',
-        recentDatabasePaths: await _loadRecentDatabasePaths(),
+        items: await _loadSelectionItems(),
         duplicatePrompt: DatabaseDuplicatePrompt(
           imported: imported,
           existingRecord: dedup.existingRecord!,
@@ -870,7 +891,7 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     if (duplicateResolution == DatabaseDuplicateResolution.cancel) {
       return DatabaseSelectionSessionResult(
         status: DatabaseSessionStatus.unselected,
-        recentDatabasePaths: await _loadRecentDatabasePaths(),
+        items: await _loadSelectionItems(),
       );
     }
 
@@ -920,18 +941,20 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
 
     await databaseRegistryRepository.upsert(recordToSave);
     await databaseRegistryRepository.setActive(recordToSave.databaseId);
-    await localDataSource.cacheDatabasePath(recordToSave.canonicalPath);
+    await databaseSessionRepository.cacheDatabasePath(
+      recordToSave.canonicalPath,
+    );
 
     if (clearCredentials) {
-      await localDataSource.cacheKeyFilePath(null);
-      await secureDataSource.clearMasterPassword();
+      await databaseSessionRepository.cacheKeyFilePath(null);
+      await databaseSessionRepository.clearMasterPassword();
       await appleAutofillV2Coordinator.clearCredentials();
     }
 
     return DatabaseSelectionSessionResult(
       status: DatabaseSessionStatus.success,
       path: recordToSave.canonicalPath,
-      recentDatabasePaths: await _loadRecentDatabasePaths(),
+      items: await _loadSelectionItems(),
       message: _buildDuplicateMessage(
         dedup: dedup,
         duplicateResolution: duplicateResolution,
@@ -955,7 +978,6 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     };
   }
 
-  @override
   Future<DatabaseSelectionSessionResult> resolveDuplicateDecision({
     required DatabaseDuplicatePrompt duplicatePrompt,
     required DatabaseDuplicateResolution decision,
@@ -991,7 +1013,7 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
         return DatabaseSelectionSessionResult(
           status: DatabaseSessionStatus.success,
           path: result.path,
-          recentDatabasePaths: result.recentDatabasePaths,
+          items: result.items,
           promptBiometricSetup: true,
           message:
               'Database opened, but auto-link to Drive failed. You can link it from the Vault sync menu.',
@@ -1000,7 +1022,7 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
       return DatabaseSelectionSessionResult(
         status: DatabaseSessionStatus.success,
         path: result.path,
-        recentDatabasePaths: result.recentDatabasePaths,
+        items: result.items,
         promptBiometricSetup: true,
         message: result.message,
       );
@@ -1009,113 +1031,65 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     return result;
   }
 
-  Future<List<String>> _loadRecentDatabasePaths() async {
-    if (_usesManagedStorage) {
-      try {
-        final entries = await MobileFileStorage.listFilesInAppDirectory(
-          subdirectory: 'databases',
-        );
-        return entries
-            .where((entry) => entry.name.toLowerCase().endsWith('.kdbx'))
-            .map((entry) => entry.path)
-            .toList(growable: false);
-      } catch (e, st) {
-        logWarning(
-          'Unable to load recent database files from app storage.',
-          e,
-          st,
-        );
-        return const [];
-      }
-    }
-
+  /// C-1: builds selection metadata by joining registry/security/sync
+  /// records with file existence once — never a directory listing, never a
+  /// decrypted read.
+  Future<List<DatabaseSelectionItem>> _loadSelectionItems() async {
     try {
       final records = await databaseRegistryRepository.list();
-      if (records.isNotEmpty) {
-        final sorted = [...records]
-          ..sort((a, b) {
-            final left =
-                a.lastOpenedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-            final right =
-                b.lastOpenedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-            return right.compareTo(left);
-          });
-        return sorted
-            .map((record) => record.canonicalPath)
-            .toList(growable: false);
-      }
-      return const [];
-    } catch (e, st) {
-      logWarning('Unable to load recent database list.', e, st);
-      return const [];
-    }
-  }
-
-  Future<String?> _resolveOutputFilePath(String preferredFileName) async {
-    final normalizedFileName = _normalizeDatabaseFileName(preferredFileName);
-    if (_usesManagedStorage) {
-      return normalizedFileName;
-    }
-    return FilePicker.saveFile(
-      dialogTitle: 'Please select an output file:',
-      fileName: normalizedFileName,
-      type: FileType.custom,
-      allowedExtensions: ['kdbx'],
-    );
-  }
-
-  String _normalizeDatabaseFileName(String value) {
-    final trimmed = value.trim();
-    final fallback = 'new_database.kdbx';
-    if (trimmed.isEmpty) {
-      return fallback;
-    }
-
-    final normalized = trimmed.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-    if (normalized.isEmpty) {
-      return fallback;
-    }
-
-    return normalized.toLowerCase().endsWith('.kdbx')
-        ? normalized
-        : '$normalized.kdbx';
-  }
-
-  Future<String?> _prepareKeyFilePath({
-    required String? keyFilePath,
-    required bool generateKeyFile,
-    required String? generatedKeyFilePath,
-  }) async {
-    if (!generateKeyFile) {
-      if (keyFilePath == null || keyFilePath.trim().isEmpty) {
-        return null;
-      }
-      if (_usesManagedStorage) {
-        return databaseImportService.saveKeyFile(
-          fileName: 'database.key',
-          keyFileBytes: Uint8List(0),
-          selectedPath: keyFilePath,
+      final activeId = await databaseRegistryRepository.getActive();
+      final items = <DatabaseSelectionItem>[];
+      for (final record in records) {
+        final profile = await databaseSecurityRepository.getProfile(
+          record.databaseId,
+        );
+        final exists = await databaseFileRepository.fileExists(
+          record.canonicalPath,
+        );
+        DateTime? lastSyncAt;
+        String? lastSyncError;
+        if (record.sourceType == DatabaseSourceType.drive) {
+          try {
+            final mapping = await databaseSyncRepository.getMapping(
+              record.canonicalPath,
+            );
+            lastSyncAt = mapping?.lastSyncAt;
+            lastSyncError = mapping?.lastError;
+          } catch (_) {
+            // Sync metadata is best-effort for the selection row; a
+            // failure here must not block the selection list itself.
+          }
+        }
+        final keyFilePath = profile?.keyFilePath;
+        items.add(
+          DatabaseSelectionItem(
+            databaseId: record.databaseId,
+            canonicalPath: record.canonicalPath,
+            displayName: record.displayName,
+            sourceType: record.sourceType,
+            sourceRef: record.sourceRef,
+            isActive: record.databaseId == activeId,
+            isMissing: !exists,
+            biometricProtectionEnabled:
+                profile?.biometricProtectionEnabled ?? false,
+            keyFileConfigured:
+                keyFilePath != null && keyFilePath.trim().isNotEmpty,
+            lastOpenedAt: record.lastOpenedAt,
+            lastSyncAt: lastSyncAt,
+            lastSyncError: lastSyncError,
+          ),
         );
       }
-      return keyFilePath;
+      items.sort((a, b) {
+        final left = a.lastOpenedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final right = b.lastOpenedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return right.compareTo(left);
+      });
+      return items;
+    } catch (e, st) {
+      logWarning('Unable to load database selection metadata.', e, st);
+      return const [];
     }
-
-    final keyBytes = _generateRandomKeyFileBytes();
-    final fileName = generatedKeyFilePath == null
-        ? 'database.key'
-        : p.basename(generatedKeyFilePath);
-    return databaseImportService.saveKeyFile(
-      fileName: fileName,
-      keyFileBytes: keyBytes,
-      selectedPath: generatedKeyFilePath,
-    );
-  }
-
-  Uint8List _generateRandomKeyFileBytes() {
-    final random = Random.secure();
-    return Uint8List.fromList(
-      List<int>.generate(64, (_) => random.nextInt(256)),
-    );
   }
 
   Future<void> _saveSecurityProfile({
@@ -1166,33 +1140,11 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
     return null;
   }
 
-  Future<String> _hashFile(String path) async {
-    final bytes = await File(path).readAsBytes();
-    return md5.convert(bytes).toString();
-  }
-
-  String _buildCreationMessage({
-    required String databasePath,
-    required String? keyFilePath,
-  }) {
-    final databaseMessage = _usesManagedStorage
-        ? 'Database saved in app internal storage.'
-        : 'Database saved to: $databasePath';
-    final keyMessage = keyFilePath == null || keyFilePath.trim().isEmpty
-        ? 'No key file configured.'
-        : _usesManagedStorage
-        ? 'Key file saved in app internal storage.'
-        : 'Key file path: $keyFilePath';
-    return '$databaseMessage $keyMessage';
-  }
-
   String _generateDatabaseId() {
     final now = DateTime.now().microsecondsSinceEpoch.toRadixString(16);
     final random = Random.secure().nextInt(1 << 32).toRadixString(16);
     return 'db_$now$random';
   }
-
-  bool get _usesManagedStorage => !kIsWeb;
 
   String? _normalizeKeyFilePath(String? keyFilePath) {
     final trimmed = keyFilePath?.trim();
@@ -1209,37 +1161,5 @@ class DatabaseSessionCoordinator implements DatabaseSessionCoordinatorContract {
       return normalizedLeft == normalizedRight;
     }
     return p.equals(p.normalize(normalizedLeft), p.normalize(normalizedRight));
-  }
-
-  Future<bool> _keyFileExists(String keyFilePath) async {
-    try {
-      return await File(keyFilePath).exists();
-    } catch (_) {
-      return false;
-    }
-  }
-
-  Future<String?> _ensureManagedKeyFilePath(String? keyFilePath) async {
-    final normalized = _normalizeKeyFilePath(keyFilePath);
-    if (normalized == null || !_usesManagedStorage) {
-      return normalized;
-    }
-    try {
-      final alreadyManaged = await MobileFileStorage.isPathInAppDirectory(
-        filePath: normalized,
-        subdirectory: 'keys',
-      );
-      if (alreadyManaged) {
-        return normalized;
-      }
-
-      return databaseImportService.saveKeyFile(
-        fileName: p.basename(normalized),
-        keyFileBytes: Uint8List(0),
-        selectedPath: normalized,
-      );
-    } catch (_) {
-      return normalized;
-    }
   }
 }

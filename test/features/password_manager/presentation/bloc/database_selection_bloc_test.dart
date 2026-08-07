@@ -1,20 +1,51 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
+import 'package:password_manager/features/password_manager/domain/models/create_database_step.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_dedup_result.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_import_result.dart';
+import 'package:password_manager/features/password_manager/domain/models/database_import_transaction.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/create_database_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/get_active_database_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/resolve_database_duplicate_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/unlock_database_usecase.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/database_selection/database_selection_bloc.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/database_selection/database_selection_event.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/database_selection/database_selection_state.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/database_session_coordinator.dart';
 
+import '../coordinators/fake_database_ports.dart';
+
 void main() {
   group('DatabaseSelectionBloc', () {
-    late _FakeDatabaseSessionCoordinator coordinator;
+    late FakeDatabaseFileRepository fileRepository;
+    late FakeDatabaseSessionRepository sessionRepository;
+    late FakeDatabaseRegistryRepository registryRepository;
+    late FakeDatabaseSecurityRepository securityRepository;
+    late FakeDatabaseSyncRepository syncRepository;
+    late DatabaseSessionCoordinator coordinator;
     late DatabaseSelectionBloc bloc;
 
     setUp(() {
-      coordinator = _FakeDatabaseSessionCoordinator();
+      fileRepository = FakeDatabaseFileRepository();
+      sessionRepository = FakeDatabaseSessionRepository();
+      registryRepository = FakeDatabaseRegistryRepository();
+      securityRepository = FakeDatabaseSecurityRepository();
+      syncRepository = FakeDatabaseSyncRepository();
+      coordinator = DatabaseSessionCoordinator(
+        databaseFileRepository: fileRepository,
+        databaseSessionRepository: sessionRepository,
+        databaseRegistryRepository: registryRepository,
+        databaseSecurityRepository: securityRepository,
+        databaseSyncRepository: syncRepository,
+        getActiveDatabaseUseCase: GetActiveDatabaseUseCase(registryRepository),
+        resolveDatabaseDuplicateUseCase: ResolveDatabaseDuplicateUseCase(
+          registryRepository,
+        ),
+        unlockDatabaseUseCase: UnlockDatabaseUseCase(),
+        createDatabaseUseCase: CreateDatabaseUseCase(
+          databaseFileRepository: fileRepository,
+        ),
+      );
       bloc = DatabaseSelectionBloc(databaseSessionCoordinator: coordinator);
     });
 
@@ -25,14 +56,21 @@ void main() {
     test(
       'emits duplicate decision required then success after resolution',
       () async {
-        final duplicatePrompt = DatabaseDuplicatePrompt(
-          imported: const DatabaseImportResult(
+        fileRepository.existingPaths.addAll([
+          '/tmp/imported.kdbx',
+          '/tmp/existing.kdbx',
+        ]);
+        fileRepository.stageResult = const StagedDatabaseImport(
+          imported: DatabaseImportResult(
             path: '/tmp/imported.kdbx',
             fileName: 'imported.kdbx',
             fileHash: 'abc123',
             sourceType: DatabaseSourceType.local,
           ),
-          existingRecord: DatabaseRecord(
+          preferredFileName: 'imported.kdbx',
+        );
+        registryRepository.records = [
+          DatabaseRecord(
             databaseId: 'db-existing',
             canonicalPath: '/tmp/existing.kdbx',
             displayName: 'existing.kdbx',
@@ -41,21 +79,7 @@ void main() {
             createdAt: DateTime(2026),
             updatedAt: DateTime(2026),
           ),
-          clearCredentials: true,
-        );
-
-        coordinator.selectExistingResult = DatabaseSelectionSessionResult(
-          status: DatabaseSessionStatus.duplicateDecisionRequired,
-          recentDatabasePaths: const ['/tmp/existing.kdbx'],
-          message: 'Duplicate found',
-          duplicatePrompt: duplicatePrompt,
-        );
-        coordinator.resolveDuplicateResult =
-            const DatabaseSelectionSessionResult(
-              status: DatabaseSessionStatus.success,
-              path: '/tmp/imported.kdbx',
-              recentDatabasePaths: ['/tmp/imported.kdbx', '/tmp/existing.kdbx'],
-            );
+        ];
 
         final states = <DatabaseSelectionState>[];
         final sub = bloc.stream.listen(states.add);
@@ -80,21 +104,35 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 20));
 
         expect(states.whereType<DatabaseSelectionSuccess>().length, 1);
-        expect(
-          coordinator.lastResolution,
-          DatabaseDuplicateResolution.keepBoth,
-        );
+        expect(registryRepository.records, hasLength(2));
 
         await sub.cancel();
       },
     );
 
     test('emits success for initial active database', () async {
-      coordinator.checkInitialResult = const DatabaseSelectionSessionResult(
-        status: DatabaseSessionStatus.success,
-        path: '/tmp/b.kdbx',
-        recentDatabasePaths: ['/tmp/a.kdbx', '/tmp/b.kdbx'],
-      );
+      fileRepository.existingPaths.addAll(['/tmp/a.kdbx', '/tmp/b.kdbx']);
+      registryRepository.records = [
+        DatabaseRecord(
+          databaseId: 'db-a',
+          canonicalPath: '/tmp/a.kdbx',
+          displayName: 'a.kdbx',
+          sourceType: DatabaseSourceType.local,
+          createdAt: DateTime(2026),
+          updatedAt: DateTime(2026),
+          lastOpenedAt: DateTime(2026, 1),
+        ),
+        DatabaseRecord(
+          databaseId: 'db-b',
+          canonicalPath: '/tmp/b.kdbx',
+          displayName: 'b.kdbx',
+          sourceType: DatabaseSourceType.local,
+          createdAt: DateTime(2026),
+          updatedAt: DateTime(2026),
+          lastOpenedAt: DateTime(2026, 2),
+        ),
+      ];
+      registryRepository.activeId = 'db-b';
 
       final states = <DatabaseSelectionState>[];
       final sub = bloc.stream.listen(states.add);
@@ -105,152 +143,50 @@ void main() {
       expect(states.any((s) => s is DatabaseSelectionLoading), isTrue);
       final success = states.whereType<DatabaseSelectionSuccess>().single;
       expect(success.path, '/tmp/b.kdbx');
-      expect(success.recentDatabasePaths, ['/tmp/a.kdbx', '/tmp/b.kdbx']);
+      expect(
+        success.items.map((item) => item.canonicalPath),
+        containsAll(['/tmp/a.kdbx', '/tmp/b.kdbx']),
+      );
 
       await sub.cancel();
     });
+
+    test(
+      'CreateDatabaseStep wizard advances only with valid facts and never '
+      'carries a password in state.toString()',
+      () async {
+        final states = <DatabaseSelectionState>[];
+        final sub = bloc.stream.listen(states.add);
+
+        bloc.add(const StartCreateDatabaseFlow());
+        bloc.add(const AdvanceCreateDatabaseStep(fieldsNonEmpty: false));
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        final steps = states.whereType<DatabaseSelectionCreateStep>().toList();
+        expect(steps.first.step, CreateDatabaseStep.nameAndStorage);
+        // Empty fields must not advance the step.
+        expect(steps.last.step, CreateDatabaseStep.nameAndStorage);
+
+        bloc.add(const AdvanceCreateDatabaseStep(fieldsNonEmpty: true));
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(
+          states.whereType<DatabaseSelectionCreateStep>().last.step,
+          CreateDatabaseStep.masterPassword,
+        );
+
+        bloc.add(const GoBackCreateDatabaseStep());
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(
+          states.whereType<DatabaseSelectionCreateStep>().last.step,
+          CreateDatabaseStep.nameAndStorage,
+        );
+
+        for (final state in states) {
+          expect(state.toString(), isNot(contains('super-secret-password')));
+        }
+
+        await sub.cancel();
+      },
+    );
   });
-}
-
-class _FakeDatabaseSessionCoordinator
-    implements DatabaseSessionCoordinatorContract {
-  DatabaseSelectionSessionResult selectExistingResult =
-      const DatabaseSelectionSessionResult(
-        status: DatabaseSessionStatus.unselected,
-        recentDatabasePaths: [],
-      );
-
-  DatabaseSelectionSessionResult resolveDuplicateResult =
-      const DatabaseSelectionSessionResult(
-        status: DatabaseSessionStatus.unselected,
-        recentDatabasePaths: [],
-      );
-
-  DatabaseSelectionSessionResult checkInitialResult =
-      const DatabaseSelectionSessionResult(
-        status: DatabaseSessionStatus.unselected,
-        recentDatabasePaths: [],
-      );
-
-  DatabaseDuplicateResolution? lastResolution;
-
-  @override
-  Future<DatabaseSelectionSessionResult> checkInitialDatabase() async {
-    return checkInitialResult;
-  }
-
-  @override
-  Future<DatabaseSelectionSessionResult> createNewDatabase({
-    required String databaseFileName,
-    required String password,
-    String? keyFilePath,
-    required bool biometricProtectionEnabled,
-    required bool generateKeyFile,
-    String? generatedKeyFilePath,
-  }) async {
-    return const DatabaseSelectionSessionResult(
-      status: DatabaseSessionStatus.unselected,
-      recentDatabasePaths: [],
-    );
-  }
-
-  @override
-  Future<bool> hasStoredMasterPassword() async => false;
-
-  @override
-  Future<Set<String>> getProtectedKeyFilePaths() async => const {};
-
-  @override
-  Future<bool> hasManagedDatabaseNamed(String fileName) async => false;
-
-  @override
-  Future<List<DriveRemoteFile>> listDriveDatabases() async => const [];
-
-  @override
-  Future<UnlockBootstrapResult> initializeUnlock({
-    required String databasePath,
-    required bool biometricAvailable,
-  }) async {
-    return const UnlockBootstrapResult(
-      keyFilePath: null,
-      biometricRequired: false,
-      biometricAvailable: false,
-    );
-  }
-
-  @override
-  Future<DatabaseSelectionSessionResult> openRecentDatabase(String path) async {
-    return const DatabaseSelectionSessionResult(
-      status: DatabaseSessionStatus.unselected,
-      recentDatabasePaths: [],
-    );
-  }
-
-  @override
-  Future<DatabaseSelectionSessionResult> removeRecentDatabase({
-    required String path,
-    required RecentDatabaseRemovalMode mode,
-  }) async {
-    return const DatabaseSelectionSessionResult(
-      status: DatabaseSessionStatus.info,
-      recentDatabasePaths: [],
-      message: 'Removed',
-    );
-  }
-
-  @override
-  Future<DatabaseSelectionSessionResult> resolveDuplicateDecision({
-    required DatabaseDuplicatePrompt duplicatePrompt,
-    required DatabaseDuplicateResolution decision,
-  }) async {
-    lastResolution = decision;
-    return resolveDuplicateResult;
-  }
-
-  @override
-  Future<DatabaseSelectionSessionResult> selectDriveDatabase({
-    required String remoteFileId,
-    required String remoteFileName,
-    required bool overwriteExisting,
-  }) async {
-    return const DatabaseSelectionSessionResult(
-      status: DatabaseSessionStatus.unselected,
-      recentDatabasePaths: [],
-    );
-  }
-
-  @override
-  Future<DatabaseSelectionSessionResult> selectExistingDatabase({
-    required String fileName,
-    String? selectedPath,
-    List<int>? selectedBytes,
-    bool overwriteExisting = false,
-  }) async {
-    return selectExistingResult;
-  }
-
-  @override
-  Future<void> unlockWithManualCredentials({
-    required String databasePath,
-    required String password,
-    required String? keyFilePath,
-  }) async {}
-
-  @override
-  Future<void> unlockWithStoredCredentials({
-    required String databasePath,
-    required String? keyFilePath,
-  }) async {}
-
-  @override
-  Future<void> updateKeyFilePath({
-    required String databasePath,
-    required String? keyFilePath,
-  }) async {}
-
-  @override
-  Future<void> updateBiometricProtection({
-    required String databasePath,
-    required bool enabled,
-  }) async {}
 }

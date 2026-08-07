@@ -1,22 +1,51 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/data/datasources/biometric_data_source.dart';
+import 'package:password_manager/features/password_manager/domain/errors/database_access_failure.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/create_database_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/get_active_database_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/resolve_database_duplicate_usecase.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/database_unlock/database_unlock_bloc.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/database_unlock/database_unlock_event.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/database_unlock/database_unlock_state.dart';
-import 'package:password_manager/features/password_manager/presentation/bloc/database_selection/database_selection_event.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/database_session_coordinator.dart';
-import 'package:password_manager/features/password_manager/domain/models/database_dedup_result.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+
+import '../coordinators/fake_database_ports.dart';
 
 void main() {
   group('DatabaseUnlockBloc', () {
     late _FakeBiometricDataSource biometric;
-    late _FakeDatabaseSessionCoordinator coordinator;
+    late FakeDatabaseFileRepository fileRepository;
+    late FakeDatabaseSessionRepository sessionRepository;
+    late FakeDatabaseRegistryRepository registryRepository;
+    late FakeDatabaseSecurityRepository securityRepository;
+    late FakeDatabaseSyncRepository syncRepository;
+    late FakeUnlockDatabaseUseCase unlockUseCase;
+    late DatabaseSessionCoordinator coordinator;
     late DatabaseUnlockBloc bloc;
 
     setUp(() {
       biometric = _FakeBiometricDataSource();
-      coordinator = _FakeDatabaseSessionCoordinator();
+      fileRepository = FakeDatabaseFileRepository();
+      sessionRepository = FakeDatabaseSessionRepository();
+      registryRepository = FakeDatabaseRegistryRepository();
+      securityRepository = FakeDatabaseSecurityRepository();
+      syncRepository = FakeDatabaseSyncRepository();
+      unlockUseCase = FakeUnlockDatabaseUseCase();
+      coordinator = DatabaseSessionCoordinator(
+        databaseFileRepository: fileRepository,
+        databaseSessionRepository: sessionRepository,
+        databaseRegistryRepository: registryRepository,
+        databaseSecurityRepository: securityRepository,
+        databaseSyncRepository: syncRepository,
+        getActiveDatabaseUseCase: GetActiveDatabaseUseCase(registryRepository),
+        resolveDatabaseDuplicateUseCase: ResolveDatabaseDuplicateUseCase(
+          registryRepository,
+        ),
+        unlockDatabaseUseCase: unlockUseCase,
+        createDatabaseUseCase: CreateDatabaseUseCase(
+          databaseFileRepository: fileRepository,
+        ),
+      );
       bloc = DatabaseUnlockBloc(
         databasePath: '/tmp/vault.kdbx',
         biometricDataSource: biometric,
@@ -31,12 +60,6 @@ void main() {
     test(
       'initializes and unlocks manually when biometric not required',
       () async {
-        coordinator.bootstrap = const UnlockBootstrapResult(
-          keyFilePath: null,
-          biometricRequired: false,
-          biometricAvailable: false,
-        );
-
         final states = <DatabaseUnlockState>[];
         final sub = bloc.stream.listen(states.add);
 
@@ -44,6 +67,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 20));
 
         expect(states.any((s) => s.isLoading), isTrue);
+        expect(states.last.phase, UnlockPhase.ready);
         expect(states.last.biometricVerified, isTrue);
 
         bloc.add(
@@ -54,21 +78,20 @@ void main() {
         );
         await Future<void>.delayed(const Duration(milliseconds: 20));
 
+        // C-4: `decrypting` is entered before the await, then `unlocked`.
+        expect(states.map((s) => s.phase), contains(UnlockPhase.decrypting));
         expect(states.last.unlocked, isTrue);
-        expect(coordinator.manualUnlockCalls, 1);
+        expect(unlockUseCase.callCount, 1);
 
         await sub.cancel();
       },
     );
 
     test(
-      'blocks manual unlock if biometric gate is required and not verified',
+      'retrying failed biometric authentication does not unlock and leaves '
+      'the vault untouched',
       () async {
-        coordinator.bootstrap = const UnlockBootstrapResult(
-          keyFilePath: null,
-          biometricRequired: true,
-          biometricAvailable: true,
-        );
+        biometric.available = true;
         biometric.authenticateResult = false;
 
         final states = <DatabaseUnlockState>[];
@@ -76,7 +99,50 @@ void main() {
 
         bloc.add(const InitializeDatabaseUnlock());
         await Future<void>.delayed(const Duration(milliseconds: 20));
+        bloc.add(const RetryBiometricAuthentication());
+        await Future<void>.delayed(const Duration(milliseconds: 20));
 
+        expect(states.last.biometricVerified, isFalse);
+        expect(unlockUseCase.callCount, 0);
+
+        await sub.cancel();
+      },
+    );
+
+    test('typed InvalidCredentialsFailure keeps phase ready with copy', () async {
+      unlockUseCase.error = const InvalidCredentialsFailure();
+
+      final states = <DatabaseUnlockState>[];
+      final sub = bloc.stream.listen(states.add);
+
+      bloc.add(const InitializeDatabaseUnlock());
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      bloc.add(
+        const UnlockWithManualCredentials(
+          password: 'wrong',
+          keyFilePath: null,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(states.last.phase, UnlockPhase.ready);
+      expect(states.last.failure, isA<InvalidCredentialsFailure>());
+      expect(states.last.errorMessage, 'Incorrect master password or key file.');
+
+      await sub.cancel();
+    });
+
+    test(
+      'typed CorruptDatabaseFailure moves to failure phase, never says '
+      'wrong password',
+      () async {
+        unlockUseCase.error = const CorruptDatabaseFailure('vault.kdbx');
+
+        final states = <DatabaseUnlockState>[];
+        final sub = bloc.stream.listen(states.add);
+
+        bloc.add(const InitializeDatabaseUnlock());
+        await Future<void>.delayed(const Duration(milliseconds: 20));
         bloc.add(
           const UnlockWithManualCredentials(
             password: 'secret',
@@ -85,20 +151,37 @@ void main() {
         );
         await Future<void>.delayed(const Duration(milliseconds: 20));
 
-        expect(
-          states.last.errorMessage,
-          contains('Use biometric authentication'),
-        );
-        expect(coordinator.manualUnlockCalls, 0);
+        expect(states.last.phase, UnlockPhase.failure);
+        expect(states.last.failure, isA<CorruptDatabaseFailure>());
+        expect(states.last.errorMessage, isNot(contains('password')));
 
         await sub.cancel();
       },
     );
+
+    test('no fake progress: progress stays null through decrypting', () async {
+      final states = <DatabaseUnlockState>[];
+      final sub = bloc.stream.listen(states.add);
+
+      bloc.add(const InitializeDatabaseUnlock());
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      bloc.add(
+        const UnlockWithManualCredentials(
+          password: 'secret',
+          keyFilePath: null,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(states.every((s) => s.progress == null), isTrue);
+
+      await sub.cancel();
+    });
   });
 }
 
 class _FakeBiometricDataSource implements BiometricDataSource {
-  bool available = true;
+  bool available = false;
   bool authenticateResult = true;
 
   @override
@@ -109,119 +192,5 @@ class _FakeBiometricDataSource implements BiometricDataSource {
   @override
   Future<bool> isBiometricAvailable() async {
     return available;
-  }
-}
-
-class _FakeDatabaseSessionCoordinator
-    implements DatabaseSessionCoordinatorContract {
-  UnlockBootstrapResult bootstrap = const UnlockBootstrapResult(
-    keyFilePath: null,
-    biometricRequired: false,
-    biometricAvailable: false,
-  );
-  int manualUnlockCalls = 0;
-
-  @override
-  Future<UnlockBootstrapResult> initializeUnlock({
-    required String databasePath,
-    required bool biometricAvailable,
-  }) async {
-    return bootstrap;
-  }
-
-  @override
-  Future<bool> hasStoredMasterPassword() async => false;
-
-  @override
-  Future<Set<String>> getProtectedKeyFilePaths() async => const {};
-
-  @override
-  Future<bool> hasManagedDatabaseNamed(String fileName) async => false;
-
-  @override
-  Future<List<DriveRemoteFile>> listDriveDatabases() async => const [];
-
-  @override
-  Future<void> unlockWithManualCredentials({
-    required String databasePath,
-    required String password,
-    required String? keyFilePath,
-  }) async {
-    manualUnlockCalls += 1;
-  }
-
-  @override
-  Future<void> unlockWithStoredCredentials({
-    required String databasePath,
-    required String? keyFilePath,
-  }) async {}
-
-  @override
-  Future<void> updateKeyFilePath({
-    required String databasePath,
-    required String? keyFilePath,
-  }) async {}
-
-  @override
-  Future<void> updateBiometricProtection({
-    required String databasePath,
-    required bool enabled,
-  }) async {}
-
-  @override
-  Future<DatabaseSelectionSessionResult> checkInitialDatabase() async {
-    throw UnimplementedError();
-  }
-
-  @override
-  Future<DatabaseSelectionSessionResult> createNewDatabase({
-    required String databaseFileName,
-    required String password,
-    String? keyFilePath,
-    required bool biometricProtectionEnabled,
-    required bool generateKeyFile,
-    String? generatedKeyFilePath,
-  }) async {
-    throw UnimplementedError();
-  }
-
-  @override
-  Future<DatabaseSelectionSessionResult> openRecentDatabase(String path) async {
-    throw UnimplementedError();
-  }
-
-  @override
-  Future<DatabaseSelectionSessionResult> removeRecentDatabase({
-    required String path,
-    required RecentDatabaseRemovalMode mode,
-  }) async {
-    throw UnimplementedError();
-  }
-
-  @override
-  Future<DatabaseSelectionSessionResult> resolveDuplicateDecision({
-    required DatabaseDuplicatePrompt duplicatePrompt,
-    required DatabaseDuplicateResolution decision,
-  }) async {
-    throw UnimplementedError();
-  }
-
-  @override
-  Future<DatabaseSelectionSessionResult> selectDriveDatabase({
-    required String remoteFileId,
-    required String remoteFileName,
-    required bool overwriteExisting,
-  }) async {
-    throw UnimplementedError();
-  }
-
-  @override
-  Future<DatabaseSelectionSessionResult> selectExistingDatabase({
-    required String fileName,
-    String? selectedPath,
-    List<int>? selectedBytes,
-    bool overwriteExisting = false,
-  }) async {
-    throw UnimplementedError();
   }
 }

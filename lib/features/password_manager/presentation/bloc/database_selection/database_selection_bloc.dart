@@ -1,10 +1,28 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:loggy/loggy.dart';
 
+import '../../../domain/errors/database_access_failure.dart';
+import '../../../domain/models/create_database_step.dart';
 import '../../../domain/models/database_dedup_result.dart';
 import '../../coordinators/database_session_coordinator.dart';
 import 'database_selection_event.dart';
 import 'database_selection_state.dart';
+
+/// Maps a typed [DatabaseAccessFailure] to non-secret, basename-only UI copy
+/// (C-3). Never renders a raw path or `e.toString()`.
+String failureMessage(DatabaseAccessFailure failure) => switch (failure) {
+  DatabaseFileMissingFailure(:final basename) =>
+    basename.isEmpty
+        ? 'Database file was not found.'
+        : 'Database file "$basename" was not found.',
+  InvalidDatabaseFileFailure(:final basename) =>
+    '"$basename" is not a valid KeyVault database file.',
+  CorruptDatabaseFailure(:final basename) =>
+    '"$basename" could not be read. The file may be corrupted.',
+  KeyFileMissingFailure() =>
+    'Key file not found. Locate or select the required key file.',
+  InvalidCredentialsFailure() => 'Incorrect master password or key file.',
+};
 
 class DatabaseSelectionBloc
     extends Bloc<DatabaseSelectionEvent, DatabaseSelectionState> {
@@ -17,9 +35,14 @@ class DatabaseSelectionBloc
     on<SelectDriveDatabase>(_onSelectDriveDatabase);
     on<RemoveRecentDatabase>(_onRemoveRecentDatabase);
     on<ResolveDuplicateDecision>(_onResolveDuplicateDecision);
+    on<LocateMissingDatabase>(_onLocateMissingDatabase);
+    on<StartCreateDatabaseFlow>(_onStartCreateDatabaseFlow);
+    on<AdvanceCreateDatabaseStep>(_onAdvanceCreateDatabaseStep);
+    on<GoBackCreateDatabaseStep>(_onGoBackCreateDatabaseStep);
+    on<CancelCreateDatabaseFlow>(_onCancelCreateDatabaseFlow);
   }
 
-  final DatabaseSessionCoordinatorContract databaseSessionCoordinator;
+  final DatabaseSessionCoordinator databaseSessionCoordinator;
   DatabaseDuplicatePrompt? _pendingDuplicatePrompt;
 
   Future<void> _onCheckInitialDatabase(
@@ -33,7 +56,7 @@ class DatabaseSelectionBloc
       _emitResult(emit, result);
     } catch (e, st) {
       logError('Failed to check initial database selection state.', e, st);
-      _safeEmit(emit, DatabaseSelectionError(e.toString()));
+      _emitFailure(emit, e, items: state.items);
       _safeEmit(emit, const DatabaseSelectionUnselected());
     }
   }
@@ -42,10 +65,7 @@ class DatabaseSelectionBloc
     SelectExistingDatabase event,
     Emitter<DatabaseSelectionState> emit,
   ) async {
-    _safeEmit(
-      emit,
-      DatabaseSelectionLoading(recentDatabasePaths: state.recentDatabasePaths),
-    );
+    _safeEmit(emit, DatabaseSelectionLoading(items: state.items));
     try {
       final result = await databaseSessionCoordinator.selectExistingDatabase(
         fileName: event.fileName,
@@ -57,19 +77,8 @@ class DatabaseSelectionBloc
       _emitResult(emit, result);
     } catch (e, st) {
       logError('Failed while selecting an existing database file.', e, st);
-      _safeEmit(
-        emit,
-        DatabaseSelectionError(
-          e.toString(),
-          recentDatabasePaths: state.recentDatabasePaths,
-        ),
-      );
-      _safeEmit(
-        emit,
-        DatabaseSelectionUnselected(
-          recentDatabasePaths: state.recentDatabasePaths,
-        ),
-      );
+      _emitFailure(emit, e, items: state.items);
+      _safeEmit(emit, DatabaseSelectionUnselected(items: state.items));
     }
   }
 
@@ -77,10 +86,7 @@ class DatabaseSelectionBloc
     OpenRecentDatabase event,
     Emitter<DatabaseSelectionState> emit,
   ) async {
-    _safeEmit(
-      emit,
-      DatabaseSelectionLoading(recentDatabasePaths: state.recentDatabasePaths),
-    );
+    _safeEmit(emit, DatabaseSelectionLoading(items: state.items));
     try {
       final result = await databaseSessionCoordinator.openRecentDatabase(
         event.path,
@@ -89,19 +95,26 @@ class DatabaseSelectionBloc
       _emitResult(emit, result);
     } catch (e, st) {
       logError('Failed while opening recent database file.', e, st);
-      _safeEmit(
-        emit,
-        DatabaseSelectionError(
-          e.toString(),
-          recentDatabasePaths: state.recentDatabasePaths,
-        ),
+      _emitFailure(emit, e, items: state.items);
+      _safeEmit(emit, DatabaseSelectionUnselected(items: state.items));
+    }
+  }
+
+  Future<void> _onLocateMissingDatabase(
+    LocateMissingDatabase event,
+    Emitter<DatabaseSelectionState> emit,
+  ) async {
+    _safeEmit(emit, DatabaseSelectionLoading(items: state.items));
+    try {
+      final result = await databaseSessionCoordinator.locateMissingDatabase(
+        databaseId: event.databaseId,
+        selectedPath: event.selectedPath,
       );
-      _safeEmit(
-        emit,
-        DatabaseSelectionUnselected(
-          recentDatabasePaths: state.recentDatabasePaths,
-        ),
-      );
+      _emitResult(emit, result);
+    } catch (e, st) {
+      logError('Failed while locating a missing database file.', e, st);
+      _emitFailure(emit, e, items: state.items);
+      _safeEmit(emit, DatabaseSelectionUnselected(items: state.items));
     }
   }
 
@@ -109,10 +122,7 @@ class DatabaseSelectionBloc
     CreateNewDatabase event,
     Emitter<DatabaseSelectionState> emit,
   ) async {
-    _safeEmit(
-      emit,
-      DatabaseSelectionLoading(recentDatabasePaths: state.recentDatabasePaths),
-    );
+    _safeEmit(emit, DatabaseSelectionLoading(items: state.items));
     try {
       final result = await databaseSessionCoordinator.createNewDatabase(
         databaseFileName: event.databaseFileName,
@@ -126,19 +136,8 @@ class DatabaseSelectionBloc
       _emitResult(emit, result);
     } catch (e, st) {
       logError('Failed while creating a new database file.', e, st);
-      _safeEmit(
-        emit,
-        DatabaseSelectionError(
-          e.toString(),
-          recentDatabasePaths: state.recentDatabasePaths,
-        ),
-      );
-      _safeEmit(
-        emit,
-        DatabaseSelectionUnselected(
-          recentDatabasePaths: state.recentDatabasePaths,
-        ),
-      );
+      _emitFailure(emit, e, items: state.items);
+      _safeEmit(emit, DatabaseSelectionUnselected(items: state.items));
     }
   }
 
@@ -146,10 +145,7 @@ class DatabaseSelectionBloc
     SelectDriveDatabase event,
     Emitter<DatabaseSelectionState> emit,
   ) async {
-    _safeEmit(
-      emit,
-      DatabaseSelectionLoading(recentDatabasePaths: state.recentDatabasePaths),
-    );
+    _safeEmit(emit, DatabaseSelectionLoading(items: state.items));
     try {
       final result = await databaseSessionCoordinator.selectDriveDatabase(
         remoteFileId: event.remoteFileId,
@@ -160,19 +156,8 @@ class DatabaseSelectionBloc
       _emitResult(emit, result);
     } catch (e, st) {
       logError('Failed while selecting database from Drive.', e, st);
-      _safeEmit(
-        emit,
-        DatabaseSelectionError(
-          e.toString(),
-          recentDatabasePaths: state.recentDatabasePaths,
-        ),
-      );
-      _safeEmit(
-        emit,
-        DatabaseSelectionUnselected(
-          recentDatabasePaths: state.recentDatabasePaths,
-        ),
-      );
+      _emitFailure(emit, e, items: state.items);
+      _safeEmit(emit, DatabaseSelectionUnselected(items: state.items));
     }
   }
 
@@ -180,10 +165,7 @@ class DatabaseSelectionBloc
     RemoveRecentDatabase event,
     Emitter<DatabaseSelectionState> emit,
   ) async {
-    _safeEmit(
-      emit,
-      DatabaseSelectionLoading(recentDatabasePaths: state.recentDatabasePaths),
-    );
+    _safeEmit(emit, DatabaseSelectionLoading(items: state.items));
     try {
       final result = await databaseSessionCoordinator.removeRecentDatabase(
         path: event.path,
@@ -191,27 +173,11 @@ class DatabaseSelectionBloc
       );
       _emitResult(emit, result);
       _pendingDuplicatePrompt = null;
-      _safeEmit(
-        emit,
-        DatabaseSelectionUnselected(
-          recentDatabasePaths: result.recentDatabasePaths,
-        ),
-      );
+      _safeEmit(emit, DatabaseSelectionUnselected(items: result.items));
     } catch (e, st) {
       logError('Failed while removing recent database.', e, st);
-      _safeEmit(
-        emit,
-        DatabaseSelectionError(
-          e.toString(),
-          recentDatabasePaths: state.recentDatabasePaths,
-        ),
-      );
-      _safeEmit(
-        emit,
-        DatabaseSelectionUnselected(
-          recentDatabasePaths: state.recentDatabasePaths,
-        ),
-      );
+      _emitFailure(emit, e, items: state.items);
+      _safeEmit(emit, DatabaseSelectionUnselected(items: state.items));
     }
   }
 
@@ -225,16 +191,13 @@ class DatabaseSelectionBloc
         emit,
         DatabaseSelectionError(
           'No pending duplicate operation found.',
-          recentDatabasePaths: state.recentDatabasePaths,
+          items: state.items,
         ),
       );
       return;
     }
 
-    _safeEmit(
-      emit,
-      DatabaseSelectionLoading(recentDatabasePaths: state.recentDatabasePaths),
-    );
+    _safeEmit(emit, DatabaseSelectionLoading(items: state.items));
     try {
       final result = await databaseSessionCoordinator.resolveDuplicateDecision(
         duplicatePrompt: pending,
@@ -246,20 +209,87 @@ class DatabaseSelectionBloc
       _emitResult(emit, result);
     } catch (e, st) {
       logError('Failed while resolving duplicate decision.', e, st);
+      _emitFailure(emit, e, items: state.items);
+      _safeEmit(emit, DatabaseSelectionUnselected(items: state.items));
+    }
+  }
+
+  void _onStartCreateDatabaseFlow(
+    StartCreateDatabaseFlow event,
+    Emitter<DatabaseSelectionState> emit,
+  ) {
+    _safeEmit(
+      emit,
+      DatabaseSelectionCreateStep(
+        CreateDatabaseStep.nameAndStorage,
+        items: state.items,
+      ),
+    );
+  }
+
+  void _onAdvanceCreateDatabaseStep(
+    AdvanceCreateDatabaseStep event,
+    Emitter<DatabaseSelectionState> emit,
+  ) {
+    final current = state;
+    final currentStep = current is DatabaseSelectionCreateStep
+        ? current.step
+        : CreateDatabaseStep.nameAndStorage;
+    final nextStep = databaseSessionCoordinator.resolveCreateDatabaseStepAdvance(
+      current: currentStep,
+      fieldsNonEmpty: event.fieldsNonEmpty,
+      confirmationMatches: event.confirmationMatches,
+    );
+    _safeEmit(emit, DatabaseSelectionCreateStep(nextStep, items: state.items));
+  }
+
+  void _onGoBackCreateDatabaseStep(
+    GoBackCreateDatabaseStep event,
+    Emitter<DatabaseSelectionState> emit,
+  ) {
+    final current = state;
+    final currentStep = current is DatabaseSelectionCreateStep
+        ? current.step
+        : CreateDatabaseStep.nameAndStorage;
+    final previousStep = databaseSessionCoordinator.resolveCreateDatabaseStepBack(
+      currentStep,
+    );
+    _safeEmit(
+      emit,
+      DatabaseSelectionCreateStep(previousStep, items: state.items),
+    );
+  }
+
+  void _onCancelCreateDatabaseFlow(
+    CancelCreateDatabaseFlow event,
+    Emitter<DatabaseSelectionState> emit,
+  ) {
+    _safeEmit(emit, DatabaseSelectionUnselected(items: state.items));
+  }
+
+  void _emitFailure(
+    Emitter<DatabaseSelectionState> emit,
+    Object error, {
+    required List<dynamic> items,
+  }) {
+    if (error is DatabaseAccessFailure) {
       _safeEmit(
         emit,
         DatabaseSelectionError(
-          e.toString(),
-          recentDatabasePaths: state.recentDatabasePaths,
+          failureMessage(error),
+          failure: error,
+          items: state.items,
         ),
       );
-      _safeEmit(
-        emit,
-        DatabaseSelectionUnselected(
-          recentDatabasePaths: state.recentDatabasePaths,
-        ),
-      );
+      return;
     }
+    _safeEmit(
+      emit,
+      DatabaseSelectionError(
+        'Unable to complete the requested database operation.',
+        items: state.items,
+      ),
+    );
   }
 
   void _emitResult(
@@ -273,24 +303,19 @@ class DatabaseSelectionBloc
             emit,
             DatabaseSelectionError(
               'Invalid database path received from session coordinator.',
-              recentDatabasePaths: result.recentDatabasePaths,
+              items: result.items,
             ),
           );
           _safeEmit(
             emit,
-            DatabaseSelectionUnselected(
-              recentDatabasePaths: result.recentDatabasePaths,
-            ),
+            DatabaseSelectionUnselected(items: result.items),
           );
           return;
         }
         if (result.message != null && result.message!.trim().isNotEmpty) {
           _safeEmit(
             emit,
-            DatabaseSelectionInfo(
-              result.message!,
-              recentDatabasePaths: result.recentDatabasePaths,
-            ),
+            DatabaseSelectionInfo(result.message!, items: result.items),
           );
         }
         _safeEmit(
@@ -299,7 +324,7 @@ class DatabaseSelectionBloc
             result.path!,
             userMessage: result.message,
             promptBiometricSetup: result.promptBiometricSetup,
-            recentDatabasePaths: result.recentDatabasePaths,
+            items: result.items,
           ),
         );
         _pendingDuplicatePrompt = null;
@@ -308,30 +333,17 @@ class DatabaseSelectionBloc
           emit,
           DatabaseSelectionError(
             result.message ?? 'Unknown database selection error.',
-            recentDatabasePaths: result.recentDatabasePaths,
+            items: result.items,
           ),
         );
-        _safeEmit(
-          emit,
-          DatabaseSelectionUnselected(
-            recentDatabasePaths: result.recentDatabasePaths,
-          ),
-        );
+        _safeEmit(emit, DatabaseSelectionUnselected(items: result.items));
       case DatabaseSessionStatus.info:
         _safeEmit(
           emit,
-          DatabaseSelectionInfo(
-            result.message ?? '',
-            recentDatabasePaths: result.recentDatabasePaths,
-          ),
+          DatabaseSelectionInfo(result.message ?? '', items: result.items),
         );
       case DatabaseSessionStatus.unselected:
-        _safeEmit(
-          emit,
-          DatabaseSelectionUnselected(
-            recentDatabasePaths: result.recentDatabasePaths,
-          ),
-        );
+        _safeEmit(emit, DatabaseSelectionUnselected(items: result.items));
       case DatabaseSessionStatus.duplicateDecisionRequired:
         final duplicatePrompt = result.duplicatePrompt;
         if (duplicatePrompt == null) {
@@ -339,7 +351,7 @@ class DatabaseSelectionBloc
             emit,
             DatabaseSelectionError(
               'Duplicate decision required but no prompt data was provided.',
-              recentDatabasePaths: result.recentDatabasePaths,
+              items: result.items,
             ),
           );
           return;
@@ -352,7 +364,7 @@ class DatabaseSelectionBloc
             message:
                 result.message ??
                 'Duplicate database detected. Choose how to continue.',
-            recentDatabasePaths: result.recentDatabasePaths,
+            items: result.items,
           ),
         );
     }
