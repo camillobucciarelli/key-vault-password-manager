@@ -10,7 +10,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:password_manager/core/utils/clipboard_guard.dart';
 import 'package:password_manager/features/password_manager/presentation/screens/vault_screen.dart';
+import 'package:password_manager/injection_container.dart' as di;
 import 'package:path/path.dart' as p;
 
 import '../features/password_manager/presentation/screens/vault/entry_editor_generator_test_utils.dart';
@@ -194,6 +196,10 @@ void main() {
     // Let the toast's own 1600ms auto-hide timer fire before tearing down
     // (it's a top-level global timer, not cancelled by disposing the tree).
     await tester.pump(const Duration(milliseconds: 1700));
+    // ClipboardGuard is a DI app-lifetime singleton (see spec-004 fix):
+    // its 30s clear timer outlives this screen's dispose(), so it must be
+    // cancelled explicitly or flutter_test's pending-timer check fails.
+    di.sl<ClipboardGuard>().dispose();
     await unmount(tester);
   });
 

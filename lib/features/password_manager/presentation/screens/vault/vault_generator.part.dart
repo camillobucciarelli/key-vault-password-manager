@@ -323,14 +323,6 @@ class _GeneratorSheetScaffold extends StatefulWidget {
 }
 
 class _GeneratorSheetScaffoldState extends State<_GeneratorSheetScaffold> {
-  final _clipboardGuard = ClipboardGuard();
-
-  @override
-  void dispose() {
-    _clipboardGuard.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
@@ -357,7 +349,7 @@ class _GeneratorSheetScaffoldState extends State<_GeneratorSheetScaffold> {
             useLabel: widget.standalone ? 'Copy password' : 'Use this password',
             onUse: (password) async {
               if (widget.standalone) {
-                await _clipboardGuard.copy(password);
+                await di.sl<ClipboardGuard>().copy(password);
                 if (context.mounted) {
                   _showCenteredCopyToast(context, 'Copied password.');
                 }
