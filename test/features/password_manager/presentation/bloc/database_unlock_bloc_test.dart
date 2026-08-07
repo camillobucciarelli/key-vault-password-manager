@@ -159,6 +159,46 @@ void main() {
       },
     );
 
+    test(
+      'a subsequent generic failure clears a previous typed failure '
+      '(regression: stale typed field error must not stick around)',
+      () async {
+        unlockUseCase.error = const InvalidCredentialsFailure();
+
+        final states = <DatabaseUnlockState>[];
+        final sub = bloc.stream.listen(states.add);
+
+        bloc.add(const InitializeDatabaseUnlock());
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        bloc.add(
+          const UnlockWithManualCredentials(
+            password: 'wrong',
+            keyFilePath: null,
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        expect(states.last.failure, isA<InvalidCredentialsFailure>());
+
+        unlockUseCase.error = Exception('boom');
+        bloc.add(
+          const UnlockWithManualCredentials(
+            password: 'wrong-again',
+            keyFilePath: null,
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        expect(states.last.failure, isNull);
+        expect(
+          states.last.errorMessage,
+          'Unable to unlock database with provided credentials.',
+        );
+
+        await sub.cancel();
+      },
+    );
+
     test('no fake progress: progress stays null through decrypting', () async {
       final states = <DatabaseUnlockState>[];
       final sub = bloc.stream.listen(states.add);

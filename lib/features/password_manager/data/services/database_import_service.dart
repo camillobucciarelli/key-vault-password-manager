@@ -395,10 +395,14 @@ class DatabaseImportService implements DatabaseFileRepository {
         return normalized;
       }
 
-      return saveKeyFile(
-        fileName: p.basename(normalized),
-        keyFileBytes: Uint8List(0),
-        selectedPath: normalized,
+      if (!await File(normalized).exists()) {
+        return normalized;
+      }
+
+      return MobileFileStorage.copyFileToAppDirectory(
+        sourcePath: normalized,
+        fallbackFileName: p.basename(normalized),
+        subdirectory: 'keys',
       );
     } catch (_) {
       return normalized;

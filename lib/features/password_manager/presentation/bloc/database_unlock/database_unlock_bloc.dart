@@ -305,6 +305,7 @@ class DatabaseUnlockBloc
       emit,
       state.copyWith(
         phase: genericPhase,
+        clearError: true,
         errorMessage:
             fallback ?? 'Unable to complete the requested operation.',
       ),

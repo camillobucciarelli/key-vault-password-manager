@@ -56,7 +56,7 @@ class DatabaseSelectionBloc
       _emitResult(emit, result);
     } catch (e, st) {
       logError('Failed to check initial database selection state.', e, st);
-      _emitFailure(emit, e, items: state.items);
+      _emitFailure(emit, e);
       _safeEmit(emit, const DatabaseSelectionUnselected());
     }
   }
@@ -77,7 +77,7 @@ class DatabaseSelectionBloc
       _emitResult(emit, result);
     } catch (e, st) {
       logError('Failed while selecting an existing database file.', e, st);
-      _emitFailure(emit, e, items: state.items);
+      _emitFailure(emit, e);
       _safeEmit(emit, DatabaseSelectionUnselected(items: state.items));
     }
   }
@@ -95,7 +95,7 @@ class DatabaseSelectionBloc
       _emitResult(emit, result);
     } catch (e, st) {
       logError('Failed while opening recent database file.', e, st);
-      _emitFailure(emit, e, items: state.items);
+      _emitFailure(emit, e);
       _safeEmit(emit, DatabaseSelectionUnselected(items: state.items));
     }
   }
@@ -113,7 +113,7 @@ class DatabaseSelectionBloc
       _emitResult(emit, result);
     } catch (e, st) {
       logError('Failed while locating a missing database file.', e, st);
-      _emitFailure(emit, e, items: state.items);
+      _emitFailure(emit, e);
       _safeEmit(emit, DatabaseSelectionUnselected(items: state.items));
     }
   }
@@ -136,7 +136,7 @@ class DatabaseSelectionBloc
       _emitResult(emit, result);
     } catch (e, st) {
       logError('Failed while creating a new database file.', e, st);
-      _emitFailure(emit, e, items: state.items);
+      _emitFailure(emit, e);
       _safeEmit(emit, DatabaseSelectionUnselected(items: state.items));
     }
   }
@@ -156,7 +156,7 @@ class DatabaseSelectionBloc
       _emitResult(emit, result);
     } catch (e, st) {
       logError('Failed while selecting database from Drive.', e, st);
-      _emitFailure(emit, e, items: state.items);
+      _emitFailure(emit, e);
       _safeEmit(emit, DatabaseSelectionUnselected(items: state.items));
     }
   }
@@ -176,7 +176,7 @@ class DatabaseSelectionBloc
       _safeEmit(emit, DatabaseSelectionUnselected(items: result.items));
     } catch (e, st) {
       logError('Failed while removing recent database.', e, st);
-      _emitFailure(emit, e, items: state.items);
+      _emitFailure(emit, e);
       _safeEmit(emit, DatabaseSelectionUnselected(items: state.items));
     }
   }
@@ -209,7 +209,7 @@ class DatabaseSelectionBloc
       _emitResult(emit, result);
     } catch (e, st) {
       logError('Failed while resolving duplicate decision.', e, st);
-      _emitFailure(emit, e, items: state.items);
+      _emitFailure(emit, e);
       _safeEmit(emit, DatabaseSelectionUnselected(items: state.items));
     }
   }
@@ -267,11 +267,7 @@ class DatabaseSelectionBloc
     _safeEmit(emit, DatabaseSelectionUnselected(items: state.items));
   }
 
-  void _emitFailure(
-    Emitter<DatabaseSelectionState> emit,
-    Object error, {
-    required List<dynamic> items,
-  }) {
+  void _emitFailure(Emitter<DatabaseSelectionState> emit, Object error) {
     if (error is DatabaseAccessFailure) {
       _safeEmit(
         emit,
