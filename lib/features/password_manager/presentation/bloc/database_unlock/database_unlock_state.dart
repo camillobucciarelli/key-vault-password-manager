@@ -94,7 +94,7 @@ class DatabaseUnlockState extends Equatable {
       biometricPrompted: biometricPrompted ?? this.biometricPrompted,
       biometricVerified: biometricVerified ?? this.biometricVerified,
       failure: clearError ? null : failure ?? this.failure,
-      errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
+      errorMessage: errorMessage ?? (clearError ? null : this.errorMessage),
       progress: clearProgress ? null : progress ?? this.progress,
     );
   }
