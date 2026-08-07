@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/organic-65909d1a-d72b-4efc-bf5f-af616dd5b6cf/styles.css">
+<script src="_ds/organic-65909d1a-d72b-4efc-bf5f-af616dd5b6cf/_ds_bundle.js"></script>
+<style>
+body{margin:0;background:var(--color-neutral-800);color:var(--color-neutral-100);font-family:var(--font-body)}
+a{color:var(--color-accent-300);text-decoration:none}
+a:hover{color:var(--color-accent-200)}
+.dv-turn{padding:44px 48px 40px}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 6px}
+.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:var(--color-neutral-100);color:var(--color-neutral-900);border-radius:6px}
+.dv-tname{font-family:var(--font-heading);font-size:20px}
+.opts{display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start;margin-top:24px}
+.item{flex:none;display:flex;flex-direction:column;gap:9px;width:390px}
+.st{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600}
+.cap{font-size:12px;color:color-mix(in srgb, #f9f4ed 60%, transparent);line-height:1.5;margin:0}
+.ph{width:390px;height:844px;border-radius:46px;background:var(--color-neutral-900);color:var(--color-neutral-100);box-shadow:0 12px 32px rgba(0,0,0,.5);overflow:hidden;display:flex;flex-direction:column;position:relative}
+.sbar{height:52px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 26px 6px;font-size:13px;font-weight:600}
+.h1{font-family:var(--font-heading);font-size:28px;line-height:1.14}
+.sub{font-size:13.5px;color:color-mix(in srgb, #f9f4ed 58%, transparent);line-height:1.45}
+.lbl{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:color-mix(in srgb, #f9f4ed 50%, transparent)}
+.frow{padding:13px 16px;border-radius:22px;background:var(--color-neutral-800);display:flex;align-items:center;gap:12px}
+.srch{display:flex;align-items:center;gap:10px;height:46px;padding:0 16px;border-radius:999px;background:var(--color-neutral-800);color:color-mix(in srgb, #f9f4ed 52%, transparent);font-size:14.5px}
+.ic{width:36px;height:36px;flex:none;border-radius:999px;display:grid;place-items:center;color:color-mix(in srgb, #f9f4ed 72%, transparent);background:var(--color-neutral-800)}
+.sq{width:40px;height:40px;flex:none;border-radius:14px;display:grid;place-items:center}
+.av{width:38px;height:38px;flex:none;border-radius:999px;background:var(--color-accent-800);color:var(--color-accent-200);display:grid;place-items:center;font-family:var(--font-heading);font-size:15px}
+.pill{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:52px;border-radius:999px;font-family:var(--font-heading);font-size:15px}
+.pillp{background:var(--color-accent-300);color:var(--color-accent-900)}
+.pills{border:1px solid color-mix(in srgb, #f9f4ed 20%, transparent);color:var(--color-neutral-100)}
+.chip{flex:none;display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:999px;font-size:13px;background:var(--color-neutral-800);color:color-mix(in srgb, #f9f4ed 78%, transparent)}
+.chipOn{background:var(--color-accent-300);color:var(--color-accent-900)}
+.tabbar{flex:none;height:82px;padding:10px 14px 22px;display:flex;align-items:flex-start;gap:4px;background:var(--color-neutral-800)}
+.tabi{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;color:color-mix(in srgb, #f9f4ed 52%, transparent)}
+.sheet{position:absolute;left:0;right:0;bottom:0;border-radius:32px 32px 0 0;background:var(--color-neutral-800);box-shadow:0 -12px 32px rgba(0,0,0,.45);padding:20px 18px 26px;display:flex;flex-direction:column;gap:14px}
+.veil{position:absolute;inset:0;background:rgba(0,0,0,.55)}
+.mono{font-family:ui-monospace,Menlo,monospace}
+.pop{width:400px;flex:none;border-radius:16px;background:var(--color-neutral-900);color:var(--color-neutral-100);box-shadow:0 12px 32px rgba(0,0,0,.5);overflow:hidden;display:flex;flex-direction:column}
+.sw{width:44px;height:26px;flex:none;border-radius:999px;display:flex;align-items:center;padding:3px}
+.swOn{background:var(--color-accent-2-400);justify-content:flex-end}
+.knob{width:20px;height:20px;border-radius:999px;background:var(--color-neutral-900)}
+.tg{display:inline-flex;align-items:center;padding:3px 9px;border-radius:999px;font-size:10.5px;font-weight:600}
+.tgA{background:var(--color-accent-800);color:var(--color-accent-200)}
+.tgS{background:var(--color-accent-2-800);color:var(--color-accent-2-200)}
+.tgN{background:var(--color-neutral-800);color:color-mix(in srgb, #f9f4ed 70%, transparent)}
+</style>
+</helmet>
+
+<section class="dv-turn" id="t7">
+<div class="dv-thd"><span class="dv-tid">7</span><span class="dv-tname">Dark mode</span></div>
+<p style="margin:0;max-width:96ch;font-size:13.5px;color:color-mix(in srgb, #f9f4ed 70%, transparent)">Non un'inversione: la stessa gerarchia con i passi scuri dei ramp. Ground <code>neutral-900</code>, superfici e righe <code>neutral-800</code>, testo <code>neutral-100</code> con i secondari a opacità, accenti pastello invariati (<code>accent-300</code> per le azioni, <code>accent-2</code> per gli stati positivi) e i tint di sfondo che passano ai passi 800 dello stesso ramp. Le sei schermate dove il dark conta di più.</p>
+
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px">
+<span style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;background:var(--color-neutral-900);font-size:12px"><span style="width:16px;height:16px;border-radius:5px;background:var(--color-neutral-900);border:1px solid color-mix(in srgb,#f9f4ed 25%,transparent)"></span>ground 900</span>
+<span style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;background:var(--color-neutral-900);font-size:12px"><span style="width:16px;height:16px;border-radius:5px;background:var(--color-neutral-800)"></span>surface 800</span>
+<span style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;background:var(--color-neutral-900);font-size:12px"><span style="width:16px;height:16px;border-radius:5px;background:var(--color-accent-300)"></span>action 300</span>
+<span style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;background:var(--color-neutral-900);font-size:12px"><span style="width:16px;height:16px;border-radius:5px;background:var(--color-accent-800)"></span>tint 800</span>
+<span style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;background:var(--color-neutral-900);font-size:12px"><span style="width:16px;height:16px;border-radius:5px;background:var(--color-accent-2-400)"></span>ok 2-400</span>
+</div>
+
+<div class="opts">
+
+<div class="item">
+<div class="st"><span class="tg tgN">Vault</span>Lista voci</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 18px 0;display:flex;align-items:center;justify-content:space-between">
+<div><div class="h1" style="font-size:27px">Vault</div><div style="font-size:12.5px;color:color-mix(in srgb, #f9f4ed 55%, transparent)">128 items · Personal.kdbx</div></div>
+<div style="display:flex;gap:6px">
+<span class="ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M3 6h18M6 12h12M10 18h4"/></svg></span>
+<span class="ic" style="background:var(--color-accent-300);color:var(--color-accent-900)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
+</div>
+</div>
+<div style="padding:14px 18px 10px"><div class="srch"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>Search 128 items</div></div>
+<div style="display:flex;gap:8px;padding:0 18px 12px;overflow:hidden"><span class="chip chipOn">All</span><span class="chip">Work</span><span class="chip">Banking</span><span class="chip">Social</span><span class="chip">Devs</span></div>
+<div style="flex:1;overflow:hidden;padding:0 18px;display:flex;flex-direction:column;gap:8px">
+<div class="frow" style="padding:11px 14px"><span class="av">G</span><div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600">GitHub</div><div style="font-size:12.5px;color:color-mix(in srgb, #f9f4ed 55%, transparent)">camillo@bucciarelli.dev</div></div><span style="width:8px;height:8px;border-radius:999px;background:var(--color-accent-2-400)"></span><span class="ic" style="background:var(--color-neutral-900)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="9" y="9" width="11" height="11" rx="3"/><path d="M15 5.5A2.5 2.5 0 0 0 12.5 4H7a3 3 0 0 0-3 3v5.5A2.5 2.5 0 0 0 6.5 15"/></svg></span></div>
+<div class="frow" style="padding:11px 14px"><span class="av">F</span><div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600">Figma</div><div style="font-size:12.5px;color:color-mix(in srgb, #f9f4ed 55%, transparent)">camillo@bucciarelli.dev</div></div><span style="width:8px;height:8px;border-radius:999px;background:var(--color-accent-2-400)"></span><span class="ic" style="background:var(--color-neutral-900)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="9" y="9" width="11" height="11" rx="3"/><path d="M15 5.5A2.5 2.5 0 0 0 12.5 4H7a3 3 0 0 0-3 3v5.5A2.5 2.5 0 0 0 6.5 15"/></svg></span></div>
+<div class="frow" style="padding:11px 14px"><span class="av">S</span><div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600">Banca Sella</div><div style="font-size:12.5px;color:color-mix(in srgb, #f9f4ed 55%, transparent)">CB77219 · TOTP</div></div><span style="width:8px;height:8px;border-radius:999px;background:var(--color-accent-2-400)"></span><span class="ic" style="background:var(--color-neutral-900)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="9" y="9" width="11" height="11" rx="3"/><path d="M15 5.5A2.5 2.5 0 0 0 12.5 4H7a3 3 0 0 0-3 3v5.5A2.5 2.5 0 0 0 6.5 15"/></svg></span></div>
+<div class="frow" style="padding:11px 14px"><span class="av">N</span><div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600">Netflix</div><div style="font-size:12.5px;color:color-mix(in srgb, #f9f4ed 55%, transparent)">famiglia@bucciarelli.dev</div></div><span style="width:8px;height:8px;border-radius:999px;background:var(--color-accent-400)"></span><span class="ic" style="background:var(--color-neutral-900)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="9" y="9" width="11" height="11" rx="3"/><path d="M15 5.5A2.5 2.5 0 0 0 12.5 4H7a3 3 0 0 0-3 3v5.5A2.5 2.5 0 0 0 6.5 15"/></svg></span></div>
+<div class="frow" style="padding:11px 14px"><span class="av">A</span><div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600">AWS Console</div><div style="font-size:12.5px;color:color-mix(in srgb, #f9f4ed 55%, transparent)">iam-camillo</div></div><span style="width:8px;height:8px;border-radius:999px;background:var(--color-accent-2-400)"></span><span class="ic" style="background:var(--color-neutral-900)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="9" y="9" width="11" height="11" rx="3"/><path d="M15 5.5A2.5 2.5 0 0 0 12.5 4H7a3 3 0 0 0-3 3v5.5A2.5 2.5 0 0 0 6.5 15"/></svg></span></div>
+<div class="frow" style="padding:11px 14px"><span class="av">S</span><div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600">Spotify</div><div style="font-size:12.5px;color:color-mix(in srgb, #f9f4ed 55%, transparent)">camillo.b</div></div><span style="width:8px;height:8px;border-radius:999px;background:var(--color-neutral-600)"></span><span class="ic" style="background:var(--color-neutral-900)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="9" y="9" width="11" height="11" rx="3"/><path d="M15 5.5A2.5 2.5 0 0 0 12.5 4H7a3 3 0 0 0-3 3v5.5A2.5 2.5 0 0 0 6.5 15"/></svg></span></div>
+</div>
+<div class="tabbar">
+<span class="tabi" style="color:var(--color-accent-300)"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="8" width="18" height="13" rx="4"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/><circle cx="12" cy="14.5" r="1.6"/></svg>Vault</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 21s7-4.2 7-10V6l-7-3-7 3v5c0 5.8 7 10 7 10Z"/><path d="m9 12 2 2 4-4"/></svg>Health</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M18 6.5A7 7 0 0 0 5.5 9"/><path d="M6 17.5A7 7 0 0 0 18.5 15"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>Sync</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M4.2 7.5l2.2 1.3M17.6 15.2l2.2 1.3M4.2 16.5l2.2-1.3M17.6 8.8l2.2-1.3"/></svg>Settings</span>
+</div>
+</div>
+<p class="cap">Le righe salgono di un passo (<code>neutral-800</code>) sul ground 900: la separazione resta senza bordi. Gli avatar usano <code>accent-800</code> con testo <code>accent-200</code> — stessa lettura del light, invertita.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tg tgN">Dettaglio</span>Password rivelata + TOTP</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 18px 0;display:flex;align-items:center;justify-content:space-between">
+<span class="ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></span>
+<div style="display:flex;gap:8px"><span class="ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 20h4l10-10-4-4L4 16Z"/><path d="m14 6 4 4"/></svg></span><span class="ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></span></div>
+</div>
+<div style="padding:16px 20px 0;display:flex;align-items:center;gap:14px">
+<span class="av" style="width:56px;height:56px;font-size:22px">S</span>
+<div style="min-width:0"><div class="h1">Banca Sella</div><div class="sub">Banking · sella.it</div></div>
+</div>
+<div style="padding:18px 20px 0;display:flex;flex-direction:column;gap:9px">
+<div class="frow"><div style="flex:1;min-width:0"><div class="lbl">Username</div><div style="font-size:15px">CB77219</div></div><span class="ic" style="background:var(--color-neutral-900)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="9" y="9" width="11" height="11" rx="3"/><path d="M15 5.5A2.5 2.5 0 0 0 12.5 4H7a3 3 0 0 0-3 3v5.5A2.5 2.5 0 0 0 6.5 15"/></svg></span></div>
+<div class="frow" style="background:var(--color-accent-800);flex-direction:column;align-items:stretch;gap:8px">
+<div style="display:flex;align-items:center;gap:12px"><div style="flex:1;min-width:0"><div class="lbl" style="color:var(--color-accent-200)">Password · visible for 12s</div><div class="mono" style="font-size:16px;word-break:break-all;color:var(--color-accent-100)">t7$Krm-4Qz!p2Vwe</div></div><span class="ic" style="background:var(--color-accent-900);color:var(--color-accent-200)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 4l16 16M9.9 5.9A9.6 9.6 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-3.2 3.9M6.5 8.2A17 17 0 0 0 2.5 12S6 18.5 12 18.5c.7 0 1.4-.1 2-.3"/></svg></span></div>
+<div style="height:4px;border-radius:999px;background:var(--color-accent-900);overflow:hidden"><span style="display:block;width:40%;height:100%;background:var(--color-accent-300)"></span></div>
+</div>
+<div class="frow" style="background:var(--color-accent-2-800)">
+<span style="width:38px;height:38px;flex:none;border-radius:999px;background:var(--color-accent-2-900);color:var(--color-accent-2-200);display:grid;place-items:center;font-size:11px;font-weight:700">18s</span>
+<div style="flex:1;min-width:0"><div class="lbl" style="color:var(--color-accent-2-200)">One-time code</div><div class="mono" style="font-size:21px;letter-spacing:.16em;color:var(--color-accent-2-100)">418 902</div></div>
+<span class="ic" style="background:var(--color-accent-2-900);color:var(--color-accent-2-200)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="9" y="9" width="11" height="11" rx="3"/><path d="M15 5.5A2.5 2.5 0 0 0 12.5 4H7a3 3 0 0 0-3 3v5.5A2.5 2.5 0 0 0 6.5 15"/></svg></span>
+</div>
+<div class="frow"><div style="flex:1;min-width:0"><div class="lbl">Website</div><div style="font-size:15px;color:var(--color-accent-300)">sella.it</div></div><span class="ic" style="background:var(--color-neutral-900)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M14 4h6v6M20 4l-8 8"/><path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/></svg></span></div>
+<div class="frow" style="align-items:flex-start"><div style="flex:1"><div class="lbl">Notes</div><div style="font-size:13.5px;color:color-mix(in srgb, #f9f4ed 70%, transparent);margin-top:2px">Codici dispositivo nell'allegato.</div></div></div>
+</div>
+<div style="margin-top:auto;padding:0 20px 30px;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:20px;background:var(--color-accent-2-800)">
+<span style="width:32px;height:32px;flex:none;border-radius:999px;background:var(--color-accent-2-900);color:var(--color-accent-2-200);display:grid;place-items:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 21s7-4.2 7-10V6l-7-3-7 3v5c0 5.8 7 10 7 10Z"/><path d="m9 12 2 2 4-4"/></svg></span>
+<div style="font-size:12.5px;color:var(--color-accent-2-100)"><strong>Strong</strong> · changed 2 months ago</div>
+</div>
+<span class="pill pillp">Copy one-time code</span>
+</div>
+</div>
+<p class="cap">I tint di stato passano ai passi 800 (<code>accent-800</code> per il reveal attivo, <code>accent-2-800</code> per il codice e la robustezza) con testo ai passi 100–200: contrasto pieno senza fondi accesi in faccia di notte.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tg tgN">Health</span>Panoramica salute</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:8px 20px 0"><div class="h1">Health</div><div class="sub">128 records in Personal.kdbx</div></div>
+<div style="padding:18px 20px 0;display:flex;flex-direction:column;gap:10px">
+<div style="padding:18px;border-radius:26px;background:var(--color-neutral-800);display:flex;align-items:center;gap:16px">
+<span style="width:64px;height:64px;flex:none;border-radius:999px;background:var(--color-accent-2-800);color:var(--color-accent-2-200);display:grid;place-items:center;font-family:var(--font-heading);font-size:22px">86</span>
+<div style="flex:1"><div style="font-family:var(--font-heading);font-size:18px">Mostly healthy</div><div style="font-size:12.5px;color:color-mix(in srgb, #f9f4ed 62%, transparent)">11 records need attention</div></div>
+</div>
+<div class="frow"><span class="sq" style="background:var(--color-accent-800);color:var(--color-accent-200)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 9v5M12 17h.01"/><path d="M10.3 4.3 3 17a2 2 0 0 0 1.7 3h14.6A2 2 0 0 0 21 17L13.7 4.3a2 2 0 0 0-3.4 0Z"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Weak passwords</div><div style="font-size:12px;color:color-mix(in srgb, #f9f4ed 55%, transparent)">Under 40 bits of entropy</div></div><span style="font-family:var(--font-heading);font-size:18px">4</span></div>
+<div class="frow"><span class="sq" style="background:var(--color-accent-800);color:var(--color-accent-200)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="9" cy="9" r="5"/><circle cx="15" cy="15" r="5"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Reused passwords</div><div style="font-size:12px;color:color-mix(in srgb, #f9f4ed 55%, transparent)">Same password in 2+ records</div></div><span style="font-family:var(--font-heading);font-size:18px">3</span></div>
+<div class="frow"><span class="sq" style="background:var(--color-neutral-900);color:color-mix(in srgb, #f9f4ed 70%, transparent)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Not changed in 2 years</div><div style="font-size:12px;color:color-mix(in srgb, #f9f4ed 55%, transparent)">From last password change</div></div><span style="font-family:var(--font-heading);font-size:18px">4</span></div>
+<div class="frow"><span class="sq" style="background:var(--color-accent-2-800);color:var(--color-accent-2-200)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 12h10l1-12"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Recycle bin</div><div style="font-size:12px;color:color-mix(in srgb, #f9f4ed 55%, transparent)">Deleted, still recoverable</div></div><span style="font-family:var(--font-heading);font-size:18px">3</span></div>
+<div class="frow"><span class="sq" style="background:var(--color-accent-2-800);color:var(--color-accent-2-200)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/><path d="M11 7.5h9M4 16.5h9"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Duplicates</div><div style="font-size:12px;color:color-mix(in srgb, #f9f4ed 55%, transparent)">Same site and username</div></div><span style="font-family:var(--font-heading);font-size:18px">4</span></div>
+</div>
+<div class="tabbar" style="margin-top:auto">
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="8" width="18" height="13" rx="4"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>Vault</span>
+<span class="tabi" style="color:var(--color-accent-300)"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 21s7-4.2 7-10V6l-7-3-7 3v5c0 5.8 7 10 7 10Z"/><path d="m9 12 2 2 4-4"/></svg>Health</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M18 6.5A7 7 0 0 0 5.5 9"/><path d="M6 17.5A7 7 0 0 0 18.5 15"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>Sync</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M4.2 7.5l2.2 1.3M17.6 15.2l2.2 1.3M4.2 16.5l2.2-1.3M17.6 8.8l2.2-1.3"/></svg>Settings</span>
+</div>
+</div>
+<p class="cap">Il punteggio e le categorie tengono la stessa semantica di colore: pesca dove serve agire, salvia dove è solo informativo.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tg tgA">NEW</span>Diff conflitto, campo per campo</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 18px 0;display:flex;align-items:center;gap:12px">
+<span class="ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></span>
+<div style="flex:1"><div style="font-family:var(--font-heading);font-size:18px">GitHub</div><div style="font-size:12px;color:color-mix(in srgb, #f9f4ed 55%, transparent)">Conflict 1 of 4 · 2 fields differ</div></div>
+</div>
+<div style="padding:14px 20px 0;display:flex;gap:8px">
+<span style="flex:1;text-align:center;padding:9px;border-radius:999px;background:var(--color-accent-800);color:var(--color-accent-200);font-size:12.5px;font-weight:600">This device</span>
+<span style="flex:1;text-align:center;padding:9px;border-radius:999px;background:var(--color-neutral-800);font-size:12.5px;font-weight:600">Drive</span>
+</div>
+<div style="padding:16px 20px 0;display:flex;flex-direction:column;gap:12px">
+<div style="border-radius:24px;background:var(--color-neutral-800);padding:14px;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:center;gap:8px"><div class="lbl" style="flex:1">Password</div><span class="tg tgA">differs</span></div>
+<div style="padding:12px 14px;border-radius:18px;background:var(--color-neutral-900);border:2px solid var(--color-accent-300);display:flex;align-items:center;gap:10px">
+<span style="width:20px;height:20px;flex:none;border-radius:999px;background:var(--color-accent-300);box-shadow:inset 0 0 0 4px var(--color-neutral-900)"></span>
+<div style="flex:1;min-width:0"><div style="font-size:11px;color:color-mix(in srgb, #f9f4ed 52%, transparent)">This device · 6 min ago</div><div class="mono" style="font-size:13.5px;word-break:break-all">t7$Krm-4Qz!p2Vwe</div></div>
+</div>
+<div style="padding:12px 14px;border-radius:18px;background:var(--color-neutral-900);display:flex;align-items:center;gap:10px">
+<span style="width:20px;height:20px;flex:none;border-radius:999px;border:1.5px solid color-mix(in srgb,#f9f4ed 26%,transparent)"></span>
+<div style="flex:1;min-width:0"><div style="font-size:11px;color:color-mix(in srgb, #f9f4ed 52%, transparent)">Drive · today 08:41</div><div class="mono" style="font-size:13.5px;word-break:break-all">9Xb!ptw-3Vze%Qkr</div></div>
+</div>
+</div>
+<div style="border-radius:24px;background:var(--color-neutral-800);padding:14px;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:center;gap:8px"><div class="lbl" style="flex:1">Notes</div><span class="tg tgA">differs</span></div>
+<div style="padding:12px 14px;border-radius:18px;background:var(--color-neutral-900);display:flex;gap:10px;align-items:flex-start">
+<span style="width:20px;height:20px;flex:none;border-radius:999px;border:1.5px solid color-mix(in srgb,#f9f4ed 26%,transparent);margin-top:2px"></span>
+<div style="flex:1"><div style="font-size:11px;color:color-mix(in srgb, #f9f4ed 52%, transparent)">This device</div><div style="font-size:13px">Recovery codes in the attachment.</div></div>
+</div>
+<div style="padding:12px 14px;border-radius:18px;background:var(--color-neutral-900);border:2px solid var(--color-accent-300);display:flex;gap:10px;align-items:flex-start">
+<span style="width:20px;height:20px;flex:none;border-radius:999px;background:var(--color-accent-300);box-shadow:inset 0 0 0 4px var(--color-neutral-900);margin-top:2px"></span>
+<div style="flex:1"><div style="font-size:11px;color:color-mix(in srgb, #f9f4ed 52%, transparent)">Drive</div><div style="font-size:13px">Recovery codes in the attachment. SSO via Google disabled on purpose.</div></div>
+</div>
+<span style="align-self:flex-start;font-size:12px;color:var(--color-accent-300);font-weight:600">Keep both, one under the other</span>
+</div>
+<div style="padding:13px 16px;border-radius:20px;background:var(--color-neutral-800);font-size:12.5px;color:color-mix(in srgb, #f9f4ed 66%, transparent);display:flex;gap:10px;align-items:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="flex:none"><path d="m5 13 4 4L19 7"/></svg>Username, URL and attachment are identical.</div>
+</div>
+<div style="margin-top:auto;padding:0 20px 30px;display:flex;gap:10px"><span class="pill pills" style="flex:1">Skip</span><span class="pill pillp" style="flex:1.6">Next conflict</span></div>
+</div>
+<p class="cap">Nel dark la selezione non può contare sul fondo: la scelta è il bordo <code>accent-300</code> più il radio pieno. Le card dei valori scendono a <code>neutral-900</code> dentro il contenitore 800, così il diff resta leggibile.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tg tgN">Settings</span>Impostazioni</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:8px 20px 0"><div class="h1">Settings</div><div class="sub">Personal.kdbx</div></div>
+<div style="padding:18px 20px 0;display:flex;flex-direction:column;gap:16px">
+<div style="display:flex;flex-direction:column;gap:8px">
+<div class="lbl">This database</div>
+<div class="frow" style="align-items:flex-start"><span class="sq" style="background:var(--color-accent-2-800);color:var(--color-accent-2-200)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M6 12a6 6 0 0 1 12 0"/><path d="M9 13v3M12 12v5M15 13v3"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Biometric protection</div><div style="font-size:12px;color:color-mix(in srgb, #f9f4ed 55%, transparent)">Unlock requires Face ID when available</div></div><span class="sw swOn"><span class="knob"></span></span></div>
+<div class="frow"><span class="sq" style="background:var(--color-neutral-900);color:color-mix(in srgb,#f9f4ed 70%,transparent)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Lock on inactivity</div><div style="font-size:12px;color:color-mix(in srgb, #f9f4ed 55%, transparent)">After 2 minutes</div></div><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:color-mix(in srgb,#f9f4ed 45%,transparent)"><path d="m9 6 6 6-6 6"/></svg></div>
+<div class="frow"><span class="sq" style="background:var(--color-neutral-900);color:color-mix(in srgb,#f9f4ed 70%,transparent)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="4" y="10" width="16" height="10" rx="4"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Change master password</div><div style="font-size:12px;color:color-mix(in srgb, #f9f4ed 55%, transparent)">Re-encrypts the whole file</div></div><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:color-mix(in srgb,#f9f4ed 45%,transparent)"><path d="m9 6 6 6-6 6"/></svg></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div class="lbl">App</div>
+<div class="frow" style="align-items:flex-start"><span class="sq" style="background:var(--color-neutral-900);color:color-mix(in srgb,#f9f4ed 70%,transparent)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Appearance</div><div style="font-size:12px;color:color-mix(in srgb, #f9f4ed 55%, transparent)">Dark · follow the system</div></div></div>
+<div style="display:flex;gap:8px;padding:2px 2px 0">
+<span style="flex:1;text-align:center;padding:9px;border-radius:999px;background:var(--color-neutral-800);font-size:12.5px">Light</span>
+<span style="flex:1;text-align:center;padding:9px;border-radius:999px;background:var(--color-accent-300);color:var(--color-accent-900);font-size:12.5px;font-weight:600">Dark</span>
+<span style="flex:1;text-align:center;padding:9px;border-radius:999px;background:var(--color-neutral-800);font-size:12.5px">System</span>
+</div>
+<div class="frow"><span class="sq" style="background:var(--color-neutral-900);color:color-mix(in srgb,#f9f4ed 70%,transparent)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="5" width="18" height="12" rx="3"/><path d="M8 21h8"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Autofill &amp; browsers</div></div><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:color-mix(in srgb,#f9f4ed 45%,transparent)"><path d="m9 6 6 6-6 6"/></svg></div>
+<div class="frow"><span class="sq" style="background:var(--color-neutral-900);color:color-mix(in srgb,#f9f4ed 70%,transparent)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 4v11M8 11l4 4 4-4M5 20h14"/></svg></span><div style="flex:1"><div style="font-size:14.5px;font-weight:600">Backups &amp; import</div></div><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:color-mix(in srgb,#f9f4ed 45%,transparent)"><path d="m9 6 6 6-6 6"/></svg></div>
+</div>
+<span class="pill pills" style="color:var(--color-accent-300)">Close database</span>
+</div>
+<div class="tabbar" style="margin-top:auto">
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="8" width="18" height="13" rx="4"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>Vault</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 21s7-4.2 7-10V6l-7-3-7 3v5c0 5.8 7 10 7 10Z"/><path d="m9 12 2 2 4-4"/></svg>Health</span>
+<span class="tabi"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M18 6.5A7 7 0 0 0 5.5 9"/><path d="M6 17.5A7 7 0 0 0 18.5 15"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>Sync</span>
+<span class="tabi" style="color:var(--color-accent-300)"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M4.2 7.5l2.2 1.3M17.6 15.2l2.2 1.3M4.2 16.5l2.2-1.3M17.6 8.8l2.2-1.3"/></svg>Settings</span>
+</div>
+</div>
+<p class="cap">Il selettore tema è la sola aggiunta rispetto al light: <em>ThemeCubit</em> ha già i tre valori (light, dark, system) ma nell'app di oggi si commuta da un'icona sole/luna nella strip.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:9px;width:400px">
+<div class="st"><span class="tg tgN">Estensione</span>Popup in dark</div>
+<div class="pop">
+<div style="height:38px;flex:none;background:var(--color-neutral-800);display:flex;align-items:center;gap:8px;padding:0 12px">
+<img src="assets/keyvault-icon.png" alt="KeyVault" style="width:22px;height:22px;border-radius:7px">
+<span style="font-size:12.5px;font-weight:600">KeyVault Autofill</span>
+<span class="tg tgS" style="margin-left:auto">beta</span>
+</div>
+<div style="padding:14px;display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;gap:8px">
+<div style="flex:1;padding:10px 12px;border-radius:14px;background:var(--color-accent-2-800)"><div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-2-200)">Native host</div><div style="font-size:13px;font-weight:600;color:var(--color-accent-2-100)">Connected</div></div>
+<div style="flex:1;padding:10px 12px;border-radius:14px;background:var(--color-accent-2-800)"><div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-2-200)">App / vault bridge</div><div style="font-size:13px;font-weight:600;color:var(--color-accent-2-100)">Unlocked</div></div>
+</div>
+<div style="display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:14px;background:var(--color-neutral-800)">
+<span style="width:26px;height:26px;flex:none;border-radius:8px;background:var(--color-neutral-900);display:grid;place-items:center;font-size:11px;font-weight:700">gh</span>
+<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600">github.com</div><div style="font-size:11px;color:color-mix(in srgb,#f9f4ed 52%,transparent)">Current tab</div></div>
+<span style="font-size:11.5px;color:var(--color-accent-300);font-weight:600">Refresh</span>
+</div>
+<div>
+<div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:color-mix(in srgb,#f9f4ed 50%,transparent);margin-bottom:8px">Matches · 2</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="padding:11px 12px;border-radius:14px;background:var(--color-neutral-800);display:flex;align-items:center;gap:10px">
+<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">GitHub</div><div style="font-size:11px;color:color-mix(in srgb,#f9f4ed 52%,transparent)">camillo@bucciarelli.dev</div></div>
+<span class="tg tgS">strong</span>
+<span style="padding:7px 12px;border-radius:999px;background:var(--color-accent-300);color:var(--color-accent-900);font-size:12px;font-weight:600">Fill</span>
+</div>
+<div style="padding:11px 12px;border-radius:14px;background:var(--color-neutral-800);display:flex;align-items:center;gap:10px">
+<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">GitHub work</div><div style="font-size:11px;color:color-mix(in srgb,#f9f4ed 52%,transparent)">camillo@studio.it</div></div>
+<span class="tg tgS">strong</span>
+<span style="padding:7px 12px;border-radius:999px;background:var(--color-accent-300);color:var(--color-accent-900);font-size:12px;font-weight:600">Fill</span>
+</div>
+</div>
+</div>
+<div style="display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:999px;background:var(--color-neutral-800);font-size:12px;color:color-mix(in srgb,#f9f4ed 52%,transparent)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>Search title, user, service</div>
+<div style="font-size:11px;color:color-mix(in srgb,#f9f4ed 52%,transparent);line-height:1.5">Passwords are revealed only when you click Fill on an exact match.</div>
+</div>
+</div>
+<p class="cap">Il popup segue il <code>prefers-color-scheme</code> del browser: stesse due colonne di stato, stessa etichetta <em>strong</em>, fondi 800 su ground 900.</p>
+</div>
+
+</div>
+
+<p style="margin:26px 0 0;font-size:12.5px;color:color-mix(in srgb, #f9f4ed 60%, transparent)">Prossimo: "dark anche per unlock e cestino" · "prepara il pacchetto di handoff" · "esporta tutto in PDF"</p>
+</section>
+</x-dc>
+</body>
+</html>

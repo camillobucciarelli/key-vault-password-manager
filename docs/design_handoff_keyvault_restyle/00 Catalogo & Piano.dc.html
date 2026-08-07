@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/organic-65909d1a-d72b-4efc-bf5f-af616dd5b6cf/styles.css">
+<script src="_ds/organic-65909d1a-d72b-4efc-bf5f-af616dd5b6cf/_ds_bundle.js"></script>
+<style>
+body{margin:0;background:var(--color-neutral-100);color:var(--color-text)}
+.card{background:var(--color-neutral-200)}
+.tag-accent{background:var(--color-accent-200);color:var(--color-accent-900)}
+.tag-accent-2{background:var(--color-accent-2-200);color:var(--color-accent-2-900)}
+.card-kicker{color:var(--color-accent-800)}
+a{color:var(--color-accent-700)}
+a:hover{color:var(--color-accent-800)}
+</style>
+</helmet>
+<div style="min-height:100vh;padding:56px 40px 96px;font-family:var(--font-body);font-size:15px;line-height:1.55;background:var(--color-neutral-100)">
+<div style="max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:44px">
+
+<header style="display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:center;gap:12px">
+<span style="display:inline-flex;align-items:center;gap:8px;padding:5px 12px;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-800);font-size:11px;letter-spacing:.1em;text-transform:uppercase">Step 1 · Catalogo</span>
+<span style="font-size:12px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">KeyVault · restyling completo · mobile + tablet/desktop · light + dark</span>
+</div>
+<h1 style="margin:0;font-size:52px;max-width:20ch">Rivedere KeyVault, una funzionalità per volta</h1>
+<p style="margin:0;max-width:74ch;font-size:17px;color:color-mix(in srgb, var(--color-text) 72%, transparent);text-wrap:pretty">Prima di disegnare: cosa ho letto nel repo, le assunzioni che sto facendo, il sistema visivo che applico e l'inventario completo delle funzionalità con tutte le varianti di schermata. Da qui procedo journey per journey.</p>
+</header>
+
+<section style="display:flex;flex-direction:column;gap:16px">
+<h2 style="margin:0;font-size:26px">Assunzioni</h2>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px">
+<div class="card elev-sm"><div class="card-kicker">Lingua &amp; nome</div><p class="card-body">UI in inglese come oggi. Un solo nome di prodotto: <strong>KeyVault</strong> — sparisce "Antigravity Password Manager" dal title dell'app.</p></div>
+<div class="card elev-sm"><div class="card-kicker">Piattaforme</div><p class="card-body">Due layout: mobile 390×844 e tablet 1024×768, riusato come base desktop (la stessa griglia a colonne del breakpoint &gt;600 del codice).</p></div>
+<div class="card elev-sm"><div class="card-kicker">Temi</div><p class="card-body">Light e dark. Il dark non è il tema attuale indaco/slate: è il ground scuro derivato dai ramp neutral del design system.</p></div>
+<div class="card elev-sm"><div class="card-kicker">Fedeltà funzionale</div><p class="card-body">Zero funzionalità nuove inventate. Ogni schermata mappa eventi e stati che esistono già nei BLoC (<em>VaultEvent</em>, <em>VaultState</em>, unlock, selection).</p></div>
+<div class="card elev-sm"><div class="card-kicker">Output</div><p class="card-body">Catalogo di schermate statiche, non prototipo cliccabile. Un file per journey, con tutte le varianti affiancate.</p></div>
+<div class="card elev-sm"><div class="card-kicker">Sicurezza in UI</div><p class="card-body">Scelgo io: indicatori di robustezza sulle voci + una vista "Vault health" leggera, alimentata da dati già presenti (<em>lastPasswordChangedAt</em>, duplicati).</p></div>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:16px">
+<h2 style="margin:0;font-size:26px">Da dove viene il contenuto</h2>
+<p style="margin:0;max-width:78ch;color:color-mix(in srgb, var(--color-text) 70%, transparent)">Ho letto nel repo <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:var(--color-neutral-200);padding:1px 5px;border-radius:6px">camillobucciarelli/key-vault-password-manager</code>:</p>
+<ul style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:90ch">
+<li><strong>Tema attuale</strong> — <code>core/theme/app_colors.dart</code>, <code>app_theme.dart</code> (Poppins, seed #818CF8, card radius 18, input radius 14, min-height 48/52), <code>app_backgrounds.dart</code> (gradiente diagonale), <code>app_icons.dart</code> (set Material), <code>core/responsive/breakpoints.dart</code> (mobile 600 / tablet 1024).</li>
+<li><strong>Shell del vault</strong> — <code>vault_shell.part.dart</code>: sync status strip + entries card, privacy overlay in background, lock overlay per inattività, overlay di saving, dialog OTP e Apple AutoFill.</li>
+<li><strong>Unlock</strong> — <code>database_unlock_screen.dart</code>: gate biometrico, "Step 1 di 2 / Step 2 di 2", master password + key file, prompt di attivazione biometria post-Drive.</li>
+<li><strong>Modello dati e azioni</strong> — <code>vault_event.dart</code> / <code>vault_state.dart</code>, <code>vault_entry.dart</code>, <code>database_sync_status.dart</code> (idle, syncing, success, error, conflict, disconnected), <code>password_generator_service.dart</code> (default 16 caratteri, 4 set).</li>
+<li><strong>Dialoghi esistenti</strong> — titoli reali estratti dai part file: Generate secure password, Move to folder, Attachments, Link database to Drive, Sync conflict detected, Database settings, Change master password, Import CSV, Record info, Confirm delete, Merge and move duplicate.</li>
+<li><strong>Estensione &amp; icona</strong> — <code>desktop/browser_extension/manifest.json</code> + <code>popup.html</code> (Native host, App/vault bridge, Check host status, Find current site, Global metadata search, Matches), e l'icona che mi hai caricato.</li>
+</ul>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:18px">
+<h2 style="margin:0;font-size:26px">Principi del restyling</h2>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px">
+<div style="display:flex;gap:14px"><span style="flex:none;width:34px;height:34px;border-radius:999px;background:var(--color-accent-300);color:var(--color-accent-900);display:grid;place-items:center;font-family:var(--font-heading);font-size:15px">1</span><div><h4 style="margin:0 0 4px">Una casa, non dodici dialog</h4><p style="margin:0;font-size:13.5px;color:color-mix(in srgb, var(--color-text) 68%, transparent)">Oggi cestino, duplicati, sync, settings, dettaglio voce e import vivono in <em>AlertDialog</em> annidati. Su mobile diventano sheet/schermate a piena pagina; su tablet pannelli affiancati.</p></div></div>
+<div style="display:flex;gap:14px"><span style="flex:none;width:34px;height:34px;border-radius:999px;background:var(--color-accent-300);color:var(--color-accent-900);display:grid;place-items:center;font-family:var(--font-heading);font-size:15px">2</span><div><h4 style="margin:0 0 4px">La ricerca è la home</h4><p style="margin:0;font-size:13.5px;color:color-mix(in srgb, var(--color-text) 68%, transparent)">Il 90% degli usi è "trova questa password e copiala". Campo di ricerca sempre visibile, copia a un tocco dalla lista, cartelle come filtro e non come gerarchia da attraversare.</p></div></div>
+<div style="display:flex;gap:14px"><span style="flex:none;width:34px;height:34px;border-radius:999px;background:var(--color-accent-300);color:var(--color-accent-900);display:grid;place-items:center;font-family:var(--font-heading);font-size:15px">3</span><div><h4 style="margin:0 0 4px">Meno gradi di lettura</h4><p style="margin:0;font-size:13.5px;color:color-mix(in srgb, var(--color-text) 68%, transparent)">Lo unlock oggi spiega sé stesso con cinque paragrafi. Una frase, un campo, un pulsante; le opzioni (key file, biometria) restano ma in secondo piano.</p></div></div>
+<div style="display:flex;gap:14px"><span style="flex:none;width:34px;height:34px;border-radius:999px;background:var(--color-accent-300);color:var(--color-accent-900);display:grid;place-items:center;font-family:var(--font-heading);font-size:15px">4</span><div><h4 style="margin:0 0 4px">Lo stato ha un posto solo</h4><p style="margin:0;font-size:13.5px;color:color-mix(in srgb, var(--color-text) 68%, transparent)">Sync, conflitti, duplicati, cestino e salvataggio oggi urlano in snackbar e strip. Un'unica riga di stato e un centro notifiche del vault.</p></div></div>
+<div style="display:flex;gap:14px"><span style="flex:none;width:34px;height:34px;border-radius:999px;background:var(--color-accent-300);color:var(--color-accent-900);display:grid;place-items:center;font-family:var(--font-heading);font-size:15px">5</span><div><h4 style="margin:0 0 4px">Il segreto resta segreto</h4><p style="margin:0;font-size:13.5px;color:color-mix(in srgb, var(--color-text) 68%, transparent)">Reveal esplicito, mascheratura di default, privacy overlay e auto-lock trattati come schermate progettate, non come veli grigi.</p></div></div>
+<div style="display:flex;gap:14px"><span style="flex:none;width:34px;height:34px;border-radius:999px;background:var(--color-accent-300);color:var(--color-accent-900);display:grid;place-items:center;font-family:var(--font-heading);font-size:15px">6</span><div><h4 style="margin:0 0 4px">Tablet = due colonne vere</h4><p style="margin:0;font-size:13.5px;color:color-mix(in srgb, var(--color-text) 68%, transparent)">Sidebar cartelle + lista + dettaglio persistente. La stessa struttura scala a desktop senza un secondo design.</p></div></div>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:18px">
+<h2 style="margin:0;font-size:26px">Direzione visiva</h2>
+<div style="display:grid;grid-template-columns:1.1fr .9fr;gap:20px;align-items:start">
+<div style="display:flex;flex-direction:column;gap:12px">
+<p style="margin:0;color:color-mix(in srgb, var(--color-text) 70%, transparent);max-width:60ch">Fondi neutri, colore solo dove serve — e in versione pastello viva: superfici dal ramp <code>neutral</code> (100 ground, 200 card e righe, 300 piano di lavoro), pesca <code>accent-300/400</code> per le azioni e le cose da fare, salvia <code>accent-2-300/400</code> per gli stati positivi. Testo sempre dal passo scuro dello stesso ramp, così il contrasto tiene. Caprasimo solo per i titoli, Figtree per tutto il resto.</p>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<span style="width:56px;height:56px;border-radius:16px;background:var(--color-neutral-100);border:1px solid var(--color-divider)"></span>
+<span style="width:56px;height:56px;border-radius:16px;background:var(--color-neutral-200)"></span>
+<span style="width:56px;height:56px;border-radius:16px;background:var(--color-neutral-300)"></span>
+<span style="width:56px;height:56px;border-radius:16px;background:var(--color-accent-300)"></span>
+<span style="width:56px;height:56px;border-radius:16px;background:var(--color-accent-2-300)"></span>
+<span style="width:56px;height:56px;border-radius:16px;background:var(--color-neutral-900)"></span>
+<span style="width:56px;height:56px;border-radius:16px;background:var(--color-accent-400)"></span>
+</div>
+<p style="margin:0;font-size:13px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">Dark mode: ground <code>--color-neutral-900</code>, superfici <code>--color-neutral-800</code>, accenti <code>--color-accent-300</code> e <code>--color-accent-2-300</code> — tutto dai ramp, nessun colore inventato.</p>
+</div>
+<div style="border-radius:28px;padding:22px;background:var(--color-neutral-900);color:var(--color-neutral-100);display:flex;flex-direction:column;gap:12px">
+<span style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-accent-400)">Dark preview</span>
+<span style="font-family:var(--font-heading);font-size:24px">Unlock KeyVault</span>
+<div style="height:38px;border-radius:999px;background:color-mix(in srgb, #f9f4ed 8%, transparent);border:1px solid color-mix(in srgb, #f9f4ed 16%, transparent)"></div>
+<div style="height:38px;border-radius:999px;background:var(--color-accent-400);color:var(--color-neutral-900);display:grid;place-items:center;font-family:var(--font-heading);font-size:14px">Unlock</div>
+</div>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:16px">
+<h2 style="margin:0;font-size:26px">Tre modelli di navigazione da valutare</h2>
+<p style="margin:0;color:color-mix(in srgb, var(--color-text) 70%, transparent);max-width:78ch">Li disegno come prima cosa, sulla schermata più densa (il vault), così scegli prima che io propaghi la scelta a tutto il resto.</p>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+<div class="card elev-sm"><div class="card-kicker">Modello A</div><div class="card-title">Tab bar</div><p class="card-body">Vault · Health · Sync · Settings in basso su mobile, sidebar icone su tablet. Prevedibile, ogni funzione ha un indirizzo.</p></div>
+<div class="card elev-sm"><div class="card-kicker">Modello B</div><div class="card-title">Search-first</div><p class="card-body">Una sola home: campo di ricerca dominante, risultati immediati, tutto il resto in un menu contestuale e in sheet. Meno chrome, più veloce.</p></div>
+<div class="card elev-sm"><div class="card-kicker">Modello C</div><div class="card-title">Strip evoluta</div><p class="card-body">Resta la struttura attuale (strip di stato + card lista) ma ripulita: un solo indicatore, azioni raccolte, breadcrumb leggibile. Il delta minimo sul codice.</p></div>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:18px">
+<h2 style="margin:0;font-size:26px">Catalogo funzionalità</h2>
+<p style="margin:0;color:color-mix(in srgb, var(--color-text) 70%, transparent);max-width:78ch">Dodici journey, in ordine di percorso utente. Per ognuna: schermate da produrre e varianti di stato (empty, loading, error, success, offline/conflitto, lista lunga, permessi negati).</p>
+
+<div style="display:flex;flex-direction:column;gap:12px">
+
+<article style="display:grid;grid-template-columns:44px 1fr;gap:16px;padding:18px;border-radius:28px;background:var(--color-neutral-200)">
+<span style="width:44px;height:44px;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center;font-family:var(--font-heading);font-size:16px">01</span>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:10px"><h4 style="margin:0;font-size:19px">Primo avvio &amp; database</h4><span style="font-size:12px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">database_selection_screen · DatabaseSelectionBloc</span></div>
+<p style="margin:0;font-size:13.5px;color:color-mix(in srgb, var(--color-text) 70%, transparent)">Welcome, recent databases, apri file .kdbx, crea nuovo database, importa da Google Drive, rimuovi dalla lista, risoluzione duplicati in import, validazione file.</p>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<span class="tag tag-neutral">Welcome / nessun database</span><span class="tag tag-neutral">Lista recenti</span><span class="tag tag-neutral">Crea database (3 step)</span><span class="tag tag-neutral">Sorgente: locale / Drive</span><span class="tag tag-neutral">Picker Drive</span><span class="tag tag-neutral">File non valido</span><span class="tag tag-neutral">Duplicato rilevato</span><span class="tag tag-neutral">File mancante</span>
+</div>
+</div>
+</article>
+
+<article style="display:grid;grid-template-columns:44px 1fr;gap:16px;padding:18px;border-radius:28px;background:var(--color-neutral-200)">
+<span style="width:44px;height:44px;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center;font-family:var(--font-heading);font-size:16px">02</span>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:10px"><h4 style="margin:0;font-size:19px">Unlock</h4><span style="font-size:12px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">database_unlock_screen · DatabaseUnlockBloc</span></div>
+<p style="margin:0;font-size:13.5px;color:color-mix(in srgb, var(--color-text) 70%, transparent)">Master password, key file, gate biometrico, key file manager interno su mobile, prompt di attivazione biometria, errori di credenziali.</p>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<span class="tag tag-neutral">Password</span><span class="tag tag-neutral">Biometria richiesta</span><span class="tag tag-neutral">Biometria negata</span><span class="tag tag-neutral">Key file selezionato</span><span class="tag tag-neutral">Key file manager</span><span class="tag tag-neutral">Password errata</span><span class="tag tag-neutral">Unlocking…</span><span class="tag tag-neutral">Attiva biometria?</span>
+</div>
+</div>
+</article>
+
+<article style="display:grid;grid-template-columns:44px 1fr;gap:16px;padding:18px;border-radius:28px;background:var(--color-neutral-200)">
+<span style="width:44px;height:44px;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center;font-family:var(--font-heading);font-size:16px">03</span>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:10px"><h4 style="margin:0;font-size:19px">Vault: lista, cartelle, ricerca</h4><span style="font-size:12px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">vault_shell / vault_entries / vault_navigation</span></div>
+<p style="margin:0;font-size:13.5px;color:color-mix(in srgb, var(--color-text) 70%, transparent)">Home del vault, navigazione gruppi con breadcrumb, ricerca, ordinamento (title ↑↓, username), copia rapida, cartelle CRUD, spostamento voci.</p>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<span class="tag tag-neutral">Vault vuoto</span><span class="tag tag-neutral">Lista popolata</span><span class="tag tag-neutral">Skeleton</span><span class="tag tag-neutral">Ricerca con risultati</span><span class="tag tag-neutral">Nessun risultato</span><span class="tag tag-neutral">Cartella aperta</span><span class="tag tag-neutral">Cartella vuota</span><span class="tag tag-neutral">Ordinamento</span><span class="tag tag-neutral">Selezione multipla</span><span class="tag tag-neutral">400+ voci</span>
+</div>
+</div>
+</article>
+
+<article style="display:grid;grid-template-columns:44px 1fr;gap:16px;padding:18px;border-radius:28px;background:var(--color-neutral-200)">
+<span style="width:44px;height:44px;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center;font-family:var(--font-heading);font-size:16px">04</span>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:10px"><h4 style="margin:0;font-size:19px">Dettaglio voce</h4><span style="font-size:12px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">vault_entries_details · Record info</span></div>
+<p style="margin:0;font-size:13.5px;color:color-mix(in srgb, var(--color-text) 70%, transparent)">Reveal e copia password, username, URL, note, custom fields, allegati, TOTP con countdown, date di creazione/modifica/ultimo cambio password, azioni (edit, move, delete).</p>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<span class="tag tag-neutral">Password nascosta</span><span class="tag tag-neutral">Password rivelata</span><span class="tag tag-neutral">Reveal con biometria</span><span class="tag tag-neutral">TOTP attivo</span><span class="tag tag-neutral">Allegati</span><span class="tag tag-neutral">Nessun allegato</span><span class="tag tag-neutral">Custom fields</span><span class="tag tag-neutral">Copiato (feedback)</span><span class="tag tag-neutral">Password debole/vecchia</span>
+</div>
+</div>
+</article>
+
+<article style="display:grid;grid-template-columns:44px 1fr;gap:16px;padding:18px;border-radius:28px;background:var(--color-neutral-200)">
+<span style="width:44px;height:44px;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center;font-family:var(--font-heading);font-size:16px">05</span>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:10px"><h4 style="margin:0;font-size:19px">Crea / modifica voce</h4><span style="font-size:12px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">CreateVaultEntry · UpdateVaultEntry</span></div>
+<p style="margin:0;font-size:13.5px;color:color-mix(in srgb, var(--color-text) 70%, transparent)">Form voce, generatore password integrato, custom fields dinamici, allegati, OTP via scan QR o deep link otpauth, conferma di uscita con modifiche pendenti.</p>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<span class="tag tag-neutral">Nuova voce vuota</span><span class="tag tag-neutral">Modifica</span><span class="tag tag-neutral">Generatore aperto</span><span class="tag tag-neutral">Scan QR OTP</span><span class="tag tag-neutral">Camera negata</span><span class="tag tag-neutral">Validazione</span><span class="tag tag-neutral">Salvataggio</span><span class="tag tag-neutral">Scarta modifiche?</span>
+</div>
+</div>
+</article>
+
+<article style="display:grid;grid-template-columns:44px 1fr;gap:16px;padding:18px;border-radius:28px;background:var(--color-neutral-200)">
+<span style="width:44px;height:44px;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center;font-family:var(--font-heading);font-size:16px">06</span>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:10px"><h4 style="margin:0;font-size:19px">Generatore password</h4><span style="font-size:12px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">PasswordGeneratorService · default 16 / 4 set</span></div>
+<p style="margin:0;font-size:13.5px;color:color-mix(in srgb, var(--color-text) 70%, transparent)">Lunghezza, quattro set di caratteri, rigenera, copia, forza risultante; errore "lunghezza troppo corta per i set scelti" e "almeno un set richiesto".</p>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<span class="tag tag-neutral">Default</span><span class="tag tag-neutral">Solo lettere</span><span class="tag tag-neutral">Errore vincoli</span><span class="tag tag-neutral">Copiato</span><span class="tag tag-neutral">Come sheet dentro il form</span>
+</div>
+</div>
+</article>
+
+<article style="display:grid;grid-template-columns:44px 1fr;gap:16px;padding:18px;border-radius:28px;background:var(--color-neutral-200)">
+<span style="width:44px;height:44px;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center;font-family:var(--font-heading);font-size:16px">07</span>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:10px"><h4 style="margin:0;font-size:19px">Sync Google Drive</h4><span style="font-size:12px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">DatabaseSyncStatus: idle · syncing · success · error · conflict · disconnected</span></div>
+<p style="margin:0;font-size:13.5px;color:color-mix(in srgb, var(--color-text) 70%, transparent)">Connessione account, collegamento del database a un file remoto, picker file Drive, auto-sync, sync manuale, conflitto (keep local / use remote), riconnessione con autorizzazione scaduta.</p>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<span class="tag tag-neutral">Non connesso</span><span class="tag tag-neutral">Connesso non collegato</span><span class="tag tag-neutral">Picker Drive</span><span class="tag tag-neutral">Picker vuoto</span><span class="tag tag-neutral">Sync in corso</span><span class="tag tag-neutral">Sincronizzato</span><span class="tag tag-neutral">Offline</span><span class="tag tag-neutral">Errore auth</span><span class="tag tag-neutral">Conflitto</span>
+</div>
+</div>
+</article>
+
+<article style="display:grid;grid-template-columns:44px 1fr;gap:16px;padding:18px;border-radius:28px;background:var(--color-neutral-200)">
+<span style="width:44px;height:44px;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center;font-family:var(--font-heading);font-size:16px">08</span>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:10px"><h4 style="margin:0;font-size:19px">Igiene del vault: duplicati, cestino, health</h4><span style="font-size:12px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">vault_duplicates · vault_recycle_bin</span></div>
+<p style="margin:0;font-size:13.5px;color:color-mix(in srgb, var(--color-text) 70%, transparent)">Gruppi di duplicati con merge preview, cestino con restore / elimina definitivamente / svuota, e la vista salute (password debole, riusata, vecchia).</p>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<span class="tag tag-neutral">Nessun duplicato</span><span class="tag tag-neutral">Gruppi duplicati</span><span class="tag tag-neutral">Merge preview</span><span class="tag tag-neutral">Cestino vuoto</span><span class="tag tag-neutral">Cestino pieno</span><span class="tag tag-neutral">Conferma svuota</span><span class="tag tag-neutral">Vault health</span>
+</div>
+</div>
+</article>
+
+<article style="display:grid;grid-template-columns:44px 1fr;gap:16px;padding:18px;border-radius:28px;background:var(--color-neutral-200)">
+<span style="width:44px;height:44px;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center;font-family:var(--font-heading);font-size:16px">09</span>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:10px"><h4 style="margin:0;font-size:19px">Import &amp; export</h4><span style="font-size:12px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">Import CSV · avoid duplicates · export allegati</span></div>
+<p style="margin:0;font-size:13.5px;color:color-mix(in srgb, var(--color-text) 70%, transparent)">Import CSV con mappatura e opzione anti-duplicati, esito dell'import, export di allegati e del database.</p>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<span class="tag tag-neutral">Scegli file</span><span class="tag tag-neutral">Anteprima colonne</span><span class="tag tag-neutral">Import in corso</span><span class="tag tag-neutral">Esito con scartati</span><span class="tag tag-neutral">CSV non valido</span>
+</div>
+</div>
+</article>
+
+<article style="display:grid;grid-template-columns:44px 1fr;gap:16px;padding:18px;border-radius:28px;background:var(--color-neutral-200)">
+<span style="width:44px;height:44px;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center;font-family:var(--font-heading);font-size:16px">10</span>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:10px"><h4 style="margin:0;font-size:19px">Sicurezza &amp; impostazioni</h4><span style="font-size:12px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">Database settings · lock overlay · privacy overlay</span></div>
+<p style="margin:0;font-size:13.5px;color:color-mix(in srgb, var(--color-text) 70%, transparent)">Impostazioni database (biometria, cambio master password, key file, timeout inattività), tema light/dark/sistema, lock per inattività, privacy overlay in background, chiusura database.</p>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<span class="tag tag-neutral">Settings</span><span class="tag tag-neutral">Cambio master password</span><span class="tag tag-neutral">Conferma modifiche sicurezza</span><span class="tag tag-neutral">Lock overlay</span><span class="tag tag-neutral">Privacy overlay</span><span class="tag tag-neutral">Chiudi database</span>
+</div>
+</div>
+</article>
+
+<article style="display:grid;grid-template-columns:44px 1fr;gap:16px;padding:18px;border-radius:28px;background:var(--color-neutral-200)">
+<span style="width:44px;height:44px;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center;font-family:var(--font-heading);font-size:16px">11</span>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:10px"><h4 style="margin:0;font-size:19px">Autofill</h4><span style="font-size:12px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">browser_setup_screen · Apple/Android autofill</span></div>
+<p style="margin:0;font-size:13.5px;color:color-mix(in srgb, var(--color-text) 70%, transparent)">Onboarding autofill mobile, prompt "Link AutoFill credential?", picker credenziali di sistema, e il setup desktop del native host + estensione (installazione, verifica, diagnostica).</p>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<span class="tag tag-neutral">Autofill off</span><span class="tag tag-neutral">Attivazione iOS/Android</span><span class="tag tag-neutral">Credential picker</span><span class="tag tag-neutral">Link credenziale</span><span class="tag tag-neutral">Setup host: step</span><span class="tag tag-neutral">Host verificato</span><span class="tag tag-neutral">Host non trovato</span>
+</div>
+</div>
+</article>
+
+<article style="display:grid;grid-template-columns:44px 1fr;gap:16px;padding:18px;border-radius:28px;background:var(--color-neutral-200)">
+<span style="width:44px;height:44px;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center;font-family:var(--font-heading);font-size:16px">12</span>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:10px"><h4 style="margin:0;font-size:19px">Estensione Chrome + icona</h4><span style="font-size:12px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">popup.html · manifest 0.4.0 · assets/logo</span></div>
+<p style="margin:0;font-size:13.5px;color:color-mix(in srgb, var(--color-text) 70%, transparent)">Popup ridisegnato (stato host e bridge, match del sito corrente, ricerca globale, fill), overlay in-page sui campi login, onboarding del native host, stati di errore. Più la famiglia di icone app/estensione.</p>
+<div style="display:flex;flex-wrap:wrap;gap:6px">
+<span class="tag tag-neutral">Popup: match trovati</span><span class="tag tag-neutral">Popup: nessun match</span><span class="tag tag-neutral">App bloccata</span><span class="tag tag-neutral">Host non installato</span><span class="tag tag-neutral">Ricerca globale</span><span class="tag tag-neutral">Overlay in-page</span><span class="tag tag-neutral">Icona: griglia varianti</span>
+</div>
+</div>
+</article>
+
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:14px">
+<h2 style="margin:0;font-size:26px">Come procedo</h2>
+<p style="margin:0;max-width:78ch;color:color-mix(in srgb, var(--color-text) 70%, transparent)">Un file per journey, nell'ordine 01 → 12. Ogni file contiene le schermate mobile e la vista tablet/desktop, con tutte le varianti affiancate e le didascalie che spiegano cosa cambia. Comincio dal journey 03 (il vault) perché è lì che si decide il modello di navigazione: ti porto A, B e C sulla stessa schermata, scegli, e il resto segue.</p>
+<div style="display:flex;flex-wrap:wrap;gap:8px">
+<span class="tag tag-accent">Prossimo: modelli A/B/C sul vault</span><span class="tag tag-outline">poi 01–02 onboarding e unlock</span><span class="tag tag-outline">poi 04–12</span>
+</div>
+</section>
+
+</div>
+</div>
+</x-dc>
+</body>
+</html>

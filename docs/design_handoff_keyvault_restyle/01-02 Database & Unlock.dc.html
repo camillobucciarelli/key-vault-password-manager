@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/organic-65909d1a-d72b-4efc-bf5f-af616dd5b6cf/styles.css">
+<script src="_ds/organic-65909d1a-d72b-4efc-bf5f-af616dd5b6cf/_ds_bundle.js"></script>
+<style>
+body{margin:0;background:var(--color-neutral-300);color:var(--color-text);font-family:var(--font-body)}
+a{color:var(--color-accent-700);text-decoration:none}
+a:hover{color:var(--color-accent-800)}
+.dv-turn{padding:44px 48px 40px;border-bottom:1px solid var(--color-divider)}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 6px}
+.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:var(--color-neutral-900);color:var(--color-neutral-100);border-radius:6px}
+.dv-tname{font-family:var(--font-heading);font-size:20px}
+.grp{margin:26px 0 0;display:flex;flex-direction:column;gap:14px}
+.grp-h{font-family:var(--font-heading);font-size:17px;display:flex;align-items:center;gap:10px}
+.grp-n{width:26px;height:26px;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center;font-size:11px}
+.opts{display:flex;flex-wrap:wrap;gap:26px;align-items:flex-start}
+.item{flex:none;display:flex;flex-direction:column;gap:9px;width:390px}
+.st{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600}
+.st b{font-weight:600}
+.cap{font-size:12px;color:var(--color-neutral-700);line-height:1.5}
+.ph{width:390px;height:844px;border-radius:46px;background:var(--color-neutral-100);box-shadow:var(--shadow-lg);overflow:hidden;display:flex;flex-direction:column;position:relative}
+.ph-d{background:var(--color-neutral-900);color:var(--color-neutral-100)}
+.sbar{height:52px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 26px 6px;font-size:13px;font-weight:600}
+.h1{font-family:var(--font-heading);font-size:30px;line-height:1.12}
+.sub{font-size:13.5px;color:var(--color-neutral-600);line-height:1.45}
+.card2{border-radius:24px;background:var(--color-neutral-200);padding:14px;display:flex;align-items:center;gap:12px}
+.sq{width:40px;height:40px;flex:none;border-radius:14px;display:grid;place-items:center}
+.pill{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:52px;border-radius:999px;font-family:var(--font-heading);font-size:15px}
+.pillp{background:var(--color-accent-300);color:var(--color-accent-900)}
+.pills{background:transparent;border:1px solid var(--color-divider);color:var(--color-text)}
+.fld{display:flex;align-items:center;gap:10px;height:52px;padding:0 16px;border-radius:999px;background:var(--color-neutral-200);font-size:15px}
+.lbl{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--color-neutral-600);margin-bottom:7px}
+.sheet{position:absolute;left:0;right:0;bottom:0;border-radius:32px 32px 0 0;background:var(--color-neutral-100);box-shadow:var(--shadow-lg);padding:20px 18px 26px;display:flex;flex-direction:column;gap:14px}
+.veil{position:absolute;inset:0;background:color-mix(in srgb, var(--color-neutral-900) 42%, transparent)}
+.btn-primary{background:var(--color-accent-300);color:var(--color-accent-900)}
+.btn-primary:hover{background:var(--color-accent-400)}
+.tag-accent{background:var(--color-accent-200);color:var(--color-accent-900)}
+.tag-accent-2{background:var(--color-accent-2-200);color:var(--color-accent-2-900)}
+.tb{width:1024px;height:768px;border-radius:22px;background:var(--color-neutral-100);box-shadow:var(--shadow-lg);overflow:hidden;display:flex}
+</style>
+</helmet>
+
+<section class="dv-turn" id="t2">
+<div class="dv-thd"><span class="dv-tid">2</span><span class="dv-tname">Journey 01 · Database — e 02 · Unlock</span></div>
+<p style="margin:0;font-size:13.5px;color:var(--color-neutral-700);max-width:96ch">Struttura da <a href="03 Vault — modelli di navigazione.dc.html">1a</a> (tab bar + tablet a colonne), con la ricerca dominante di 1b portata dentro le liste. Tutte le varianti di stato dei due journey; il tablet chiude ogni gruppo. Dark solo dove l'app lo mostra davvero a schermo pieno (unlock e lock).</p>
+<p style="margin:10px 0 0;font-size:12.5px;color:var(--color-neutral-700);max-width:96ch;display:flex;gap:8px;align-items:baseline"><span class="tag tag-outline">Proposta</span><span>Le didascalie distinguono ciò che esiste già nel codice da ciò che aggiungo: dove leggi <strong>Proposta</strong> il controllo oggi non c'è (<em>create_database_dialog.dart</em>, <em>recent_databases_section.dart</em>, <em>resolve_database_duplicate_usecase.dart</em> alla mano).</span></p>
+
+<div class="grp">
+<div class="grp-h"><span class="grp-n">01</span>Primo avvio &amp; scelta del database</div>
+<div class="opts">
+
+<div class="item">
+<div class="st"><span class="tag tag-accent">Empty</span>Primo avvio, nessun database</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 26px;gap:22px">
+<img src="assets/keyvault-icon.png" alt="KeyVault" style="width:88px;height:88px;border-radius:26px">
+<div style="display:flex;flex-direction:column;gap:10px">
+<div class="h1" style="font-size:38px;max-width:15ch">Your vault, in a file you own.</div>
+<p class="sub" style="margin:0;max-width:34ch">KeyVault opens standard KeePass <strong>.kdbx</strong> databases. Nothing leaves the file unless you connect Google Drive.</p>
+</div>
+</div>
+<div style="flex:none;padding:0 22px 34px;display:flex;flex-direction:column;gap:10px">
+<span class="pill pillp"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Create a new database</span>
+<span class="pill pills"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 6a2 2 0 0 1 2-2h4l2 2.5h6a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/></svg>Open an existing .kdbx</span>
+<span class="pill pills"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M7 18a4 4 0 0 1 .4-8A6 6 0 0 1 19 11.5a3.5 3.5 0 0 1-.5 6.5Z"/><path d="M12 12v5M9.5 14.5 12 12l2.5 2.5"/></svg>Import from Google Drive</span>
+</div>
+</div>
+<p class="cap">Una promessa in una frase e tre strade. Sparisce il muro di testo dell'attuale schermata di selezione; il gradiente diagonale lascia il posto al ground crema piatto.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Default</span>Database recenti</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:8px 22px 0;display:flex;align-items:center;gap:12px">
+<img src="assets/keyvault-icon.png" alt="KeyVault" style="width:40px;height:40px;border-radius:14px">
+<div class="h1" style="flex:1;font-size:26px">Databases</div>
+<span style="width:40px;height:40px;border-radius:999px;background:var(--color-accent-300);color:var(--color-accent-900);display:grid;place-items:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
+</div>
+<div style="padding:20px 22px 10px" class="lbl">Recent</div>
+<div style="padding:0 22px;display:flex;flex-direction:column;gap:10px">
+<div class="card2" style="background:var(--color-accent-200)">
+<span class="sq" style="background:var(--color-accent-300);color:var(--color-accent-900)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="8" width="18" height="13" rx="4"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg></span>
+<div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600">Personal.kdbx</div><div style="font-size:12px;color:var(--color-accent-800)">On this device · 128 items · biometrics on</div></div>
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-accent-800)"><path d="m9 6 6 6-6 6"/></svg>
+</div>
+<div class="card2">
+<span class="sq" style="background:var(--color-accent-2-200);color:var(--color-accent-2-800)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M7 18a4 4 0 0 1 .4-8A6 6 0 0 1 19 11.5a3.5 3.5 0 0 1-.5 6.5Z"/></svg></span>
+<div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600">Work.kdbx</div><div style="font-size:12px;color:var(--color-neutral-600)">Google Drive · synced 1 h ago</div></div>
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-500)"><path d="m9 6 6 6-6 6"/></svg>
+</div>
+<div class="card2" style="background:var(--color-neutral-200)">
+<span class="sq" style="background:var(--color-neutral-300);color:var(--color-neutral-700)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 9v5M12 17h.01"/><path d="M10.3 4.3 3 17a2 2 0 0 0 1.7 3h14.6A2 2 0 0 0 21 17L13.7 4.3a2 2 0 0 0-3.4 0Z"/></svg></span>
+<div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600;color:var(--color-neutral-700)">Family.kdbx</div><div style="font-size:12px;color:var(--color-accent-800)">File not found at its last location</div></div>
+<span style="font-size:12px;color:var(--color-accent-800);font-weight:600">Locate</span>
+</div>
+<div style="display:flex;align-items:center;gap:10px;padding:2px 6px;font-size:11.5px;color:var(--color-neutral-600)"><span class="tag tag-outline">Proposta</span>Riga “file non trovato” e azione Locate: oggi il file mancante dà solo lo snackbar “Selected database file was not found.”.</div>
+</div>
+<div style="padding:24px 22px 0" class="lbl">Add</div>
+<div style="padding:0 22px;display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;align-items:center;gap:12px;padding:12px 6px;font-size:14.5px"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 6a2 2 0 0 1 2-2h4l2 2.5h6a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/></svg>Open a .kdbx file<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="margin-left:auto;color:var(--color-neutral-500)"><path d="m9 6 6 6-6 6"/></svg></div>
+<div style="display:flex;align-items:center;gap:12px;padding:12px 6px;font-size:14.5px"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M7 18a4 4 0 0 1 .4-8A6 6 0 0 1 19 11.5a3.5 3.5 0 0 1-.5 6.5Z"/><path d="M12 12v5M9.5 14.5 12 12l2.5 2.5"/></svg>Import from Google Drive<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="margin-left:auto;color:var(--color-neutral-500)"><path d="m9 6 6 6-6 6"/></svg></div>
+</div>
+</div>
+<p class="cap">Oggi questa lista è la sezione <em>Managed databases</em> (<em>recent_databases_section.dart</em>): nome file, percorso completo, badge “Most recent” e un menu a tre voci — Open, Export, Remove — su ogni riga. Qui il percorso lascia il posto alla sorgente e allo stato leggibili, il menu resta (Export e Remove nel <em>more</em>), e la ricerca compare oltre i 5 database come già fa il codice. <strong>Proposta</strong>: la riga di file mancante.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Flow</span>Crea database · 1 di 3</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 22px 0;display:flex;align-items:center;gap:14px">
+<span style="width:40px;height:40px;border-radius:999px;background:var(--color-neutral-200);display:grid;place-items:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></span>
+<div style="flex:1;display:flex;gap:5px">
+<span style="flex:1;height:4px;border-radius:999px;background:var(--color-accent-400)"></span>
+<span style="flex:1;height:4px;border-radius:999px;background:var(--color-neutral-300)"></span>
+<span style="flex:1;height:4px;border-radius:999px;background:var(--color-neutral-300)"></span>
+</div>
+</div>
+<div style="padding:26px 22px 0;display:flex;flex-direction:column;gap:8px">
+<div class="lbl" style="margin:0">Step 1 of 3</div>
+<div class="h1">Name and place</div>
+<p class="sub" style="margin:0">You can move the file later — KeyVault only remembers where it is.</p>
+</div>
+<div style="padding:24px 22px 0;display:flex;flex-direction:column;gap:16px">
+<div><div class="lbl">Database name</div><div class="fld"><span>Personal</span><span style="width:2px;height:22px;background:var(--color-accent-400)"></span><span style="margin-left:auto;color:var(--color-neutral-500);font-size:13px">.kdbx</span></div></div>
+<div><div class="lbl">Where it will live</div>
+<div class="card2" style="border-radius:20px;align-items:flex-start"><span class="sq" style="background:var(--color-neutral-200);color:var(--color-neutral-700)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M9 12h6"/></svg></span><div style="flex:1"><div style="font-size:14px;font-weight:600">KeyVault app storage</div><div style="font-size:12px;color:var(--color-neutral-600)">On this device, private to the app. Export a backup regularly — you can link it to Drive later.</div></div></div>
+</div>
+</div>
+<div style="margin-top:auto;padding:0 22px 34px;display:flex;flex-direction:column;gap:10px">
+<span class="pill pillp">Continue</span>
+<p class="cap" style="text-align:center;margin:0">Next: master password, then key file.</p>
+</div>
+</div>
+<p class="cap">Oggi è un dialog unico — <em>New Database Credentials</em>: nome file (default <em>new_database.kdbx</em>), password, conferma, switch biometria, switch “Generate key file automatically”, selezione key file. Diventa tre passi brevi con gli stessi campi. La destinazione non è una scelta: su mobile e desktop il file nasce nello storage interno dell'app, esattamente come scrive il dialog attuale — qui lo dico in una riga invece che in un paragrafo.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Flow</span>Crea database · 2 di 3</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 22px 0;display:flex;align-items:center;gap:14px">
+<span style="width:40px;height:40px;border-radius:999px;background:var(--color-neutral-200);display:grid;place-items:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></span>
+<div style="flex:1;display:flex;gap:5px">
+<span style="flex:1;height:4px;border-radius:999px;background:var(--color-accent-400)"></span>
+<span style="flex:1;height:4px;border-radius:999px;background:var(--color-accent-400)"></span>
+<span style="flex:1;height:4px;border-radius:999px;background:var(--color-neutral-300)"></span>
+</div>
+</div>
+<div style="padding:26px 22px 0;display:flex;flex-direction:column;gap:8px">
+<div class="lbl" style="margin:0">Step 2 of 3</div>
+<div class="h1">Master password</div>
+<p class="sub" style="margin:0">This is the only thing that decrypts the file. If you lose it, no one — including us — can recover it.</p>
+</div>
+<div style="padding:22px 22px 0;display:flex;flex-direction:column;gap:16px">
+<div><div class="lbl">Password</div><div class="fld" style="border:2px solid var(--color-accent)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-600)"><rect x="4" y="10" width="16" height="10" rx="4"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><span style="letter-spacing:.2em">••••••••••••••</span><span style="margin-left:auto;display:grid;place-items:center;color:var(--color-neutral-600)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.6"/></svg></span></div></div>
+<div style="display:flex;align-items:center;gap:10px">
+<span style="flex:1;height:6px;border-radius:999px;background:var(--color-accent-2-400)"></span>
+<span style="flex:1;height:6px;border-radius:999px;background:var(--color-accent-2-400)"></span>
+<span style="flex:1;height:6px;border-radius:999px;background:var(--color-accent-2-400)"></span>
+<span style="flex:1;height:6px;border-radius:999px;background:var(--color-neutral-300)"></span>
+<span style="font-size:12.5px;color:var(--color-accent-2-800);font-weight:600">Strong</span>
+</div>
+<div><div class="lbl">Repeat password</div><div class="fld"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-600)"><rect x="4" y="10" width="16" height="10" rx="4"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><span style="letter-spacing:.2em">••••••••••••••</span><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="margin-left:auto;color:var(--color-accent-2)"><path d="m5 13 4 4L19 7"/></svg></div></div>
+<div style="display:flex;gap:12px;padding:14px 16px;border-radius:20px;background:var(--color-accent-2-100);align-items:flex-start">
+<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="flex:none;margin-top:1px;color:var(--color-accent-2-800)"><path d="M12 3 4 6v5c0 5.8 8 10 8 10s8-4.2 8-10V6Z"/></svg>
+<div style="font-size:12.5px;color:var(--color-accent-2-900)">Write it down somewhere physical, once. Then let biometrics do the daily work.</div>
+</div>
+</div>
+<div style="margin-top:auto;padding:0 22px 34px"><span class="pill pillp" style="width:100%">Continue</span></div>
+</div>
+<p class="cap">Forza mostrata come quattro tacche, non come percentuale. La frase sull'irrecuperabilità sta qui, dove conta, e non in un dialog di conferma dopo.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Flow</span>Crea database · 3 di 3</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 22px 0;display:flex;align-items:center;gap:14px">
+<span style="width:40px;height:40px;border-radius:999px;background:var(--color-neutral-200);display:grid;place-items:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></span>
+<div style="flex:1;display:flex;gap:5px">
+<span style="flex:1;height:4px;border-radius:999px;background:var(--color-accent-400)"></span>
+<span style="flex:1;height:4px;border-radius:999px;background:var(--color-accent-400)"></span>
+<span style="flex:1;height:4px;border-radius:999px;background:var(--color-accent-400)"></span>
+</div>
+</div>
+<div style="padding:26px 22px 0;display:flex;flex-direction:column;gap:8px">
+<div class="lbl" style="margin:0">Step 3 of 3 · optional</div>
+<div class="h1">Extra locks</div>
+<p class="sub" style="margin:0">Both are optional and can be changed later in database settings.</p>
+</div>
+<div style="padding:22px 22px 0;display:flex;flex-direction:column;gap:10px">
+<div class="card2" style="border-radius:22px;align-items:flex-start">
+<span class="sq" style="background:var(--color-accent-200);color:var(--color-accent-800)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 11v10M9 21h6"/><circle cx="12" cy="7" r="4"/></svg></span>
+<div style="flex:1"><div style="font-size:14.5px;font-weight:600">Generate a key file</div><div style="font-size:12.5px;color:var(--color-neutral-600)">A second file required to open the database. Saved in app storage — or pick your own.</div></div>
+<span style="width:44px;height:26px;border-radius:999px;background:var(--color-neutral-300);display:flex;align-items:center;padding:3px"><span style="width:20px;height:20px;border-radius:999px;background:var(--color-neutral-100)"></span></span>
+</div>
+<div class="card2" style="border-radius:22px;align-items:flex-start;background:var(--color-accent-2-100)">
+<span class="sq" style="background:var(--color-accent-2-300);color:var(--color-accent-2-900)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M6 12a6 6 0 0 1 12 0"/><path d="M9 13v3M12 12v5M15 13v3"/><path d="M4 9a9 9 0 0 1 16 0"/></svg></span>
+<div style="flex:1"><div style="font-size:14.5px;font-weight:600">Face ID</div><div style="font-size:12.5px;color:var(--color-accent-2-900)">Unlock without typing the master password on this device.</div></div>
+<span style="width:44px;height:26px;border-radius:999px;background:var(--color-accent-2-400);display:flex;align-items:center;justify-content:flex-end;padding:3px"><span style="width:20px;height:20px;border-radius:999px;background:var(--color-neutral-100)"></span></span>
+</div>
+<div class="card2" style="border-radius:22px;align-items:flex-start">
+<span class="sq" style="background:var(--color-neutral-200);color:var(--color-neutral-700)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></span>
+<div style="flex:1"><div style="font-size:14.5px;font-weight:600">Auto-lock</div><div style="font-size:12.5px;color:var(--color-neutral-600)">After 2 minutes of inactivity</div></div>
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-500);margin-top:10px"><path d="m9 6 6 6-6 6"/></svg>
+</div>
+</div>
+<div style="margin-top:auto;padding:0 22px 34px;display:flex;flex-direction:column;gap:10px"><span class="pill pillp">Create database</span><span class="pill pills">Skip for now</span></div>
+</div>
+<p class="cap">Key file generato e biometria sono i due switch che il dialog attuale ha già, riuniti sotto una domanda sola: quanto stretto lo vuoi. L'auto-lock è <strong>approvato</strong>: il timeout esiste già nel codice (<em>getInactivityLockTimeoutForPath</em>) e da qui si imposta alla creazione, invece di restare un valore invisibile.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Loading</span>Picker Google Drive</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 22px 0;display:flex;align-items:center;gap:14px">
+<span style="width:40px;height:40px;border-radius:999px;background:var(--color-neutral-200);display:grid;place-items:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></span>
+<div class="h1" style="font-size:24px">From Drive</div>
+</div>
+<div style="padding:18px 22px 10px"><div class="fld" style="background:var(--color-neutral-200);height:46px;font-size:14.5px;color:var(--color-neutral-600)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>Search .kdbx files</div></div>
+<div style="padding:6px 22px;display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--color-neutral-600)"><span style="width:14px;height:14px;border-radius:999px;border:2px solid var(--color-neutral-300);border-top-color:var(--color-accent)"></span>Reading your Drive…</div>
+<div style="padding:14px 22px;display:flex;flex-direction:column;gap:10px">
+<div class="card2" style="background:var(--color-neutral-100)"><span class="sq" style="background:var(--color-neutral-200)"></span><div style="flex:1;display:flex;flex-direction:column;gap:6px"><span style="height:12px;width:62%;border-radius:999px;background:var(--color-neutral-200)"></span><span style="height:10px;width:40%;border-radius:999px;background:var(--color-neutral-200)"></span></div></div>
+<div class="card2" style="background:var(--color-neutral-100)"><span class="sq" style="background:var(--color-neutral-200)"></span><div style="flex:1;display:flex;flex-direction:column;gap:6px"><span style="height:12px;width:48%;border-radius:999px;background:var(--color-neutral-200)"></span><span style="height:10px;width:56%;border-radius:999px;background:var(--color-neutral-200)"></span></div></div>
+<div class="card2" style="background:var(--color-neutral-100)"><span class="sq" style="background:var(--color-neutral-200)"></span><div style="flex:1;display:flex;flex-direction:column;gap:6px"><span style="height:12px;width:70%;border-radius:999px;background:var(--color-neutral-200)"></span><span style="height:10px;width:34%;border-radius:999px;background:var(--color-neutral-200)"></span></div></div>
+</div>
+<div style="margin-top:auto;padding:0 22px 34px"><p class="cap" style="margin:0">KeyVault only sees files you pick. It never lists your whole Drive.</p></div>
+</div>
+<p class="cap">Skeleton con la stessa forma delle righe finali, così la lista non salta. Sotto, la riga di privacy che oggi manca del tutto in questo passaggio.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-accent">Empty</span>Picker Drive · nessun file</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 22px 0;display:flex;align-items:center;gap:14px">
+<span style="width:40px;height:40px;border-radius:999px;background:var(--color-neutral-200);display:grid;place-items:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></span>
+<div class="h1" style="font-size:24px">From Drive</div>
+</div>
+<div style="padding:18px 22px 10px"><div class="fld" style="background:var(--color-neutral-200);height:46px;font-size:14.5px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="color:var(--color-neutral-600)"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg><span>vault</span></div></div>
+<div style="flex:1;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:16px;padding:0 30px">
+<span style="width:74px;height:74px;border-radius:999px;background:var(--color-neutral-200);color:var(--color-neutral-600);display:grid;place-items:center"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4M8.5 11h5"/></svg></span>
+<div class="h1" style="font-size:24px">No .kdbx named “vault”</div>
+<p class="sub" style="margin:0">The account <strong>camillo@bucciarelli.dev</strong> has no matching database. Check the name, or create a new database and let KeyVault upload it.</p>
+<div style="display:flex;flex-direction:column;gap:10px;width:100%;margin-top:6px"><span class="pill pillp">Create and upload instead</span><span class="pill pills">Switch Google account</span></div>
+</div>
+</div>
+<p class="cap">Empty state che dice quale account sta guardando e offre le due sole uscite sensate. Nessun testo "no results" generico.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-accent">Error</span>File non valido</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:8px 22px 0;display:flex;align-items:center;gap:12px">
+<img src="assets/keyvault-icon.png" alt="KeyVault" style="width:40px;height:40px;border-radius:14px">
+<div class="h1" style="flex:1;font-size:26px">Databases</div>
+</div>
+<div style="padding:20px 22px 10px" class="lbl">Recent</div>
+<div style="padding:0 22px;display:flex;flex-direction:column;gap:10px;opacity:.5">
+<div class="card2"><span class="sq" style="background:var(--color-accent-200)"></span><div style="flex:1"><div style="font-size:15px;font-weight:600">Personal.kdbx</div><div style="font-size:12px;color:var(--color-neutral-600)">On this device · 128 items</div></div></div>
+<div class="card2"><span class="sq" style="background:var(--color-accent-2-200)"></span><div style="flex:1"><div style="font-size:15px;font-weight:600">Work.kdbx</div><div style="font-size:12px;color:var(--color-neutral-600)">Google Drive</div></div></div>
+</div>
+<div class="veil"></div>
+<div class="sheet">
+<span style="width:46px;height:5px;border-radius:999px;background:var(--color-neutral-300);align-self:center"></span>
+<span style="width:52px;height:52px;border-radius:999px;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 9v5M12 17h.01"/><path d="M10.3 4.3 3 17a2 2 0 0 0 1.7 3h14.6A2 2 0 0 0 21 17L13.7 4.3a2 2 0 0 0-3.4 0Z"/></svg></span>
+<div class="h1" style="font-size:23px">That file isn’t a KeePass database</div>
+<p class="sub" style="margin:0"><strong>passwords-export.csv</strong> isn’t a <strong>.kdbx</strong> file. CSV exports from other managers are imported from inside an unlocked vault, not here.</p>
+<div style="display:flex;flex-direction:column;gap:9px;margin-top:4px">
+<span class="pill pillp">Pick another file</span>
+<span class="pill pills">Cancel</span>
+</div>
+</div>
+</div>
+<p class="cap">La validazione fallita (<em>validate_database_usecase</em>) diventa una sheet che nomina il file e dice dove sta l'import CSV — che nel codice è un <em>VaultEvent</em>, quindi disponibile solo a vault aperto: da qui non si può lanciare.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-accent">Conflict</span>Database duplicato</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:8px 22px 0;display:flex;align-items:center;gap:12px">
+<img src="assets/keyvault-icon.png" alt="KeyVault" style="width:40px;height:40px;border-radius:14px">
+<div class="h1" style="flex:1;font-size:26px">Databases</div>
+</div>
+<div style="padding:20px 22px 10px" class="lbl">Recent</div>
+<div style="padding:0 22px;display:flex;flex-direction:column;gap:10px;opacity:.5">
+<div class="card2"><span class="sq" style="background:var(--color-accent-200)"></span><div style="flex:1"><div style="font-size:15px;font-weight:600">Personal.kdbx</div><div style="font-size:12px;color:var(--color-neutral-600)">On this device · 128 items</div></div></div>
+</div>
+<div class="veil"></div>
+<div class="sheet">
+<span style="width:46px;height:5px;border-radius:999px;background:var(--color-neutral-300);align-self:center"></span>
+<div class="h1" style="font-size:23px">You already have this database</div>
+<p class="sub" style="margin:0">The file you picked matches <strong>Personal.kdbx</strong> already on this device — same source, or the same content hash.</p>
+<div style="display:flex;flex-direction:column;gap:9px">
+<div class="card2" style="border-radius:20px;background:var(--color-accent-200);align-items:flex-start"><span class="sq" style="background:var(--color-accent-300);color:var(--color-accent-900)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="m5 13 4 4L19 7"/></svg></span><div style="flex:1"><div style="font-size:14px;font-weight:600">Keep the existing one</div><div style="font-size:12.5px;color:var(--color-accent-800)">Opens Personal.kdbx · nothing is copied</div></div></div>
+<div class="card2" style="border-radius:20px;align-items:flex-start"><span class="sq" style="background:var(--color-neutral-200);color:var(--color-neutral-700)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="9" y="9" width="11" height="11" rx="3"/><path d="M15 5.5A2.5 2.5 0 0 0 12.5 4H7a3 3 0 0 0-3 3v5.5A2.5 2.5 0 0 0 6.5 15"/></svg></span><div style="flex:1"><div style="font-size:14px;font-weight:600">Keep both</div><div style="font-size:12.5px;color:var(--color-neutral-600)">The imported file is added alongside the existing one</div></div></div>
+<div class="card2" style="border-radius:20px;align-items:flex-start"><span class="sq" style="background:var(--color-neutral-200);color:var(--color-accent-800)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M4 4v6h6M20 20v-6h-6"/><path d="M20 10A8 8 0 0 0 6 6M4 14a8 8 0 0 0 14 4"/></svg></span><div style="flex:1"><div style="font-size:14px;font-weight:600">Replace existing</div><div style="font-size:12.5px;color:var(--color-neutral-600)">Overwrites Personal.kdbx on this device</div></div></div>
+<div class="card2" style="border-radius:20px;align-items:flex-start"><span class="sq" style="background:var(--color-neutral-200);color:var(--color-neutral-700)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></span><div style="flex:1"><div style="font-size:14px;font-weight:600">Cancel the import</div><div style="font-size:12.5px;color:var(--color-neutral-600)">Nothing is added to the list</div></div></div>
+</div>
+</div>
+</div>
+<p class="cap">Il dialog reale <em>Duplicate database detected</em> offre tre uscite — <em>Keep both</em>, <em>Replace existing</em>, <em>Use existing</em> — riconoscendo il duplicato per <em>sourceRef</em> o per hash (<em>ResolveDatabaseDuplicateUseCase</em>). Qui restano tutte e tre, ordinate dalla più sicura, con la conseguenza scritta sotto ciascuna.</p>
+</div>
+
+</div>
+</div>
+
+<div class="grp">
+<div class="grp-h"><span class="grp-n">02</span>Unlock</div>
+<div class="opts">
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Default</span>Password · light</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 22px 0"><span style="width:40px;height:40px;border-radius:999px;background:var(--color-neutral-200);display:grid;place-items:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></span></div>
+<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 26px;gap:20px">
+<span style="width:66px;height:66px;border-radius:24px;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="10" width="18" height="11" rx="4"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
+<div><div class="h1" style="font-size:32px">Personal.kdbx</div><p class="sub" style="margin:6px 0 0">128 items · on this device</p></div>
+<div><div class="lbl">Master password</div><div class="fld" style="border:2px solid var(--color-accent);height:56px"><span style="letter-spacing:.2em">••••••••••</span><span style="width:2px;height:22px;background:var(--color-accent-400)"></span><span style="margin-left:auto;color:var(--color-neutral-600)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.6"/></svg></span></div></div>
+<span class="pill pillp">Unlock</span>
+<div style="display:flex;align-items:center;gap:14px;font-size:13px;color:var(--color-accent-700)">
+<span style="display:inline-flex;align-items:center;gap:7px"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 11v10M9 21h6"/><circle cx="12" cy="7" r="4"/></svg>Use a key file</span>
+<span style="width:1px;height:14px;background:var(--color-divider)"></span>
+<span style="display:inline-flex;align-items:center;gap:7px"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M6 12a6 6 0 0 1 12 0"/><path d="M9 13v3M12 12v5M15 13v3"/></svg>Face ID</span>
+</div>
+</div>
+</div>
+<p class="cap">Una schermata, un campo. Lo "Step 1 of 2 / Step 2 of 2" e i quattro paragrafi di oggi diventano: nome del database, campo, pulsante, due alternative in link.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Default</span>Biometria richiesta · dark</div>
+<div class="ph ph-d">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 22px 0"><span style="width:40px;height:40px;border-radius:999px;background:color-mix(in srgb, #f9f4ed 10%, transparent);display:grid;place-items:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></span></div>
+<div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:0 30px;gap:26px;text-align:center">
+<span style="width:104px;height:104px;border-radius:999px;background:color-mix(in srgb, #f6a06b 18%, transparent);color:var(--color-accent-400);display:grid;place-items:center"><svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 12a6 6 0 0 1 12 0"/><path d="M9 13.5v3M12 12v5.5M15 13.5v3"/><path d="M3.5 9.5a10 10 0 0 1 17 0"/></svg></span>
+<div><div class="h1" style="font-size:30px">Look at your phone</div><p style="margin:8px 0 0;font-size:14px;color:color-mix(in srgb, #f9f4ed 62%, transparent)">Personal.kdbx requires Face ID before the master password can be used.</p></div>
+</div>
+<div style="flex:none;padding:0 22px 34px;display:flex;flex-direction:column;gap:10px">
+<span class="pill" style="background:var(--color-accent-400);color:var(--color-neutral-900)">Try Face ID again</span>
+<span class="pill" style="border:1px solid color-mix(in srgb, #f9f4ed 20%, transparent);color:var(--color-neutral-100)">Use master password</span>
+</div>
+</div>
+<p class="cap">Dark ground <code>neutral-900</code>, accento <code>accent-400</code>. Il gate biometrico oggi è un bottone dentro la card; qui è la schermata, perché è l'unica cosa da fare.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-accent">Error</span>Password errata</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 22px 0"><span style="width:40px;height:40px;border-radius:999px;background:var(--color-neutral-200);display:grid;place-items:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></span></div>
+<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 26px;gap:20px">
+<span style="width:66px;height:66px;border-radius:24px;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="10" width="18" height="11" rx="4"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
+<div><div class="h1" style="font-size:32px">Personal.kdbx</div><p class="sub" style="margin:6px 0 0">128 items · on this device</p></div>
+<div><div class="lbl">Master password</div>
+<div class="fld" style="border:2px solid var(--color-accent-700);height:56px"><span style="letter-spacing:.2em">••••••••</span><span style="margin-left:auto;color:var(--color-accent-700)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg></span></div>
+<div style="margin-top:8px;font-size:12.5px;color:var(--color-accent-700);display:flex;gap:7px;align-items:flex-start"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="flex:none;margin-top:2px"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg><span>Wrong password, or this database also needs its key file. Attempt 2.</span></div>
+</div>
+<span class="pill pillp">Unlock</span>
+<div style="display:flex;align-items:center;gap:14px;font-size:13px;color:var(--color-accent-700)"><span style="display:inline-flex;align-items:center;gap:7px"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 11v10M9 21h6"/><circle cx="12" cy="7" r="4"/></svg>Add the key file</span></div>
+</div>
+</div>
+<p class="cap">L'errore sta sotto il campo, non in uno snackbar in fondo allo schermo, e nomina la seconda causa possibile: il key file mancante — che è esattamente l'ambiguità del codice attuale (password o key file o entrambi).</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Variant</span>Key file selezionato</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="padding:6px 22px 0"><span style="width:40px;height:40px;border-radius:999px;background:var(--color-neutral-200);display:grid;place-items:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></span></div>
+<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 26px;gap:18px">
+<span style="width:66px;height:66px;border-radius:24px;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="10" width="18" height="11" rx="4"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
+<div><div class="h1" style="font-size:32px">Work.kdbx</div><p class="sub" style="margin:6px 0 0">Google Drive · synced 1 h ago</p></div>
+<div><div class="lbl">Master password <span style="text-transform:none;letter-spacing:0;color:var(--color-neutral-500)">— optional with a key file</span></div><div class="fld" style="height:56px;color:var(--color-neutral-500)">Enter password</div></div>
+<div class="card2" style="border-radius:20px;background:var(--color-accent-2-100)">
+<span class="sq" style="background:var(--color-accent-2-300);color:var(--color-accent-2-900)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="m5 13 4 4L19 7"/></svg></span>
+<div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600">work-keyfile.keyx</div><div style="font-size:12px;color:var(--color-accent-2-900)">Kept inside KeyVault · not on Drive</div></div>
+<span class="ic" style="width:32px;height:32px;display:grid;place-items:center;color:var(--color-accent-2-900)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></span>
+</div>
+<span class="pill pillp">Unlock with key file</span>
+<p class="cap" style="margin:0">Manage key files →</p>
+</div>
+</div>
+<p class="cap">Quando c'è un key file il pulsante lo dice, e il campo password si smarca come opzionale — la logica <em>canUnlockManually</em> resa visibile invece che spiegata in un riquadro informativo.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Manager</span>Key file manager (mobile)</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="flex:1;opacity:.45;display:flex;flex-direction:column;justify-content:center;padding:0 26px;gap:18px">
+<span style="width:66px;height:66px;border-radius:24px;background:var(--color-accent-200)"></span>
+<div class="h1" style="font-size:32px">Work.kdbx</div>
+<div class="fld" style="height:56px"></div>
+</div>
+<div class="veil"></div>
+<div class="sheet">
+<span style="width:46px;height:5px;border-radius:999px;background:var(--color-neutral-300);align-self:center"></span>
+<div><div class="h1" style="font-size:23px">Key files on this device</div><p class="sub" style="margin:6px 0 0">Stored inside KeyVault’s private storage. They are never uploaded with the database.</p></div>
+<div style="display:flex;flex-direction:column;gap:9px">
+<div class="card2" style="border-radius:20px;background:var(--color-accent-200)"><span class="sq" style="background:var(--color-accent-300);color:var(--color-accent-900)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="m5 13 4 4L19 7"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600">work-keyfile.keyx</div><div style="font-size:12px;color:var(--color-accent-800)">In use by Work.kdbx · added 4 Feb</div></div></div>
+<div class="card2" style="border-radius:20px"><span class="sq" style="background:var(--color-neutral-200);color:var(--color-neutral-700)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 11v10M9 21h6"/><circle cx="12" cy="7" r="4"/></svg></span><div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600">old-vault.key</div><div style="font-size:12px;color:var(--color-neutral-600)">Not used by any database</div></div><span style="font-size:12.5px;color:var(--color-accent-700);font-weight:600">Delete</span></div>
+</div>
+<span class="pill pills" style="border-radius:999px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Import a key file</span>
+</div>
+</div>
+<p class="cap">Il manager interno per iOS/Android: dice quale database usa quale file, e protegge dalla cancellazione quello in uso (<em>protectedPaths</em> nel codice).</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-neutral">Loading</span>Unlocking</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:0 30px;text-align:center">
+<span style="width:72px;height:72px;border-radius:26px;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="10" width="18" height="11" rx="4"/><path d="M8 6.5A4 4 0 0 1 16 7v3"/></svg></span>
+<div class="h1" style="font-size:26px">Decrypting Personal.kdbx</div>
+<div style="width:180px;height:6px;border-radius:999px;background:var(--color-neutral-300);overflow:hidden"><span style="display:block;width:64%;height:100%;border-radius:999px;background:var(--color-accent-400)"></span></div>
+<p class="sub" style="margin:0;max-width:30ch">KDBX 4 with 64 MB Argon2 — this takes a moment on purpose.</p>
+</div>
+</div>
+<p class="cap">L'attesa dell'Argon2 (oggi uno spinner nudo) diventa un'attesa spiegata: si sa cosa sta facendo e perché è lenta.</p>
+</div>
+
+<div class="item">
+<div class="st"><span class="tag tag-accent-2">Success</span>Attiva biometria dopo import Drive</div>
+<div class="ph">
+<div class="sbar"><span>9:41</span><span style="display:flex;gap:5px;align-items:center"><svg width="16" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M5 13a10 10 0 0 1 14 0"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></svg><svg width="22" height="12" viewBox="0 0 26 14" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="2" width="20" height="10" rx="3"/><rect x="3" y="4" width="14" height="6" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 6v2"/></svg></span></div>
+<div style="flex:1;opacity:.45;display:flex;flex-direction:column;justify-content:center;padding:0 26px;gap:18px">
+<span style="width:66px;height:66px;border-radius:24px;background:var(--color-accent-200)"></span>
+<div class="h1" style="font-size:32px">Work.kdbx</div>
+<div class="fld" style="height:56px"></div>
+</div>
+<div class="veil"></div>
+<div class="sheet">
+<span style="width:46px;height:5px;border-radius:999px;background:var(--color-neutral-300);align-self:center"></span>
+<span style="width:52px;height:52px;border-radius:999px;background:var(--color-accent-2-200);color:var(--color-accent-2-800);display:grid;place-items:center"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M6 12a6 6 0 0 1 12 0"/><path d="M9 13v3M12 12v5M15 13v3"/></svg></span>
+<div><div class="h1" style="font-size:23px">Use Face ID for Work.kdbx?</div><p class="sub" style="margin:6px 0 0">This database came from Google Drive. Requiring Face ID before unlock protects it if someone gets your phone.</p></div>
+<div style="display:flex;flex-direction:column;gap:9px"><span class="pill pillp">Turn on Face ID</span><span class="pill pills">Not now</span></div>
+</div>
+</div>
+<p class="cap">Lo stesso prompt di <em>promptBiometricSetup</em>, ma con il motivo ("viene da Drive") scritto prima della domanda.</p>
+</div>
+
+</div>
+</div>
+
+<div class="grp">
+<div class="grp-h"><span class="grp-n">TB</span>Tablet / desktop</div>
+<div class="opts">
+
+<div style="display:flex;flex-direction:column;gap:9px;width:1024px">
+<div class="st"><span class="tag tag-neutral">1024×768</span>Selezione database</div>
+<div class="tb">
+<div style="width:400px;flex:none;background:var(--color-neutral-200);padding:40px 36px;display:flex;flex-direction:column;gap:24px">
+<img src="assets/keyvault-icon.png" alt="KeyVault" style="width:56px;height:56px;border-radius:18px">
+<div><div class="h1" style="font-size:34px">KeyVault</div><p class="sub" style="margin:8px 0 0">Standard KeePass files. Your vault stays a file you can copy, back up and read with anything.</p></div>
+<div style="margin-top:auto;display:flex;flex-direction:column;gap:10px">
+<span class="pill pillp"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>New database</span>
+<span class="pill pills">Open a .kdbx file</span>
+<span class="pill pills">Import from Google Drive</span>
+</div>
+</div>
+<div style="flex:1;padding:40px 40px;display:flex;flex-direction:column;gap:18px;min-width:0">
+<div style="display:flex;align-items:center;gap:14px"><div class="h1" style="font-size:24px;flex:1">Recent databases</div><span class="tag tag-neutral">3</span></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+<div style="border-radius:24px;background:var(--color-accent-200);padding:18px;display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:center;gap:10px"><span class="sq" style="background:var(--color-accent-300);color:var(--color-accent-900)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="8" width="18" height="13" rx="4"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg></span><span class="tag" style="background:var(--color-accent-300);color:var(--color-accent-900);margin-left:auto">Active</span></div>
+<div><div style="font-size:16px;font-weight:600">Personal.kdbx</div><div style="font-size:12.5px;color:var(--color-accent-800)">On this device · 128 items · Face ID</div></div>
+<span class="btn btn-primary" style="border-radius:999px;align-self:flex-start">Unlock</span>
+</div>
+<div style="border-radius:24px;background:var(--color-neutral-100);padding:18px;display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:center;gap:10px"><span class="sq" style="background:var(--color-accent-2-200);color:var(--color-accent-2-800)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M7 18a4 4 0 0 1 .4-8A6 6 0 0 1 19 11.5a3.5 3.5 0 0 1-.5 6.5Z"/></svg></span><span class="tag tag-accent-2" style="margin-left:auto">Drive</span></div>
+<div><div style="font-size:16px;font-weight:600">Work.kdbx</div><div style="font-size:12.5px;color:var(--color-neutral-600)">Synced 1 h ago · key file required</div></div>
+<span class="btn btn-secondary" style="border-radius:999px;align-self:flex-start">Unlock</span>
+</div>
+<div style="border-radius:24px;background:var(--color-neutral-100);padding:18px;display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:center;gap:10px"><span class="sq" style="background:var(--color-neutral-200);color:var(--color-neutral-700)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M12 9v5M12 17h.01"/><path d="M10.3 4.3 3 17a2 2 0 0 0 1.7 3h14.6A2 2 0 0 0 21 17L13.7 4.3a2 2 0 0 0-3.4 0Z"/></svg></span></div>
+<div><div style="font-size:16px;font-weight:600;color:var(--color-neutral-700)">Family.kdbx</div><div style="font-size:12.5px;color:var(--color-accent-700)">File not found · /Volumes/USB/Family.kdbx</div></div>
+<span style="display:flex;gap:8px"><span class="btn btn-secondary" style="border-radius:999px">Locate</span><span class="btn btn-ghost">Forget</span></span>
+</div>
+</div>
+<div style="margin-top:auto;display:flex;align-items:center;gap:10px;padding:14px 18px;border-radius:22px;background:var(--color-neutral-100);font-size:12.5px;color:var(--color-neutral-700)">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" style="flex:none"><rect x="4" y="4" width="16" height="16" rx="5"/><path d="M9 12h6"/></svg>
+Browser autofill needs the KeyVault helper running. <span style="color:var(--color-accent-700);font-weight:600">Set it up</span> <span class="tag tag-outline">Proposta</span>
+</div>
+</div>
+</div>
+<p class="cap">Due colonne: a sinistra l'identità e le tre azioni, a destra i database come card con la sorgente presa da <em>DatabaseSourceType</em> (local · drive · created) e le azioni del menu attuale (Open, Export, Remove). La riga in basso che porta al setup dell'autofill desktop è una <strong>proposta</strong>: la <em>BrowserSetupScreen</em> esiste ma non è raggiungibile da qui.</p>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:9px;width:1024px">
+<div class="st"><span class="tag tag-neutral">1024×768</span>Unlock · desktop</div>
+<div class="tb" style="align-items:center;justify-content:center;position:relative">
+<div style="position:absolute;inset:0;background:var(--color-neutral-200)"></div>
+<div style="position:relative;width:460px;padding:36px;border-radius:32px;background:var(--color-neutral-100);box-shadow:var(--shadow-md);display:flex;flex-direction:column;gap:18px">
+<span style="width:60px;height:60px;border-radius:22px;background:var(--color-accent-200);color:var(--color-accent-800);display:grid;place-items:center"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><rect x="3" y="10" width="18" height="11" rx="4"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
+<div><div class="h1" style="font-size:28px">Personal.kdbx</div><p class="sub" style="margin:6px 0 0">128 items · ~/Documents/Personal.kdbx</p></div>
+<div><div class="lbl">Master password</div><div class="fld" style="border:2px solid var(--color-accent);height:52px"><span style="letter-spacing:.2em">••••••••••</span><span style="width:2px;height:20px;background:var(--color-accent-400)"></span><span style="margin-left:auto;color:var(--color-neutral-600)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.6"/></svg></span></div></div>
+<div style="display:flex;gap:10px"><span class="pill pillp" style="flex:1">Unlock</span><span class="pill pills" style="padding:0 20px">Key file…</span></div>
+<div style="font-size:12.5px;color:var(--color-accent-700)">Switch database</div>
+</div>
+</div>
+<p class="cap">Su desktop la card resta centrata (come oggi, max 600px) ma perde i tre paragrafi e lo “Step 1 of 2 / Step 2 of 2”: password, key file, cambio database — le sole tre cose che <em>database_unlock_screen.dart</em> permette qui.</p>
+</div>
+
+</div>
+</div>
+
+<p class="dv-next">Prossimo: "ok, vai con 04 dettaglio voce" · "sul create database accorpa gli step 2 e 3" · "mostrami tutto il journey 01 anche in dark"</p>
+</section>
+</x-dc>
+</body>
+</html>
