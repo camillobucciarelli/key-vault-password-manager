@@ -1,0 +1,95 @@
+# spec-004 T0 — copy preservation snapshot
+#
+# Literal, user-facing strings from the three files named in spec-004's
+# "Copy preservation" contract, extracted BEFORE any spec-004 source edit.
+# Existing strings below must remain byte-identical after the restyle, even
+# if moved between widgets or files. Interpolated (`${...}`) literals are
+# recorded as their fixed surrounding segments (same convention as
+# strings_003_before.txt).
+#
+# Non-negotiable per spec.md: the six "Copied ..." snackbar strings and the
+# two editor constraint-error strings ("Select at least one character set."
+# and the "Length must be at least "/" to include every selected set."
+# segments) must stay byte-identical.
+
+## vault_entries_details.part.dart
+
+(Untitled)
+••••••••••••
+Add record
+Add subfolder
+Attachments
+Clear search
+Close
+Collapse folder
+Copied notes.
+Copied one-time code.
+Copied password.
+Copied URL.
+Copied username.
+Copy
+Created
+Custom fields
+Delete
+Edit
+Expand folder
+Folder actions
+Hide password
+Last modified
+Manage
+Move
+No item selected
+No records or folders found
+No records yet
+No username
+Not set
+Notes not set
+Notes
+Password changed
+Password not set
+Password
+Record actions
+Record info
+Rename
+ROOT
+Select a record from the list to view all details and copy fields.
+Show password
+Stored separately from standard record fields.
+Try a different keyword or clear the search.
+Unlock vault
+Unlock with biometrics
+URL not set
+URL
+Use password
+Use the folder menu to add records or subfolders.
+Username not set
+Username
+Value not set
+One-time code (
+Copied
+ folders • 
+ records
+
+## vault_dialog_password.part.dart
+
+Cancel
+Fair
+Generate secure password
+Generate
+Good
+Lowercase letters (a-z)
+Numbers (0-9)
+Select at least one character set.
+Special characters (!@#...)
+Strong
+Uppercase letters (A-Z)
+Weak
+Length must be at least
+to include every selected set.
+
+## vault_entries.part.dart
+
+Clear search
+Move this record to recycle bin?
+Search records and folders
+Tap a field to open copy action

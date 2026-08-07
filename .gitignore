@@ -66,3 +66,4 @@ app.*.map.json
 .vscode/settings.json
 opencode.jsonc
 skills-lock.json
+test/goldens/failures/
