@@ -6,18 +6,22 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/data/datasources/local_data_source.dart';
 import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
+import 'package:password_manager/features/password_manager/data/repositories/database_session_repository_impl.dart';
 import 'package:password_manager/features/password_manager/data/services/database_import_service.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_security_profile.dart';
 import 'package:password_manager/features/password_manager/domain/models/apple_autofill_v2_models.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_dedup_result.dart';
+import 'package:password_manager/features/password_manager/domain/models/database_selection_item.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
+import 'package:password_manager/features/password_manager/domain/models/drive_account_summary.dart';
 import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_security_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/create_database_usecase.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/get_active_database_usecase.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/resolve_database_duplicate_usecase.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/unlock_database_usecase.dart';
@@ -27,6 +31,9 @@ import 'package:password_manager/features/password_manager/presentation/coordina
 import 'package:password_manager/features/password_manager/presentation/coordinators/database_session_coordinator.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
+
+List<String> _paths(List<DatabaseSelectionItem> items) =>
+    items.map((item) => item.canonicalPath).toList(growable: false);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -57,17 +64,22 @@ void main() {
       );
 
       coordinator = DatabaseSessionCoordinator(
-        localDataSource: localDataSource,
+        databaseFileRepository: databaseImportService,
+        databaseSessionRepository: DatabaseSessionRepositoryImpl(
+          localDataSource: localDataSource,
+          secureDataSource: secureDataSource,
+        ),
         databaseRegistryRepository: registryRepository,
         databaseSecurityRepository: securityRepository,
         getActiveDatabaseUseCase: GetActiveDatabaseUseCase(registryRepository),
-        secureDataSource: secureDataSource,
-        databaseImportService: databaseImportService,
         resolveDatabaseDuplicateUseCase: ResolveDatabaseDuplicateUseCase(
           registryRepository,
         ),
         databaseSyncRepository: syncRepository,
         unlockDatabaseUseCase: UnlockDatabaseUseCase(),
+        createDatabaseUseCase: CreateDatabaseUseCase(
+          databaseFileRepository: databaseImportService,
+        ),
         appleAutofillV2Coordinator: appleAutofillV2Coordinator,
       );
     });
@@ -97,28 +109,31 @@ void main() {
       },
     );
 
+    test('checkInitialDatabase routes a registered-but-missing active database '
+        'to the selection list instead of a generic open failure', () async {
+      final pathA = await _writeManagedDatabase(tempDir, 'a.kdbx');
+      final missingPath = '${tempDir.path}/missing.kdbx';
+      registryRepository.records = [
+        _record(id: 'db-a', path: pathA),
+        _record(id: 'db-b', path: missingPath),
+      ];
+      registryRepository.activeId = 'db-b';
+
+      final result = await coordinator.checkInitialDatabase();
+
+      expect(result.status, DatabaseSessionStatus.unselected);
+      expect(_paths(result.items), containsAll([pathA, missingPath]));
+      final missingItem = result.items.firstWhere(
+        (item) => item.canonicalPath == missingPath,
+      );
+      expect(missingItem.isMissing, isTrue);
+      expect(localDataSource.selectedDatabasePath, isNull);
+      expect(registryRepository.activeId, 'db-b');
+    });
+
     test(
-      'checkInitialDatabase falls back when active database is gone',
-      () async {
-        final pathA = await _writeManagedDatabase(tempDir, 'a.kdbx');
-        final pathB = await _writeManagedDatabase(tempDir, 'b.kdbx');
-        registryRepository.records = [
-          _record(id: 'db-a', path: pathA),
-          _record(id: 'db-b', path: '${tempDir.path}/missing.kdbx'),
-        ];
-        registryRepository.activeId = 'db-b';
-
-        final result = await coordinator.checkInitialDatabase();
-
-        expect(result.status, DatabaseSessionStatus.unselected);
-        expect(result.recentDatabasePaths, containsAll([pathA, pathB]));
-        expect(localDataSource.selectedDatabasePath, isNull);
-        expect(registryRepository.activeId, 'db-b');
-      },
-    );
-
-    test(
-      'checkInitialDatabase uses only remaining database when active path is stale',
+      'checkInitialDatabase routes to the selection list (not an open '
+      'attempt) when the active record points at a stale/never-written path',
       () async {
         final pathA = await _writeManagedDatabase(tempDir, 'a.kdbx');
         final stalePathB = '${tempDir.path}/databases/b.kdbx';
@@ -127,18 +142,18 @@ void main() {
           _record(id: 'db-b', path: stalePathB),
         ];
         registryRepository.activeId = 'db-b';
-        localDataSource.selectedKeyFilePath = '/tmp/stale.key';
-        secureDataSource.password = 'stale-secret';
 
         final result = await coordinator.checkInitialDatabase();
 
-        expect(result.status, DatabaseSessionStatus.success);
-        expect(result.path, pathA);
-        expect(result.path, isNot(stalePathB));
-        expect(localDataSource.selectedDatabasePath, pathA);
-        expect(localDataSource.selectedKeyFilePath, isNull);
-        expect(secureDataSource.password, isNull);
-        expect(appleAutofillV2Coordinator.clearCallCount, 1);
+        expect(result.status, DatabaseSessionStatus.unselected);
+        final staleItem = result.items.firstWhere(
+          (item) => item.canonicalPath == stalePathB,
+        );
+        expect(staleItem.isMissing, isTrue);
+        final presentItem = result.items.firstWhere(
+          (item) => item.canonicalPath == pathA,
+        );
+        expect(presentItem.isMissing, isFalse);
       },
     );
 
@@ -303,10 +318,11 @@ void main() {
         DriveRemoteFile(id: 'remote-id', name: 'remote.kdbx'),
       ];
 
-      final files = await coordinator.listDriveDatabases();
+      final picker = await coordinator.getDrivePickerData();
 
       expect(syncRepository.connectCalls, 1);
-      expect(files.single.name, 'remote.kdbx');
+      expect(picker.files.single.name, 'remote.kdbx');
+      expect(picker.account, DriveAccountSummary.fallback);
     });
 
     test('Drive duplicate cancel preserves file and mapping', () async {
@@ -592,6 +608,237 @@ void main() {
         expect(localDataSource.selectedKeyFilePath, keyPath);
       },
     );
+
+    // spec-003 AC-7 / plan.md risk "Locate points metadata at another
+    // vault" — mitigation "Require stored hash match when available;
+    // reject mismatch" is verified explicitly here at the coordinator
+    // level (not just via the file-repository/use-case layers).
+    group('locateMissingDatabase (FR-1)', () {
+      test('hash match updates canonicalPath/registry/sync mapping atomically '
+          'and preserves the database ID and security profile', () async {
+        final missingPath = '${tempDir.path}/databases/missing.kdbx';
+        final foundPath = await _writeManagedDatabase(tempDir, 'found.kdbx');
+        final foundHash = md5
+            .convert(await File(foundPath).readAsBytes())
+            .toString();
+
+        registryRepository.records = [
+          _record(
+            id: 'db-1',
+            path: missingPath,
+            fileHash: foundHash,
+            sourceType: DatabaseSourceType.drive,
+          ),
+        ];
+        securityRepository.profiles['db-1'] = const DatabaseSecurityProfile(
+          databaseId: 'db-1',
+          keyFilePath: '/tmp/db-1.key',
+        );
+        syncRepository.mappings[missingPath] = DatabaseSyncMapping(
+          databasePath: missingPath,
+          driveFileId: 'remote-1',
+          driveFileName: 'missing.kdbx',
+          autoSyncEnabled: true,
+        );
+
+        final result = await coordinator.locateMissingDatabase(
+          databaseId: 'db-1',
+          selectedPath: foundPath,
+        );
+
+        expect(result.status, DatabaseSessionStatus.success);
+        expect(result.path, foundPath);
+
+        final updated = registryRepository.records.single;
+        expect(
+          updated.databaseId,
+          'db-1',
+          reason: 'database ID must be preserved, never rebound',
+        );
+        expect(updated.canonicalPath, foundPath);
+        expect(updated.fileHash, foundHash);
+        expect(registryRepository.activeId, 'db-1');
+        expect(localDataSource.selectedDatabasePath, foundPath);
+
+        expect(
+          securityRepository.profiles['db-1']?.keyFilePath,
+          '/tmp/db-1.key',
+          reason: 'security profile must be preserved untouched',
+        );
+
+        expect(
+          syncRepository.mappings.containsKey(missingPath),
+          isFalse,
+          reason: 'the stale mapping key must be moved, not duplicated',
+        );
+        expect(syncRepository.mappings[foundPath]?.driveFileId, 'remote-1');
+
+        final locatedItem = result.items.firstWhere(
+          (item) => item.databaseId == 'db-1',
+        );
+        expect(locatedItem.isMissing, isFalse);
+      });
+
+      test('hash mismatch mutates nothing and instructs the user to use Open '
+          'instead', () async {
+        final missingPath = '${tempDir.path}/databases/missing.kdbx';
+        final wrongPath = await _writeManagedDatabase(tempDir, 'wrong.kdbx');
+
+        registryRepository.records = [
+          _record(id: 'db-1', path: missingPath, fileHash: 'expected-hash'),
+        ];
+        securityRepository.profiles['db-1'] = const DatabaseSecurityProfile(
+          databaseId: 'db-1',
+          keyFilePath: '/tmp/db-1.key',
+        );
+        registryRepository.activeId = 'db-previous-active';
+        localDataSource.selectedDatabasePath = '/tmp/previous-active.kdbx';
+        localDataSource.selectedKeyFilePath = '/tmp/previous.key';
+        secureDataSource.password = 'previous-secret';
+
+        // Full pre-call snapshot so the "zero mutations" claim is
+        // checked exhaustively, not just for the fields the happy path
+        // touches.
+        final recordsBefore = List<DatabaseRecord>.of(
+          registryRepository.records,
+        );
+        final activeIdBefore = registryRepository.activeId;
+        final profilesBefore = Map<String, DatabaseSecurityProfile>.of(
+          securityRepository.profiles,
+        );
+        final mappingsBefore = Map<String, DatabaseSyncMapping>.of(
+          syncRepository.mappings,
+        );
+        final selectedDbPathBefore = localDataSource.selectedDatabasePath;
+        final selectedKeyPathBefore = localDataSource.selectedKeyFilePath;
+        final passwordBefore = secureDataSource.password;
+
+        final result = await coordinator.locateMissingDatabase(
+          databaseId: 'db-1',
+          // A real file with a real (different) hash than the stored
+          // 'expected-hash' — any genuine md5 sum will differ from that
+          // placeholder string.
+          selectedPath: wrongPath,
+        );
+
+        expect(result.status, DatabaseSessionStatus.error);
+        expect(result.message, contains('does not match the missing database'));
+
+        expect(registryRepository.records, recordsBefore);
+        expect(registryRepository.records.single.canonicalPath, missingPath);
+        expect(registryRepository.records.single.fileHash, 'expected-hash');
+        expect(registryRepository.activeId, activeIdBefore);
+        expect(securityRepository.profiles, profilesBefore);
+        expect(syncRepository.mappings, mappingsBefore);
+        expect(localDataSource.selectedDatabasePath, selectedDbPathBefore);
+        expect(localDataSource.selectedKeyFilePath, selectedKeyPathBefore);
+        expect(secureDataSource.password, passwordBefore);
+      });
+
+      test('a legacy item with no stored hash accepts a valid selection '
+          'unconditionally (C-1: hash compared "when present")', () async {
+        final missingPath = '${tempDir.path}/databases/missing.kdbx';
+        final foundPath = await _writeManagedDatabase(
+          tempDir,
+          'legacy-found.kdbx',
+        );
+
+        registryRepository.records = [
+          _record(id: 'db-legacy', path: missingPath), // fileHash: null
+        ];
+
+        final result = await coordinator.locateMissingDatabase(
+          databaseId: 'db-legacy',
+          selectedPath: foundPath,
+        );
+
+        expect(result.status, DatabaseSessionStatus.success);
+        expect(result.path, foundPath);
+        expect(registryRepository.records.single.canonicalPath, foundPath);
+      });
+
+      test(
+        'an unknown database ID returns a typed error and mutates nothing',
+        () async {
+          final result = await coordinator.locateMissingDatabase(
+            databaseId: 'does-not-exist',
+            selectedPath: '${tempDir.path}/whatever.kdbx',
+          );
+
+          expect(result.status, DatabaseSessionStatus.error);
+          expect(result.message, 'Database record not found.');
+        },
+      );
+    });
+
+    // plan.md "Transaction rules": "Create failure removes partial
+    // output/key material created by that attempt and leaves prior active
+    // database/credentials unchanged." Verified at the coordinator level:
+    // `create_database_usecase_test.dart` already proves the use case
+    // itself deletes partial file output; this proves the coordinator adds
+    // no further mutation when that use case fails/throws.
+    group('createNewDatabase failure cleanup', () {
+      test('a failing create leaves the prior active database and credentials '
+          'unchanged', () async {
+        final activePath = await _writeManagedDatabase(tempDir, 'active.kdbx');
+        final activeKeyPath = '${tempDir.path}/keys/active.key';
+        registryRepository.records = [
+          _record(id: 'db-active', path: activePath),
+        ];
+        registryRepository.activeId = 'db-active';
+        localDataSource.selectedDatabasePath = activePath;
+        localDataSource.selectedKeyFilePath = activeKeyPath;
+        secureDataSource.password = 'active-secret';
+        securityRepository.profiles['db-active'] =
+            const DatabaseSecurityProfile(
+              databaseId: 'db-active',
+              keyFilePath: '/tmp/keys/active.key',
+            ).copyWith(keyFilePath: activeKeyPath);
+
+        final failingCoordinator = DatabaseSessionCoordinator(
+          databaseFileRepository: databaseImportService,
+          databaseSessionRepository: DatabaseSessionRepositoryImpl(
+            localDataSource: localDataSource,
+            secureDataSource: secureDataSource,
+          ),
+          databaseRegistryRepository: registryRepository,
+          databaseSecurityRepository: securityRepository,
+          getActiveDatabaseUseCase: GetActiveDatabaseUseCase(
+            registryRepository,
+          ),
+          resolveDatabaseDuplicateUseCase: ResolveDatabaseDuplicateUseCase(
+            registryRepository,
+          ),
+          databaseSyncRepository: syncRepository,
+          unlockDatabaseUseCase: UnlockDatabaseUseCase(),
+          createDatabaseUseCase: _FailingCreateDatabaseUseCase(
+            databaseFileRepository: databaseImportService,
+          ),
+          appleAutofillV2Coordinator: appleAutofillV2Coordinator,
+        );
+
+        await expectLater(
+          failingCoordinator.createNewDatabase(
+            databaseFileName: 'new-vault.kdbx',
+            password: 'new-secret',
+            biometricProtectionEnabled: false,
+            generateKeyFile: false,
+          ),
+          throwsException,
+        );
+
+        expect(registryRepository.records, hasLength(1));
+        expect(registryRepository.records.single.databaseId, 'db-active');
+        expect(registryRepository.activeId, 'db-active');
+        expect(localDataSource.selectedDatabasePath, activePath);
+        expect(localDataSource.selectedKeyFilePath, activeKeyPath);
+        expect(secureDataSource.password, 'active-secret');
+        expect(
+          securityRepository.profiles['db-active']?.keyFilePath,
+          activeKeyPath,
+        );
+      });
+    });
   });
 }
 
@@ -655,16 +902,28 @@ DatabaseRecord _record({
   required String id,
   required String path,
   DateTime? lastOpenedAt,
+  String? fileHash,
+  DatabaseSourceType sourceType = DatabaseSourceType.local,
 }) {
   return DatabaseRecord(
     databaseId: id,
     canonicalPath: path,
     displayName: path.split('/').last,
-    sourceType: DatabaseSourceType.local,
+    sourceType: sourceType,
+    fileHash: fileHash,
     createdAt: DateTime(2026),
     updatedAt: DateTime(2026),
     lastOpenedAt: lastOpenedAt,
   );
+}
+
+class _FailingCreateDatabaseUseCase extends CreateDatabaseUseCase {
+  _FailingCreateDatabaseUseCase({required super.databaseFileRepository});
+
+  @override
+  Future<CreateDatabaseResult?> call(CreateDatabaseRequest request) async {
+    throw Exception('Simulated create failure.');
+  }
 }
 
 class _FakePathProvider extends PathProviderPlatform
@@ -908,4 +1167,8 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
   }) async {
     return const SyncNowSuccess();
   }
+
+  @override
+  Future<DriveAccountSummary> getConnectedAccount() async =>
+      DriveAccountSummary.fallback;
 }

@@ -4,19 +4,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:path/path.dart' as p;
 
-import '../../../../../core/theme/app_backgrounds.dart';
-import '../../../../../core/theme/app_icons.dart';
 import '../../../../../core/navigation/app_navigation.dart';
+import '../../../../../core/responsive/breakpoints.dart';
+import '../../../../../core/theme/app_icons.dart';
+import '../../../../../core/theme/app_motion.dart';
+import '../../../../../core/theme/app_text_styles.dart';
+import '../../../../../core/theme/app_theme.dart';
+import '../../../../../core/theme/keyvault_colors.dart';
+import '../../../../../core/widgets/kv_bottom_sheet.dart';
+import '../../../../../core/widgets/kv_pill_button.dart';
 import '../../../../../injection_container.dart' as di;
 import '../bloc/database_unlock/database_unlock_bloc.dart';
 import '../bloc/database_unlock/database_unlock_event.dart';
 import '../bloc/database_unlock/database_unlock_state.dart';
 import '../coordinators/database_session_coordinator.dart';
+import '../../domain/errors/database_access_failure.dart';
+import '../widgets/database/face_id_prompt_sheet.dart';
+import '../widgets/internal_key_file_manager_sheet.dart';
+import '../utils/platform_utils.dart';
 import 'database_selection_screen.dart';
 import 'vault_screen.dart';
-import '../widgets/internal_key_file_manager_dialog.dart';
-import '../widgets/styled_info_container.dart';
-import '../utils/platform_utils.dart';
 
 part 'database_unlock_widgets.part.dart';
 
@@ -66,12 +73,12 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
       final bloc = context.read<DatabaseUnlockBloc>();
       final currentKeyFilePath = bloc.state.keyFilePath;
       final protectedPaths = await di
-          .sl<DatabaseSessionCoordinatorContract>()
+          .sl<DatabaseSessionCoordinator>()
           .getProtectedKeyFilePaths();
       if (!mounted) {
         return;
       }
-      final result = await showInternalKeyFileManagerDialog(
+      final result = await showInternalKeyFileManagerSheet(
         context,
         initiallySelectedPath: currentKeyFilePath,
         protectedPaths: {...protectedPaths, ?currentKeyFilePath},
@@ -113,231 +120,83 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
 
   @override
   Widget build(BuildContext context) {
-    final topInset = MediaQuery.paddingOf(context).top + kToolbarHeight;
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
 
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      body: Container(
-        decoration: BoxDecoration(gradient: AppBackgrounds.gradient(context)),
-        child: BlocConsumer<DatabaseUnlockBloc, DatabaseUnlockState>(
-          listener: (context, state) {
-            if (widget.promptBiometricSetup &&
-                !_biometricPromptHandled &&
-                !state.isLoading) {
-              _biometricPromptHandled = true;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted) {
-                  return;
-                }
-                _showBiometricSetupPrompt();
-              });
-            }
-            if (state.unlocked) {
-              AppNavigation.pushFadeReplacement(
-                context,
-                VaultScreen(databasePath: state.databasePath),
-              );
-              return;
-            }
-            final errorMessage = state.errorMessage;
-            if (errorMessage != null && errorMessage.isNotEmpty) {
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(SnackBar(content: Text(errorMessage)));
-            }
-          },
-          builder: (context, state) {
-            if (state.isLoading) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            final hasPassword = _passwordCtrl.text.isNotEmpty;
-            final hasKeyFile =
-                state.keyFilePath != null &&
-                state.keyFilePath!.trim().isNotEmpty;
-            final requiresBiometricGate =
-                state.biometricAvailable && !state.biometricVerified;
-            final canUnlockManually =
-                (hasPassword || hasKeyFile) && !requiresBiometricGate;
-
-            final viewportWidth = MediaQuery.sizeOf(context).width;
-            final horizontalPadding = viewportWidth < 420
-                ? 16.0
-                : (viewportWidth - 600) * 0.5;
-
-            return Center(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(
-                  horizontalPadding,
-                  topInset + 24,
-                  horizontalPadding,
-                  32,
-                ),
-                child: TweenAnimationBuilder<double>(
-                  duration: MediaQuery.of(context).disableAnimations
-                      ? Duration.zero
-                      : const Duration(milliseconds: 280),
-                  curve: Curves.easeOutCubic,
-                  tween: Tween(begin: 0.98, end: 1),
-                  builder: (context, value, child) {
-                    return Transform.scale(
-                      scale: value,
-                      child: Opacity(opacity: value, child: child),
-                    );
-                  },
-                  child: Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                            'Unlock vault',
-                            style: Theme.of(context).textTheme.headlineSmall,
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            'Unlock active vault by choosing at least one credential method.',
-                            style: Theme.of(context).textTheme.titleMedium,
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'You can use the master password, a key file, or both.',
-                            style: Theme.of(context).textTheme.bodyMedium,
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 20),
-                          Text(
-                            'Step 1 of 2 - Verify identity',
-                            style: Theme.of(context).textTheme.labelLarge,
-                          ),
-                          const SizedBox(height: 8),
-                          if (requiresBiometricGate) ...[
-                            FilledButton.icon(
-                              onPressed: () {
-                                context.read<DatabaseUnlockBloc>().add(
-                                  const RetryBiometricAuthentication(),
-                                );
-                              },
-                              icon: const Icon(AppIcons.fingerprint),
-                              label: const Text('Authenticate with biometrics'),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Complete biometric verification before manual unlock.',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ] else
-                            StyledInfoContainer(
-                              child: Text(
-                                state.biometricAvailable
-                                    ? 'Biometric check completed.'
-                                    : 'Biometric check not required for this vault.',
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ),
-                          const SizedBox(height: 20),
-                          Text(
-                            'Step 2 of 2 - Provide unlock credentials',
-                            style: Theme.of(context).textTheme.labelLarge,
-                          ),
-                          const SizedBox(height: 20),
-                          TextFormField(
-                            controller: _passwordCtrl,
-                            obscureText: !_passwordVisible,
-                            autocorrect: false,
-                            enableSuggestions: false,
-                            onChanged: (_) => setState(() {}),
-                            decoration: InputDecoration(
-                              labelText: 'Master password',
-                              helperText: hasKeyFile
-                                  ? 'Optional while a key file is selected.'
-                                  : 'Required if no key file is selected.',
-                              border: const OutlineInputBorder(),
-                              prefixIcon: const Icon(AppIcons.lock),
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  _passwordVisible
-                                      ? AppIcons.eyeOff
-                                      : AppIcons.eye,
-                                ),
-                                onPressed: () {
-                                  setState(() {
-                                    _passwordVisible = !_passwordVisible;
-                                  });
-                                },
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          _KeyFileSelector(
-                            keyFilePath: state.keyFilePath,
-                            onPickKeyFile: _pickKeyFile,
-                            onClearKeyFile: () {
-                              context.read<DatabaseUnlockBloc>().add(
-                                const UpdateKeyFilePath(null),
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 16),
-                          StyledInfoContainer(
-                            padding: const EdgeInsets.all(12),
-                            child: Text(
-                              'Ready to unlock with: '
-                              '${hasPassword ? 'master password' : ''}'
-                              '${hasPassword && hasKeyFile ? ' + ' : ''}'
-                              '${hasKeyFile ? 'key file' : ''}'
-                              '${!hasPassword && !hasKeyFile ? 'no credentials selected' : ''}',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          FilledButton(
-                            onPressed: canUnlockManually
-                                ? () {
-                                    context.read<DatabaseUnlockBloc>().add(
-                                      UnlockWithManualCredentials(
-                                        password: _passwordCtrl.text,
-                                        keyFilePath: state.keyFilePath,
-                                      ),
-                                    );
-                                  }
-                                : null,
-                            child: const Text('Unlock vault'),
-                          ),
-                          const SizedBox(height: 8),
-                          TextButton.icon(
-                            onPressed: _goToDatabaseSelection,
-                            icon: const Icon(AppIcons.back, size: 18),
-                            label: const Text('Back to database list'),
-                          ),
-                          if (!hasPassword && !hasKeyFile) ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              'Select a key file or enter your master password to continue.',
-                              style: Theme.of(context).textTheme.bodySmall,
-                              textAlign: TextAlign.center,
-                            ),
-                          ] else if (requiresBiometricGate) ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              'Biometric verification is still required before unlocking.',
-                              style: Theme.of(context).textTheme.bodySmall,
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+      backgroundColor: colors.ground,
+      body: BlocConsumer<DatabaseUnlockBloc, DatabaseUnlockState>(
+        listener: (context, state) {
+          if (widget.promptBiometricSetup &&
+              !_biometricPromptHandled &&
+              state.phase == UnlockPhase.ready) {
+            _biometricPromptHandled = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) {
+                return;
+              }
+              _showBiometricSetupPrompt();
+            });
+          }
+          if (state.unlocked) {
+            AppNavigation.pushFadeReplacement(
+              context,
+              VaultScreen(databasePath: state.databasePath),
             );
-          },
-        ),
+          }
+        },
+        builder: (context, state) {
+          switch (state.phase) {
+            case UnlockPhase.initializing:
+              return const _UnlockLoading();
+            case UnlockPhase.biometricGate:
+              return _BiometricGate(
+                onRetry: () => context.read<DatabaseUnlockBloc>().add(
+                  const RetryBiometricAuthentication(),
+                ),
+                errorMessage: state.errorMessage,
+              );
+            case UnlockPhase.decrypting:
+              return _DecryptingView(
+                basename: p.basename(state.databasePath),
+              );
+            case UnlockPhase.failure:
+              return _UnlockFailureView(
+                state: state,
+                onBack: _goToDatabaseSelection,
+              );
+            case UnlockPhase.unlocked:
+              return const _UnlockLoading();
+            case UnlockPhase.ready:
+              final hasPassword = _passwordCtrl.text.isNotEmpty;
+              final hasKeyFile =
+                  state.keyFilePath != null &&
+                  state.keyFilePath!.trim().isNotEmpty;
+              final canSubmit = hasPassword || hasKeyFile;
+              return _UnlockReadyForm(
+                state: state,
+                passwordCtrl: _passwordCtrl,
+                passwordVisible: _passwordVisible,
+                onPasswordChanged: () => setState(() {}),
+                onTogglePasswordVisible: () =>
+                    setState(() => _passwordVisible = !_passwordVisible),
+                onPickKeyFile: _pickKeyFile,
+                onClearKeyFile: () => context.read<DatabaseUnlockBloc>().add(
+                  const UpdateKeyFilePath(null),
+                ),
+                onSubmit: canSubmit
+                    ? () {
+                        context.read<DatabaseUnlockBloc>().add(
+                          UnlockWithManualCredentials(
+                            password: _passwordCtrl.text,
+                            keyFilePath: state.keyFilePath,
+                          ),
+                        );
+                      }
+                    : null,
+                onBack: _goToDatabaseSelection,
+              );
+          }
+        },
       ),
     );
   }
@@ -349,24 +208,54 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
         keyFilePath != null && keyFilePath.trim().isNotEmpty;
 
     if (hasPasswordDraft || hasKeyFileDraft) {
-      final shouldLeave = await showDialog<bool>(
+      final shouldLeave = await KvBottomSheet.show<bool>(
         context: context,
-        builder: (dialogContext) {
-          return AlertDialog(
-            title: const Text('Return to database list?'),
-            content: const Text(
-              'Any unlock credentials entered on this screen will be discarded.',
+        barrierAlpha: 0.3,
+        builder: (sheetContext) {
+          final sheetColors = Theme.of(
+            sheetContext,
+          ).extension<KeyVaultColors>()!;
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 26),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Return to database list?',
+                  style: AppTextStyles.sheetTitle.copyWith(
+                    color: sheetColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Any unlock credentials entered on this screen will be discarded.',
+                  style: AppTextStyles.body.copyWith(
+                    color: sheetColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () =>
+                            Navigator.of(sheetContext).pop(false),
+                        child: const Text('Stay here'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: KvPillButton(
+                        compact: true,
+                        label: 'Return',
+                        onPressed: () => Navigator.of(sheetContext).pop(true),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: const Text('Stay here'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                child: const Text('Return'),
-              ),
-            ],
           );
         },
       );
@@ -383,33 +272,19 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
   }
 
   Future<void> _showBiometricSetupPrompt() async {
-    final shouldEnable = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Enable biometric protection?'),
-          content: const Text(
-            'This database came from Google Drive. Do you want to require biometric authentication before unlock when available?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Not now'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Enable'),
-            ),
-          ],
-        );
-      },
+    final basename = p.basename(
+      context.read<DatabaseUnlockBloc>().state.databasePath,
+    );
+    final shouldEnable = await showFaceIdPromptSheet(
+      context,
+      basename: basename,
     );
 
     if (shouldEnable == null || !mounted) {
       return;
     }
 
-    await di.sl<DatabaseSessionCoordinatorContract>().updateBiometricProtection(
+    await di.sl<DatabaseSessionCoordinator>().updateBiometricProtection(
       databasePath: context.read<DatabaseUnlockBloc>().state.databasePath,
       enabled: shouldEnable,
     );

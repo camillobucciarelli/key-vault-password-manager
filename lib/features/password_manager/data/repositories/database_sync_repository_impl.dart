@@ -1,4 +1,5 @@
 import '../../domain/models/database_sync_mapping.dart';
+import '../../domain/models/drive_account_summary.dart';
 import '../../domain/models/drive_remote_file.dart';
 import '../../domain/models/sync_conflict.dart';
 import '../../domain/repositories/database_sync_repository.dart';
@@ -50,6 +51,11 @@ class DatabaseSyncRepositoryImpl implements DatabaseSyncRepository {
   @override
   Future<bool> isConnected() {
     return _driveAuthService.isConnected();
+  }
+
+  @override
+  Future<DriveAccountSummary> getConnectedAccount() {
+    return _driveAuthService.getConnectedAccountSummary();
   }
 
   @override

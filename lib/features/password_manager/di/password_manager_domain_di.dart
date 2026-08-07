@@ -1,6 +1,7 @@
 import 'package:get_it/get_it.dart';
 
 import '../domain/services/password_generator_service.dart';
+import '../domain/usecases/create_database_usecase.dart';
 import '../domain/usecases/get_active_database_usecase.dart';
 import '../domain/usecases/resolve_database_duplicate_usecase.dart';
 import '../domain/usecases/unlock_database_usecase.dart';
@@ -12,4 +13,7 @@ void registerPasswordManagerDomainDependencies(GetIt sl) {
   sl.registerLazySingleton(() => ResolveDatabaseDuplicateUseCase(sl()));
   sl.registerLazySingleton(() => UnlockDatabaseUseCase());
   sl.registerLazySingleton(() => ValidateDatabaseUseCase());
+  sl.registerLazySingleton(
+    () => CreateDatabaseUseCase(databaseFileRepository: sl()),
+  );
 }

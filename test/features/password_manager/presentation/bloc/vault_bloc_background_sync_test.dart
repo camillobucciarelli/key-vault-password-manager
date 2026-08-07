@@ -9,6 +9,7 @@ import 'package:password_manager/features/password_manager/data/services/vault_d
 import 'package:password_manager/features/password_manager/domain/models/apple_autofill_v2_models.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_status.dart';
+import 'package:password_manager/features/password_manager/domain/models/drive_account_summary.dart';
 import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
@@ -787,6 +788,10 @@ class _FakeSyncRepo implements DatabaseSyncRepository {
     String? remoteFileId,
     String? remoteFileName,
   }) async => throw UnimplementedError();
+
+  @override
+  Future<DriveAccountSummary> getConnectedAccount() async =>
+      DriveAccountSummary.fallback;
 }
 
 VaultBloc _makeBloc(

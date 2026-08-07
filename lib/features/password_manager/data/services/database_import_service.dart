@@ -2,35 +2,47 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path/path.dart' as p;
 
 import '../../../../core/utils/mobile_file_storage.dart';
 import '../../domain/entities/database_record.dart';
+import '../../domain/errors/database_access_failure.dart';
 import '../../domain/models/database_import_result.dart';
+import '../../domain/models/database_import_transaction.dart';
+import '../../domain/repositories/database_file_repository.dart';
 import '../../domain/usecases/validate_database_usecase.dart';
 
-class StagedDatabaseImport {
-  const StagedDatabaseImport({
-    required this.imported,
-    required this.preferredFileName,
-  });
-
-  final DatabaseImportResult imported;
-  final String preferredFileName;
-}
-
-class DatabaseFileCommit {
-  const DatabaseFileCommit({required this.databasePath, this.backupPath});
-
-  final String databasePath;
-  final String? backupPath;
-}
-
-class DatabaseImportService {
+/// Data-layer implementation of the [DatabaseFileRepository] domain port
+/// (C-7). Owns every `dart:io`/`FilePicker`/managed-storage detail that the
+/// coordinator used to touch directly.
+class DatabaseImportService implements DatabaseFileRepository {
   DatabaseImportService({required this.validateDatabaseUseCase});
 
   final ValidateDatabaseUseCase validateDatabaseUseCase;
+
+  Future<DatabaseAccessFailure?> _validationFailure(String path) async {
+    final result = await validateDatabaseUseCase(path);
+    return switch (result) {
+      DatabaseFileValidation.valid => null,
+      DatabaseFileValidation.missing => DatabaseFileMissingFailure(
+        p.basename(path),
+      ),
+      DatabaseFileValidation.invalidStructure => InvalidDatabaseFileFailure(
+        p.basename(path),
+      ),
+    };
+  }
+
+  @override
+  Future<bool> fileExists(String path) => File(path).exists();
+
+  @override
+  Future<String> hashFile(String path) async {
+    final bytes = await File(path).readAsBytes();
+    return md5.convert(bytes).toString();
+  }
 
   Future<DatabaseImportResult> importFromSelection({
     required String fileName,
@@ -44,11 +56,11 @@ class DatabaseImportService {
       selectedBytes: selectedBytes,
     );
     if (resolvedPath == null || resolvedPath.trim().isEmpty) {
-      throw Exception('Could not resolve file path.');
+      throw InvalidDatabaseFileFailure(fileName);
     }
 
-    final isValid = await validateDatabaseUseCase(resolvedPath);
-    if (!isValid) {
+    final failure = await _validationFailure(resolvedPath);
+    if (failure != null) {
       if (_usesManagedStorage &&
           await MobileFileStorage.isPathInAppDirectory(
             filePath: resolvedPath,
@@ -59,7 +71,7 @@ class DatabaseImportService {
           subdirectory: 'databases',
         );
       }
-      throw Exception('The selected file is not a valid KDBX file.');
+      throw failure;
     }
 
     if (_usesManagedStorage && overwriteExisting) {
@@ -79,15 +91,16 @@ class DatabaseImportService {
     );
   }
 
+  @override
   Future<DatabaseImportResult> openExistingPath(String path) async {
     final trimmedPath = path.trim();
     if (trimmedPath.isEmpty) {
-      throw Exception('Could not resolve file path.');
+      throw const DatabaseFileMissingFailure('');
     }
 
-    final isValid = await validateDatabaseUseCase(trimmedPath);
-    if (!isValid) {
-      throw Exception('The selected file is not a valid KDBX file.');
+    final failure = await _validationFailure(trimmedPath);
+    if (failure != null) {
+      throw failure;
     }
 
     final bytes = await File(trimmedPath).readAsBytes();
@@ -100,6 +113,7 @@ class DatabaseImportService {
     );
   }
 
+  @override
   Future<StagedDatabaseImport> stageDriveDownload({
     required String fileName,
     required Uint8List bytes,
@@ -110,14 +124,13 @@ class DatabaseImportService {
       fileName: fileName,
       subdirectory: 'database_imports',
     );
-    if (!await validateDatabaseUseCase(stagedPath)) {
+    final failure = await _validationFailure(stagedPath);
+    if (failure != null) {
       await MobileFileStorage.deleteFileFromAppDirectory(
         filePath: stagedPath,
         subdirectory: 'database_imports',
       );
-      throw Exception(
-        'The downloaded Drive file is not a valid KDBX database.',
-      );
+      throw failure;
     }
 
     return StagedDatabaseImport(
@@ -132,6 +145,7 @@ class DatabaseImportService {
     );
   }
 
+  @override
   Future<StagedDatabaseImport> stageLocalSelection({
     required String fileName,
     String? selectedPath,
@@ -143,7 +157,7 @@ class DatabaseImportService {
             ? null
             : await File(selectedPath).readAsBytes());
     if (bytes == null || bytes.isEmpty) {
-      throw Exception('Could not resolve file contents.');
+      throw InvalidDatabaseFileFailure(fileName);
     }
 
     final stagedPath = await MobileFileStorage.saveBytesToAppDirectory(
@@ -151,12 +165,13 @@ class DatabaseImportService {
       fileName: fileName,
       subdirectory: 'database_imports',
     );
-    if (!await validateDatabaseUseCase(stagedPath)) {
+    final failure = await _validationFailure(stagedPath);
+    if (failure != null) {
       await MobileFileStorage.deleteFileFromAppDirectory(
         filePath: stagedPath,
         subdirectory: 'database_imports',
       );
-      throw Exception('The selected file is not a valid KDBX file.');
+      throw failure;
     }
 
     return StagedDatabaseImport(
@@ -170,6 +185,7 @@ class DatabaseImportService {
     );
   }
 
+  @override
   Future<String> managedDatabasePath(String fileName) {
     return MobileFileStorage.getPathInAppDirectory(
       fileName: fileName,
@@ -177,13 +193,14 @@ class DatabaseImportService {
     );
   }
 
+  @override
   Future<DatabaseFileCommit> commitStagedDatabase(
     StagedDatabaseImport staged, {
     String? targetPath,
   }) async {
     final stagedFile = File(staged.imported.path);
     if (!await stagedFile.exists()) {
-      throw Exception('Staged database is unavailable.');
+      throw InvalidDatabaseFileFailure(staged.preferredFileName);
     }
 
     if (targetPath == null) {
@@ -217,6 +234,7 @@ class DatabaseImportService {
     }
   }
 
+  @override
   Future<void> finalizeDatabaseCommit(DatabaseFileCommit commit) async {
     final backupPath = commit.backupPath;
     if (backupPath != null && await File(backupPath).exists()) {
@@ -224,6 +242,7 @@ class DatabaseImportService {
     }
   }
 
+  @override
   Future<void> rollbackDatabaseCommit(DatabaseFileCommit commit) async {
     final committedFile = File(commit.databasePath);
     final backupPath = commit.backupPath;
@@ -253,6 +272,7 @@ class DatabaseImportService {
     }
   }
 
+  @override
   Future<void> discardStagedDatabase(StagedDatabaseImport staged) async {
     final stagedFile = File(staged.imported.path);
     if (await stagedFile.exists()) {
@@ -287,6 +307,7 @@ class DatabaseImportService {
     }
   }
 
+  @override
   Future<String> createDatabase({
     required String outputFile,
     required Uint8List databaseBytes,
@@ -304,6 +325,21 @@ class DatabaseImportService {
     return file.path;
   }
 
+  @override
+  Future<bool> keyFileExists(String keyFilePath) async {
+    try {
+      return await File(keyFilePath).exists();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<Uint8List> readKeyFileBytes(String keyFilePath) {
+    return File(keyFilePath).readAsBytes();
+  }
+
+  @override
   Future<String> saveKeyFile({
     required String fileName,
     required Uint8List keyFileBytes,
@@ -342,6 +378,70 @@ class DatabaseImportService {
     final file = File(selectedPath);
     await file.writeAsBytes(keyFileBytes, flush: true);
     return file.path;
+  }
+
+  @override
+  Future<String?> ensureManagedKeyFilePath(String? keyFilePath) async {
+    final normalized = keyFilePath?.trim();
+    if (normalized == null || normalized.isEmpty || !_usesManagedStorage) {
+      return normalized;
+    }
+    try {
+      final alreadyManaged = await MobileFileStorage.isPathInAppDirectory(
+        filePath: normalized,
+        subdirectory: 'keys',
+      );
+      if (alreadyManaged) {
+        return normalized;
+      }
+
+      return saveKeyFile(
+        fileName: p.basename(normalized),
+        keyFileBytes: Uint8List(0),
+        selectedPath: normalized,
+      );
+    } catch (_) {
+      return normalized;
+    }
+  }
+
+  @override
+  Future<void> deleteFile(String path) async {
+    final file = File(path);
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
+
+  @override
+  Future<String?> resolveOutputFilePath(String preferredFileName) async {
+    final normalizedFileName = _normalizeDatabaseFileName(preferredFileName);
+    if (_usesManagedStorage) {
+      return normalizedFileName;
+    }
+    return FilePicker.saveFile(
+      dialogTitle: 'Please select an output file:',
+      fileName: normalizedFileName,
+      type: FileType.custom,
+      allowedExtensions: ['kdbx'],
+    );
+  }
+
+  String _normalizeDatabaseFileName(String value) {
+    final trimmed = value.trim();
+    final fallback = 'new_database.kdbx';
+    if (trimmed.isEmpty) {
+      return fallback;
+    }
+
+    final normalized = trimmed.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+    if (normalized.isEmpty) {
+      return fallback;
+    }
+
+    return normalized.toLowerCase().endsWith('.kdbx')
+        ? normalized
+        : '$normalized.kdbx';
   }
 
   Future<String?> _resolveSelectedDatabasePath({

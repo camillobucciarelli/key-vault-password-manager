@@ -2,7 +2,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:loggy/loggy.dart';
 
 import '../../../data/datasources/biometric_data_source.dart';
+import '../../../domain/errors/database_access_failure.dart';
 import '../../coordinators/database_session_coordinator.dart';
+import '../database_selection/database_selection_bloc.dart' show failureMessage;
 import 'database_unlock_event.dart';
 import 'database_unlock_state.dart';
 
@@ -20,13 +22,16 @@ class DatabaseUnlockBloc
   }
 
   final BiometricDataSource biometricDataSource;
-  final DatabaseSessionCoordinatorContract databaseSessionCoordinator;
+  final DatabaseSessionCoordinator databaseSessionCoordinator;
 
   Future<void> _onInitializeDatabaseUnlock(
     InitializeDatabaseUnlock event,
     Emitter<DatabaseUnlockState> emit,
   ) async {
-    _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
+    _safeEmit(
+      emit,
+      state.copyWith(phase: UnlockPhase.initializing, clearError: true),
+    );
     try {
       final biometricAvailable = await biometricDataSource
           .isBiometricAvailable();
@@ -36,7 +41,6 @@ class DatabaseUnlockBloc
       );
 
       var nextState = state.copyWith(
-        isLoading: false,
         keyFilePath: bootstrap.keyFilePath,
         clearKeyFilePath: bootstrap.keyFilePath == null,
         biometricAvailable: bootstrap.biometricAvailable,
@@ -44,6 +48,9 @@ class DatabaseUnlockBloc
       );
 
       if (bootstrap.biometricRequired && bootstrap.biometricAvailable) {
+        nextState = nextState.copyWith(phase: UnlockPhase.biometricGate);
+        _safeEmit(emit, nextState);
+
         final biometricsOk = await biometricDataSource.authenticate(
           reason: 'Authenticate to unlock your password database',
         );
@@ -53,14 +60,15 @@ class DatabaseUnlockBloc
           biometricVerified: biometricsOk,
           clearError: true,
         );
-        _safeEmit(emit, nextState);
 
         if (biometricsOk) {
+          _safeEmit(emit, nextState.copyWith(phase: UnlockPhase.ready));
           await _tryStoredCredentialsUnlock(emit);
         } else {
           _safeEmit(
             emit,
             nextState.copyWith(
+              phase: UnlockPhase.biometricGate,
               errorMessage:
                   'Biometric authentication failed. Retry or unlock manually.',
             ),
@@ -72,6 +80,7 @@ class DatabaseUnlockBloc
       _safeEmit(
         emit,
         nextState.copyWith(
+          phase: UnlockPhase.ready,
           biometricPrompted: bootstrap.biometricRequired,
           biometricVerified:
               !bootstrap.biometricRequired || !bootstrap.biometricAvailable,
@@ -83,10 +92,7 @@ class DatabaseUnlockBloc
       );
     } catch (e, st) {
       logError('Failed to initialize database unlock state.', e, st);
-      _safeEmit(
-        emit,
-        state.copyWith(isLoading: false, errorMessage: e.toString()),
-      );
+      _emitTypedOrGenericFailure(emit, e, genericPhase: UnlockPhase.failure);
     }
   }
 
@@ -94,7 +100,13 @@ class DatabaseUnlockBloc
     RetryBiometricAuthentication event,
     Emitter<DatabaseUnlockState> emit,
   ) async {
-    _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
+    if (state.isDecrypting) {
+      return;
+    }
+    _safeEmit(
+      emit,
+      state.copyWith(phase: UnlockPhase.biometricGate, clearError: true),
+    );
     final isOk = await biometricDataSource.authenticate(
       reason: 'Authenticate to unlock your password database',
     );
@@ -102,7 +114,7 @@ class DatabaseUnlockBloc
     _safeEmit(
       emit,
       state.copyWith(
-        isLoading: false,
+        phase: isOk ? UnlockPhase.ready : UnlockPhase.biometricGate,
         biometricPrompted: true,
         biometricVerified: isOk,
         errorMessage: isOk ? null : 'Biometric authentication failed.',
@@ -118,15 +130,30 @@ class DatabaseUnlockBloc
     UnlockWithManualCredentials event,
     Emitter<DatabaseUnlockState> emit,
   ) async {
+    // C-4: decrypting blocks duplicate submit/back/credential edits.
+    if (state.isDecrypting) {
+      return;
+    }
     if (_requiresBiometricGate()) {
-      _emitError(
+      _safeEmit(
         emit,
-        'Use biometric authentication before unlocking the database.',
+        state.copyWith(
+          errorMessage:
+              'Use biometric authentication before unlocking the database.',
+        ),
       );
       return;
     }
 
-    _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
+    // Enter `decrypting` immediately, before awaiting the KDBX read.
+    _safeEmit(
+      emit,
+      state.copyWith(
+        phase: UnlockPhase.decrypting,
+        clearError: true,
+        clearProgress: true,
+      ),
+    );
 
     try {
       await databaseSessionCoordinator.unlockWithManualCredentials(
@@ -138,18 +165,18 @@ class DatabaseUnlockBloc
       _safeEmit(
         emit,
         state.copyWith(
-          isLoading: false,
+          phase: UnlockPhase.unlocked,
           keyFilePath: event.keyFilePath,
-          unlocked: true,
           clearError: true,
         ),
       );
     } catch (e, st) {
       logError('Manual database unlock failed.', e, st);
-      _emitError(
+      _emitTypedOrGenericFailure(
         emit,
-        'Unable to unlock database with provided credentials.',
-        isLoading: false,
+        e,
+        genericPhase: UnlockPhase.ready,
+        fallback: 'Unable to unlock database with provided credentials.',
       );
     }
   }
@@ -158,15 +185,26 @@ class DatabaseUnlockBloc
     UpdateKeyFilePath event,
     Emitter<DatabaseUnlockState> emit,
   ) async {
+    if (state.isDecrypting) {
+      return;
+    }
     final normalizedKeyFilePath = event.keyFilePath?.trim();
     final nextKeyFilePath =
         (normalizedKeyFilePath == null || normalizedKeyFilePath.isEmpty)
         ? null
         : normalizedKeyFilePath;
-    await databaseSessionCoordinator.updateKeyFilePath(
-      databasePath: state.databasePath,
-      keyFilePath: nextKeyFilePath,
-    );
+    try {
+      await databaseSessionCoordinator.updateKeyFilePath(
+        databasePath: state.databasePath,
+        keyFilePath: nextKeyFilePath,
+      );
+    } on DatabaseAccessFailure catch (failure) {
+      _safeEmit(
+        emit,
+        state.copyWith(failure: failure, errorMessage: failureMessage(failure)),
+      );
+      return;
+    }
     _safeEmit(
       emit,
       state.copyWith(
@@ -180,7 +218,14 @@ class DatabaseUnlockBloc
   Future<void> _tryStoredCredentialsUnlock(
     Emitter<DatabaseUnlockState> emit,
   ) async {
-    _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
+    _safeEmit(
+      emit,
+      state.copyWith(
+        phase: UnlockPhase.decrypting,
+        clearError: true,
+        clearProgress: true,
+      ),
+    );
 
     final hasStoredPassword = await databaseSessionCoordinator
         .hasStoredMasterPassword();
@@ -188,10 +233,13 @@ class DatabaseUnlockBloc
         state.keyFilePath != null && state.keyFilePath!.isNotEmpty;
 
     if (!hasStoredPassword && !hasKeyFile) {
-      _emitError(
+      _safeEmit(
         emit,
-        'No saved credentials found. Insert password or select a key file.',
-        isLoading: false,
+        state.copyWith(
+          phase: UnlockPhase.ready,
+          errorMessage:
+              'No saved credentials found. Insert password or select a key file.',
+        ),
       );
       return;
     }
@@ -203,7 +251,7 @@ class DatabaseUnlockBloc
       );
       _safeEmit(
         emit,
-        state.copyWith(isLoading: false, unlocked: true, clearError: true),
+        state.copyWith(phase: UnlockPhase.unlocked, clearError: true),
       );
     } catch (e, st) {
       logError(
@@ -211,16 +259,56 @@ class DatabaseUnlockBloc
         e,
         st,
       );
-      _emitError(
+      _emitTypedOrGenericFailure(
         emit,
-        'Saved credentials are not valid. Unlock manually.',
-        isLoading: false,
+        e,
+        genericPhase: UnlockPhase.ready,
+        fallback: 'Saved credentials are not valid. Unlock manually.',
       );
     }
   }
 
   bool _requiresBiometricGate() {
     return state.biometricAvailable && !state.biometricVerified;
+  }
+
+  /// Wrong password / missing key file stay recoverable in-place (`ready`
+  /// with an inline field error); a bad database file is a dead end until
+  /// the user goes back (`failure`).
+  UnlockPhase _phaseForFailure(DatabaseAccessFailure failure) =>
+      switch (failure) {
+        InvalidCredentialsFailure() => UnlockPhase.ready,
+        KeyFileMissingFailure() => UnlockPhase.ready,
+        DatabaseFileMissingFailure() => UnlockPhase.failure,
+        InvalidDatabaseFileFailure() => UnlockPhase.failure,
+        CorruptDatabaseFailure() => UnlockPhase.failure,
+      };
+
+  void _emitTypedOrGenericFailure(
+    Emitter<DatabaseUnlockState> emit,
+    Object error, {
+    required UnlockPhase genericPhase,
+    String? fallback,
+  }) {
+    if (error is DatabaseAccessFailure) {
+      _safeEmit(
+        emit,
+        state.copyWith(
+          phase: _phaseForFailure(error),
+          failure: error,
+          errorMessage: failureMessage(error),
+        ),
+      );
+      return;
+    }
+    _safeEmit(
+      emit,
+      state.copyWith(
+        phase: genericPhase,
+        errorMessage:
+            fallback ?? 'Unable to complete the requested operation.',
+      ),
+    );
   }
 
   void _safeEmit(
@@ -231,16 +319,5 @@ class DatabaseUnlockBloc
       return;
     }
     emit(nextState);
-  }
-
-  void _emitError(
-    Emitter<DatabaseUnlockState> emit,
-    String message, {
-    bool? isLoading,
-  }) {
-    _safeEmit(
-      emit,
-      state.copyWith(isLoading: isLoading, errorMessage: message),
-    );
   }
 }
