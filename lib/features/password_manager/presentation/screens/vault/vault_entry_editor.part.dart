@@ -1,0 +1,1352 @@
+part of '../vault_screen.dart';
+
+class _CustomFieldFormRow {
+  _CustomFieldFormRow({
+    required this.id,
+    required this.key,
+    required this.value,
+  });
+
+  final int id;
+  String key;
+  String value;
+}
+
+/// FR-5 (spec-004): entry editor. Text-only header (`Cancel` — title —
+/// `Save`), fields gap 14, generator spark inside the password field,
+/// progressive "Optional" list for custom fields / attachments / OTP.
+Future<EntryEditResult?> _showEntryDialog(
+  BuildContext context, {
+  VaultEntry? initial,
+  OtpAuthPayload? initialOtpAuth,
+  VaultShellRouter? router,
+}) async {
+  return (router ?? VaultShellRouterScope.of(context)).open<EntryEditResult>(
+    context: context,
+    surface: EntrySurface<EntryEditResult>(
+      builder: (_) =>
+          _EntryDialog(initial: initial, initialOtpAuth: initialOtpAuth),
+    ),
+  );
+}
+
+InputDecoration _kvFieldDecoration(
+  KeyVaultColors colors, {
+  String? hint,
+  Widget? suffixIcon,
+  String? errorText,
+}) {
+  return InputDecoration(
+    hintText: hint,
+    filled: true,
+    fillColor: colors.surface,
+    suffixIcon: suffixIcon,
+    errorText: errorText,
+    errorMaxLines: 3,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(22),
+      borderSide: BorderSide.none,
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(22),
+      borderSide: BorderSide.none,
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(22),
+      borderSide: BorderSide(color: colors.selectionBorder, width: 2),
+    ),
+    errorBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(22),
+      borderSide: BorderSide(color: AppColors.accent700, width: 2),
+    ),
+    focusedErrorBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(22),
+      borderSide: BorderSide(color: AppColors.accent700, width: 2),
+    ),
+    errorStyle: AppTextStyles.secondary.copyWith(color: AppColors.accent800),
+  );
+}
+
+Widget _kvFieldLabel(String label, KeyVaultColors colors) => Padding(
+  padding: const EdgeInsets.only(bottom: 7),
+  child: Text(
+    label,
+    style: AppTextStyles.labelUpper.copyWith(color: colors.textSecondary),
+  ),
+);
+
+class _EntryDialog extends StatefulWidget {
+  const _EntryDialog({this.initial, this.initialOtpAuth});
+
+  final VaultEntry? initial;
+  final OtpAuthPayload? initialOtpAuth;
+
+  @override
+  State<_EntryDialog> createState() => _EntryDialogState();
+}
+
+class _EntryDialogState extends State<_EntryDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _titleController;
+  late final TextEditingController _usernameController;
+  late final TextEditingController _passwordController;
+  late final TextEditingController _urlController;
+  late final TextEditingController _notesController;
+  late final TextEditingController _otpUriController;
+  var _nextCustomFieldId = 0;
+  late List<_CustomFieldFormRow> _customFieldRows;
+  final List<String> _attachmentPaths = [];
+  final Set<String> _dirtyFields = {};
+  var _showCustomFields = false;
+  var _showAttachments = false;
+  var _showOtp = false;
+  var _isSaving = false;
+  String? _titleError;
+  String? _otpError;
+
+  bool get _isDirty => _dirtyFields.isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController(text: widget.initial?.title ?? '');
+    _usernameController = TextEditingController(
+      text: widget.initial?.username ?? widget.initialOtpAuth?.username ?? '',
+    );
+    _passwordController = TextEditingController(
+      text: widget.initial?.password ?? '',
+    );
+    _urlController = TextEditingController(text: widget.initial?.url ?? '');
+    _notesController = TextEditingController(text: widget.initial?.notes ?? '');
+    _otpUriController = TextEditingController(
+      text: widget.initial?.otpUri ?? widget.initialOtpAuth?.uri ?? '',
+    );
+    if (_titleController.text.isEmpty && widget.initialOtpAuth != null) {
+      _titleController.text = widget.initialOtpAuth!.title;
+    }
+
+    _customFieldRows =
+        widget.initial?.customFields
+            .where((field) => !_isOtpFieldKey(field.key))
+            .map(
+              (field) =>
+                  _buildCustomFieldRow(key: field.key, value: field.value),
+            )
+            .toList(growable: true) ??
+        <_CustomFieldFormRow>[];
+    _showCustomFields = _customFieldRows.isNotEmpty;
+    _showOtp = _otpUriController.text.isNotEmpty;
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _usernameController.dispose();
+    _passwordController.dispose();
+    _urlController.dispose();
+    _notesController.dispose();
+    _otpUriController.dispose();
+    super.dispose();
+  }
+
+  void _markDirty(String field) => setState(() => _dirtyFields.add(field));
+
+  _CustomFieldFormRow _buildCustomFieldRow({
+    String key = '',
+    String value = '',
+  }) {
+    return _CustomFieldFormRow(
+      id: _nextCustomFieldId++,
+      key: key,
+      value: value,
+    );
+  }
+
+  Future<bool> _confirmDiscard() async {
+    if (!_isDirty) {
+      return true;
+    }
+    final decision = await _showDiscardSheet(context, _dirtyFields);
+    return decision == true;
+  }
+
+  bool _validate() {
+    final titleError = _titleController.text.trim().isEmpty
+        ? 'Title is required.'
+        : null;
+    final otpError = _validateOtpUri(_otpUriController.text);
+    final customFieldError = _validateCustomFieldRows(_customFieldRows);
+    setState(() {
+      _titleError = titleError;
+      _otpError = otpError;
+    });
+    if (titleError != null || otpError != null || customFieldError != null) {
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _handleSave() async {
+    if (!_validate()) {
+      return;
+    }
+    setState(() => _isSaving = true);
+    // Argon2-backed saves are not instant (FR-5 saving overlay); the real
+    // write happens in VaultBloc after this sheet returns its result, but
+    // the brief overlay here communicates the same "writing" moment for
+    // the create/edit round trip through the router.
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (!mounted) return;
+    VaultOperationScope.of(context).complete(
+      EntryEditResult(
+        title: _titleController.text.trim(),
+        username: _usernameController.text.trim(),
+        password: _passwordController.text,
+        url: _urlController.text.trim(),
+        notes: _notesController.text.trim(),
+        otpUri: _otpUriController.text.trim(),
+        customFields: _buildCustomFields(
+          customFieldRows: _customFieldRows,
+          otpUri: _otpUriController.text,
+        ),
+        attachmentPaths: List<String>.unmodifiable(_attachmentPaths),
+      ),
+    );
+  }
+
+  Future<void> _openGenerator(BuildContext context, bool isWide) async {
+    if (isWide) {
+      setState(() => _showTabletGenerator = true);
+      return;
+    }
+    final result = await _showPasswordGeneratorSheet(
+      context,
+      initialOptions: _optionsFromPassword(_passwordController.text),
+    );
+    if (result != null && mounted) {
+      setState(() {
+        _passwordController.text = result.password;
+        _dirtyFields.add('password');
+      });
+    }
+  }
+
+  bool _showTabletGenerator = false;
+
+  @override
+  Widget build(BuildContext context) {
+    VaultOperationScope.maybeOf(context)?.registerDiscardGuard(_confirmDiscard);
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    final isWide = MediaQuery.sizeOf(context).width >= Breakpoints.tablet;
+    final isEditing = widget.initial != null;
+
+    final form = _EntryEditorForm(
+      formKey: _formKey,
+      titleController: _titleController,
+      usernameController: _usernameController,
+      passwordController: _passwordController,
+      urlController: _urlController,
+      notesController: _notesController,
+      otpUriController: _otpUriController,
+      titleError: _titleError,
+      otpError: _otpError,
+      isEditing: isEditing,
+      isSaving: _isSaving,
+      showCustomFields: _showCustomFields,
+      showAttachments: _showAttachments,
+      showOtp: _showOtp,
+      customFieldRows: _customFieldRows,
+      attachmentPaths: _attachmentPaths,
+      onFieldChanged: _markDirty,
+      onTitleChanged: (v) {
+        _markDirty('title');
+        if (_titleError != null) setState(() => _titleError = null);
+      },
+      onOpenGenerator: () => _openGenerator(context, isWide),
+      onRevealCustomFields: () => setState(() => _showCustomFields = true),
+      onRevealAttachments: () => setState(() => _showAttachments = true),
+      onRevealOtp: () => setState(() => _showOtp = true),
+      onAddCustomField: () =>
+          setState(() => _customFieldRows.add(_buildCustomFieldRow())),
+      onRemoveCustomField: (row) => setState(() {
+        _customFieldRows.removeWhere((c) => c.id == row.id);
+        _markDirty('custom fields');
+      }),
+      onCustomFieldChanged: () => _markDirty('custom fields'),
+      onAddAttachment: () async {
+        final result = await FilePicker.pickFiles(allowMultiple: false);
+        final filePath = result?.files.single.path;
+        if (filePath == null || filePath.isEmpty || !mounted) return;
+        setState(() {
+          _attachmentPaths.add(filePath);
+          _markDirty('attachments');
+        });
+      },
+      onRemoveAttachment: (path) => setState(() {
+        _attachmentPaths.remove(path);
+        _markDirty('attachments');
+      }),
+      onScanOtp: () async {
+        final scanned = await _scanOtpUriFromQr(context);
+        if (scanned == null || !mounted) return;
+        setState(() {
+          _otpUriController.text = scanned.otpUri;
+          _showOtp = true;
+          _markDirty('OTP URI');
+          _otpError = null;
+        });
+      },
+    );
+
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _EditorHeader(
+          title: isEditing ? 'Edit item' : 'New item',
+          // Save stays tappable even with an empty title so the tap
+          // surfaces the "Title is required." validation error (golden
+          // #8, "Editor — constraint errors") instead of silently doing
+          // nothing; it's disabled only while a save is in flight.
+          canSave: !_isSaving,
+          onCancel: () => VaultOperationScope.of(context).cancel(),
+          onSave: _handleSave,
+        ),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
+            child: form,
+          ),
+        ),
+      ],
+    );
+
+    Widget content = body;
+    if (isWide && _showTabletGenerator) {
+      // ponytail / disclosed gap: the mock's tablet "editor + generator"
+      // frame assumes ~950px of width (rail + dimmed list + editor +
+      // a 290px generator column). The vault shell's existing list+detail
+      // pane split (spec-002, out of scope here) only ever gives a pane
+      // ~330-450px at typical tablet widths, so a fixed 290px column would
+      // overflow. Using `Flexible` with a capped max width degrades this
+      // gracefully (no crash, still two visible columns) instead of
+      // reproducing the mock's exact proportions — flagged as a residual
+      // fidelity gap in the handoff report; the real fix is letting an
+      // editor-shaped pane claim full shell width, which touches
+      // _VaultNavigationLayout (spec-002 shared infra).
+      content = Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Flexible(flex: 3, child: body),
+          const SizedBox(
+            width: 1,
+            child: ColoredBox(color: Colors.transparent),
+          ),
+          Flexible(
+            flex: 2,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 290),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: colors.surfaceNested,
+                  border: Border(left: BorderSide(color: colors.divider)),
+                ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: _GeneratorPanel(
+                    title: 'Generator',
+                    initialOptions: _optionsFromPassword(
+                      _passwordController.text,
+                    ),
+                    useLabel: 'Use',
+                    showRegenerateAsPill: true,
+                    onUse: (password) => setState(() {
+                      _passwordController.text = password;
+                      _dirtyFields.add('password');
+                      _showTabletGenerator = false;
+                    }),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Stack(
+      children: [
+        DecoratedBox(
+          decoration: BoxDecoration(color: colors.ground),
+          child: content,
+        ),
+        if (_isSaving) const _SavingOverlay(),
+      ],
+    );
+  }
+}
+
+class _EntryEditorForm extends StatelessWidget {
+  const _EntryEditorForm({
+    required this.formKey,
+    required this.titleController,
+    required this.usernameController,
+    required this.passwordController,
+    required this.urlController,
+    required this.notesController,
+    required this.otpUriController,
+    required this.titleError,
+    required this.otpError,
+    required this.isEditing,
+    required this.isSaving,
+    required this.showCustomFields,
+    required this.showAttachments,
+    required this.showOtp,
+    required this.customFieldRows,
+    required this.attachmentPaths,
+    required this.onFieldChanged,
+    required this.onTitleChanged,
+    required this.onOpenGenerator,
+    required this.onRevealCustomFields,
+    required this.onRevealAttachments,
+    required this.onRevealOtp,
+    required this.onAddCustomField,
+    required this.onRemoveCustomField,
+    required this.onCustomFieldChanged,
+    required this.onAddAttachment,
+    required this.onRemoveAttachment,
+    required this.onScanOtp,
+  });
+
+  final GlobalKey<FormState> formKey;
+  final TextEditingController titleController;
+  final TextEditingController usernameController;
+  final TextEditingController passwordController;
+  final TextEditingController urlController;
+  final TextEditingController notesController;
+  final TextEditingController otpUriController;
+  final String? titleError;
+  final String? otpError;
+  final bool isEditing;
+  final bool isSaving;
+  final bool showCustomFields;
+  final bool showAttachments;
+  final bool showOtp;
+  final List<_CustomFieldFormRow> customFieldRows;
+  final List<String> attachmentPaths;
+  final ValueChanged<String> onFieldChanged;
+  final ValueChanged<String> onTitleChanged;
+  final VoidCallback onOpenGenerator;
+  final VoidCallback onRevealCustomFields;
+  final VoidCallback onRevealAttachments;
+  final VoidCallback onRevealOtp;
+  final VoidCallback onAddCustomField;
+  final ValueChanged<_CustomFieldFormRow> onRemoveCustomField;
+  final VoidCallback onCustomFieldChanged;
+  final VoidCallback onAddAttachment;
+  final ValueChanged<String> onRemoveAttachment;
+  final VoidCallback onScanOtp;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+
+    return Form(
+      key: formKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _kvFieldLabel('Title', colors),
+          TextFormField(
+            controller: titleController,
+            enabled: !isSaving,
+            decoration: _kvFieldDecoration(
+              colors,
+              hint: 'e.g. Netflix',
+              errorText: titleError,
+            ),
+            onChanged: onTitleChanged,
+          ),
+          const SizedBox(height: 14),
+          _kvFieldLabel('Username', colors),
+          TextFormField(
+            controller: usernameController,
+            enabled: !isSaving,
+            decoration: _kvFieldDecoration(colors, hint: 'Email or user name'),
+            onChanged: (_) => onFieldChanged('username'),
+          ),
+          const SizedBox(height: 14),
+          _kvFieldLabel('Password', colors),
+          TextFormField(
+            controller: passwordController,
+            enabled: !isSaving,
+            style: AppTextStyles.secret.copyWith(color: colors.textPrimary),
+            decoration: _kvFieldDecoration(
+              colors,
+              hint: 'Type or generate',
+              suffixIcon: SizedBox(
+                width: 36,
+                height: 36,
+                child: IconButton(
+                  tooltip: 'Generate secure password',
+                  onPressed: isSaving ? null : onOpenGenerator,
+                  style: IconButton.styleFrom(
+                    backgroundColor: colors.actionFill,
+                    shape: const CircleBorder(),
+                    padding: EdgeInsets.zero,
+                  ),
+                  icon: Icon(
+                    AppIcons.magic,
+                    size: 17,
+                    color: colors.actionText,
+                    semanticLabel: 'Generate secure password',
+                  ),
+                ),
+              ),
+            ),
+            onChanged: (_) => onFieldChanged('password'),
+          ),
+          const SizedBox(height: 14),
+          _kvFieldLabel('URL', colors),
+          TextFormField(
+            controller: urlController,
+            enabled: !isSaving,
+            decoration: _kvFieldDecoration(colors, hint: 'netflix.com'),
+            onChanged: (_) => onFieldChanged('URL'),
+          ),
+          const SizedBox(height: 14),
+          _kvFieldLabel('Notes', colors),
+          TextFormField(
+            controller: notesController,
+            enabled: !isSaving,
+            minLines: 3,
+            maxLines: 5,
+            decoration: _kvFieldDecoration(
+              colors,
+              hint: 'Anything you\u2019ll need later',
+            ),
+            onChanged: (_) => onFieldChanged('notes'),
+          ),
+          const SizedBox(height: 20),
+          if (!showCustomFields || !showAttachments || !showOtp) ...[
+            Text(
+              'Optional',
+              style: AppTextStyles.labelUpper.copyWith(
+                color: colors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 9),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (!showCustomFields)
+                  _OptionalRow(
+                    icon: AppGlyph.add,
+                    label: 'Custom field',
+                    onTap: () {
+                      onRevealCustomFields();
+                      onAddCustomField();
+                    },
+                  ),
+                if (!showAttachments) ...[
+                  if (!showCustomFields) const SizedBox(height: 8),
+                  _OptionalRow(
+                    icon: AppGlyph.attachment,
+                    label: 'Attachment',
+                    onTap: () {
+                      onRevealAttachments();
+                      onAddAttachment();
+                    },
+                  ),
+                ],
+                if (!showOtp) ...[
+                  if (!showCustomFields || !showAttachments)
+                    const SizedBox(height: 8),
+                  _OptionalRow(
+                    icon: AppGlyph.qrCode,
+                    label: 'One-time code',
+                    onTap: onRevealOtp,
+                  ),
+                ],
+              ],
+            ),
+          ],
+          if (showOtp) ...[
+            const SizedBox(height: 20),
+            _kvFieldLabel('OTP URI (otpauth://\u2026)', colors),
+            TextFormField(
+              key: ValueKey('entry-otp-uri-${otpUriController.text}'),
+              controller: otpUriController,
+              enabled: !isSaving,
+              minLines: 2,
+              maxLines: 3,
+              style: AppTextStyles.secret.copyWith(color: colors.textPrimary),
+              decoration: _kvFieldDecoration(
+                colors,
+                hint: 'otpauth://totp/...',
+                errorText: otpError,
+                suffixIcon: _supportsOtpQrScan()
+                    ? SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: IconButton(
+                          tooltip: 'Scan QR',
+                          onPressed: isSaving ? null : onScanOtp,
+                          style: IconButton.styleFrom(
+                            backgroundColor: colors.surfaceNested,
+                            shape: const CircleBorder(),
+                          ),
+                          icon: KvIcon(
+                            glyph: AppGlyph.qrCode,
+                            size: 17,
+                            color: colors.iconNeutral,
+                          ),
+                        ),
+                      )
+                    : null,
+              ),
+              onChanged: (_) => onFieldChanged('OTP URI'),
+            ),
+          ],
+          if (showCustomFields) ...[
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Text(
+                  'Custom fields',
+                  style: AppTextStyles.labelUpper.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: isSaving ? null : onAddCustomField,
+                  child: const Text('Add field'),
+                ),
+              ],
+            ),
+            for (final row in customFieldRows) ...[
+              const SizedBox(height: 8),
+              _CustomFieldRowEditor(
+                key: ValueKey('entry-custom-field-row-${row.id}'),
+                row: row,
+                enabled: !isSaving,
+                onChanged: onCustomFieldChanged,
+                onRemove: () => onRemoveCustomField(row),
+              ),
+            ],
+          ],
+          if (showAttachments) ...[
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Text(
+                  'Attachments',
+                  style: AppTextStyles.labelUpper.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: isSaving ? null : onAddAttachment,
+                  child: const Text('Add'),
+                ),
+              ],
+            ),
+            if (attachmentPaths.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'No attachments selected.',
+                  style: AppTextStyles.body.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                ),
+              )
+            else
+              for (final filePath in attachmentPaths) ...[
+                const SizedBox(height: 8),
+                KvFieldRow(
+                  label: path.basename(filePath),
+                  value: filePath,
+                  maxLines: 1,
+                  trailing: SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: IconButton(
+                      tooltip: 'Remove attachment',
+                      onPressed: isSaving
+                          ? null
+                          : () => onRemoveAttachment(filePath),
+                      style: IconButton.styleFrom(
+                        backgroundColor: colors.surfaceNested,
+                        shape: const CircleBorder(),
+                        padding: EdgeInsets.zero,
+                      ),
+                      icon: KvIcon(
+                        glyph: AppGlyph.close,
+                        size: 15,
+                        color: colors.iconNeutral,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _OptionalRow extends StatelessWidget {
+  const _OptionalRow({required this.icon, required this.label, this.onTap});
+
+  final AppGlyph icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            children: [
+              KvIcon(glyph: icon, size: 17, color: colors.iconNeutral),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  label,
+                  style: AppTextStyles.fieldValue.copyWith(
+                    color: colors.textPrimary,
+                  ),
+                ),
+              ),
+              KvIcon(
+                glyph: AppGlyph.chevronRight,
+                size: 17,
+                color: colors.textSecondary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CustomFieldRowEditor extends StatelessWidget {
+  const _CustomFieldRowEditor({
+    super.key,
+    required this.row,
+    required this.enabled,
+    required this.onChanged,
+    required this.onRemove,
+  });
+
+  final _CustomFieldFormRow row;
+  final bool enabled;
+  final VoidCallback onChanged;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 2,
+            child: TextFormField(
+              initialValue: row.key,
+              enabled: enabled,
+              decoration: const InputDecoration(
+                isDense: true,
+                labelText: 'Key',
+                border: InputBorder.none,
+              ),
+              onChanged: (v) {
+                row.key = v;
+                onChanged();
+              },
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            flex: 3,
+            child: TextFormField(
+              initialValue: row.value,
+              enabled: enabled,
+              decoration: const InputDecoration(
+                isDense: true,
+                labelText: 'Value',
+                border: InputBorder.none,
+              ),
+              onChanged: (v) {
+                row.value = v;
+                onChanged();
+              },
+            ),
+          ),
+          SizedBox(
+            width: 32,
+            height: 32,
+            child: IconButton(
+              tooltip: 'Remove field',
+              onPressed: enabled ? onRemove : null,
+              padding: EdgeInsets.zero,
+              icon: KvIcon(
+                glyph: AppGlyph.close,
+                size: 15,
+                color: colors.iconNeutral,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EditorHeader extends StatelessWidget {
+  const _EditorHeader({
+    required this.title,
+    required this.canSave,
+    required this.onCancel,
+    required this.onSave,
+  });
+
+  final String title;
+  final bool canSave;
+  final VoidCallback onCancel;
+  final VoidCallback onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+      child: Row(
+        children: [
+          TextButton(
+            onPressed: onCancel,
+            child: Text(
+              'Cancel',
+              style: AppTextStyles.fieldValue.copyWith(
+                color: colors.textSecondary,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              title,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontFamily: AppTextStyles.headingFamily,
+                fontSize: 16,
+                color: colors.textPrimary,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: canSave ? onSave : null,
+            child: Text(
+              'Save',
+              style: AppTextStyles.fieldValue.copyWith(
+                color: canSave ? colors.linkText : colors.textTertiary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SavingOverlay extends StatelessWidget {
+  const _SavingOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return Positioned.fill(
+      child: Container(
+        color: AppColors.neutral900.withValues(alpha: 0.22),
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 22),
+            decoration: BoxDecoration(
+              color: colors.surface,
+              borderRadius: BorderRadius.circular(26),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 34,
+                  height: 34,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3,
+                    color: AppColors.accent400,
+                    backgroundColor: colors.divider,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'Writing to the .kdbx\u2026',
+                  style: AppTextStyles.body.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: colors.textPrimary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// FR-5 T17: discard-changes bottom sheet, naming which fields were edited
+/// (proposal, per the mock — the existing unlock-screen discard guard is
+/// generic; this one lists specifics).
+Future<bool?> _showDiscardSheet(BuildContext context, Set<String> dirtyFields) {
+  return KvBottomSheet.show<bool>(
+    context: context,
+    builder: (sheetContext) {
+      final colors = Theme.of(sheetContext).extension<KeyVaultColors>()!;
+      final fieldList = dirtyFields.toList(growable: false);
+      final verb = fieldList.length == 1 ? 'was' : 'were';
+      final body = fieldList.isEmpty
+          ? 'Your unsaved record changes will be lost.'
+          : '${_joinWithAnd(fieldList)} $verb edited and not saved yet.';
+
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(18, 20, 18, 26),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 46,
+              height: 5,
+              decoration: BoxDecoration(
+                color: colors.divider,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Discard changes?',
+                style: AppTextStyles.sheetTitle.copyWith(
+                  color: colors.textPrimary,
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                body,
+                style: AppTextStyles.body.copyWith(color: colors.textSecondary),
+              ),
+            ),
+            const SizedBox(height: 14),
+            KvPillButton(
+              label: 'Keep editing',
+              onPressed: () => Navigator.of(sheetContext).pop(false),
+            ),
+            const SizedBox(height: 9),
+            KvSecondaryPillButton(
+              label: 'Discard',
+              onPressed: () => Navigator.of(sheetContext).pop(true),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+String _joinWithAnd(List<String> values) {
+  if (values.length == 1) return values.first;
+  return '${values.sublist(0, values.length - 1).join(', ')} and ${values.last}';
+}
+
+bool _supportsOtpQrScan() {
+  if (kIsWeb) {
+    return false;
+  }
+  return switch (defaultTargetPlatform) {
+    TargetPlatform.android || TargetPlatform.iOS => true,
+    TargetPlatform.fuchsia ||
+    TargetPlatform.linux ||
+    TargetPlatform.macOS ||
+    TargetPlatform.windows => false,
+  };
+}
+
+Future<OtpScanResult?> _scanOtpUriFromQr(BuildContext context) async {
+  if (!_supportsOtpQrScan()) {
+    return null;
+  }
+
+  return VaultShellRouterScope.of(context).open<OtpScanResult>(
+    context: context,
+    surface: OtpScannerSurface<OtpScanResult>(
+      builder: (_) => const _OtpQrScannerScreen(),
+    ),
+  );
+}
+
+/// FR-5 T15/T16: full-screen QR scanner for `otpauth://` codes, with a
+/// dedicated camera-denied fallback showing the manual OTP URI field the
+/// editor already exposes.
+class _OtpQrScannerScreen extends StatefulWidget {
+  const _OtpQrScannerScreen();
+
+  @override
+  State<_OtpQrScannerScreen> createState() => _OtpQrScannerScreenState();
+}
+
+class _OtpQrScannerScreenState extends State<_OtpQrScannerScreen> {
+  final MobileScannerController _controller = MobileScannerController(
+    detectionSpeed: DetectionSpeed.noDuplicates,
+    formats: const [BarcodeFormat.qrCode],
+    // Started manually below so a failure (no camera permission, or no
+    // platform implementation at all — e.g. under `flutter test`, which
+    // has none) is caught explicitly into `_startFailed` instead of relying
+    // on `MobileScannerState.error`, which this plugin does not always
+    // populate on a failed `start()`.
+    autoStart: false,
+  );
+  bool _isHandlingCapture = false;
+  bool _startFailed = false;
+  final _manualUriController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.start().catchError((Object _) {
+      if (mounted) setState(() => _startFailed = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _manualUriController.dispose();
+    super.dispose();
+  }
+
+  void _handleDetect(BarcodeCapture capture) {
+    if (_isHandlingCapture) return;
+    for (final barcode in capture.barcodes) {
+      final value = barcode.rawValue?.trim();
+      if (value == null || value.isEmpty) continue;
+
+      _isHandlingCapture = true;
+      if (value.startsWith('otpauth://')) {
+        VaultOperationScope.of(context).complete(OtpScanResult(value));
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('QR does not contain a valid OTP URI.')),
+      );
+      _isHandlingCapture = false;
+      return;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<MobileScannerState>(
+      valueListenable: _controller,
+      builder: (context, state, _) {
+        if (state.error != null || _startFailed) {
+          return _CameraDeniedScreen(manualUriController: _manualUriController);
+        }
+        return _ScanningChrome(
+          controller: _controller,
+          onDetect: _handleDetect,
+        );
+      },
+    );
+  }
+}
+
+class _ScanningChrome extends StatelessWidget {
+  const _ScanningChrome({required this.controller, required this.onDetect});
+
+  final MobileScannerController controller;
+  final void Function(BarcodeCapture) onDetect;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: AppColors.neutral900,
+      child: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => VaultOperationScope.of(context).cancel(),
+                    icon: const Icon(
+                      AppIcons.close,
+                      color: AppColors.neutral100,
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      'Scan OTP QR',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontFamily: AppTextStyles.headingFamily,
+                        fontSize: 16,
+                        color: AppColors.neutral100,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 48),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: MobileScanner(
+                      controller: controller,
+                      onDetect: onDetect,
+                    ),
+                  ),
+                  Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const _ScanFrame(),
+                        const SizedBox(height: 26),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 40),
+                          child: Text.rich(
+                            TextSpan(
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: AppColors.neutral100.withValues(
+                                  alpha: 0.66,
+                                ),
+                              ),
+                              children: const [
+                                TextSpan(text: 'Point the camera at the '),
+                                TextSpan(
+                                  text: 'otpauth://',
+                                  style: TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                                TextSpan(
+                                  text:
+                                      ' QR code from the site\u2019s '
+                                      'two-factor setup.',
+                                ),
+                              ],
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(22, 0, 22, 34),
+              child: KvSecondaryPillButton(
+                label: 'Paste the URI instead',
+                onPressed: () => VaultOperationScope.of(context).cancel(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ScanFrame extends StatelessWidget {
+  const _ScanFrame();
+
+  @override
+  Widget build(BuildContext context) {
+    const corner = BorderSide(color: AppColors.accent400, width: 4);
+    return SizedBox(
+      width: 240,
+      height: 240,
+      child: Stack(
+        children: [
+          Positioned(
+            left: 0,
+            top: 0,
+            child: _cornerBox(top: corner, left: corner, radiusTL: 26),
+          ),
+          Positioned(
+            right: 0,
+            top: 0,
+            child: _cornerBox(top: corner, right: corner, radiusTR: 26),
+          ),
+          Positioned(
+            left: 0,
+            bottom: 0,
+            child: _cornerBox(bottom: corner, left: corner, radiusBL: 26),
+          ),
+          Positioned(
+            right: 0,
+            bottom: 0,
+            child: _cornerBox(bottom: corner, right: corner, radiusBR: 26),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _cornerBox({
+    BorderSide top = BorderSide.none,
+    BorderSide bottom = BorderSide.none,
+    BorderSide left = BorderSide.none,
+    BorderSide right = BorderSide.none,
+    double radiusTL = 0,
+    double radiusTR = 0,
+    double radiusBL = 0,
+    double radiusBR = 0,
+  }) {
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        border: Border(top: top, bottom: bottom, left: left, right: right),
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(radiusTL),
+          topRight: Radius.circular(radiusTR),
+          bottomLeft: Radius.circular(radiusBL),
+          bottomRight: Radius.circular(radiusBR),
+        ),
+      ),
+    );
+  }
+}
+
+/// T16: camera permission denied — not a dead end, offers the manual
+/// `OTP URI (otpauth://…)` field the editor already exposes plus a shortcut
+/// to system settings.
+class _CameraDeniedScreen extends StatelessWidget {
+  const _CameraDeniedScreen({required this.manualUriController});
+
+  final TextEditingController manualUriController;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+
+    return ColoredBox(
+      color: colors.ground,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 26),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: colors.actionFill,
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: Icon(
+                  Icons.videocam_off_outlined,
+                  size: 30,
+                  color: colors.actionText,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Camera is off for KeyVault',
+                style: AppTextStyles.sheetTitleLarge.copyWith(
+                  color: colors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Allow the camera in system settings to scan the QR code, or '
+                'paste the setup URI by hand.',
+                style: AppTextStyles.body.copyWith(color: colors.textSecondary),
+              ),
+              const SizedBox(height: 18),
+              _kvFieldLabel('OTP URI (otpauth://\u2026)', colors),
+              TextFormField(
+                controller: manualUriController,
+                minLines: 2,
+                maxLines: 3,
+                style: AppTextStyles.secret.copyWith(color: colors.textPrimary),
+                decoration: _kvFieldDecoration(
+                  colors,
+                  hint: 'otpauth://totp/Sella:CB77219?secret=\u2026',
+                ),
+              ),
+              const SizedBox(height: 14),
+              KvPillButton(
+                label: 'Open system settings',
+                // ponytail: no cross-platform "jump to app settings" plugin
+                // is a project dependency yet; adding one for a single
+                // button is out of scope here. Points the user there in
+                // words instead of doing it programmatically.
+                onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Enable the camera for KeyVault in your system '
+                      'settings, then come back.',
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 9),
+              KvSecondaryPillButton(
+                label: 'Save the URI',
+                onPressed:
+                    manualUriController.text.trim().startsWith('otpauth://')
+                    ? () => VaultOperationScope.of(
+                        context,
+                      ).complete(OtpScanResult(manualUriController.text.trim()))
+                    : null,
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

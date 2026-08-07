@@ -1,5 +1,6 @@
 import 'package:get_it/get_it.dart';
 
+import '../../../core/utils/clipboard_guard.dart';
 import '../presentation/bloc/database_selection/database_selection_bloc.dart';
 import '../presentation/bloc/database_unlock/database_unlock_bloc.dart';
 import '../presentation/bloc/vault/vault_bloc.dart';
@@ -10,6 +11,11 @@ import '../presentation/coordinators/otpauth_deep_link_coordinator.dart';
 import '../presentation/coordinators/vault_session_coordinator.dart';
 
 void registerPasswordManagerPresentationDependencies(GetIt sl) {
+  // App-lifetime singleton, not per-screen: a screen-owned instance had its
+  // pending 30s clear timer cancelled by that screen's dispose() the moment
+  // the user navigated away right after copying (spec-004 FR-3 bug).
+  sl.registerLazySingleton<ClipboardGuard>(() => ClipboardGuard());
+
   sl.registerLazySingleton<AppleAutofillV2CoordinatorContract>(
     () => CompositeAutofillV2Coordinator([
       AppleAutofillV2Coordinator(client: sl(), mapper: sl()),
