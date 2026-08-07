@@ -33,10 +33,15 @@ class PasswordGeneratorOptions {
 }
 
 class PasswordGeneratorService {
+  PasswordGeneratorService({math.Random? random})
+    : _random = random ?? math.Random.secure();
+
   static const _uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   static const _lowercase = 'abcdefghijklmnopqrstuvwxyz';
   static const _digits = '0123456789';
   static const _symbols = r'!@#$%^&*()-_=+[]{};:,.<>?';
+
+  final math.Random _random;
 
   String generate(PasswordGeneratorOptions options) {
     final enabledSets = <String>[];
@@ -52,7 +57,7 @@ class PasswordGeneratorService {
       throw StateError('Length is too short for selected character sets.');
     }
 
-    final random = math.Random.secure();
+    final random = _random;
     final chars = <String>[];
 
     for (final set in enabledSets) {

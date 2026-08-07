@@ -482,7 +482,8 @@ class _EntriesCardState extends State<_EntriesCard> {
                     isRoot: isRoot,
                     childGroupsCount: childGroupsCount,
                     recordsCount: recordsCount,
-                    onOpen: () => _toggleGroup(context, group.id, isSearchActive),
+                    onOpen: () =>
+                        _toggleGroup(context, group.id, isSearchActive),
                     onToggleExpand: () =>
                         _toggleGroup(context, group.id, isSearchActive),
                     onSelectedAction: (action) async {
@@ -775,21 +776,6 @@ String _foldAccents(String value) {
       .replaceAll(RegExp(r'[źżž]'), 'z');
 }
 
-Future<void> _copyTextToClipboard(
-  BuildContext context, {
-  required String text,
-  required String successMessage,
-}) async {
-  if (text.isEmpty) {
-    return;
-  }
-  await Clipboard.setData(ClipboardData(text: text));
-  if (!context.mounted) {
-    return;
-  }
-  _showCenteredCopyToast(context, successMessage);
-}
-
 OverlayEntry? _activeCopyToastEntry;
 Timer? _activeCopyToastTimer;
 
@@ -910,8 +896,4 @@ void _hideCenteredCopyToast() {
   _activeCopyToastTimer = null;
   _activeCopyToastEntry?.remove();
   _activeCopyToastEntry = null;
-}
-
-String _copyHintLabel() {
-  return 'Tap a field to open copy action';
 }

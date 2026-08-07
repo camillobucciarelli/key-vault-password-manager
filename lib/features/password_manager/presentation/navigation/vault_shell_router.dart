@@ -598,9 +598,30 @@ final class VaultShellRouter {
     final navigator = Navigator.of(context);
     late final MaterialPageRoute<void> route;
     route = MaterialPageRoute<void>(
-      builder: (routeContext) => Scaffold(body: builder(routeContext)),
+      // Re-provide VaultShellRouterScope inside the pushed route: routes on
+      // the shared app Navigator are siblings of the vault shell's own
+      // content, not descendants of it, so `VaultShellRouterScope` (mounted
+      // inside the shell, above this Navigator's routes but not above the
+      // Navigator itself) is otherwise invisible to anything the pushed
+      // surface tries to `.open()` on top of itself — e.g. the editor
+      // (spec-004) opening its generator sheet on mobile, where the editor
+      // itself is a pushed EntrySurface route.
+      builder: (routeContext) => VaultShellRouterScope(
+        router: this,
+        child: Scaffold(body: builder(routeContext)),
+      ),
     );
     mounted(() {
+      // If the router itself is being disposed (whole shell teardown, not
+      // just this one session ending), the Navigator/route Elements may
+      // already be mid-unmount by the time this fires — let the natural
+      // tree teardown remove them instead of touching a possibly-defunct
+      // Navigator. `_disposed` is set before `_cancelAll()` triggers this
+      // callback, so it reliably distinguishes the two cases (unlike
+      // `context.mounted`, which can still read true mid-teardown).
+      if (_disposed) {
+        return;
+      }
       if (route.isActive) {
         navigator.removeRoute(route);
       }
@@ -616,8 +637,15 @@ final class VaultShellRouter {
     final width = MediaQuery.sizeOf(context).width;
     BuildContext? sheetContext;
     mounted(() {
+      // See the matching comment in _defaultRouteHost: skip Navigator
+      // manipulation during whole-router teardown.
+      if (_disposed) {
+        return;
+      }
       final current = sheetContext;
-      if (current != null && Navigator.of(current).canPop()) {
+      if (current != null &&
+          current.mounted &&
+          Navigator.of(current).canPop()) {
         Navigator.of(current).pop();
       }
     });
@@ -629,7 +657,13 @@ final class VaultShellRouter {
       constraints: width < 600 ? null : const BoxConstraints(maxWidth: 560),
       builder: (modalContext) {
         sheetContext = modalContext;
-        return SafeArea(child: builder(modalContext));
+        // Same rationale as _defaultRouteHost: `useRootNavigator: true`
+        // hosts the sheet on the root Navigator's Overlay, detached from
+        // VaultShellRouterScope's ancestor chain.
+        return VaultShellRouterScope(
+          router: this,
+          child: SafeArea(child: builder(modalContext)),
+        );
       },
     );
   }
