@@ -88,12 +88,12 @@ class DatabaseUnlockState extends Equatable {
   }) {
     return DatabaseUnlockState(
       databasePath: databasePath ?? this.databasePath,
-      keyFilePath: clearKeyFilePath ? null : keyFilePath ?? this.keyFilePath,
+      keyFilePath: keyFilePath ?? (clearKeyFilePath ? null : this.keyFilePath),
       phase: phase ?? this.phase,
       biometricAvailable: biometricAvailable ?? this.biometricAvailable,
       biometricPrompted: biometricPrompted ?? this.biometricPrompted,
       biometricVerified: biometricVerified ?? this.biometricVerified,
-      failure: clearError ? null : failure ?? this.failure,
+      failure: failure ?? (clearError ? null : this.failure),
       errorMessage: errorMessage ?? (clearError ? null : this.errorMessage),
       progress: clearProgress ? null : progress ?? this.progress,
     );

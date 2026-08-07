@@ -218,6 +218,32 @@ void main() {
       await sub.cancel();
     });
   });
+
+  group('DatabaseUnlockState.copyWith', () {
+    test('failure survives when clearError:true and failure is explicit', () {
+      const state = DatabaseUnlockState(databasePath: '/tmp/vault.kdbx');
+      const someFailure = InvalidCredentialsFailure();
+
+      final result = state.copyWith(clearError: true, failure: someFailure);
+
+      expect(result.failure, someFailure);
+    });
+
+    test(
+      'keyFilePath survives when clearKeyFilePath:true and keyFilePath is '
+      'explicit',
+      () {
+        const state = DatabaseUnlockState(databasePath: '/tmp/vault.kdbx');
+
+        final result = state.copyWith(
+          clearKeyFilePath: true,
+          keyFilePath: 'x',
+        );
+
+        expect(result.keyFilePath, 'x');
+      },
+    );
+  });
 }
 
 class _FakeBiometricDataSource implements BiometricDataSource {
