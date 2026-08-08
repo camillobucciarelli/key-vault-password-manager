@@ -11,8 +11,20 @@ enum VaultCsvSourceFormat {
   generic,
 }
 
+/// spec-005 T15/AC8: a single skipped CSV row, with why it was skipped —
+/// surfaced by the outcome screen instead of a bare count. [index] is the
+/// 1-based data-row number (header excluded), matching what a user counts
+/// when they open the CSV in a spreadsheet.
+class SkippedRow {
+  const SkippedRow({required this.index, required this.reason});
+
+  final int index;
+  final String reason;
+}
+
 class VaultCsvImportItem {
   const VaultCsvImportItem({
+    required this.rowIndex,
     required this.title,
     required this.username,
     required this.password,
@@ -21,6 +33,8 @@ class VaultCsvImportItem {
     this.customFields = const [],
   });
 
+  /// 1-based data-row number this item was parsed from — see [SkippedRow].
+  final int rowIndex;
   final String title;
   final String username;
   final String password;
@@ -33,14 +47,36 @@ class VaultCsvParseResult {
   const VaultCsvParseResult({
     required this.items,
     required this.skippedRows,
+    required this.skippedRowDetails,
     required this.totalRows,
     required this.format,
   });
 
   final List<VaultCsvImportItem> items;
   final int skippedRows;
+
+  /// One entry per row skipped during parsing (AC8) — count matches
+  /// [skippedRows].
+  final List<SkippedRow> skippedRowDetails;
   final int totalRows;
   final VaultCsvSourceFormat format;
+}
+
+/// spec-005 T16: full outcome of a CSV import — imported count plus every
+/// skipped row (parse failures, duplicates, and write failures alike), each
+/// with its reason. Stored transiently on `VaultState.lastCsvImportOutcome`.
+class CsvImportOutcome {
+  const CsvImportOutcome({
+    required this.importedCount,
+    required this.duplicateSkippedCount,
+    required this.skippedRows,
+  });
+
+  final int importedCount;
+  final int duplicateSkippedCount;
+  final List<SkippedRow> skippedRows;
+
+  int get totalSkipped => skippedRows.length;
 }
 
 class VaultCsvImportService {
@@ -88,13 +124,20 @@ class VaultCsvImportService {
 
     final format = _detectFormat(normalizedHeaders);
     final items = <VaultCsvImportItem>[];
-    var skippedRows = 0;
+    final skippedRowDetails = <SkippedRow>[];
 
     for (var i = 1; i < rows.length; i++) {
       final row = rows[i];
-      final mapped = _mapRow(normalizedHeaders, headers, row);
+      final mapped = _mapRow(normalizedHeaders, headers, row, rowIndex: i);
       if (mapped == null) {
-        skippedRows += 1;
+        skippedRowDetails.add(
+          SkippedRow(
+            index: i,
+            reason:
+                'No usable data: title, username, password, URL and notes '
+                'are all empty.',
+          ),
+        );
         continue;
       }
       items.add(mapped);
@@ -102,7 +145,8 @@ class VaultCsvImportService {
 
     return VaultCsvParseResult(
       items: items,
-      skippedRows: skippedRows,
+      skippedRows: skippedRowDetails.length,
+      skippedRowDetails: skippedRowDetails,
       totalRows: rows.length - 1,
       format: format,
     );
@@ -197,8 +241,9 @@ class VaultCsvImportService {
   VaultCsvImportItem? _mapRow(
     List<String> normalizedHeaders,
     List<String> originalHeaders,
-    List<String> row,
-  ) {
+    List<String> row, {
+    required int rowIndex,
+  }) {
     final map = <String, String>{};
     for (var i = 0; i < normalizedHeaders.length; i++) {
       final key = normalizedHeaders[i];
@@ -328,6 +373,7 @@ class VaultCsvImportService {
     }
 
     return VaultCsvImportItem(
+      rowIndex: rowIndex,
       title: title,
       username: username,
       password: password,

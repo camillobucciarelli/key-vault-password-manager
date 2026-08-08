@@ -2,6 +2,21 @@
 # Format: index|function|title|body|action|resultType|mobile|rail
 # body uses {placeholder} for interpolated values; "-" means no single static body string
 # (multi-field form content). Row count MUST be exactly 19.
+#
+# spec-005 supersessions (documented, not accidental drops — see
+# vault_surface_migration_matrix_test.dart for the matching surface-type
+# update):
+# - Row 08: title restyled from "Link database to Drive" to the mock's
+#   literal "Link to a Drive file" (07-09 mock, screen 3 header); the
+#   dialog also split into two one-tap hero actions (create/pick) plus
+#   this picker screen for the "pick existing" path only.
+# - Row 11: FR-5 requires the merge preview as a **bottom sheet** (spec.md
+#   screen 11 "Form: bottom sheet"), not spec-002's provisional
+#   route/pane guess. New surface `MergePreviewSurface` (sheet/pane, like
+#   `SyncConflictSurface`); title/action restyled to the mock's literal
+#   "What the merge does" / "Merge and move duplicate".
+# - Row 09: title restyled to the mock's literal "Both versions changed"
+#   (07-09 mock, screen 8); presentation/surface/action unchanged.
 01|_showPasswordGeneratorDialog|Generate secure password|-|Generate|GeneratedPasswordResult?|sheet|pane
 02|_showEntryDialog|Add record|-|Create|EntryEditResult?|route|pane
 03|_scanOtpUriFromQr|Scan OTP QR|-|Cancel|OtpScanResult?|route|pane
@@ -9,10 +24,10 @@
 05|_showDeleteConfirm|Confirm delete|{label}|Delete|ConfirmDecision?|sheet|sheet
 06|_showMoveTargetDialog|Move to folder|-|Move|MoveTargetResult?|sheet|pane
 07|_showAttachmentsDialog|Attachments|-|Close|VaultDone?|route|pane
-08|_showLinkDatabaseDialog|Link database to Drive|-|Link|DriveLinkResult?|route|pane
-09|_showSyncConflictDialog|Sync conflict detected|The local database and Drive file "{driveFileName}" both changed. Choose what to keep.|Use remote|SyncConflictRouteResult?|sheet|pane
+08|_pickExistingDriveFile|Link to a Drive file|-|Link|DriveLinkResult?|route|pane
+09|_showSyncConflictDialog|Both versions changed|This device and "{driveFileName}" on Drive were both edited since the last sync.|Use remote|SyncConflictRouteResult?|sheet|pane
 10|_showDuplicatesDialog|Manage duplicates|-|Close|VaultDone?|route|pane
-11|_showMergeReviewDialog|Review merge|-|-|ConfirmDecision?|route|pane
+11|_showMergePreviewSheet|What the merge does|-|Merge and move duplicate|ConfirmDecision?|sheet|pane
 12|_showRecordMetadataDialog|Record info|-|Close|VaultDone?|route|pane
 13|_showDatabaseSettings|Database settings|-|Save changes|DatabaseSettingsResult?|route|pane
 14|_showDatabaseSettings.securityConfirm|Confirm security changes|You are about to update: {securityChanges}. Use the new credentials to unlock this vault after saving.|Confirm and apply|ConfirmDecision?|sheet|sheet

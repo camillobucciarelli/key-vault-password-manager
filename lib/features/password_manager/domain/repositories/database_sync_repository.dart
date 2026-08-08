@@ -29,6 +29,10 @@ abstract class DatabaseSyncRepository {
   });
 
   Future<DatabaseSyncMapping?> getMapping(String databasePath);
+
+  /// spec-005 AC4: every local database's Drive mapping, used by the remote
+  /// file picker to warn when a file is already linked elsewhere.
+  Future<List<DatabaseSyncMapping>> getAllMappings();
   Future<void> setAutoSync(String databasePath, bool enabled);
   Future<List<DriveRemoteFile>> listRemoteFiles({String? query});
   Future<Uint8List> downloadRemoteFile(String fileId);

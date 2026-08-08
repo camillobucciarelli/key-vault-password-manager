@@ -345,6 +345,10 @@ class DatabaseSyncOrchestrator {
     return _syncMetadataDataSource.getMapping(databasePath);
   }
 
+  Future<List<DatabaseSyncMapping>> getAllMappings() {
+    return _syncMetadataDataSource.getAllMappings();
+  }
+
   String _normalizeFileName(String? custom, {required String fallbackPath}) {
     final candidate = (custom == null || custom.trim().isEmpty)
         ? fallbackPath.split(Platform.pathSeparator).last

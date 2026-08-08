@@ -337,80 +337,15 @@ class _SyncStripMenuButton extends StatelessWidget {
   final VoidCallback onOpenDuplicates;
   final Future<void> Function() onChangeDatabase;
 
-  Future<void> _exportCurrentDatabaseBackup(BuildContext context) async {
-    final messenger = ScaffoldMessenger.of(context);
-    final databasePath = state.databasePath;
-    if (databasePath.trim().isEmpty) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('No active database to export.')),
-      );
-      return;
-    }
+  // spec-005: bodies moved to top-level `_exportDatabaseBackup` /
+  // `_exportKeyFileBackup` in vault_shared.part.dart so the new Backups
+  // destination (T17) can call the same code — behaviour unchanged (FR-8:
+  // "the three existing export actions, unchanged in behaviour").
+  Future<void> _exportCurrentDatabaseBackup(BuildContext context) =>
+      _exportDatabaseBackup(context, state.databasePath);
 
-    final source = File(databasePath);
-    if (!await source.exists()) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Current database file not found.')),
-      );
-      return;
-    }
-
-    final defaultName = path.basename(databasePath);
-    final savePath = await FilePicker.saveFile(
-      dialogTitle: 'Export database backup',
-      fileName: defaultName,
-      type: FileType.custom,
-      allowedExtensions: const ['kdbx'],
-    );
-    if (savePath == null || savePath.trim().isEmpty) {
-      return;
-    }
-
-    final resolvedPath = savePath.toLowerCase().endsWith('.kdbx')
-        ? savePath
-        : '$savePath.kdbx';
-    await source.copy(resolvedPath);
-    messenger.showSnackBar(
-      const SnackBar(content: Text('Database backup exported.')),
-    );
-  }
-
-  Future<void> _exportCurrentKeyFile(BuildContext context) async {
-    final messenger = ScaffoldMessenger.of(context);
-    final keyPath = await di
-        .sl<VaultSessionCoordinator>()
-        .getSelectedKeyFilePath();
-    if (keyPath == null || keyPath.trim().isEmpty) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('No key file configured for this vault.')),
-      );
-      return;
-    }
-
-    final source = File(keyPath);
-    if (!await source.exists()) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Configured key file was not found.')),
-      );
-      return;
-    }
-
-    final defaultName = path.basename(keyPath);
-    final savePath = await FilePicker.saveFile(
-      dialogTitle: 'Export key file backup',
-      fileName: defaultName,
-      type: FileType.custom,
-      allowedExtensions: const ['key'],
-    );
-    if (savePath == null || savePath.trim().isEmpty) {
-      return;
-    }
-
-    await source.copy(savePath);
-    messenger.showSnackBar(
-      const SnackBar(content: Text('Key file backup exported.')),
-    );
-  }
+  Future<void> _exportCurrentKeyFile(BuildContext context) =>
+      _exportKeyFileBackup(context);
 
   Future<void> _showDatabaseSettings(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);

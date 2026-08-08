@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../../core/theme/app_colors.dart';
 import '../../../../../core/theme/app_text_styles.dart';
 import '../../../../../core/theme/keyvault_colors.dart';
-import '../../utils/password_strength.dart';
+import '../../../domain/utils/password_strength.dart';
 
 /// Entry-detail strength strip (spec-004 FR-1/FR-4, PIXEL_SPEC "Entry
 /// detail"): radius 20, padding 12/16, 32-circle glyph, text 12.5. The

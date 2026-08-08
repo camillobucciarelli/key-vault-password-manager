@@ -677,6 +677,9 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
   Future<DatabaseSyncMapping?> getMapping(String databasePath) async => null;
 
   @override
+  Future<List<DatabaseSyncMapping>> getAllMappings() async => const [];
+
+  @override
   Future<bool> isConnected() async => false;
 
   @override

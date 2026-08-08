@@ -1,5 +1,10 @@
 part of '../vault_screen.dart';
 
+// FR-5 / T10-T12/T20: Duplicates destination — group cards (screen 10),
+// merge-preview sheet with exactly the four `MergePreview` flags (screen
+// 11), no-duplicates empty state (screen 12). Replaces the old dialog-based
+// `_DuplicatesDialog`/`_showMergeReviewDialog` with first-class surfaces.
+
 Future<VaultDone?> _showDuplicatesDialog(BuildContext context) async {
   final bloc = context.read<VaultBloc>();
   bloc.add(const LoadDuplicates());
@@ -8,102 +13,113 @@ Future<VaultDone?> _showDuplicatesDialog(BuildContext context) async {
     context: context,
     surface: DuplicatesSurface<VaultDone>(
       builder: (dialogContext) {
-      return BlocProvider.value(value: bloc, child: const _DuplicatesDialog());
+        return BlocProvider.value(
+          value: bloc,
+          child: const _DuplicatesScreen(),
+        );
       },
     ),
   );
 }
 
-class _DuplicatesDialog extends StatelessWidget {
-  const _DuplicatesDialog();
+class _DuplicatesScreen extends StatelessWidget {
+  const _DuplicatesScreen();
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Row(
-        children: [
-          const Expanded(child: Text('Manage duplicates')),
-          BlocBuilder<VaultBloc, VaultState>(
-            buildWhen: (p, n) => p.duplicateGroupCount != n.duplicateGroupCount,
-            builder: (context, state) {
-              if (state.duplicateGroupCount == 0) {
-                return const SizedBox.shrink();
-              }
-              return Padding(
-                padding: const EdgeInsets.only(right: 4),
-                child: Chip(
-                  label: Text('${state.duplicateGroupCount}'),
-                  padding: EdgeInsets.zero,
-                  labelPadding: const EdgeInsets.symmetric(horizontal: 6),
-                  visualDensity: VisualDensity.compact,
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-      insetPadding: _dialogInsetPadding(context),
-      contentPadding: _dialogContentPadding(context),
-      content: SizedBox(
-        width: _dialogContentWidth(context, 720),
-        height: _dialogContentHeight(context, 520),
-        child: BlocBuilder<VaultBloc, VaultState>(
-          buildWhen: (p, n) =>
-              p.isDuplicatesLoading != n.isDuplicatesLoading ||
-              p.isSaving != n.isSaving ||
-              p.duplicateGroups != n.duplicateGroups,
-          builder: (context, state) {
-            if (state.isDuplicatesLoading) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (state.duplicateGroups.isEmpty) {
-              return const _DuplicatesEmptyState();
-            }
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                AnimatedSwitcher(
-                  duration: _VaultUiTokens.itemTransitionDuration,
-                  child: state.isSaving
-                      ? const LinearProgressIndicator(minHeight: 2)
-                      : const SizedBox(height: 2),
-                ),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: ListView.separated(
-                    padding: EdgeInsets.zero,
-                    itemCount: state.duplicateGroups.length,
-                    separatorBuilder: (_, _) => const SizedBox(
-                      height: _VaultUiTokens.recordListSpacing,
-                    ),
-                    itemBuilder: (context, index) {
-                      return _DuplicateGroupCard(
-                        group: state.duplicateGroups[index],
-                        isBusy: state.isSaving,
-                      );
-                    },
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
-      actions: [
-        BlocBuilder<VaultBloc, VaultState>(
-          buildWhen: (p, n) => p.isSaving != n.isSaving,
-          builder: (context, state) {
-            return TextButton(
-              onPressed: state.isSaving
-                  ? null
-                  : () => VaultOperationScope.of(
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return Scaffold(
+      backgroundColor: colors.ground,
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () => VaultOperationScope.of(
                       context,
                     ).complete(const VaultDone()),
-              child: Text(state.isSaving ? 'Updating...' : 'Close'),
-            );
-          },
+                    icon: KvIcon(
+                      glyph: AppGlyph.back,
+                      size: 19,
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                  Expanded(
+                    child: BlocBuilder<VaultBloc, VaultState>(
+                      buildWhen: (p, n) =>
+                          p.duplicateGroups != n.duplicateGroups,
+                      builder: (context, state) {
+                        final entryCount = state.duplicateGroups.fold<int>(
+                          0,
+                          (sum, group) => sum + group.entries.length,
+                        );
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Manage duplicates',
+                              style: AppTextStyles.panelTitleLarge.copyWith(
+                                fontSize: 19,
+                                color: colors.textPrimary,
+                              ),
+                            ),
+                            Text(
+                              '${state.duplicateGroups.length} groups · $entryCount records',
+                              style: AppTextStyles.meta.copyWith(
+                                color: colors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Check again',
+                    onPressed: () =>
+                        context.read<VaultBloc>().add(const LoadDuplicates()),
+                    icon: KvIcon(
+                      glyph: AppGlyph.refresh,
+                      size: 18,
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: BlocBuilder<VaultBloc, VaultState>(
+                buildWhen: (p, n) =>
+                    p.isDuplicatesLoading != n.isDuplicatesLoading ||
+                    p.duplicateGroups != n.duplicateGroups ||
+                    p.isSaving != n.isSaving,
+                builder: (context, state) {
+                  if (state.isDuplicatesLoading) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (state.duplicateGroups.isEmpty) {
+                    return const _DuplicatesEmptyState();
+                  }
+                  return ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                    itemCount: state.duplicateGroups.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) => _DuplicateGroupCard(
+                      group: state.duplicateGroups[index],
+                      isBusy: state.isSaving,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }
@@ -114,6 +130,88 @@ class _DuplicateGroupCard extends StatelessWidget {
   final DuplicateGroup group;
   final bool isBusy;
 
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    final primary = group.entries.first;
+    final secondaries = group.entries.skip(1).toList(growable: false);
+    final service = di.sl<VaultDuplicateService>();
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              KvLetterAvatar(letter: group.sharedUrl, size: 34, fontSize: 14),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      group.sharedUrl,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.rowTitle.copyWith(
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      group.sharedUsername.isEmpty
+                          ? '${group.entries.length} records'
+                          : '${group.sharedUsername} · ${group.entries.length} records',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.secondary.copyWith(
+                        color: colors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _DuplicateEntryRow(entry: primary, tagLabel: 'Keep'),
+          for (final secondary in secondaries) ...[
+            const SizedBox(height: 7),
+            _DuplicateEntryRow(entry: secondary, tagLabel: 'Merge'),
+            Builder(
+              builder: (context) {
+                final preview = service.previewMerge(primary, secondary);
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (preview.hasAnythingToCopy) ...[
+                      const SizedBox(height: 8),
+                      _CopyNoticeStrip(colors: colors),
+                    ],
+                    const SizedBox(height: 8),
+                    KvPillButton(
+                      label: 'Merge and move duplicate',
+                      compact: true,
+                      onPressed: isBusy
+                          ? null
+                          : () => _handleMerge(context, primary, secondary),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Future<void> _handleMerge(
     BuildContext context,
     VaultEntry primary,
@@ -121,153 +219,39 @@ class _DuplicateGroupCard extends StatelessWidget {
   ) async {
     final service = di.sl<VaultDuplicateService>();
     final preview = service.previewMerge(primary, secondary);
-    final confirmed = await _showMergeReviewDialog(context, preview);
+    final confirmed = await _showMergePreviewSheet(context, preview);
     if (confirmed == ConfirmDecision.confirm && context.mounted) {
       context.read<VaultBloc>().add(
         MergeDuplicateEntries(primaryId: primary.id, secondaryId: secondary.id),
       );
     }
   }
+}
 
-  Future<void> _handleCompare(
-    BuildContext context,
-    VaultEntry primary,
-    VaultEntry secondary,
-  ) async {
-    final service = di.sl<VaultDuplicateService>();
-    final preview = service.previewMerge(primary, secondary);
-    await _showMergeReviewDialog(context, preview, allowMerge: false);
-  }
+class _CopyNoticeStrip extends StatelessWidget {
+  const _CopyNoticeStrip({required this.colors});
 
-  Future<void> _handleDelete(BuildContext context, VaultEntry entry) async {
-    final label = entry.title.isEmpty ? 'Untitled' : entry.title;
-    final confirmed = await _showDeleteConfirm(
-      context,
-      label: 'Move "$label" to the recycle bin?',
-      actionLabel: 'Move to bin',
-    );
-    if (confirmed && context.mounted) {
-      context.read<VaultBloc>().add(DeleteDuplicateEntry(entry.id));
-    }
-  }
+  final KeyVaultColors colors;
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primary = group.entries.first;
-
     return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerLow.withValues(
-          alpha: isDark ? 0.6 : 0.8,
-        ),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withValues(
-            alpha: isDark ? 0.6 : 0.75,
-          ),
-        ),
+        color: colors.attentionTint,
+        borderRadius: BorderRadius.circular(14),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-            child: Row(
-              children: [
-                Container(
-                  width: _VaultUiTokens.folderIconContainerSize,
-                  height: _VaultUiTokens.folderIconContainerSize,
-                  decoration: BoxDecoration(
-                    color: colorScheme.primaryContainer.withValues(
-                      alpha: isDark ? 0.45 : 0.6,
-                    ),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    AppIcons.copy,
-                    size: 16,
-                    color: colorScheme.onPrimaryContainer,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        group.sharedUrl,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      if (group.sharedUsername.isNotEmpty) ...[
-                        const SizedBox(height: 1),
-                        Text(
-                          group.sharedUsername,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: colorScheme.onSurfaceVariant),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: colorScheme.primaryContainer.withValues(
-                      alpha: isDark ? 0.5 : 0.65,
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '${group.entries.length} copies',
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: colorScheme.onPrimaryContainer,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1, thickness: 1),
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (int i = 0; i < group.entries.length; i++) ...[
-                  if (i > 0) const SizedBox(height: 6),
-                  _DuplicateEntrySubCard(
-                    entry: group.entries[i],
-                    isPrimary: i == 0,
-                    onMergeIntoPrimary: i == 0
-                        ? null
-                        : () =>
-                              _handleMerge(context, primary, group.entries[i]),
-                    onCompare: i == 0
-                        ? null
-                        : () => _handleCompare(
-                            context,
-                            primary,
-                            group.entries[i],
-                          ),
-                    onDelete: () => _handleDelete(context, group.entries[i]),
-                    isBusy: isBusy,
-                  ),
-                ],
-              ],
+          KvIcon(glyph: AppGlyph.info, size: 15, color: colors.attentionText),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Some data will be copied',
+              style: AppTextStyles.meta.copyWith(
+                fontSize: 12,
+                color: colors.attentionText,
+              ),
             ),
           ),
         ],
@@ -276,129 +260,254 @@ class _DuplicateGroupCard extends StatelessWidget {
   }
 }
 
-class _DuplicateEntrySubCard extends StatelessWidget {
-  const _DuplicateEntrySubCard({
-    required this.entry,
-    required this.isPrimary,
-    required this.onDelete,
-    required this.isBusy,
-    this.onMergeIntoPrimary,
-    this.onCompare,
-  });
+class _DuplicateEntryRow extends StatelessWidget {
+  const _DuplicateEntryRow({required this.entry, required this.tagLabel});
 
   final VaultEntry entry;
-  final bool isPrimary;
-  final VoidCallback? onMergeIntoPrimary;
-  final VoidCallback? onCompare;
-  final VoidCallback onDelete;
-  final bool isBusy;
+  final String tagLabel;
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textTheme = Theme.of(context).textTheme;
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
     final modifiedAt = entry.updatedAt ?? entry.createdAt;
+    final meta = <String>[
+      if (modifiedAt != null) 'Modified ${_formatEntryDateTime(modifiedAt)}',
+      ..._extraDataDescriptors(entry),
+    ];
 
-    return _InteractiveItemSurface(
-      radius: _VaultUiTokens.recordItemRadius,
-      baseColor: colorScheme.surface.withValues(alpha: isDark ? 0.72 : 0.9),
-      hoveredColor: colorScheme.surface.withValues(alpha: isDark ? 0.84 : 0.97),
-      child: Padding(
-        padding: const EdgeInsets.only(left: 10, right: 6, top: 8, bottom: 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          entry.title.isEmpty ? '(Untitled)' : entry.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      if (isPrimary) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: colorScheme.secondaryContainer.withValues(
-                              alpha: isDark ? 0.55 : 0.7,
-                            ),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            'Newest',
-                            style: textTheme.labelSmall?.copyWith(
-                              color: colorScheme.onSecondaryContainer,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  if (modifiedAt != null) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      'Modified ${_formatEntryDateTime(modifiedAt)}',
-                      style: textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(width: 4),
-            Row(
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+      decoration: BoxDecoration(
+        color: colors.surfaceNested,
+        borderRadius: BorderRadius.circular(AppRadii.rowNested),
+      ),
+      child: Row(
+        children: [
+          KvTag(
+            label: tagLabel,
+            variant: tagLabel == 'Keep'
+                ? KvTagVariant.positive
+                : KvTagVariant.neutral,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (onMergeIntoPrimary != null)
-                  Tooltip(
-                    message: 'Review and merge into newest',
-                    ignorePointer: true,
-                    child: IconButton(
-                      onPressed: isBusy ? null : onMergeIntoPrimary,
-                      icon: const Icon(AppIcons.move),
-                      iconSize: 18,
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ),
-                if (onCompare != null)
-                  Tooltip(
-                    message: 'Compare with newest',
-                    ignorePointer: true,
-                    child: IconButton(
-                      onPressed: isBusy ? null : onCompare,
-                      icon: const Icon(AppIcons.info),
-                      iconSize: 18,
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ),
-                Tooltip(
-                  message: 'Move to recycle bin',
-                  ignorePointer: true,
-                  child: IconButton(
-                    onPressed: isBusy ? null : onDelete,
-                    icon: const Icon(AppIcons.delete),
-                    iconSize: 18,
-                    visualDensity: VisualDensity.compact,
-                    color: colorScheme.error,
+                Text(
+                  entry.title.isEmpty ? '(Untitled)' : entry.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.rowTitle.copyWith(
+                    fontSize: 13.5,
+                    color: colors.textPrimary,
                   ),
                 ),
+                if (meta.isNotEmpty)
+                  Text(
+                    meta.join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.meta.copyWith(
+                      color: colors.textSecondary,
+                    ),
+                  ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<String> _extraDataDescriptors(VaultEntry entry) {
+    final has = <String>[
+      if (entry.notes.trim().isNotEmpty) 'notes',
+      if (entry.otpUri != null && entry.otpUri!.isNotEmpty) 'OTP',
+    ];
+    final descriptors = <String>[];
+    if (has.isNotEmpty) {
+      descriptors.add('has ${has.join(', ')}');
+    }
+    if (entry.attachments.isNotEmpty) {
+      descriptors.add(
+        entry.attachments.length == 1
+            ? '1 attachment'
+            : '${entry.attachments.length} attachments',
+      );
+    }
+    return descriptors;
+  }
+}
+
+/// FR-5/AC5/T11/T20: exactly the four `MergePreview` flags — no more, no
+/// fewer. `customFieldKeysToCopy` (a list) collapses into a single row.
+Future<ConfirmDecision?> _showMergePreviewSheet(
+  BuildContext context,
+  MergePreview preview,
+) {
+  return VaultShellRouterScope.of(context).open<ConfirmDecision>(
+    context: context,
+    surface: MergePreviewSurface<ConfirmDecision>(
+      builder: (sheetContext) => _MergePreviewSheet(preview: preview),
+    ),
+  );
+}
+
+class _MergePreviewSheet extends StatelessWidget {
+  const _MergePreviewSheet({required this.preview});
+
+  final MergePreview preview;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    final primaryLabel = preview.primary.title.isEmpty
+        ? 'Untitled'
+        : preview.primary.title;
+    final secondaryLabel = preview.secondary.title.isEmpty
+        ? 'Untitled'
+        : preview.secondary.title;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 20, 18, 26),
+      decoration: BoxDecoration(
+        color: colors.ground,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppRadii.sheet),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 46,
+              height: 5,
+              decoration: BoxDecoration(
+                color: colors.divider,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'What the merge does',
+            style: AppTextStyles.sheetTitle.copyWith(color: colors.textPrimary),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Keeps $primaryLabel and moves $secondaryLabel to the recycle '
+            "bin, after copying what's missing.",
+            style: AppTextStyles.body.copyWith(color: colors.textSecondary),
+          ),
+          const SizedBox(height: 14),
+          // Exactly four rows — one per `MergePreview` flag (T20 counts
+          // these via the `merge-flag-row-*` key prefix, since the row
+          // widget itself is private to this library).
+          _MergePreviewFlagRow(
+            key: const ValueKey('merge-flag-row-notes'),
+            active: preview.willCopyNotes,
+            label: preview.willCopyNotes
+                ? 'Notes — will be copied'
+                : 'Notes — kept item already has some',
+          ),
+          const SizedBox(height: 8),
+          _MergePreviewFlagRow(
+            key: const ValueKey('merge-flag-row-attachments'),
+            active: preview.willCopyAttachments,
+            label: preview.willCopyAttachments
+                ? 'Attachments — missing ones will be copied'
+                : 'Attachments — nothing missing to copy',
+          ),
+          const SizedBox(height: 8),
+          _MergePreviewFlagRow(
+            key: const ValueKey('merge-flag-row-customFields'),
+            active: preview.customFieldKeysToCopy.isNotEmpty,
+            label: preview.customFieldKeysToCopy.isEmpty
+                ? 'Custom fields — nothing missing to copy'
+                : 'Custom fields — ${preview.customFieldKeysToCopy.join(', ')}',
+          ),
+          const SizedBox(height: 8),
+          _MergePreviewFlagRow(
+            key: const ValueKey('merge-flag-row-otp'),
+            active: preview.willCopyOtp,
+            label: preview.willCopyOtp
+                ? 'One-time code — will be copied'
+                : 'One-time code — kept item already has one',
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Passwords are never merged: the kept record keeps its own.',
+            style: AppTextStyles.secondary.copyWith(
+              color: colors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 14),
+          KvPillButton(
+            label: 'Merge and move duplicate',
+            onPressed: () => VaultOperationScope.of(
+              context,
+            ).complete(ConfirmDecision.confirm),
+          ),
+          const SizedBox(height: 9),
+          KvSecondaryPillButton(
+            label: 'Cancel',
+            onPressed: () => VaultOperationScope.of(
+              context,
+            ).complete(ConfirmDecision.cancel),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MergePreviewFlagRow extends StatelessWidget {
+  const _MergePreviewFlagRow({
+    super.key,
+    required this.active,
+    required this.label,
+  });
+
+  final bool active;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return Opacity(
+      opacity: active ? 1 : 0.55,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(AppRadii.row),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                color: active ? colors.positiveTint : Colors.transparent,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: KvIcon(
+                glyph: active ? AppGlyph.check : AppGlyph.close,
+                size: 16,
+                color: active ? colors.positiveText : colors.textTertiary,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                label,
+                style: AppTextStyles.body.copyWith(color: colors.textPrimary),
+              ),
             ),
           ],
         ),
@@ -407,552 +516,53 @@ class _DuplicateEntrySubCard extends StatelessWidget {
   }
 }
 
-Future<ConfirmDecision?> _showMergeReviewDialog(
-  BuildContext context,
-  MergePreview preview, {
-  bool allowMerge = true,
-}) async {
-  return VaultShellRouterScope.of(context).open<ConfirmDecision>(
-    context: context,
-    surface: DuplicatesSurface<ConfirmDecision>(
-      builder: (dialogContext) {
-      final colorScheme = Theme.of(dialogContext).colorScheme;
-      final textTheme = Theme.of(dialogContext).textTheme;
-      final primaryLabel = preview.primary.title.isEmpty
-          ? 'Untitled'
-          : preview.primary.title;
-      final secondaryLabel = preview.secondary.title.isEmpty
-          ? 'Untitled'
-          : preview.secondary.title;
-      final comparisonRows = _buildMergeComparisonRows(preview);
-      final differentCount = comparisonRows
-          .where((row) => row.isDifferent)
-          .length;
-
-      return AlertDialog(
-        title: Text(allowMerge ? 'Review merge' : 'Compare duplicates'),
-        insetPadding: _dialogInsetPadding(dialogContext),
-        contentPadding: _dialogContentPadding(dialogContext),
-        actionsOverflowDirection: VerticalDirection.down,
-        actionsOverflowButtonSpacing: 8,
-        content: SizedBox(
-          width: _dialogContentWidth(dialogContext, 680),
-          height: _dialogContentHeight(dialogContext, 520),
-          child: ListView(
-            children: [
-              _MergeSummaryBanner(
-                primaryLabel: primaryLabel,
-                secondaryLabel: secondaryLabel,
-                differentCount: differentCount,
-                hasAnythingToCopy: preview.hasAnythingToCopy,
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: _MergeEntryHeader(
-                      label: 'Kept record',
-                      title: primaryLabel,
-                      entry: preview.primary,
-                      icon: AppIcons.check,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _MergeEntryHeader(
-                      label: 'Moved to bin',
-                      title: secondaryLabel,
-                      entry: preview.secondary,
-                      icon: AppIcons.delete,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Field comparison',
-                style: textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 6),
-              for (var i = 0; i < comparisonRows.length; i++) ...[
-                _MergeComparisonRow(row: comparisonRows[i]),
-                if (i < comparisonRows.length - 1) const SizedBox(height: 6),
-              ],
-              if (!preview.hasAnythingToCopy) ...[
-                const SizedBox(height: 12),
-                Text(
-                  'The kept record already has the mergeable data. Merging will only move the duplicate to the recycle bin.',
-                  style: textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-        actions: _adaptiveDialogActions(dialogContext, [
-          TextButton(
-            onPressed: () => VaultOperationScope.of(
-              dialogContext,
-            ).complete(ConfirmDecision.cancel),
-            child: Text(allowMerge ? 'Cancel' : 'Close'),
-          ),
-          if (allowMerge)
-            FilledButton.icon(
-              onPressed: () => VaultOperationScope.of(
-                dialogContext,
-              ).complete(ConfirmDecision.confirm),
-              icon: const Icon(AppIcons.move, size: 16),
-              label: const Text('Merge and move duplicate'),
-            ),
-        ]),
-      );
-      },
-    ),
-  );
-}
-
-class _MergeSummaryBanner extends StatelessWidget {
-  const _MergeSummaryBanner({
-    required this.primaryLabel,
-    required this.secondaryLabel,
-    required this.differentCount,
-    required this.hasAnythingToCopy,
-  });
-
-  final String primaryLabel;
-  final String secondaryLabel;
-  final int differentCount;
-  final bool hasAnythingToCopy;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return StyledInfoContainer(
-      backgroundColor: colorScheme.primaryContainer.withValues(alpha: 0.42),
-      borderColor: colorScheme.primary.withValues(alpha: 0.26),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '"$primaryLabel" stays in the vault.',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: colorScheme.onPrimaryContainer,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '"$secondaryLabel" will be moved to the recycle bin after the merge.',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: colorScheme.onPrimaryContainer.withValues(alpha: 0.82),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              _MergeStatusChip(
-                label: '$differentCount different fields',
-                color: colorScheme.tertiary,
-              ),
-              _MergeStatusChip(
-                label: hasAnythingToCopy
-                    ? 'Some data will be copied'
-                    : 'No extra data to copy',
-                color: hasAnythingToCopy
-                    ? colorScheme.primary
-                    : colorScheme.outline,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MergeEntryHeader extends StatelessWidget {
-  const _MergeEntryHeader({
-    required this.label,
-    required this.title,
-    required this.entry,
-    required this.icon,
-  });
-
-  final String label;
-  final String title;
-  final VaultEntry entry;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final modifiedAt = entry.updatedAt ?? entry.createdAt;
-
-    return StyledInfoContainer(
-      padding: const EdgeInsets.all(10),
-      backgroundColor: colorScheme.surfaceContainerHighest.withValues(
-        alpha: 0.38,
-      ),
-      borderColor: colorScheme.outlineVariant.withValues(alpha: 0.72),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: colorScheme.primary),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                if (modifiedAt != null)
-                  Text(
-                    _formatEntryDateTime(modifiedAt),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MergeComparisonRowData {
-  const _MergeComparisonRowData({
-    required this.label,
-    required this.primaryValue,
-    required this.secondaryValue,
-    required this.statusLabel,
-    required this.statusColor,
-    required this.isDifferent,
-  });
-
-  final String label;
-  final String primaryValue;
-  final String secondaryValue;
-  final String statusLabel;
-  final Color Function(ColorScheme) statusColor;
-  final bool isDifferent;
-}
-
-class _MergeComparisonRow extends StatelessWidget {
-  const _MergeComparisonRow({required this.row});
-
-  final _MergeComparisonRowData row;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return StyledInfoContainer(
-      padding: const EdgeInsets.all(10),
-      backgroundColor: row.isDifferent
-          ? colorScheme.tertiaryContainer.withValues(alpha: 0.24)
-          : colorScheme.surfaceContainerHighest.withValues(alpha: 0.28),
-      borderColor: row.isDifferent
-          ? colorScheme.tertiary.withValues(alpha: 0.32)
-          : colorScheme.outlineVariant.withValues(alpha: 0.58),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  row.label,
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              _MergeStatusChip(
-                label: row.statusLabel,
-                color: row.statusColor(colorScheme),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: _MergeValueColumn(
-                  label: 'Kept',
-                  value: row.primaryValue,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _MergeValueColumn(
-                  label: 'Duplicate',
-                  value: row.secondaryValue,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MergeValueColumn extends StatelessWidget {
-  const _MergeValueColumn({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: theme.textTheme.labelSmall?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          value.isEmpty ? 'Not set' : value,
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: value.isEmpty
-                ? colorScheme.onSurface.withValues(alpha: 0.56)
-                : colorScheme.onSurface,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _MergeStatusChip extends StatelessWidget {
-  const _MergeStatusChip({required this.label, required this.color});
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.32)),
-      ),
-      child: Text(
-        label,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: color,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-}
-
-List<_MergeComparisonRowData> _buildMergeComparisonRows(MergePreview preview) {
-  final rows = <_MergeComparisonRowData>[
-    _mergeRow('Title', preview.primary.title, preview.secondary.title),
-    _mergeRow('Username', preview.primary.username, preview.secondary.username),
-    _mergeRow(
-      'Password',
-      _passwordMergeValue(preview.primary.password),
-      _passwordMergeValue(preview.secondary.password),
-      comparePrimary: preview.primary.password,
-      compareSecondary: preview.secondary.password,
-    ),
-    _mergeRow('URL', preview.primary.url, preview.secondary.url),
-    _mergeRow(
-      'Notes',
-      preview.primary.notes,
-      preview.secondary.notes,
-      statusOverride: preview.willCopyNotes ? 'Will copy' : null,
-      statusColorOverride: preview.willCopyNotes
-          ? (scheme) => scheme.primary
-          : null,
-    ),
-    _mergeRow(
-      'OTP / TOTP',
-      preview.primary.otpUri ?? '',
-      preview.secondary.otpUri ?? '',
-      statusOverride: preview.willCopyOtp ? 'Will copy' : null,
-      statusColorOverride: preview.willCopyOtp
-          ? (scheme) => scheme.primary
-          : null,
-    ),
-    _mergeRow(
-      'Attachments',
-      _attachmentsMergeValue(preview.primary.attachments),
-      _attachmentsMergeValue(preview.secondary.attachments),
-      statusOverride: preview.willCopyAttachments ? 'Will copy missing' : null,
-      statusColorOverride: preview.willCopyAttachments
-          ? (scheme) => scheme.primary
-          : null,
-    ),
-  ];
-
-  final fieldKeys =
-      <String>{
-        for (final field in preview.primary.customFields)
-          if (!_isOtpFieldKey(field.key)) field.key,
-        for (final field in preview.secondary.customFields)
-          if (!_isOtpFieldKey(field.key)) field.key,
-      }.toList()..sort(
-        (left, right) => left.toLowerCase().compareTo(right.toLowerCase()),
-      );
-
-  for (final key in fieldKeys) {
-    final primaryValue = _customFieldValue(preview.primary, key);
-    final secondaryValue = _customFieldValue(preview.secondary, key);
-    final willCopy = preview.customFieldKeysToCopy.any(
-      (copyKey) => copyKey.toLowerCase() == key.toLowerCase(),
-    );
-    rows.add(
-      _mergeRow(
-        'Custom: $key',
-        primaryValue,
-        secondaryValue,
-        statusOverride: willCopy ? 'Will copy' : null,
-        statusColorOverride: willCopy ? (scheme) => scheme.primary : null,
-      ),
-    );
-  }
-
-  return rows;
-}
-
-_MergeComparisonRowData _mergeRow(
-  String label,
-  String primaryValue,
-  String secondaryValue, {
-  String? comparePrimary,
-  String? compareSecondary,
-  String? statusOverride,
-  Color Function(ColorScheme)? statusColorOverride,
-}) {
-  final left = (comparePrimary ?? primaryValue).trim();
-  final right = (compareSecondary ?? secondaryValue).trim();
-  final isDifferent = left != right;
-  return _MergeComparisonRowData(
-    label: label,
-    primaryValue: primaryValue,
-    secondaryValue: secondaryValue,
-    isDifferent: isDifferent,
-    statusLabel: statusOverride ?? (isDifferent ? 'Different' : 'Same'),
-    statusColor:
-        statusColorOverride ??
-        (isDifferent
-            ? (scheme) => scheme.tertiary
-            : (scheme) => scheme.outline),
-  );
-}
-
-String _passwordMergeValue(String password) {
-  if (password.isEmpty) return '';
-  return '${password.length} characters';
-}
-
-String _attachmentsMergeValue(List<VaultAttachment> attachments) {
-  if (attachments.isEmpty) return '';
-  return attachments.map((attachment) => attachment.name).join(', ');
-}
-
-String _customFieldValue(VaultEntry entry, String key) {
-  for (final field in entry.customFields) {
-    if (field.key.toLowerCase() == key.toLowerCase()) {
-      return field.value;
-    }
-  }
-  return '';
-}
-
 class _DuplicatesEmptyState extends StatelessWidget {
   const _DuplicatesEmptyState();
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
     return Center(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-        decoration: BoxDecoration(
-          color: colorScheme.surface.withValues(alpha: isDark ? 0.68 : 0.9),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: colorScheme.outlineVariant.withValues(
-              alpha: isDark ? 0.65 : 0.86,
-            ),
-          ),
-        ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 30),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              width: 46,
-              height: 46,
+              width: 74,
+              height: 74,
               decoration: BoxDecoration(
-                color: colorScheme.primaryContainer.withValues(
-                  alpha: isDark ? 0.45 : 0.58,
-                ),
+                color: colors.positiveTint,
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                AppIcons.check,
-                color: colorScheme.onPrimaryContainer,
+              alignment: Alignment.center,
+              child: KvIcon(
+                glyph: AppGlyph.check,
+                size: 34,
+                color: colors.positiveText,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             Text(
               'No duplicates found',
-              style: Theme.of(
-                context,
-              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+              style: AppTextStyles.screenTitle.copyWith(
+                fontSize: 24,
+                color: colors.textPrimary,
+              ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 8),
             Text(
-              'All vault entries have unique URL and username combinations.',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall,
+              'No two records share the same site and username. KeyVault '
+              'checks again every time you open the vault.',
+              style: AppTextStyles.body.copyWith(color: colors.textSecondary),
+            ),
+            const SizedBox(height: 16),
+            KvSecondaryPillButton(
+              label: 'Check again',
+              expand: false,
+              onPressed: () =>
+                  context.read<VaultBloc>().add(const LoadDuplicates()),
             ),
           ],
         ),

@@ -422,3 +422,15 @@ class RejectAppleAutofillPendingAssociation extends VaultEvent {
   @override
   List<Object?> get props => [id];
 }
+
+class ClearCsvImportOutcome extends VaultEvent {
+  const ClearCsvImportOutcome();
+}
+
+/// spec-005 T5 ("success" hero, Unlink pill): removes the current
+/// database's `DatabaseSyncMapping` without disconnecting the Google
+/// account. Distinct from `DisconnectGoogleDrive`, which also revokes the
+/// account connection.
+class UnlinkCurrentDatabaseFromDrive extends VaultEvent {
+  const UnlinkCurrentDatabaseFromDrive();
+}
