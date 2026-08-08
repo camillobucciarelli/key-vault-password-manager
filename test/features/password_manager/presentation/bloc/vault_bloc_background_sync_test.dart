@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show SocketException;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -517,6 +518,70 @@ void main() {
 
       expect(kdbx.loadCallCount, greaterThanOrEqualTo(1));
     });
+
+    // spec-005 T7 non-negotiable: offline is derived ONLY from a
+    // connection-level failure, never from an HTTP error status.
+    test(
+      'SocketException sets isOffline, leaves syncStatus alone (not error)',
+      () async {
+        // autoSyncEnabled:false so InitializeVault's own BackgroundDriveSync
+        // cycle never calls `_performSync` itself — otherwise it races the
+        // explicit `SyncCurrentDatabaseNow` under test against this same
+        // always-throwing fake.
+        final repo = _FakeSyncRepo()
+          ..mapping = _testMapping.copyWith(autoSyncEnabled: false)
+          ..isConnectedResult = true
+          ..syncNowError = const SocketException('Failed host lookup');
+        final kdbx = _FakeVaultKdbxService();
+        final bloc = _makeBloc(repo, kdbx);
+        addTearDown(bloc.close);
+
+        bloc.add(const InitializeVault());
+        await _waitUntil(
+          () => bloc.state.isDriveConnected && bloc.state.isDriveLinked,
+        );
+
+        bloc.add(const SyncCurrentDatabaseNow());
+        await _waitUntil(() => bloc.state.isOffline);
+
+        expect(bloc.state.isOffline, isTrue);
+        expect(
+          bloc.state.syncStatus,
+          isNot(DatabaseSyncStatus.error),
+          reason: 'offline must not be reported as the generic error status',
+        );
+      },
+    );
+
+    test(
+      'a non-network error (HTTP-status-like) sets syncStatus.error, not isOffline',
+      () async {
+        final repo = _FakeSyncRepo()
+          ..mapping = _testMapping.copyWith(autoSyncEnabled: false)
+          ..isConnectedResult = true
+          ..syncNowError = Exception('HTTP 500 Internal Server Error');
+        final kdbx = _FakeVaultKdbxService();
+        final bloc = _makeBloc(repo, kdbx);
+        addTearDown(bloc.close);
+
+        bloc.add(const InitializeVault());
+        await _waitUntil(
+          () => bloc.state.isDriveConnected && bloc.state.isDriveLinked,
+        );
+
+        bloc.add(const SyncCurrentDatabaseNow());
+        await _waitUntil(
+          () => bloc.state.syncStatus == DatabaseSyncStatus.error,
+        );
+
+        expect(bloc.state.syncStatus, DatabaseSyncStatus.error);
+        expect(
+          bloc.state.isOffline,
+          isFalse,
+          reason: 'a transient server error must never look like "offline"',
+        );
+      },
+    );
   });
 }
 
@@ -745,6 +810,11 @@ class _FakeSyncRepo implements DatabaseSyncRepository {
   bool isConnectedResult = false;
   SyncNowResult syncResult = const SyncNowSuccess();
 
+  /// spec-005 T7: when set, `syncNow` throws this instead of returning
+  /// [syncResult] — lets tests exercise `SocketException` (offline) vs any
+  /// other error (HTTP-status-like) without a real network stack.
+  Object? syncNowError;
+
   @override
   Future<bool> isConnected() async => isConnectedResult;
 
@@ -752,10 +822,20 @@ class _FakeSyncRepo implements DatabaseSyncRepository {
   Future<DatabaseSyncMapping?> getMapping(String path) async => mapping;
 
   @override
+  Future<List<DatabaseSyncMapping>> getAllMappings() async =>
+      mapping == null ? const [] : [mapping!];
+
+  @override
   Future<SyncNowResult> syncNow(
     String path, {
     SyncConflictResolution? resolution,
-  }) async => syncResult;
+  }) async {
+    final error = syncNowError;
+    if (error != null) {
+      throw error;
+    }
+    return syncResult;
+  }
 
   @override
   Future<void> connect() async {}

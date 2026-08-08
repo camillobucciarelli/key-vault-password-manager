@@ -272,266 +272,6 @@ Future<VaultDone?> _showAttachmentsDialog(
   );
 }
 
-Future<DriveLinkResult?> _showLinkDatabaseDialog(BuildContext context) async {
-  final vaultBloc = context.read<VaultBloc>();
-  final localDatabaseName = path.basename(vaultBloc.state.databasePath);
-  final suggestedRemoteFileName =
-      localDatabaseName.toLowerCase().endsWith('.kdbx')
-      ? localDatabaseName
-      : '$localDatabaseName.kdbx';
-  var searchQuery = '';
-  var useExisting = false;
-  String? selectedExistingId;
-
-  final result = await VaultShellRouterScope.of(context).open<DriveLinkResult>(
-    context: context,
-    surface: SyncLinkSurface<DriveLinkResult>(
-      builder: (dialogContext) {
-        return BlocProvider.value(
-          value: vaultBloc,
-          child: StatefulBuilder(
-            builder: (dialogInnerContext, setState) {
-              final state = dialogInnerContext.watch<VaultBloc>().state;
-              final remoteFiles = state.remoteDriveFiles;
-              final compactWidth =
-                  MediaQuery.sizeOf(dialogInnerContext).width < 380;
-              final isSearchingFiles = searchQuery.trim().isNotEmpty;
-
-              if (selectedExistingId == null && remoteFiles.isNotEmpty) {
-                selectedExistingId = remoteFiles.first.id;
-              } else if (selectedExistingId != null &&
-                  !remoteFiles.any((file) => file.id == selectedExistingId)) {
-                selectedExistingId = remoteFiles.isEmpty
-                    ? null
-                    : remoteFiles.first.id;
-              }
-
-              final canSubmit =
-                  !useExisting || (selectedExistingId?.isNotEmpty ?? false);
-
-              return AlertDialog(
-                title: const Text('Link database to Drive'),
-                insetPadding: _dialogInsetPadding(dialogInnerContext),
-                contentPadding: _dialogContentPadding(dialogInnerContext),
-                actionsOverflowDirection: VerticalDirection.down,
-                actionsOverflowButtonSpacing: 8,
-                content: SizedBox(
-                  width: _dialogContentWidth(dialogInnerContext, 460),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Choose where this database should sync in Google Drive.',
-                          style: Theme.of(
-                            dialogInnerContext,
-                          ).textTheme.bodyMedium,
-                        ),
-                        const SizedBox(height: 12),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: SegmentedButton<bool>(
-                            segments: [
-                              ButtonSegment<bool>(
-                                value: false,
-                                label: Text(
-                                  compactWidth
-                                      ? 'Create new'
-                                      : 'Create new file',
-                                ),
-                              ),
-                              ButtonSegment<bool>(
-                                value: true,
-                                label: Text(
-                                  compactWidth
-                                      ? 'Use existing'
-                                      : 'Use existing file',
-                                ),
-                              ),
-                            ],
-                            selected: {useExisting},
-                            onSelectionChanged: (selection) {
-                              setState(() {
-                                useExisting = selection.first;
-                              });
-                            },
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        if (!useExisting)
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'A new file will be created in My Drive root.',
-                                style: Theme.of(
-                                  dialogInnerContext,
-                                ).textTheme.bodyMedium,
-                              ),
-                              const SizedBox(height: 10),
-                              SelectableText(
-                                suggestedRemoteFileName,
-                                style: Theme.of(
-                                  dialogInnerContext,
-                                ).textTheme.titleSmall,
-                              ),
-                            ],
-                          ),
-                        if (useExisting)
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Choose an existing .kdbx file',
-                                style: Theme.of(
-                                  dialogInnerContext,
-                                ).textTheme.labelLarge,
-                              ),
-                              const SizedBox(height: 8),
-                              TextField(
-                                decoration: const InputDecoration(
-                                  prefixIcon: Icon(AppIcons.search),
-                                  labelText: 'Search .kdbx file',
-                                  hintText: 'Type file name',
-                                ),
-                                onChanged: (value) {
-                                  setState(() {
-                                    searchQuery = value;
-                                  });
-                                  vaultBloc.add(
-                                    LoadDriveRemoteFiles(query: value),
-                                  );
-                                },
-                              ),
-                              const SizedBox(height: 8),
-                              state.isLoadingRemoteDriveFiles
-                                  ? const Padding(
-                                      padding: EdgeInsets.only(top: 12),
-                                      child: CircularProgressIndicator(),
-                                    )
-                                  : remoteFiles.isEmpty
-                                  ? Text(
-                                      isSearchingFiles
-                                          ? 'No matching .kdbx files found.'
-                                          : 'No .kdbx files found. Switch to "Create new file" to continue.',
-                                    )
-                                  : Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          isSearchingFiles
-                                              ? 'Search results (${remoteFiles.length})'
-                                              : 'Recent .kdbx files (${remoteFiles.length})',
-                                          style: Theme.of(
-                                            dialogInnerContext,
-                                          ).textTheme.labelMedium,
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Container(
-                                          constraints: const BoxConstraints(
-                                            maxHeight: 220,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            border: Border.all(
-                                              color: Theme.of(
-                                                dialogInnerContext,
-                                              ).colorScheme.outlineVariant,
-                                            ),
-                                            borderRadius: BorderRadius.circular(
-                                              12,
-                                            ),
-                                          ),
-                                          child: ListView.separated(
-                                            shrinkWrap: true,
-                                            itemCount: remoteFiles.length,
-                                            separatorBuilder: (_, _) => Divider(
-                                              height: 1,
-                                              color: Theme.of(
-                                                dialogInnerContext,
-                                              ).colorScheme.outlineVariant,
-                                            ),
-                                            itemBuilder: (context, index) {
-                                              final file = remoteFiles[index];
-                                              final isSelected =
-                                                  selectedExistingId == file.id;
-                                              return ListTile(
-                                                dense: true,
-                                                contentPadding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 10,
-                                                    ),
-                                                leading: Icon(
-                                                  isSelected
-                                                      ? Icons
-                                                            .radio_button_checked
-                                                      : Icons
-                                                            .radio_button_unchecked,
-                                                ),
-                                                title: Text(
-                                                  file.name,
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                ),
-                                                selected: isSelected,
-                                                onTap: () {
-                                                  setState(() {
-                                                    selectedExistingId =
-                                                        file.id;
-                                                  });
-                                                },
-                                              );
-                                            },
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                            ],
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-                actions: _adaptiveDialogActions(dialogContext, [
-                  TextButton(
-                    onPressed: () =>
-                        VaultOperationScope.of(dialogContext).cancel(),
-                    child: const Text('Cancel'),
-                  ),
-                  FilledButton(
-                    onPressed: canSubmit
-                        ? () {
-                            if (useExisting) {
-                              if (selectedExistingId == null ||
-                                  selectedExistingId!.isEmpty) {
-                                return;
-                              }
-                              VaultOperationScope.of(dialogContext).complete(
-                                DriveLinkResult.existing(selectedExistingId!),
-                              );
-                              return;
-                            }
-
-                            VaultOperationScope.of(dialogContext).complete(
-                              DriveLinkResult.newFile(suggestedRemoteFileName),
-                            );
-                          }
-                        : null,
-                    child: const Text('Link'),
-                  ),
-                ]),
-              );
-            },
-          ),
-        );
-      },
-    ),
-  );
-  return result;
-}
-
 Future<void> _showSyncConflictDialog(
   BuildContext context,
   SyncConflict conflict,
@@ -540,101 +280,7 @@ Future<void> _showSyncConflictDialog(
       .open<SyncConflictRouteResult>(
         context: context,
         surface: SyncConflictSurface<SyncConflictRouteResult>(
-          builder: (dialogContext) {
-            return AlertDialog(
-              title: const Text('Sync conflict detected'),
-              insetPadding: _dialogInsetPadding(dialogContext),
-              contentPadding: _dialogContentPadding(dialogContext),
-              actionsOverflowDirection: VerticalDirection.down,
-              actionsOverflowButtonSpacing: 8,
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'The local database and Drive file "${conflict.driveFileName}" both changed. Choose what to keep.',
-                  ),
-                  const SizedBox(height: 12),
-                  ExpansionTile(
-                    tilePadding: EdgeInsets.zero,
-                    childrenPadding: EdgeInsets.zero,
-                    title: const Text('Technical details'),
-                    children: [
-                      _syncConflictDetailRow(
-                        'Local checksum',
-                        _shortChecksum(conflict.localChecksum),
-                      ),
-                      _syncConflictDetailRow(
-                        'Remote checksum',
-                        _shortChecksum(conflict.remoteChecksum),
-                      ),
-                      _syncConflictDetailRow(
-                        'Previous local checksum',
-                        _shortChecksumOrDash(conflict.previousLocalChecksum),
-                      ),
-                      _syncConflictDetailRow(
-                        'Previous remote checksum',
-                        _shortChecksumOrDash(conflict.previousRemoteChecksum),
-                      ),
-                      _syncConflictDetailRow(
-                        'Remote modified',
-                        conflict.remoteModifiedTime == null
-                            ? '-'
-                            : _formatSyncDateTime(conflict.remoteModifiedTime!),
-                      ),
-                      _syncConflictDetailRow(
-                        'Local changed',
-                        _boolLabel(conflict.localChanged),
-                      ),
-                      _syncConflictDetailRow(
-                        'Remote changed',
-                        _boolLabel(conflict.remoteChanged),
-                      ),
-                      _syncConflictDetailRow(
-                        'First sync no baseline',
-                        _boolLabel(conflict.firstSyncWithoutBaseline),
-                      ),
-                      _syncConflictDetailRow(
-                        'Remote checksum source',
-                        conflict.remoteChecksumComputedFromDownload == true
-                            ? 'download-fallback'
-                            : 'metadata-md5',
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              actions: _adaptiveDialogActions(dialogContext, [
-                TextButton(
-                  onPressed: () =>
-                      VaultOperationScope.of(dialogContext).complete(
-                        const SyncConflictRouteResult(
-                          SyncConflictResolution.cancel,
-                        ),
-                      ),
-                  child: const Text('Cancel'),
-                ),
-                OutlinedButton(
-                  onPressed: () =>
-                      VaultOperationScope.of(dialogContext).complete(
-                        const SyncConflictRouteResult(
-                          SyncConflictResolution.useRemote,
-                        ),
-                      ),
-                  child: const Text('Use remote'),
-                ),
-                FilledButton(
-                  onPressed: () =>
-                      VaultOperationScope.of(dialogContext).complete(
-                        const SyncConflictRouteResult(
-                          SyncConflictResolution.keepLocal,
-                        ),
-                      ),
-                  child: const Text('Keep local'),
-                ),
-              ]),
-            );
-          },
+          builder: (dialogContext) => _SyncConflictSheet(conflict: conflict),
         ),
       );
 
@@ -652,6 +298,236 @@ Future<void> _showSyncConflictDialog(
   context.read<VaultBloc>().add(
     SyncCurrentDatabaseNow(resolution: resolution.resolution),
   );
+}
+
+/// T9: two version cards radius 20 padding 14/16 with a 40 square, checksum
+/// mono 11, `remoteModifiedTime`; Keep local / Use remote / Cancel with
+/// which-side labels. `SyncConflictResolution` semantics unchanged.
+class _SyncConflictSheet extends StatelessWidget {
+  const _SyncConflictSheet({required this.conflict});
+
+  final SyncConflict conflict;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 20, 18, 26),
+      decoration: BoxDecoration(
+        color: colors.ground,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppRadii.sheet),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 46,
+              height: 5,
+              decoration: BoxDecoration(
+                color: colors.divider,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Both versions changed',
+            style: AppTextStyles.sheetTitleLarge.copyWith(
+              color: colors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'This device and "${conflict.driveFileName}" on Drive were both '
+            'edited since the last sync. Pick which one to keep — the '
+            'other is not deleted, it stays as a Drive revision.',
+            style: AppTextStyles.body.copyWith(color: colors.textSecondary),
+          ),
+          const SizedBox(height: 14),
+          _VersionCard(
+            label: 'This device',
+            meta: _shortChecksum(conflict.localChecksum),
+            background: colors.attentionTint,
+            foreground: colors.attentionText,
+          ),
+          const SizedBox(height: 9),
+          _VersionCard(
+            label: 'Drive',
+            meta: _shortChecksum(conflict.remoteChecksum),
+            secondaryMeta: conflict.remoteModifiedTime == null
+                ? null
+                : 'Modified ${_formatSyncDateTime(conflict.remoteModifiedTime!)}',
+            background: colors.surface,
+            foreground: colors.textSecondary,
+          ),
+          const SizedBox(height: 10),
+          // Material ancestor of its own: `ListTile` (inside
+          // `ExpansionTile`) paints ink/background on the nearest
+          // Material, and the sheet's own rounded-top DecoratedBox would
+          // otherwise hide it (Flutter's own debug assertion catches this).
+          Material(
+            type: MaterialType.transparency,
+            child: ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: EdgeInsets.zero,
+              title: Text(
+                'Technical details',
+                style: AppTextStyles.secondary.copyWith(
+                  color: colors.textSecondary,
+                ),
+              ),
+              children: [
+                _syncConflictDetailRow(
+                  'Local checksum',
+                  _shortChecksum(conflict.localChecksum),
+                ),
+                _syncConflictDetailRow(
+                  'Remote checksum',
+                  _shortChecksum(conflict.remoteChecksum),
+                ),
+                _syncConflictDetailRow(
+                  'Previous local checksum',
+                  _shortChecksumOrDash(conflict.previousLocalChecksum),
+                ),
+                _syncConflictDetailRow(
+                  'Previous remote checksum',
+                  _shortChecksumOrDash(conflict.previousRemoteChecksum),
+                ),
+                _syncConflictDetailRow(
+                  'Remote modified',
+                  conflict.remoteModifiedTime == null
+                      ? '-'
+                      : _formatSyncDateTime(conflict.remoteModifiedTime!),
+                ),
+                _syncConflictDetailRow(
+                  'Local changed',
+                  _boolLabel(conflict.localChanged),
+                ),
+                _syncConflictDetailRow(
+                  'Remote changed',
+                  _boolLabel(conflict.remoteChanged),
+                ),
+                _syncConflictDetailRow(
+                  'First sync no baseline',
+                  _boolLabel(conflict.firstSyncWithoutBaseline),
+                ),
+                _syncConflictDetailRow(
+                  'Remote checksum source',
+                  conflict.remoteChecksumComputedFromDownload == true
+                      ? 'download-fallback'
+                      : 'metadata-md5',
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          KvPillButton(
+            label: 'Keep local',
+            onPressed: () => VaultOperationScope.of(context).complete(
+              const SyncConflictRouteResult(SyncConflictResolution.keepLocal),
+            ),
+          ),
+          const SizedBox(height: 9),
+          KvSecondaryPillButton(
+            label: 'Use remote',
+            onPressed: () => VaultOperationScope.of(context).complete(
+              const SyncConflictRouteResult(SyncConflictResolution.useRemote),
+            ),
+          ),
+          const SizedBox(height: 9),
+          Center(
+            child: TextButton(
+              onPressed: () => VaultOperationScope.of(context).complete(
+                const SyncConflictRouteResult(SyncConflictResolution.cancel),
+              ),
+              child: Text(
+                'Cancel',
+                style: AppTextStyles.body.copyWith(color: colors.textSecondary),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VersionCard extends StatelessWidget {
+  const _VersionCard({
+    required this.label,
+    required this.meta,
+    required this.background,
+    required this.foreground,
+    this.secondaryMeta,
+  });
+
+  final String label;
+  final String meta;
+  final String? secondaryMeta;
+  final Color background;
+  final Color foreground;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: colors.ground,
+              borderRadius: BorderRadius.circular(AppRadii.iconSquare),
+            ),
+            alignment: Alignment.center,
+            child: KvIcon(
+              glyph: label == 'This device' ? AppGlyph.desktop : AppGlyph.cloud,
+              size: 18,
+              color: foreground,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: AppTextStyles.rowTitle.copyWith(
+                    color: colors.textPrimary,
+                  ),
+                ),
+                if (secondaryMeta != null)
+                  Text(
+                    secondaryMeta!,
+                    style: AppTextStyles.meta.copyWith(color: foreground),
+                  ),
+                Text(
+                  meta,
+                  style: AppTextStyles.secret.copyWith(
+                    fontSize: 11,
+                    color: foreground,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 Widget _syncConflictDetailRow(String label, String value) {

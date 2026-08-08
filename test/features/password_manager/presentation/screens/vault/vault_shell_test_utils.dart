@@ -34,9 +34,18 @@ const kTestDatabasePath = '/tmp/vault_shell_test.kdbx';
 Future<Widget> pumpableVaultShell({
   String databasePath = kTestDatabasePath,
   ThemeMode? themeMode,
+  // spec-005 T19/AC3: lets a caller inject a spy repository (e.g. to count
+  // `connect()` calls before/after a user action) instead of the default
+  // fake. Defaults preserve every pre-spec-005 call site's behaviour.
+  DatabaseSyncRepository? databaseSyncRepository,
+  // spec-005 T20: lets a caller inject a vault with real entries (e.g. a
+  // duplicate pair) instead of the default always-empty snapshot.
+  VaultKdbxService? vaultKdbxService,
 }) async {
   SharedPreferences.setMockInitialValues({});
   final sharedPreferences = await SharedPreferences.getInstance();
+  final resolvedSyncRepository =
+      databaseSyncRepository ?? _FakeDatabaseSyncRepository();
 
   di.sl.registerLazySingleton<OtpAuthDeepLinkCoordinator>(
     () => OtpAuthDeepLinkCoordinator(),
@@ -44,15 +53,24 @@ Future<Widget> pumpableVaultShell({
   di.sl.registerLazySingleton<VaultSessionCoordinator>(
     () => _FakeVaultSessionCoordinator(),
   );
+  // spec-005: `_DuplicateGroupCard`/merge preview and the remote-file
+  // picker resolve these directly via `di.sl` (matches production
+  // `injection_container.dart`) — same instance as passed to `VaultBloc`.
+  di.sl.registerLazySingleton<VaultDuplicateService>(
+    () => VaultDuplicateService(),
+  );
+  di.sl.registerLazySingleton<DatabaseSyncRepository>(
+    () => resolvedSyncRepository,
+  );
   di.sl.registerFactoryParam<VaultBloc, String, void>(
     (path, _) => VaultBloc(
       databasePath: path,
       getSelectedKeyFilePath: () async => null,
       secureDataSource: _FakeSecureDataSource(),
-      vaultKdbxService: _FakeVaultKdbxService(),
+      vaultKdbxService: vaultKdbxService ?? _FakeVaultKdbxService(),
       vaultCsvImportService: VaultCsvImportService(),
       vaultDuplicateService: VaultDuplicateService(),
-      databaseSyncRepository: _FakeDatabaseSyncRepository(),
+      databaseSyncRepository: resolvedSyncRepository,
     ),
   );
 

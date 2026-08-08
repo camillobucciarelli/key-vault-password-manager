@@ -22,7 +22,10 @@ const _sectionToCurrentFiles = <String, List<String>>{
     'lib/features/password_manager/presentation/widgets/entry/revealed_password_row.dart',
   ],
   'vault_dialog_password.part.dart': [
-    'lib/features/password_manager/presentation/utils/password_strength.dart',
+    // spec-005: moved presentation/utils -> domain/utils (pure logic, no
+    // Flutter dependency; the new vault_health_service.dart needed it from
+    // domain, and domain code must not import presentation code).
+    'lib/features/password_manager/domain/utils/password_strength.dart',
     'lib/features/password_manager/presentation/screens/vault/vault_generator.part.dart',
     'lib/features/password_manager/presentation/screens/vault/vault_entry_editor.part.dart',
   ],

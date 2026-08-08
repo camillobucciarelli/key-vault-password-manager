@@ -12,8 +12,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/presentation/navigation/vault_shell_router.dart';
 
 const _fixturePath = 'test/fixtures/vault_dialogs_002_before.txt';
-const _vaultSourceDir =
-    'lib/features/password_manager/presentation/screens/vault';
+const _vaultSourceDirs = [
+  'lib/features/password_manager/presentation/screens/vault',
+  // spec-005: CSV import preview/outcome (row 16) moved to a public,
+  // independently-testable widget file outside the part-family (see
+  // csv_import_screens.dart's doc comment — FilePicker has no test
+  // platform-channel handler, so the screen needed to be pumpable without
+  // going through _startCsvImportFlow).
+  'lib/features/password_manager/presentation/widgets/csv',
+];
 
 Widget _noop(BuildContext context) => const SizedBox.shrink();
 
@@ -84,7 +91,9 @@ final Map<String, VaultSurface<VaultDone>> _surfaceByRow = {
   '08': SyncLinkSurface<VaultDone>(builder: _noop),
   '09': SyncConflictSurface<VaultDone>(builder: _noop),
   '10': DuplicatesSurface<VaultDone>(builder: _noop),
-  '11': DuplicatesSurface<VaultDone>(builder: _noop),
+  // spec-005 FR-5: merge preview is a bottom sheet (spec.md screen 11),
+  // not spec-002's provisional DuplicatesSurface/route guess.
+  '11': MergePreviewSurface<VaultDone>(builder: _noop),
   '12': EntrySurface<VaultDone>(builder: _noop),
   '13': DatabaseSettingsSurface<VaultDone>(builder: _noop),
   '14': ConfirmationSurface<VaultDone>(builder: _noop),
@@ -123,9 +132,11 @@ void main() {
 
   setUpAll(() {
     final buffer = StringBuffer();
-    for (final entity in Directory(_vaultSourceDir).listSync()) {
-      if (entity is File && entity.path.endsWith('.dart')) {
-        buffer.write(entity.readAsStringSync());
+    for (final dir in _vaultSourceDirs) {
+      for (final entity in Directory(dir).listSync()) {
+        if (entity is File && entity.path.endsWith('.dart')) {
+          buffer.write(entity.readAsStringSync());
+        }
       }
     }
     vaultSources = buffer.toString();
@@ -178,9 +189,11 @@ void main() {
   }
 
   test('every row maps to a distinct surface family or a documented reuse', () {
-    // Rows 10/11 (Duplicates/merge preview) and 13/16 (Database
-    // settings/CSV import) intentionally share a surface family per FR-6;
-    // every other row must be unique.
+    // 13/16 (Database settings/CSV import), 05/14/17/18/19 (confirmation
+    // sheets) and 02/12 (entry surface) intentionally share a surface
+    // family per FR-6; every other row must be unique. spec-005 gave row
+    // 11 (merge preview) its own `MergePreviewSurface` — it no longer
+    // shares `DuplicatesSurface` with row 10 (FR-5: sheet, not route).
     final counts = <Type, int>{};
     for (final surface in _surfaceByRow.values) {
       counts[surface.runtimeType] = (counts[surface.runtimeType] ?? 0) + 1;
@@ -189,7 +202,6 @@ void main() {
     expect(
       shared.map((e) => e.key.toString()).toSet(),
       {
-        'DuplicatesSurface<VaultDone>',
         'DatabaseSettingsSurface<VaultDone>',
         'ConfirmationSurface<VaultDone>',
         'EntrySurface<VaultDone>',

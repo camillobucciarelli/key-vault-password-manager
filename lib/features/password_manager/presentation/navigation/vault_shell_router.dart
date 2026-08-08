@@ -289,6 +289,14 @@ final class SyncConflictSurface<R extends VaultRouteResult>
   const SyncConflictSurface({required super.builder});
 }
 
+/// spec-005 T11/FR-5: the "What the merge does" bottom sheet — sheet on
+/// mobile like `SyncConflictSurface`/`GroupEditSurface`, pane on wide
+/// screens (same rule as every other surface).
+final class MergePreviewSurface<R extends VaultRouteResult>
+    extends VaultSurface<R> {
+  const MergePreviewSurface({required super.builder});
+}
+
 final class DatabaseSettingsSurface<R extends VaultRouteResult>
     extends VaultSurface<R> {
   const DatabaseSettingsSurface({required super.builder});
@@ -337,7 +345,8 @@ VaultSurfacePresentation presentationFor<R extends VaultRouteResult>(
     PasswordGeneratorSurface() ||
     GroupEditSurface() ||
     MoveTargetSurface() ||
-    SyncConflictSurface() =>
+    SyncConflictSurface() ||
+    MergePreviewSurface() =>
       mobile ? const VaultSheetPresentation() : const VaultPanePresentation(),
     KeyFileManagerSurface() ||
     ConfirmationSurface() => const VaultSheetPresentation(),
