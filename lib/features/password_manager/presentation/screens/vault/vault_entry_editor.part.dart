@@ -1333,14 +1333,16 @@ class _CameraDeniedScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 9),
-              KvSecondaryPillButton(
-                label: 'Save the URI',
-                onPressed:
-                    manualUriController.text.trim().startsWith('otpauth://')
-                    ? () => VaultOperationScope.of(
-                        context,
-                      ).complete(OtpScanResult(manualUriController.text.trim()))
-                    : null,
+              ValueListenableBuilder<TextEditingValue>(
+                valueListenable: manualUriController,
+                builder: (context, value, _) => KvSecondaryPillButton(
+                  label: 'Save the URI',
+                  onPressed: value.text.trim().startsWith('otpauth://')
+                      ? () => VaultOperationScope.of(context).complete(
+                          OtpScanResult(value.text.trim()),
+                        )
+                      : null,
+                ),
               ),
               const SizedBox(height: 20),
             ],

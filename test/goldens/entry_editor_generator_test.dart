@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:password_manager/core/utils/clipboard_guard.dart';
+import 'package:password_manager/core/widgets/kv_pill_button.dart';
 import 'package:password_manager/features/password_manager/presentation/screens/vault_screen.dart';
 import 'package:password_manager/injection_container.dart' as di;
 import 'package:path/path.dart' as p;
@@ -376,48 +377,105 @@ void main() {
       final originalPlatform = debugDefaultTargetPlatformOverride;
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
       muteScannerEventChannels(hangStart: true);
+      // `finally` (not end-of-body cleanup, not addTearDown): guarantees the
+      // debug-var + mock-channel reset runs even if the golden assertion
+      // below throws, so a failure here can't leak dirty global state into
+      // later tests in this file. addTearDown doesn't work for
+      // debugDefaultTargetPlatformOverride specifically — flutter_test's
+      // foundation-debug-var invariant check runs synchronously right after
+      // the test body returns, before any addTearDown callback fires.
+      try {
+        await setSize(tester, const Size(390, 844));
+        await tester.pumpWidget(await pumpableEntryScreen());
+        await tester.pumpAndSettle();
+        await openNewItemEditor(tester);
+        await openScanner(tester);
 
-      await setSize(tester, const Size(390, 844));
-      await tester.pumpWidget(await pumpableEntryScreen());
-      await tester.pumpAndSettle();
-      await openNewItemEditor(tester);
-      await openScanner(tester);
+        await expectLater(
+          find.byType(MaterialApp),
+          matchesGoldenFile('editor_qr_scanner_390x844.png'),
+        );
 
-      await expectLater(
-        find.byType(MaterialApp),
-        matchesGoldenFile('editor_qr_scanner_390x844.png'),
-      );
-
-      await tester.pumpAndSettle();
-      await unmount(tester);
-      debugDefaultTargetPlatformOverride = originalPlatform;
-      unmuteScannerEventChannels();
+        await tester.pumpAndSettle();
+        await unmount(tester);
+      } finally {
+        debugDefaultTargetPlatformOverride = originalPlatform;
+        unmuteScannerEventChannels();
+      }
     });
 
     testWidgets('editor_camera_denied_390x844_light.png', (tester) async {
       final originalPlatform = debugDefaultTargetPlatformOverride;
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
       muteScannerEventChannels(hangStart: false);
+      try {
+        await setSize(tester, const Size(390, 844));
+        await tester.pumpWidget(await pumpableEntryScreen());
+        await tester.pumpAndSettle();
+        await openNewItemEditor(tester);
+        await tester.tap(find.text('One-time code'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Scan QR'));
+        // Let the (inevitable, no-camera-in-tests) controller error resolve.
+        await tester.pumpAndSettle();
 
-      await setSize(tester, const Size(390, 844));
-      await tester.pumpWidget(await pumpableEntryScreen());
-      await tester.pumpAndSettle();
-      await openNewItemEditor(tester);
-      await tester.tap(find.text('One-time code'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Scan QR'));
-      // Let the (inevitable, no-camera-in-tests) controller error resolve.
-      await tester.pumpAndSettle();
+        await expectLater(
+          find.byType(MaterialApp),
+          matchesGoldenFile('editor_camera_denied_390x844_light.png'),
+        );
 
-      await expectLater(
-        find.byType(MaterialApp),
-        matchesGoldenFile('editor_camera_denied_390x844_light.png'),
-      );
-
-      await unmount(tester);
-      debugDefaultTargetPlatformOverride = originalPlatform;
-      unmuteScannerEventChannels();
+        await unmount(tester);
+      } finally {
+        debugDefaultTargetPlatformOverride = originalPlatform;
+        unmuteScannerEventChannels();
+      }
     });
+
+    // Regression for T16: `_CameraDeniedScreen` was a StatelessWidget that
+    // computed the "Save the URI" button's enabled state once at build time
+    // from `manualUriController.text`, with no listener on the controller —
+    // typing in the field never rebuilt the button, so it stayed disabled
+    // forever. Fails pre-fix (button stays disabled after enterText),
+    // passes post-fix (ValueListenableBuilder rebuilds on every keystroke).
+    testWidgets(
+      'camera denied: "Save the URI" button enables reactively as the user '
+      'types a valid otpauth:// URI, no extra pump beyond enterText',
+      (tester) async {
+        final originalPlatform = debugDefaultTargetPlatformOverride;
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        muteScannerEventChannels(hangStart: false);
+        try {
+          await setSize(tester, const Size(390, 844));
+          await tester.pumpWidget(await pumpableEntryScreen());
+          await tester.pumpAndSettle();
+          await openNewItemEditor(tester);
+          await tester.tap(find.text('One-time code'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byTooltip('Scan QR'));
+          await tester.pumpAndSettle();
+
+          KvSecondaryPillButton saveUriButton() =>
+              tester.widget<KvSecondaryPillButton>(
+                find.widgetWithText(KvSecondaryPillButton, 'Save the URI'),
+              );
+
+          expect(saveUriButton().onPressed, isNull);
+
+          await tester.enterText(
+            find.byType(TextFormField),
+            'otpauth://totp/Sella:CB77219?secret=ABC',
+          );
+          await tester.pump();
+
+          expect(saveUriButton().onPressed, isNotNull);
+
+          await unmount(tester);
+        } finally {
+          debugDefaultTargetPlatformOverride = originalPlatform;
+          unmuteScannerEventChannels();
+        }
+      },
+    );
   });
 
   // --- Discard changes ------------------------------------------------------------
