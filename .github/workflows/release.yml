@@ -227,19 +227,24 @@ jobs:
           files: dist/keyvault-chrome-support-macos.pkg
           fail_on_unmatched_files: true
 
-      - name: Locate xcarchive
+      - name: Archive xcarchive as tar
         id: locate
         run: |
+          # actions/upload-artifact's zip packaging mangles symlinks/permissions
+          # inside the .app bundle (Contents/Versions symlinks etc.), which makes
+          # xcodebuild -exportArchive fail with "contains invalid products" when
+          # the archive is re-downloaded in a different job. tar preserves them
+          # byte-for-byte.
           shopt -s nullglob
           archive=(dist/prod_packages/*/Runner.xcarchive)
           (( ${#archive[@]} == 1 )) || { echo "Expected one macOS archive, found ${#archive[@]}"; exit 1; }
-          echo "archive_dir=$(dirname "${archive[0]}")" >> "$GITHUB_OUTPUT"
+          tar -czf dist/macos-xcarchive.tar.gz -C "$(dirname "${archive[0]}")" "Runner.xcarchive"
 
       - name: Upload xcarchive artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-xcarchive
-          path: ${{ steps.locate.outputs.archive_dir }}/Runner.xcarchive
+          path: dist/macos-xcarchive.tar.gz
           retention-days: 1
 
   macos-app-store-publish:
@@ -259,7 +264,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: macos-xcarchive
-          path: dist/macos-xcarchive
+          path: dist
+
+      - name: Extract xcarchive
+        run: tar -xzf dist/macos-xcarchive.tar.gz -C dist
 
       - name: Upload to App Store Connect
         env:
@@ -267,11 +275,9 @@ jobs:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
         run: |
-          # actions/upload-artifact flattens a single-directory path, so the
-          # downloaded content IS the xcarchive contents (no nested folder).
           ./tool/build_prod_packages.sh \
             --platforms macos-appstore-upload \
-            --archive-path dist/macos-xcarchive \
+            --archive-path dist/Runner.xcarchive \
             --no-clean
 
   chrome:
