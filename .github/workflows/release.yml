@@ -175,9 +175,11 @@ jobs:
 
       - name: Upload to App Store Connect
         run: |
+          # actions/upload-artifact flattens a single-directory path, so the
+          # downloaded content IS the xcarchive contents (no nested folder).
           ./tool/build_prod_packages.sh \
             --platforms ios-appstore-upload \
-            --archive-path dist/ios-xcarchive/Runner-ios.xcarchive \
+            --archive-path dist/ios-xcarchive \
             --no-clean
 
   macos:
@@ -257,9 +259,11 @@ jobs:
 
       - name: Upload to App Store Connect
         run: |
+          # actions/upload-artifact flattens a single-directory path, so the
+          # downloaded content IS the xcarchive contents (no nested folder).
           ./tool/build_prod_packages.sh \
             --platforms macos-appstore-upload \
-            --archive-path dist/macos-xcarchive/Runner.xcarchive \
+            --archive-path dist/macos-xcarchive \
             --no-clean
 
   chrome:
