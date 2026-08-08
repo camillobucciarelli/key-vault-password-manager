@@ -397,10 +397,10 @@ void main() {
         );
 
         await tester.pumpAndSettle();
-        await unmount(tester);
       } finally {
         debugDefaultTargetPlatformOverride = originalPlatform;
         unmuteScannerEventChannels();
+        await unmount(tester);
       }
     });
 
@@ -423,11 +423,10 @@ void main() {
           find.byType(MaterialApp),
           matchesGoldenFile('editor_camera_denied_390x844_light.png'),
         );
-
-        await unmount(tester);
       } finally {
         debugDefaultTargetPlatformOverride = originalPlatform;
         unmuteScannerEventChannels();
+        await unmount(tester);
       }
     });
 
@@ -439,7 +438,8 @@ void main() {
     // passes post-fix (ValueListenableBuilder rebuilds on every keystroke).
     testWidgets(
       'camera denied: "Save the URI" button enables reactively as the user '
-      'types a valid otpauth:// URI, no extra pump beyond enterText',
+      'types a valid otpauth:// URI, single standard pump after enterText '
+      'is enough — no pumpAndSettle needed',
       (tester) async {
         final originalPlatform = debugDefaultTargetPlatformOverride;
         debugDefaultTargetPlatformOverride = TargetPlatform.android;
@@ -468,11 +468,10 @@ void main() {
           await tester.pump();
 
           expect(saveUriButton().onPressed, isNotNull);
-
-          await unmount(tester);
         } finally {
           debugDefaultTargetPlatformOverride = originalPlatform;
           unmuteScannerEventChannels();
+          await unmount(tester);
         }
       },
     );
