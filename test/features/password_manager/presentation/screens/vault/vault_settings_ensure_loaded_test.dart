@@ -62,6 +62,79 @@ void main() {
       );
     },
   );
+
+  testWidgets(
+    'a coordinator failure during load does not crash the Settings '
+    'destination and leaves it retryable',
+    (tester) async {
+      final widget = await pumpableVaultShell(
+        vaultSessionCoordinator: _ThrowingVaultSessionCoordinator(),
+      );
+
+      await tester.pumpWidget(widget);
+      await tester.pump();
+
+      await tester.tap(find.bySemanticsLabel('Settings'));
+      await tester.pumpAndSettle();
+
+      // `_ensureLoaded`'s catch clause must swallow the exception rather
+      // than letting it escape as an unhandled async error from `build()`.
+      expect(tester.takeException(), isNull);
+    },
+  );
+}
+
+/// Regression coverage note (PM-flagged scenario): "`_ensureLoaded` called
+/// for two *different* `databasePath`s overlapping on the same
+/// `_VaultSettingsDestinationState` instance" has no reachable production
+/// path to exercise it. `VaultBloc.databasePath` is set once in its
+/// constructor and never re-emitted with a different value (verified via
+/// every `state.databasePath`-producing call site in `vault_bloc.dart`),
+/// and every database switch (`vault_navigation.part.dart`'s settings-save
+/// flow, `database_unlock_screen.dart`) pushes a brand-new `VaultScreen`
+/// via `Navigator.push`/`pushFadeReplacement` — a new route, new
+/// `BlocProvider(create: ...)`, new `VaultBloc`, new
+/// `_VaultSettingsDestinationState`. The stale-path guard added to
+/// `_ensureLoaded` is kept as defensive insurance (cheap, matches the
+/// existing same-path guard's shape) but a synthetic widget test for it
+/// would require exposing private state or a new test-only seam with no
+/// other use — skipped per YAGNI. Flag to PM if a future refactor makes
+/// `VaultBloc` swap its `databasePath` in place (e.g. an in-place
+/// "switch database" without a route replacement).
+
+class _ThrowingVaultSessionCoordinator implements VaultSessionCoordinator {
+  @override
+  Future<bool> getBiometricProtectionEnabledForPath({
+    required String databasePath,
+  }) async => throw StateError('secure storage read failed');
+
+  @override
+  Future<int?> getInactivityLockTimeoutForPath({
+    required String databasePath,
+  }) async => null;
+
+  @override
+  Future<String?> getPersistedKeyFilePath(String databasePath) async => null;
+
+  @override
+  Future<String?> getSelectedKeyFilePath() async => null;
+
+  @override
+  Future<Set<String>> getProtectedKeyFilePaths() async => const {};
+
+  @override
+  Future<void> changeDatabase({required String currentDatabasePath}) async {}
+
+  @override
+  Future<void> lockVault({required String currentDatabasePath}) async {}
+
+  @override
+  Future<DatabaseSettingsUpdateResult> updateDatabaseSettings(
+    DatabaseSettingsUpdateRequest request,
+  ) => throw UnimplementedError();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _SpyVaultSessionCoordinator implements VaultSessionCoordinator {

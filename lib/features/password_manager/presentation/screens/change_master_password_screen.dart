@@ -61,22 +61,33 @@ class _ChangeMasterPasswordScreenState
 
   Future<void> _load() async {
     final coordinator = di.sl<VaultSessionCoordinator>();
-    final keyFilePath = await coordinator.getPersistedKeyFilePath(
-      widget.databasePath,
-    );
-    final biometricEnabled = await coordinator
-        .getBiometricProtectionEnabledForPath(
-          databasePath: widget.databasePath,
-        );
-    final inactivityTimeoutSeconds = await coordinator
-        .getInactivityLockTimeoutForPath(databasePath: widget.databasePath);
-    if (!mounted) return;
-    setState(() {
-      _keyFilePath = keyFilePath;
-      _biometricEnabled = biometricEnabled;
-      _inactivityTimeoutSeconds = inactivityTimeoutSeconds;
-      _loaded = true;
-    });
+    try {
+      final keyFilePath = await coordinator.getPersistedKeyFilePath(
+        widget.databasePath,
+      );
+      final biometricEnabled = await coordinator
+          .getBiometricProtectionEnabledForPath(
+            databasePath: widget.databasePath,
+          );
+      final inactivityTimeoutSeconds = await coordinator
+          .getInactivityLockTimeoutForPath(databasePath: widget.databasePath);
+      if (!mounted) return;
+      setState(() {
+        _keyFilePath = keyFilePath;
+        _biometricEnabled = biometricEnabled;
+        _inactivityTimeoutSeconds = inactivityTimeoutSeconds;
+        _loaded = true;
+      });
+    } catch (_) {
+      // Fail-safe: leave `_loaded == false`, which keeps `_canSubmit` false
+      // and the submit button disabled — the screen never reaches a state
+      // where the user can submit a re-key with partial/stale settings.
+      if (mounted) {
+        setState(() {
+          _error = 'Unable to load database settings. Try again.';
+        });
+      }
+    }
   }
 
   bool get _canSubmit =>

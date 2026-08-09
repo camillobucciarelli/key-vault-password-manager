@@ -50,15 +50,29 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
       final keyFilePath = await coordinator.getPersistedKeyFilePath(
         databasePath,
       );
-      if (!mounted) return;
+      // Guard against a stale result: the vault's active path may have
+      // moved on while these awaits were in flight (e.g. a concurrent
+      // `_ensureLoaded` for a different path completed first).
+      if (!mounted ||
+          context.read<VaultBloc>().state.databasePath != databasePath) {
+        return;
+      }
       setState(() {
         _biometricEnabled = biometricEnabled;
         _inactivityTimeoutSeconds = inactivityTimeoutSeconds;
         _keyFilePath = keyFilePath;
         _loadedForPath = databasePath;
       });
+    } catch (_) {
+      // Silent: `_loadedForPath` stays unset for this path, so the next
+      // `build()` retries. No UI is needed for a background settings load.
     } finally {
-      _loadingForPath = null;
+      // Only clear the guard for the in-flight path this call owns — a
+      // concurrent `_ensureLoaded` for a different path may have already
+      // overwritten `_loadingForPath` with its own value.
+      if (_loadingForPath == databasePath) {
+        _loadingForPath = null;
+      }
     }
   }
 
