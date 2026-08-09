@@ -14,8 +14,19 @@ class _VaultHealthDestination extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
     return BlocBuilder<VaultBloc, VaultState>(
+      // Compare score + per-category counts only, not `healthReport` itself
+      // — its `HealthCategory.entryIds` lists make `Equatable.==` O(entries)
+      // per comparison, and this buildWhen runs on every VaultState change
+      // in the whole app (every search keystroke, every tick). Same
+      // lightweight-comparison rule as `VaultState.props` — see its
+      // comment. The row builder below only renders score + count per
+      // category, never entryIds, so this can't miss a visible change.
       buildWhen: (previous, current) =>
-          previous.healthReport != current.healthReport ||
+          previous.healthReport.score != current.healthReport.score ||
+          !_sameCategoryCounts(
+            previous.healthReport.categories,
+            current.healthReport.categories,
+          ) ||
           previous.allEntries.length != current.allEntries.length ||
           previous.databasePath != current.databasePath,
       builder: (context, state) {
@@ -54,6 +65,22 @@ class _VaultHealthDestination extends StatelessWidget {
       },
     );
   }
+}
+
+bool _sameCategoryCounts(
+  List<HealthCategory> previous,
+  List<HealthCategory> current,
+) {
+  if (previous.length != current.length) {
+    return false;
+  }
+  for (var i = 0; i < previous.length; i++) {
+    if (previous[i].kind != current[i].kind ||
+        previous[i].count != current[i].count) {
+      return false;
+    }
+  }
+  return true;
 }
 
 class _ScoreCard extends StatelessWidget {

@@ -128,4 +128,57 @@ void main() {
       );
     },
   );
+
+  testWidgets(
+    'stale selection is dropped when the filtered list becomes completely '
+    'empty (not just narrowed) — "Link" must disable, not stay wired to a '
+    'file no longer in the list at all',
+    (tester) async {
+      addTearDown(resetVaultShellTestDi);
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        await pumpableVaultShell(
+          databaseSyncRepository: _FakeUnlinkedSyncRepository(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Sync'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Pick an existing .kdbx'));
+      await tester.pumpAndSettle();
+
+      // Default selection is the first row (Alpha, id a1).
+      expect(
+        tester
+            .widgetList<RemoteFileRow>(find.byType(RemoteFileRow))
+            .where((r) => r.selected)
+            .single
+            .file
+            .id,
+        'a1',
+      );
+
+      // A query that matches nothing empties the list entirely — the
+      // isEmpty early-return branch, not just a narrower non-empty list.
+      await tester.enterText(find.byType(TextField), 'zzz-no-match');
+      await tester.pumpAndSettle();
+
+      expect(find.text('No .kdbx files found.'), findsOneWidget);
+      expect(find.byType(RemoteFileRow), findsNothing);
+
+      // The stale 'a1' selection must be cleared even though the isEmpty
+      // branch returns before reaching the old post-check location —
+      // "Link" must be disabled, not still wired to an invisible file.
+      expect(
+        tester.widget<ElevatedButton>(find.widgetWithText(ElevatedButton, 'Link')).onPressed,
+        isNull,
+      );
+    },
+  );
 }
