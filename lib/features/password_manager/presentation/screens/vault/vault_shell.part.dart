@@ -32,16 +32,32 @@ class _VaultUiTokens {
 }
 
 class VaultScreen extends StatelessWidget {
-  const VaultScreen({super.key, required this.databasePath});
+  const VaultScreen({
+    super.key,
+    required this.databasePath,
+    // spec-006 T16: the lock/privacy overlays are only reachable via a real
+    // inactivity timer firing or a >=30s background/resume cycle — neither
+    // is practical to drive deterministically from a widget test. These
+    // test-only seeds let goldens render the overlays directly, matching
+    // the `debugEntryDetailNowOverride` / `debugLockOverlayNowOverride`
+    // clock-seam convention already used elsewhere in this file family.
+    @visibleForTesting this.debugInitiallyLocked = false,
+    @visibleForTesting this.debugInitiallyBackground = false,
+  });
 
   final String databasePath;
+  final bool debugInitiallyLocked;
+  final bool debugInitiallyBackground;
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (_) =>
           di.sl<VaultBloc>(param1: databasePath)..add(const InitializeVault()),
-      child: const _VaultView(),
+      child: _VaultView(
+        debugInitiallyLocked: debugInitiallyLocked,
+        debugInitiallyBackground: debugInitiallyBackground,
+      ),
     );
   }
 }
@@ -82,7 +98,13 @@ class _VaultLayoutSpec {
 }
 
 class _VaultView extends StatefulWidget {
-  const _VaultView();
+  const _VaultView({
+    this.debugInitiallyLocked = false,
+    this.debugInitiallyBackground = false,
+  });
+
+  final bool debugInitiallyLocked;
+  final bool debugInitiallyBackground;
 
   @override
   State<_VaultView> createState() => _VaultViewState();
@@ -95,6 +117,9 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   DateTime? _backgroundedAt;
   bool _isBackground = false;
   bool _isLocked = false;
+  // spec-006 T4: when the lock overlay engaged, so it can render "locked
+  // for <duration>" (FR-3). Cleared on unlock.
+  DateTime? _lockedAt;
   Timer? _inactivityTimer;
   StreamSubscription<OtpAuthDeepLinkEvent>? _otpAuthSubscription;
   final List<OtpAuthDeepLinkEvent> _otpAuthEventQueue = [];
@@ -119,6 +144,11 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _isLocked = widget.debugInitiallyLocked;
+    _isBackground = widget.debugInitiallyBackground;
+    if (_isLocked) {
+      _lockedAt = DateTime.now();
+    }
     _router = VaultShellRouter(
       onPaneChanged: (pane) {
         if (mounted && !_isDisposing) {
@@ -256,12 +286,18 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
 
   void _triggerInactivityLock() {
     if (!mounted || _isLocked) return;
-    setState(() => _isLocked = true);
+    setState(() {
+      _isLocked = true;
+      _lockedAt = DateTime.now();
+    });
   }
 
   void _dismissLock() {
     if (!mounted) return;
-    setState(() => _isLocked = false);
+    setState(() {
+      _isLocked = false;
+      _lockedAt = null;
+    });
     _resetInactivityTimer();
   }
 
@@ -301,7 +337,10 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
 
     setState(() {
       _isBackground = false;
-      if (shouldLock) _isLocked = true;
+      if (shouldLock) {
+        _isLocked = true;
+        _lockedAt = DateTime.now();
+      }
     });
 
     if (!shouldLock) {
@@ -396,15 +435,31 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
         serviceIdentifierValue: serviceIdentifierValue,
       );
 
-      final shouldLink = await _router.confirm(
+      // spec-006 T7/FR-5: restyled into a `KvBottomSheet` with Target /
+      // Entry / Username rows (screen 7) instead of the generic
+      // title/body `AlertDialog` `_router.confirm` builds — same
+      // `ConfirmationSurface` presentation (always a sheet), same
+      // Confirm/Reject decision the pending-association flow already acts
+      // on below, unchanged.
+      final shouldLink = await _router.open<ConfirmDecision>(
         context: context,
-        title: 'Link AutoFill credential?',
-        body:
-            'Target: $target\n\n'
-            '${entry == null ? 'Entry unavailable.' : 'Entry: ${entry.title.isEmpty ? '(Untitled)' : entry.title}\nUsername: ${entry.username.isEmpty ? 'No username' : entry.username}'}\n\n'
-            'This association updates the vault only after you confirm.',
-        cancelLabel: 'Reject',
-        confirmLabel: 'Link',
+        surface: ConfirmationSurface<ConfirmDecision>(
+          builder: (surfaceContext) => _LinkAutofillCredentialSheet(
+            target: target,
+            entryTitle: entry == null
+                ? null
+                : (entry.title.isEmpty ? '(Untitled)' : entry.title),
+            username: entry == null
+                ? null
+                : (entry.username.isEmpty ? 'No username' : entry.username),
+            onReject: () => VaultOperationScope.of(
+              surfaceContext,
+            ).complete(ConfirmDecision.cancel),
+            onLink: () => VaultOperationScope.of(
+              surfaceContext,
+            ).complete(ConfirmDecision.confirm),
+          ),
+        ),
       );
 
       if (!mounted || shouldLink == null) {
@@ -575,6 +630,10 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                               vaultPane: vaultPane,
                               onSelectDestination: _selectDestination,
                               onBackFromPane: _router.requestCancelCurrentPane,
+                              onCloseDatabase: () =>
+                                  _closeCurrentDatabaseAndSelectAnother(
+                                    context,
+                                  ),
                             );
                           },
                         ),
@@ -589,14 +648,17 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                           return const _SavingOverlay();
                         },
                       ),
-                      if (_isBackground && !_isLocked) const _PrivacyOverlay(),
+                      if (_isBackground && !_isLocked) const PrivacyOverlay(),
                       if (_isLocked)
                         _LockOverlay(
                           databasePath: context
                               .read<VaultBloc>()
                               .state
                               .databasePath,
+                          lockedAt: _lockedAt ?? DateTime.now(),
                           onUnlocked: _dismissLock,
+                          onCloseDatabase: () =>
+                              _closeCurrentDatabaseAndSelectAnother(context),
                         ),
                     ],
                   );
@@ -709,6 +771,7 @@ class _VaultNavigationLayout extends StatelessWidget {
     required this.vaultPane,
     required this.onSelectDestination,
     required this.onBackFromPane,
+    required this.onCloseDatabase,
   });
 
   final double width;
@@ -717,6 +780,7 @@ class _VaultNavigationLayout extends StatelessWidget {
   final Widget vaultPane;
   final ValueChanged<VaultDestination> onSelectDestination;
   final Future<bool> Function() onBackFromPane;
+  final Future<void> Function() onCloseDatabase;
 
   @override
   Widget build(BuildContext context) {
@@ -769,8 +833,11 @@ class _VaultNavigationLayout extends StatelessWidget {
     VaultDestination.sync => const _VaultDestinationScaffold(
       child: _VaultSyncDestination(),
     ),
-    VaultDestination.settings => const _VaultDestinationScaffold(
-      child: _VaultBackupsDestination(),
+    // spec-006 T1: was aliased to `_VaultBackupsDestination` as a spec-005
+    // stopgap ("Settings" didn't have its own screen yet). Backups & import
+    // is now reached from a row inside the real Settings destination.
+    VaultDestination.settings => _VaultDestinationScaffold(
+      child: _VaultSettingsDestination(onCloseDatabase: onCloseDatabase),
     ),
   };
 

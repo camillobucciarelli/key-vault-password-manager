@@ -1,15 +1,81 @@
+/* Extension popup — spec 006 FR-7 / PIXEL_SPEC "Extension popup".
+   Every colour below is a var() onto desktop/browser_extension/tokens.css
+   (itself generated verbatim from specs/_design/tokens.css) — no hex
+   literal lives in this file, so T18/AC6 (every hex in this file exists
+   in tokens.css) holds vacuously: there is nothing to check. */
+
 :root {
-  --kv-bg-start: #020617;
-  --kv-bg-end: #0f172a;
-  --kv-surface: rgba(248, 250, 252, 0.92);
-  --kv-surface-strong: #ffffff;
-  --kv-primary: #818cf8;
-  --kv-primary-2: #6366f1;
-  --kv-border: rgba(129, 140, 248, 0.3);
-  --kv-text: #0f172a;
-  --kv-text-soft: #334155;
-  --kv-focus: rgba(129, 140, 248, 0.35);
-  --kv-error: #b42342;
+  /* Light-mode semantic aliases. Component rules below reference only
+     these, never a raw --color-* token, so the dark block can retarget
+     every one of them to the matching dark ramp step in a single place. */
+  --pop-header-bg: var(--color-neutral-200);
+  --pop-body-bg: var(--color-neutral-100);
+  --pop-text: var(--color-text);
+
+  --pop-card-ok-bg: var(--color-accent-2-100);
+  --pop-card-ok-label: var(--color-accent-2-900);
+  --pop-card-ok-value: var(--color-accent-2-900);
+
+  --pop-card-warn-bg: var(--color-accent-100);
+  --pop-card-warn-label: var(--color-accent-900);
+  --pop-card-warn-value: var(--color-accent-900);
+
+  --pop-card-neutral-bg: var(--color-neutral-200);
+  --pop-card-neutral-text: var(--color-neutral-600);
+
+  --pop-row-bg: var(--color-neutral-200);
+  --pop-avatar-bg: var(--color-neutral-100);
+  --pop-meta-text: var(--color-neutral-600);
+  --pop-body-text: var(--color-neutral-700);
+  --pop-link-accent: var(--color-accent-800);
+
+  --pop-tag-strong-bg: var(--color-accent-2-200);
+  --pop-tag-strong-text: var(--color-accent-2-900);
+  --pop-tag-possible-bg: var(--color-accent-200);
+  --pop-tag-possible-text: var(--color-accent-900);
+
+  --pop-divider: var(--color-divider);
+  --pop-search-bg: var(--color-neutral-200);
+  --pop-search-text: var(--color-neutral-600);
+  --pop-footer-text: var(--color-neutral-600);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* docs/design_handoff_keyvault_restyle/14 Dark mode.dc.html lines
+       244-280: "fondi 800 su ground 900" — same two status-card colours,
+       same `strong` tag, dark ramp step swapped in one place. */
+    --pop-header-bg: var(--color-neutral-800);
+    --pop-body-bg: var(--color-neutral-900);
+    --pop-text: var(--color-neutral-100);
+
+    --pop-card-ok-bg: var(--color-accent-2-800);
+    --pop-card-ok-label: var(--color-accent-2-200);
+    --pop-card-ok-value: var(--color-accent-2-100);
+
+    --pop-card-warn-bg: var(--color-accent-800);
+    --pop-card-warn-label: var(--color-accent-200);
+    --pop-card-warn-value: var(--color-accent-100);
+
+    --pop-card-neutral-bg: var(--color-neutral-800);
+    --pop-card-neutral-text: color-mix(in srgb, var(--color-neutral-100) 70%, transparent);
+
+    --pop-row-bg: var(--color-neutral-800);
+    --pop-avatar-bg: var(--color-neutral-900);
+    --pop-meta-text: color-mix(in srgb, var(--color-neutral-100) 52%, transparent);
+    --pop-body-text: color-mix(in srgb, var(--color-neutral-100) 78%, transparent);
+    --pop-link-accent: var(--color-accent-300);
+
+    --pop-tag-strong-bg: var(--color-accent-2-800);
+    --pop-tag-strong-text: var(--color-accent-2-200);
+    --pop-tag-possible-bg: var(--color-accent-800);
+    --pop-tag-possible-text: var(--color-accent-200);
+
+    --pop-divider: color-mix(in srgb, var(--color-neutral-100) 20%, transparent);
+    --pop-search-bg: var(--color-neutral-800);
+    --pop-search-text: color-mix(in srgb, var(--color-neutral-100) 52%, transparent);
+    --pop-footer-text: color-mix(in srgb, var(--color-neutral-100) 52%, transparent);
+  }
 }
 
 * {
@@ -18,188 +84,358 @@
 
 body {
   margin: 0;
-  width: 390px;
-  line-height: 1.4;
-  color: var(--kv-text);
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
-  background:
-    radial-gradient(circle at 8% 8%, rgba(129, 140, 248, 0.35), transparent 56%),
-    radial-gradient(circle at 96% 0%, rgba(129, 140, 248, 0.22), transparent 52%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.94) 100%),
-    linear-gradient(152deg, var(--kv-bg-start) 0%, var(--kv-bg-end) 100%);
+  width: 400px;
+  color: var(--pop-text);
+  font-family: var(--font-body);
+  background: var(--pop-body-bg);
+  box-shadow: var(--shadow-md);
 }
 
-main {
-  padding: 14px;
-  margin: 10px;
-  border-radius: 14px;
-  background: var(--kv-surface);
-  border: 1px solid var(--kv-border);
-  backdrop-filter: blur(6px);
-}
-
-h1 {
-  margin: 0 0 10px;
-  font-size: 16px;
-  letter-spacing: 0.2px;
-}
-
-.hint {
-  margin: 0 0 12px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  font-size: 11px;
-  line-height: 1.35;
-  color: var(--kv-text-soft);
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid var(--kv-border);
-}
-
-h2 {
-  margin: 14px 0 8px;
-  font-size: 13px;
-  color: var(--kv-text);
-}
-
-.status-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+/* Header — 38 tall, mark 22 radius 7, title 12.5/600, beta tag right. */
+.pop-header {
+  height: 38px;
+  flex: none;
+  display: flex;
+  align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
+  padding: 0 12px;
+  background: var(--pop-header-bg);
 }
 
-.status-card,
-.result-card {
-  padding: 9px;
-  border-radius: 11px;
-  border: 1px solid var(--kv-border);
-  background: var(--kv-surface);
+.pop-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  flex: none;
+}
+
+.pop-mark--dim {
+  opacity: 0.5;
+}
+
+.pop-title {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.pop-beta {
+  margin-left: auto;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--pop-tag-strong-bg);
+  color: var(--pop-tag-strong-text);
+}
+
+/* Body — padding 14, gap 12. */
+.pop-body {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Status cards — two flex-1, radius 14, padding 10/12, micro label 10
+   uppercase + value 13/600. */
+.status-grid {
+  display: flex;
+  gap: 8px;
+}
+
+.status-card {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+}
+
+.status-card--ok {
+  background: var(--pop-card-ok-bg);
+}
+.status-card--ok .status-label,
+.status-card--ok .status-value {
+  color: var(--pop-card-ok-label);
+}
+
+.status-card--warn {
+  background: var(--pop-card-warn-bg);
+}
+.status-card--warn .status-label,
+.status-card--warn .status-value {
+  color: var(--pop-card-warn-label);
+}
+
+.status-card--neutral {
+  background: var(--pop-card-neutral-bg);
+}
+.status-card--neutral .status-label,
+.status-card--neutral .status-value {
+  color: var(--pop-card-neutral-text);
 }
 
 .status-label {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--kv-text-soft);
   font-size: 10px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
-.status-card strong {
-  font-size: 12px;
-}
-
-button {
-  width: 100%;
-  margin-top: 10px;
-  padding: 10px;
-  border: 0;
-  border-radius: 11px;
-  font-size: 12px;
+.status-value {
+  margin-top: 2px;
+  font-size: 13px;
   font-weight: 600;
-  color: #fff;
-  cursor: pointer;
-  background: linear-gradient(124deg, var(--kv-primary), var(--kv-primary-2));
-  transition: transform 140ms ease, filter 140ms ease;
 }
 
-.search-label {
-  display: block;
-  margin: 12px 0 6px;
-  color: var(--kv-text-soft);
+/* Current-tab row — radius 14 padding 10/12 with a 26 square. */
+.tab-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--pop-row-bg);
+}
+
+.tab-avatar {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 8px;
+  background: var(--pop-avatar-bg);
+  display: grid;
+  place-items: center;
   font-size: 11px;
   font-weight: 700;
 }
 
-.search-row {
-  display: grid;
-  grid-template-columns: 1fr 92px;
+.tab-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.tab-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-meta {
+  font-size: 11px;
+  color: var(--pop-meta-text);
+}
+
+.tab-action {
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--pop-link-accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* Match groups — "Matches · N" / "Possible · N". */
+.match-group-label {
+  margin-bottom: 8px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pop-meta-text);
+}
+
+.match-list {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+}
+
+/* Match rows — radius 14 padding 11/12, title 13/600, meta 11. */
+.match-row {
+  display: flex;
   align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: 14px;
+  background: var(--pop-row-bg);
 }
 
-.search-row button {
-  margin-top: 0;
+.match-info {
+  flex: 1;
+  min-width: 0;
 }
 
-input[type="search"] {
-  width: 100%;
-  padding: 10px;
-  border: 1px solid var(--kv-border);
-  border-radius: 11px;
-  color: var(--kv-text);
-  font-size: 12px;
-  background: var(--kv-surface-strong);
+.match-title {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-input[type="search"]:focus-visible {
-  outline: 0;
-  box-shadow: 0 0 0 3px var(--kv-focus);
+.match-meta {
+  font-size: 11px;
+  color: var(--pop-meta-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.secondary-button {
-  margin-top: 8px;
-  padding: 8px;
-  color: var(--kv-primary-2);
-  background: rgba(99, 102, 241, 0.1);
-  border: 1px solid var(--kv-border);
-}
-
-.badge {
-  display: inline-flex;
-  margin-bottom: 6px;
-  padding: 2px 7px;
+/* `strong` / `possible` — TEXT labels (AC5), colour is reinforcement
+   only. Never rely on this tag's background colour alone: its
+   textContent ("strong" / "possible") is the actual signal. */
+.match-tag {
+  flex: none;
+  padding: 3px 9px;
   border-radius: 999px;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
-.badge-strong {
-  color: #14532d;
-  background: rgba(34, 197, 94, 0.14);
+.match-tag--strong {
+  background: var(--pop-tag-strong-bg);
+  color: var(--pop-tag-strong-text);
 }
 
-.badge-possible {
-  color: #713f12;
-  background: rgba(245, 158, 11, 0.18);
+.match-tag--possible {
+  background: var(--pop-tag-possible-bg);
+  color: var(--pop-tag-possible-text);
 }
 
-button:hover {
-  filter: brightness(1.03);
-}
-
-button:active {
-  transform: translateY(1px);
-}
-
-button:focus-visible {
-  outline: 0;
-  box-shadow: 0 0 0 3px var(--kv-focus);
-}
-
-.status {
-  min-height: 20px;
-  margin: 8px 0 0;
+/* Fill button — padding 7/12 radius 999 accent-300, unchanged in dark. */
+.fill-btn {
+  flex: none;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--color-accent-300);
+  color: var(--color-accent-900);
   font-size: 12px;
-  color: var(--kv-text-soft);
+  font-weight: 600;
+  cursor: pointer;
 }
 
-.results {
-  display: grid;
+/* "Ask app" — outline pill, possible-only matches. */
+.ask-btn {
+  flex: none;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--pop-divider);
+  background: none;
+  color: var(--pop-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* Global search — height 34 radius 999. */
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--pop-search-bg);
+  color: var(--pop-search-text);
+}
+
+.search-row svg {
+  flex: none;
+  color: var(--pop-link-accent);
+}
+
+.search-row input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+}
+
+.search-row input::placeholder {
+  color: var(--pop-search-text);
+}
+
+/* Footer privacy note — 11px, line-height 1.5. */
+.footer-note {
+  font-size: 11px;
+  color: var(--pop-footer-text);
+  line-height: 1.5;
+}
+
+/* Locked / host-missing explanatory rows. */
+.locked-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--pop-card-warn-bg);
+  color: var(--pop-card-warn-value);
+}
+
+.locked-warning svg {
+  flex: none;
+}
+
+.locked-warning p {
+  flex: 1;
+  margin: 0;
+  font-size: 12px;
+}
+
+.host-missing-text {
+  font-size: 12px;
+  color: var(--pop-body-text);
+  line-height: 1.55;
+}
+
+.action-row {
+  display: flex;
   gap: 8px;
 }
 
-.result-title {
-  margin-bottom: 4px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--kv-text);
+.action-row > * {
+  flex: 1;
 }
 
-.result-body {
-  overflow-wrap: anywhere;
-  color: var(--kv-text-soft);
+.primary-pill-btn,
+.secondary-pill-btn {
+  text-align: center;
+  padding: 9px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border: 0;
+  cursor: pointer;
+}
+
+.primary-pill-btn {
+  background: var(--color-accent-300);
+  color: var(--color-accent-900);
+}
+
+.secondary-pill-btn {
+  background: none;
+  border: 1px solid var(--pop-divider);
+  color: var(--pop-text);
+  font-weight: 400;
+}
+
+.status-message {
+  min-height: 16px;
+  margin: 0;
   font-size: 11px;
+  color: var(--pop-meta-text);
+}
+
+.status-message--error {
+  color: var(--pop-card-warn-value);
 }
 
 @media (prefers-reduced-motion: reduce) {

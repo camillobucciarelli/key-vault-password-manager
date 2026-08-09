@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:password_manager/core/theme/app_theme.dart';
 import 'package:password_manager/features/password_manager/data/services/browser_setup_service.dart';
 import 'package:password_manager/features/password_manager/presentation/screens/browser_setup_screen.dart';
 
@@ -28,7 +29,10 @@ void main() {
       );
 
       await tester.pumpWidget(
-        MaterialApp(home: BrowserSetupScreen(service: service)),
+        MaterialApp(
+          theme: AppTheme.lightTheme,
+          home: BrowserSetupScreen(service: service),
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -39,10 +43,12 @@ void main() {
       expect(find.textContaining('Edge'), findsNothing);
       expect(find.textContaining('Extension ID'), findsNothing);
 
-      final configureButton = tester.widget<FilledButton>(
+      // spec-006 T8: action buttons restyled from `FilledButton.tonal` to
+      // `KvPillButton` (ElevatedButton-backed).
+      final configureButton = tester.widget<ElevatedButton>(
         find.ancestor(
           of: find.text('Configura Chrome'),
-          matching: find.byType(FilledButton),
+          matching: find.byType(ElevatedButton),
         ),
       );
       expect(configureButton.onPressed, isNotNull);
@@ -75,7 +81,10 @@ void main() {
       );
 
       await tester.pumpWidget(
-        MaterialApp(home: BrowserSetupScreen(service: service)),
+        MaterialApp(
+          theme: AppTheme.lightTheme,
+          home: BrowserSetupScreen(service: service),
+        ),
       );
       await tester.pumpAndSettle();
 

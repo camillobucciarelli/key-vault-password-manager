@@ -64,9 +64,12 @@ Do not put vault passwords, key file paths, database paths, credentials, or othe
 secrets in extension files, console logs, DOM nodes, or browser storage.
 
 Permissions are intentionally small: `nativeMessaging` talks to the registered
-host, `activeTab` lets the popup inspect the current tab after a click, and
-`scripting` injects the one-shot fill function only after the user clicks Fill.
-No host permissions, content scripts, or extension storage are used.
+host, `activeTab` lets the popup inspect the current tab after a click,
+`scripting` injects the one-shot fill function only after the user clicks
+Fill, and `storage` holds only the toolbar badge state (host reachable / app
+unlocked / per-tab match *count*, never any credential data) so it survives
+the MV3 service worker being killed and restarted. No host permissions or
+content scripts are used.
 
 The popup checks native-host status automatically when opened. Manual **Check
 host status** remains a refresh button. No fill runs until the user clicks
