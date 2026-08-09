@@ -383,10 +383,16 @@ class SyncStatusHero extends StatelessWidget {
                         color: colors.attentionText,
                       ),
                     ),
+                    // No caller wires `offlineChangeCount` today — the app
+                    // has no local-changes-pending counter anywhere in the
+                    // bloc/domain layer (Copilot PR #9 fix 3: adding one is
+                    // out of scope for spec-005). Showing a number here
+                    // would always read "0 local changes", which is worse
+                    // than no number. Generic copy until a real count is
+                    // wired; `offlineChangeCount` stays on the widget for
+                    // that future wiring.
                     Text(
-                      offlineChangeCount == 1
-                          ? '1 local change not uploaded yet'
-                          : '$offlineChangeCount local changes not uploaded yet',
+                      "Your local changes will sync once you're back online.",
                       style: AppTextStyles.secondary.copyWith(
                         color: colors.attentionText,
                       ),

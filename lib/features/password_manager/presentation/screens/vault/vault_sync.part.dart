@@ -222,6 +222,19 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
                   if (state.isLoadingRemoteDriveFiles) {
                     return const Center(child: CircularProgressIndicator());
                   }
+                  // If the list changed (e.g. the user filtered by typing) and
+                  // the previously selected file is no longer in it, drop the
+                  // stale selection instead of leaving "Link" enabled against
+                  // an id no longer visible/valid — see spec-005 Copilot fix.
+                  // MUST run before the isEmpty early-return below: a filter
+                  // that narrows the list to zero results is exactly the
+                  // case where the selection needs clearing.
+                  if (_selectedId != null &&
+                      !state.remoteDriveFiles.any(
+                        (file) => file.id == _selectedId,
+                      )) {
+                    _selectedId = null;
+                  }
                   if (state.remoteDriveFiles.isEmpty) {
                     return Center(
                       child: Text(
@@ -231,16 +244,6 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
                         ),
                       ),
                     );
-                  }
-                  // If the list changed (e.g. the user filtered by typing) and
-                  // the previously selected file is no longer in it, drop the
-                  // stale selection instead of leaving "Link" enabled against
-                  // an id no longer visible/valid — see spec-005 Copilot fix.
-                  if (_selectedId != null &&
-                      !state.remoteDriveFiles.any(
-                        (file) => file.id == _selectedId,
-                      )) {
-                    _selectedId = null;
                   }
                   _selectedId ??= state.remoteDriveFiles.first.id;
                   return ListView.separated(
