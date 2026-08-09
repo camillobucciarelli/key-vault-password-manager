@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_PAT }}
 
       - id: bump
         run: |
