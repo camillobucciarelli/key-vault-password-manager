@@ -1117,6 +1117,10 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
   }
 
   @override
+  Future<List<DatabaseSyncMapping>> getAllMappings() async =>
+      mappings.values.toList(growable: false);
+
+  @override
   Future<bool> isConnected() async => connected;
 
   @override

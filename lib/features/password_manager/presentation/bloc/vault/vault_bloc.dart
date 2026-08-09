@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show SocketException;
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:loggy/loggy.dart';
@@ -15,6 +16,7 @@ import '../../../domain/repositories/database_sync_repository.dart';
 import '../../../domain/models/vault_entry.dart';
 import '../../../domain/models/vault_group.dart';
 import '../../../domain/models/vault_snapshot.dart';
+import '../../../domain/services/vault_health_service.dart';
 import '../../coordinators/apple_autofill_v2_coordinator.dart';
 import 'vault_event.dart';
 import 'vault_state.dart';
@@ -29,6 +31,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     required this.vaultDuplicateService,
     required this.databaseSyncRepository,
     this.appleAutofillV2Coordinator = const NoopAppleAutofillV2Coordinator(),
+    this.vaultHealthService = const VaultHealthService(),
+    this.now = DateTime.now,
   }) : super(VaultState.initial(databasePath: databasePath)) {
     on<InitializeVault>(_onInitializeVault);
     on<RefreshVault>(_onRefreshVault);
@@ -85,6 +89,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<LoadDuplicates>(_onLoadDuplicates);
     on<DeleteDuplicateEntry>(_onDeleteDuplicateEntry);
     on<MergeDuplicateEntries>(_onMergeDuplicateEntries);
+    on<ClearCsvImportOutcome>(_onClearCsvImportOutcome);
+    on<UnlinkCurrentDatabaseFromDrive>(_onUnlinkCurrentDatabaseFromDrive);
     on<LoadDriveRemoteFiles>(
       _onLoadDriveRemoteFiles,
       transformer: (events, mapper) => events
@@ -103,6 +109,12 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   final VaultDuplicateService vaultDuplicateService;
   final DatabaseSyncRepository databaseSyncRepository;
   final AppleAutofillV2CoordinatorContract appleAutofillV2Coordinator;
+  final VaultHealthService vaultHealthService;
+
+  /// Injected clock (spec-005 non-negotiable): the health report's "old"
+  /// category must never call `DateTime.now()` directly, so tests can pass
+  /// a fixed `now` and get a deterministic score.
+  final DateTime Function() now;
 
   String _password = '';
   String? _keyFilePath;
@@ -139,6 +151,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       await _reload(emit);
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
       _computeDuplicates(emit);
+      _computeHealth(emit);
       add(const BackgroundDriveSync());
     } catch (e, st) {
       logError('Failed to initialize vault.', e, st);
@@ -164,6 +177,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     );
     await _loadRecycleBinEntries(emit, isInitialLoad: true);
     _computeDuplicates(emit);
+    _computeHealth(emit);
   }
 
   Future<void> _onOpenRecycleBin(
@@ -1182,8 +1196,9 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       }
 
       var importedCount = 0;
-      var failedCount = 0;
       var duplicateCount = 0;
+      // spec-005 AC8: every skipped row carries a reason, not just a count.
+      final skippedRows = <SkippedRow>[...parsed.skippedRowDetails];
       final existingEntryKeys = event.avoidDuplicates
           ? _buildDuplicateKeys(state.allEntries)
           : <String>{};
@@ -1195,6 +1210,12 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         );
         if (event.avoidDuplicates && existingEntryKeys.contains(duplicateKey)) {
           duplicateCount += 1;
+          skippedRows.add(
+            SkippedRow(
+              index: item.rowIndex,
+              reason: 'Duplicate of a record already in this vault.',
+            ),
+          );
           continue;
         }
 
@@ -1216,7 +1237,9 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           }
           importedCount += 1;
         } catch (_) {
-          failedCount += 1;
+          skippedRows.add(
+            SkippedRow(index: item.rowIndex, reason: 'Could not be saved.'),
+          );
         }
       }
 
@@ -1226,17 +1249,23 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       _computeDuplicates(emit);
+      _computeHealth(emit);
       await _scheduleAutoSync(emit);
 
-      final skippedTotal = parsed.skippedRows + failedCount + duplicateCount;
+      skippedRows.sort((a, b) => a.index.compareTo(b.index));
       _safeEmit(
         emit,
         state.copyWith(
           isSaving: false,
           infoMessage: _buildCsvImportMessage(
             importedCount: importedCount,
-            skippedTotal: skippedTotal,
+            skippedTotal: skippedRows.length,
             duplicateCount: duplicateCount,
+          ),
+          lastCsvImportOutcome: CsvImportOutcome(
+            importedCount: importedCount,
+            duplicateSkippedCount: duplicateCount,
+            skippedRows: skippedRows,
           ),
         ),
       );
@@ -1298,6 +1327,34 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   void _onLoadDuplicates(LoadDuplicates event, Emitter<VaultState> emit) {
     _safeEmit(emit, state.copyWith(isDuplicatesLoading: true));
     _computeDuplicates(emit);
+    _computeHealth(emit);
+  }
+
+  void _onClearCsvImportOutcome(
+    ClearCsvImportOutcome event,
+    Emitter<VaultState> emit,
+  ) {
+    _safeEmit(emit, state.copyWith(clearCsvImportOutcome: true));
+  }
+
+  /// spec-005 T3: recomputed on unlock and after every write, alongside
+  /// `_computeDuplicates` (same call sites — duplicates feed one of the
+  /// five categories). Never per keystroke/rebuild.
+  void _computeHealth(Emitter<VaultState> emit) {
+    final recycleBinGroupIds = _recycleBinGroupIds(state.groups);
+    final recycleBinEntryIds = state.recycleBinEntries
+        .map((entry) => entry.id)
+        .toSet();
+    final activeEntries = state.allEntries
+        .where((entry) => !recycleBinGroupIds.contains(entry.groupId))
+        .where((entry) => !recycleBinEntryIds.contains(entry.id))
+        .toList(growable: false);
+    final report = vaultHealthService.buildReport(
+      activeEntries: activeEntries,
+      duplicateGroups: state.duplicateGroups,
+      now: now(),
+    );
+    _safeEmit(emit, state.copyWith(healthReport: report));
   }
 
   Future<void> _onDeleteDuplicateEntry(
@@ -1319,6 +1376,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       );
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
       _computeDuplicates(emit);
+      _computeHealth(emit);
       await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed deleting duplicate entry.', e, st);
@@ -1352,6 +1410,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       );
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
       _computeDuplicates(emit);
+      _computeHealth(emit);
       await _scheduleAutoSync(emit);
     } catch (e, st) {
       logError('Failed merging duplicate entries.', e, st);
@@ -1570,6 +1629,35 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         state.copyWith(
           syncStatus: DatabaseSyncStatus.error,
           syncError: 'Unable to update auto-sync setting.',
+        ),
+      );
+    }
+  }
+
+  Future<void> _onUnlinkCurrentDatabaseFromDrive(
+    UnlinkCurrentDatabaseFromDrive event,
+    Emitter<VaultState> emit,
+  ) async {
+    try {
+      await databaseSyncRepository.removeMapping(state.databasePath);
+      _safeEmit(
+        emit,
+        state.copyWith(
+          isDriveLinked: false,
+          linkedDriveFileName: null,
+          lastSyncAt: null,
+          syncStatus: DatabaseSyncStatus.idle,
+          infoMessage: 'Database unlinked from Drive.',
+          clearSyncError: true,
+        ),
+      );
+    } catch (e, st) {
+      logError('Unlink database from Drive failed.', e, st);
+      _safeEmit(
+        emit,
+        state.copyWith(
+          syncStatus: DatabaseSyncStatus.error,
+          syncError: 'Unable to unlink database.',
         ),
       );
     }
@@ -2220,9 +2308,23 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           syncStatus: DatabaseSyncStatus.success,
           linkedDriveFileName: mapping?.driveFileName,
           lastSyncAt: mapping?.lastSyncAt ?? DateTime.now(),
+          isOffline: false,
           clearSyncError: true,
           clearSyncConflict: true,
         ),
+      );
+    } on SocketException catch (e, st) {
+      // T7 non-negotiable: offline is derived ONLY from a connection-level
+      // failure (SocketException) — never from an HTTP error status, which
+      // stays in the `error` branch below. A transient 500 must not be
+      // mistaken for "you are offline". Also reset syncStatus away from
+      // `syncing` (set just above, before the failed await) — otherwise
+      // the UI is stuck showing an indeterminate spinner forever while
+      // offline instead of the dedicated offline card.
+      logError('Drive sync failed: no connection.', e, st);
+      _safeEmit(
+        emit,
+        state.copyWith(syncStatus: DatabaseSyncStatus.idle, isOffline: true),
       );
     } catch (e, st) {
       logError('Drive sync failed.', e, st);
@@ -2231,6 +2333,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         state.copyWith(
           syncStatus: DatabaseSyncStatus.error,
           syncError: 'Unable to sync with Google Drive.',
+          isOffline: false,
         ),
       );
     }

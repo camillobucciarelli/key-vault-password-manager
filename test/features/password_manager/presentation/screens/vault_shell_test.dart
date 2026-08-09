@@ -97,8 +97,11 @@ void main() {
     expect(find.byKey(const ValueKey('vault-list-pane')), findsOneWidget);
   });
 
-  group('placeholders are reachable', () {
-    testWidgets('Health destination shows its placeholder at rail width', (
+  group('destinations are reachable', () {
+    // spec-005: Health/Sync/Settings got first-class screens instead of a
+    // placeholder button (FR-4/FR-1/FR-8) — these two cases now assert the
+    // real content renders, not the superseded placeholder.
+    testWidgets('Health destination shows real health content at rail width', (
       tester,
     ) async {
       await pumpAtWidth(tester, 1024);
@@ -106,18 +109,19 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      expect(find.text('Manage duplicates'), findsOneWidget);
+      expect(find.text('Weak passwords'), findsOneWidget);
     });
 
-    testWidgets('Settings destination shows its placeholder at mobile width', (
-      tester,
-    ) async {
-      await pumpAtWidth(tester, 390);
-      await tester.tap(find.text('Settings'));
-      await tester.pumpAndSettle();
+    testWidgets(
+      'Settings destination shows the Backups screen at mobile width',
+      (tester) async {
+        await pumpAtWidth(tester, 390);
+        await tester.tap(find.text('Settings'));
+        await tester.pumpAndSettle();
 
-      expect(tester.takeException(), isNull);
-      expect(find.text('Import from CSV'), findsOneWidget);
-    });
+        expect(tester.takeException(), isNull);
+        expect(find.text('Import from CSV'), findsOneWidget);
+      },
+    );
   });
 }

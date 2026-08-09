@@ -141,8 +141,7 @@ class FakeDatabaseFileRepository implements DatabaseFileRepository {
       existingPaths.contains(keyFilePath);
 
   @override
-  Future<Uint8List> readKeyFileBytes(String keyFilePath) async =>
-      Uint8List(0);
+  Future<Uint8List> readKeyFileBytes(String keyFilePath) async => Uint8List(0);
 
   @override
   Future<String> saveKeyFile({
@@ -298,6 +297,10 @@ class FakeDatabaseSyncRepository implements DatabaseSyncRepository {
       mappings[databasePath];
 
   @override
+  Future<List<DatabaseSyncMapping>> getAllMappings() async =>
+      mappings.values.toList(growable: false);
+
+  @override
   Future<bool> isConnected() async => connected;
 
   @override
@@ -327,9 +330,7 @@ class FakeDatabaseSyncRepository implements DatabaseSyncRepository {
   }) async {
     final mapping = mappings.remove(fromDatabasePath);
     if (mapping != null) {
-      mappings[toDatabasePath] = mapping.copyWith(
-        databasePath: toDatabasePath,
-      );
+      mappings[toDatabasePath] = mapping.copyWith(databasePath: toDatabasePath);
     }
   }
 

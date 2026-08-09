@@ -575,11 +575,6 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                               vaultPane: vaultPane,
                               onSelectDestination: _selectDestination,
                               onBackFromPane: _router.requestCancelCurrentPane,
-                              onOpenDuplicates: () =>
-                                  _showDuplicatesDialog(context),
-                              onOpenSync: () => _startDriveLinkFlow(context),
-                              onOpenSettings: () =>
-                                  _startCsvImportFlow(context),
                             );
                           },
                         ),
@@ -624,6 +619,7 @@ bool _syncStatusStripBuildWhen(VaultState previous, VaultState current) {
       previous.lastSyncAt != current.lastSyncAt ||
       previous.autoSyncEnabled != current.autoSyncEnabled ||
       previous.isSyncing != current.isSyncing ||
+      previous.isOffline != current.isOffline ||
       previous.duplicateGroupCount != current.duplicateGroupCount;
 }
 
@@ -713,9 +709,6 @@ class _VaultNavigationLayout extends StatelessWidget {
     required this.vaultPane,
     required this.onSelectDestination,
     required this.onBackFromPane,
-    required this.onOpenDuplicates,
-    required this.onOpenSync,
-    required this.onOpenSettings,
   });
 
   final double width;
@@ -724,9 +717,6 @@ class _VaultNavigationLayout extends StatelessWidget {
   final Widget vaultPane;
   final ValueChanged<VaultDestination> onSelectDestination;
   final Future<bool> Function() onBackFromPane;
-  final VoidCallback onOpenDuplicates;
-  final VoidCallback onOpenSync;
-  final VoidCallback onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -770,20 +760,17 @@ class _VaultNavigationLayout extends StatelessWidget {
 
   Widget _destinationBody() => switch (selectedDestination) {
     VaultDestination.vault => vaultPane,
-    VaultDestination.health => _VaultDestinationPlaceholder(
-      destination: VaultDestination.health,
-      actionLabel: 'Manage duplicates',
-      onAction: onOpenDuplicates,
+    // spec-005: Health/Sync/Settings get first-class screens instead of a
+    // placeholder button (FR-4/FR-1/FR-8). Padding/topInset match the
+    // Vault pane so all four destinations align under the same header.
+    VaultDestination.health => const _VaultDestinationScaffold(
+      child: _VaultHealthDestination(),
     ),
-    VaultDestination.sync => _VaultDestinationPlaceholder(
-      destination: VaultDestination.sync,
-      actionLabel: 'Link database to Drive',
-      onAction: onOpenSync,
+    VaultDestination.sync => const _VaultDestinationScaffold(
+      child: _VaultSyncDestination(),
     ),
-    VaultDestination.settings => _VaultDestinationPlaceholder(
-      destination: VaultDestination.settings,
-      actionLabel: 'Import from CSV',
-      onAction: onOpenSettings,
+    VaultDestination.settings => const _VaultDestinationScaffold(
+      child: _VaultBackupsDestination(),
     ),
   };
 
@@ -996,47 +983,20 @@ class _VaultPaneHost extends StatelessWidget {
   );
 }
 
-class _VaultDestinationPlaceholder extends StatelessWidget {
-  const _VaultDestinationPlaceholder({
-    required this.destination,
-    required this.actionLabel,
-    required this.onAction,
-  });
+/// spec-005: thin wrapper giving the Health/Sync/Settings destination
+/// screens the same top inset as the Vault pane (status bar clearance);
+/// each screen manages its own horizontal padding/scrolling.
+class _VaultDestinationScaffold extends StatelessWidget {
+  const _VaultDestinationScaffold({required this.child});
 
-  final VaultDestination destination;
-  final String actionLabel;
-  final VoidCallback onAction;
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    return FocusTraversalGroup(
-      child: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Semantics(
-            header: true,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                KvIcon(
-                  glyph: destination.glyph,
-                  size: 44,
-                  color: colors.linkText,
-                  semanticLabel: '${destination.label} destination',
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  destination.label,
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ),
-                const SizedBox(height: 16),
-                FilledButton(onPressed: onAction, child: Text(actionLabel)),
-              ],
-            ),
-          ),
-        ),
-      ),
+    final topInset = MediaQuery.paddingOf(context).top;
+    return Padding(
+      padding: EdgeInsets.only(top: topInset > 0 ? topInset : 8),
+      child: child,
     );
   }
 }
