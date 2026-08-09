@@ -1,9 +1,16 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../../core/theme/app_backgrounds.dart';
+import '../../../../../core/theme/app_colors.dart';
+import '../../../../../core/theme/app_glyph.dart';
 import '../../../../../core/theme/app_icons.dart';
+import '../../../../../core/theme/app_text_styles.dart';
+import '../../../../../core/theme/keyvault_colors.dart';
+import '../../../../../core/widgets/kv_icon.dart';
+import '../../../../../core/widgets/kv_pill_button.dart';
 import '../../data/services/browser_setup_service.dart';
 import '../widgets/styled_info_container.dart';
 
@@ -346,6 +353,23 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                                 : null,
                           ),
 
+                          // spec-006 T8/PIXEL_SPEC "Command block": shows the
+                          // *real* command `_installNativeHost` runs
+                          // automatically (radius 18, neutral-900/mono-11.5,
+                          // copyable) — transparency for anyone who wants to
+                          // run it by hand, not a new manual-install flow.
+                          if (!_usesMacOSCompanionInstaller &&
+                              _hasNativeHostInstaller) ...[
+                            const SizedBox(height: 10),
+                            _NativeHostCommandBlock(
+                              command: _service.nativeHostInstallCommandText(
+                                browser: NativeHostBrowser.chrome,
+                                extensionId:
+                                    BrowserSetupService.chromeExtensionId,
+                              ),
+                            ),
+                          ],
+
                           if (_nativeHostSetupMessage != null &&
                               _nativeHostStatus != _StepStatus.error) ...[
                             const SizedBox(height: 12),
@@ -376,6 +400,25 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                             const SizedBox(height: 12),
                             const _AppBridgeStatusBanner(),
                           ],
+
+                          // spec-006 T9: static diagnostic screen, always
+                          // reachable (the app's own bridge-connectivity
+                          // check cannot detect a Chrome-side "native host
+                          // not found" specifically — see the final report).
+                          const SizedBox(height: 12),
+                          Center(
+                            child: TextButton(
+                              onPressed: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) =>
+                                      HostNotFoundDiagnosticScreen(
+                                        service: _service,
+                                      ),
+                                ),
+                              ),
+                              child: const Text('Diagnostica collegamento'),
+                            ),
+                          ),
 
                           // Error message
                           if (_errorMessage != null) ...[
@@ -466,126 +509,350 @@ class _SetupStep extends StatelessWidget {
   final String actionLabel;
   final VoidCallback? onAction;
 
+  // spec-006 T8/PIXEL_SPEC "Step cards": radius 24 padding 16 — done card
+  // `positiveTint` + 40-square check, active card `surface` + numbered
+  // 40-square `actionFill`, pending card at 60 % opacity. Business logic
+  // (`_StepStatus`, title/description/actionLabel/onAction) is untouched —
+  // this only restyles the container.
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
     final isDisabled = status == _StepStatus.disabled;
     final isDone = status == _StepStatus.done;
     final isLoading = status == _StepStatus.loading;
     final isError = status == _StepStatus.error;
-    final colorScheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // "Pending" per the pixel spec means "not yet reached" — the step
+    // hasn't started and has no live status to show, i.e. `disabled` in
+    // this screen's own state machine (its `pending` value means "ready to
+    // act on", which is the pixel spec's "active").
+    final isPendingUnreached = isDisabled;
+    final isActive = !isDone && !isPendingUnreached;
 
-    Color iconBgColor = colorScheme.surfaceContainerHighest;
-    Color iconFgColor = colorScheme.onSurfaceVariant;
-    Widget stepIcon = Text(
-      '$number',
-      style: TextStyle(
-        fontSize: 13,
-        fontWeight: FontWeight.w700,
-        color: iconFgColor,
-      ),
-    );
+    final Color cardColor = isDone
+        ? colors.positiveTint
+        : isError
+        ? colors.attentionTint
+        : colors.surface;
+    final Color badgeColor = isDone
+        ? colors.positiveFill
+        : isError
+        ? colors.attentionText
+        : isActive
+        ? colors.actionFill
+        : colors.surfaceNested;
+    final Color badgeFgColor = isDone
+        ? colors.positiveText
+        : isError
+        ? colors.attentionTint
+        : isActive
+        ? colors.actionText
+        : colors.textSecondary;
+    final Color textColor = isDone
+        ? colors.positiveText
+        : isError
+        ? colors.attentionText
+        : colors.textPrimary;
 
+    Widget badge;
     if (isDone) {
-      iconBgColor = Colors.green.withValues(alpha: 0.15);
-      iconFgColor = Colors.green;
-      stepIcon = Icon(AppIcons.check, size: 16, color: iconFgColor);
+      badge = KvIcon(glyph: AppGlyph.check, size: 18, color: badgeFgColor);
     } else if (isError) {
-      iconBgColor = colorScheme.errorContainer.withValues(alpha: 0.4);
-      iconFgColor = colorScheme.error;
-      stepIcon = Icon(AppIcons.warning, size: 16, color: iconFgColor);
+      badge = KvIcon(glyph: AppGlyph.warning, size: 18, color: badgeFgColor);
     } else if (isLoading) {
-      iconBgColor = colorScheme.primaryContainer.withValues(alpha: 0.4);
-      iconFgColor = colorScheme.primary;
-      stepIcon = SizedBox(
+      badge = SizedBox(
         width: 16,
         height: 16,
-        child: CircularProgressIndicator(strokeWidth: 2, color: iconFgColor),
+        child: CircularProgressIndicator(strokeWidth: 2, color: badgeFgColor),
       );
-    } else if (!isDisabled) {
-      iconBgColor = colorScheme.primaryContainer.withValues(alpha: 0.35);
-      iconFgColor = colorScheme.primary;
-      stepIcon = Text(
+    } else {
+      badge = Text(
         '$number',
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-          color: iconFgColor,
-        ),
+        style: AppTextStyles.labelMicro.copyWith(color: badgeFgColor),
       );
     }
 
     return Opacity(
-      opacity: isDisabled ? 0.45 : 1.0,
+      opacity: isPendingUnreached ? 0.6 : 1.0,
       child: Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isDone
-                ? Colors.green.withValues(alpha: isDark ? 0.3 : 0.42)
-                : colorScheme.outlineVariant.withValues(
-                    alpha: isDark ? 1 : 0.9,
-                  ),
-          ),
-          color: isDone
-              ? Colors.green.withValues(alpha: isDark ? 0.04 : 0.07)
-              : colorScheme.surfaceContainerHighest.withValues(
-                  alpha: isDark ? 0.25 : 0.62,
-                ),
+          color: cardColor,
+          borderRadius: BorderRadius.circular(24),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Number / status indicator
             Container(
-              width: 28,
-              height: 28,
+              width: 40,
+              height: 40,
               decoration: BoxDecoration(
-                color: iconBgColor,
-                shape: BoxShape.circle,
+                color: badgeColor,
+                borderRadius: BorderRadius.circular(14),
               ),
               alignment: Alignment.center,
-              child: stepIcon,
+              child: badge,
             ),
             const SizedBox(width: 12),
-            // Content
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     title,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+                    style: AppTextStyles.rowTitle.copyWith(color: textColor),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     description,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
+                    style: AppTextStyles.metaLarge.copyWith(
+                      color: isError ? textColor : colors.textSecondary,
                     ),
                   ),
-                  if (!isDone && !isDisabled) ...[
+                  if (!isDone && !isPendingUnreached) ...[
                     const SizedBox(height: 10),
-                    FilledButton.tonal(
+                    KvPillButton(
+                      label: actionLabel,
                       onPressed: onAction,
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size(0, 34),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 0,
-                        ),
-                        textStyle: const TextStyle(fontSize: 13),
-                      ),
-                      child: Text(actionLabel),
+                      expand: false,
+                      compact: true,
                     ),
                   ],
                 ],
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// spec-006 T8/PIXEL_SPEC "Command block": radius 18 padding 12/14,
+/// `neutral900` background, mono 11.5 `neutral100` text, 30 px copy button.
+class _NativeHostCommandBlock extends StatefulWidget {
+  const _NativeHostCommandBlock({required this.command});
+
+  final String command;
+
+  @override
+  State<_NativeHostCommandBlock> createState() =>
+      _NativeHostCommandBlockState();
+}
+
+class _NativeHostCommandBlockState extends State<_NativeHostCommandBlock> {
+  bool _copied = false;
+
+  Future<void> _copy() async {
+    await Clipboard.setData(ClipboardData(text: widget.command));
+    if (!mounted) return;
+    setState(() => _copied = true);
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _copied = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.neutral900,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              widget.command,
+              style: AppTextStyles.meta.copyWith(
+                fontFamily: AppTextStyles.monoFamily,
+                fontFamilyFallback: AppTextStyles.monoFallback,
+                color: AppColors.neutral100,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 30,
+            height: 30,
+            child: IconButton(
+              tooltip: _copied ? 'Copied' : 'Copy',
+              onPressed: _copy,
+              style: IconButton.styleFrom(
+                backgroundColor: AppColors.neutral100.withValues(alpha: 0.12),
+                padding: EdgeInsets.zero,
+              ),
+              icon: KvIcon(
+                glyph: _copied ? AppGlyph.check : AppGlyph.copy,
+                size: 15,
+                color: AppColors.neutral100,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// spec-006 T9 — static diagnostic screen naming the real native-host id
+/// (`BrowserSetupService.nativeHostName`) and the three likely causes.
+/// Always reachable from the setup screen (see the final report: the app's
+/// own bridge check cannot detect this specific Chrome-side failure, so
+/// this is informational rather than driven by a live check).
+class HostNotFoundDiagnosticScreen extends StatelessWidget {
+  const HostNotFoundDiagnosticScreen({super.key, required this.service});
+
+  final BrowserSetupService service;
+
+  String get _expectedManifestDirectory => switch (defaultTargetPlatform) {
+    TargetPlatform.macOS =>
+      '~/Library/Application Support/Google/Chrome/NativeMessagingHosts/',
+    TargetPlatform.linux => '~/.config/google-chrome/NativeMessagingHosts/',
+    TargetPlatform.windows =>
+      r'HKCU\Software\Google\Chrome\NativeMessagingHosts',
+    _ => 'the browser\'s NativeMessagingHosts directory',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return Scaffold(
+      backgroundColor: colors.ground,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: const Text('Verifica collegamento'),
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: colors.attentionTint,
+                  borderRadius: BorderRadius.circular(26),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: colors.actionFill,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: KvIcon(
+                            glyph: AppGlyph.warning,
+                            size: 20,
+                            color: colors.actionText,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Host non raggiungibile',
+                                style: AppTextStyles.rowTitle.copyWith(
+                                  color: colors.attentionText,
+                                ),
+                              ),
+                              Text(
+                                'Chrome non trova ${service.nativeHostName}',
+                                style: AppTextStyles.metaLarge.copyWith(
+                                  color: colors.attentionText,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      "· L'ID estensione registrato non corrisponde a "
+                      'quello caricato\n'
+                      '· Lo script di installazione è stato eseguito per '
+                      'un altro browser\n'
+                      '· Chrome è stato aperto prima della registrazione',
+                      style: AppTextStyles.secondary.copyWith(
+                        color: colors.attentionText,
+                        height: 1.6,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 13,
+                ),
+                decoration: BoxDecoration(
+                  color: colors.surface,
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Manifest atteso in',
+                      style: AppTextStyles.labelUpper.copyWith(
+                        color: colors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      _expectedManifestDirectory,
+                      style: AppTextStyles.meta.copyWith(
+                        fontFamily: AppTextStyles.monoFamily,
+                        fontFamilyFallback: AppTextStyles.monoFallback,
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              KvPillButton(
+                label: 'Riprova la verifica',
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+              const SizedBox(height: 9),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: colors.textPrimary,
+                    side: BorderSide(color: colors.divider),
+                    minimumSize: const Size(44, 52),
+                    shape: const StadiumBorder(),
+                    textStyle: AppTextStyles.rowTitle,
+                  ),
+                  child: const Text('Rivedi il passo 2'),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Il resto di KeyVault continua a funzionare: senza host '
+                'manca solo il riempimento automatico nel browser.',
+                style: AppTextStyles.meta.copyWith(
+                  color: colors.textSecondary,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

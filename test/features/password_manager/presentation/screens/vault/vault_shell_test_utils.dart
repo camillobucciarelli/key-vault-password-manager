@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:password_manager/core/theme/app_theme.dart';
 import 'package:password_manager/core/theme/theme_cubit.dart';
+import 'package:password_manager/features/password_manager/data/datasources/biometric_data_source.dart';
 import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_csv_import_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_duplicate_service.dart';
@@ -19,6 +20,7 @@ import 'package:password_manager/features/password_manager/domain/models/vault_e
 import 'package:password_manager/features/password_manager/domain/models/vault_snapshot.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_bloc.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/otpauth_deep_link_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/vault_session_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/screens/vault_screen.dart';
@@ -41,6 +43,12 @@ Future<Widget> pumpableVaultShell({
   // spec-005 T20: lets a caller inject a vault with real entries (e.g. a
   // duplicate pair) instead of the default always-empty snapshot.
   VaultKdbxService? vaultKdbxService,
+  // spec-006 T16: seed the lock/privacy overlay debug flags on VaultScreen.
+  bool debugInitiallyLocked = false,
+  bool debugInitiallyBackground = false,
+  // spec-006 T16: lets a golden seed a pending Apple AutoFill association
+  // (screen 7, "Link AutoFill credential?") instead of the default Noop.
+  AppleAutofillV2CoordinatorContract? appleAutofillV2Coordinator,
 }) async {
   SharedPreferences.setMockInitialValues({});
   final sharedPreferences = await SharedPreferences.getInstance();
@@ -49,6 +57,11 @@ Future<Widget> pumpableVaultShell({
 
   di.sl.registerLazySingleton<OtpAuthDeepLinkCoordinator>(
     () => OtpAuthDeepLinkCoordinator(),
+  );
+  // spec-006 T16: `_LockOverlay` resolves this on init — not previously
+  // needed by any pre-spec-006 test that pumped `VaultScreen`.
+  di.sl.registerLazySingleton<BiometricDataSource>(
+    () => _FakeBiometricDataSource(),
   );
   di.sl.registerLazySingleton<VaultSessionCoordinator>(
     () => _FakeVaultSessionCoordinator(),
@@ -71,6 +84,8 @@ Future<Widget> pumpableVaultShell({
       vaultCsvImportService: VaultCsvImportService(),
       vaultDuplicateService: VaultDuplicateService(),
       databaseSyncRepository: resolvedSyncRepository,
+      appleAutofillV2Coordinator:
+          appleAutofillV2Coordinator ?? const NoopAppleAutofillV2Coordinator(),
     ),
   );
 
@@ -86,7 +101,11 @@ Future<Widget> pumpableVaultShell({
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
           themeMode: resolvedThemeMode,
-          home: VaultScreen(databasePath: databasePath),
+          home: VaultScreen(
+            databasePath: databasePath,
+            debugInitiallyLocked: debugInitiallyLocked,
+            debugInitiallyBackground: debugInitiallyBackground,
+          ),
         );
       },
     ),
@@ -95,6 +114,14 @@ Future<Widget> pumpableVaultShell({
 
 /// Undo the registrations made by [pumpableVaultShell]. Call from `tearDown`.
 Future<void> resetVaultShellTestDi() => di.sl.reset();
+
+class _FakeBiometricDataSource implements BiometricDataSource {
+  @override
+  Future<bool> isBiometricAvailable() async => false;
+
+  @override
+  Future<bool> authenticate({required String reason}) async => false;
+}
 
 class _FakeSecureDataSource implements SecureDataSource {
   @override

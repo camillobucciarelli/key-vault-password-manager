@@ -20,6 +20,11 @@ const _sectionToCurrentFiles = <String, List<String>>{
     'lib/features/password_manager/presentation/screens/vault/vault_entries_details.part.dart',
     'lib/features/password_manager/presentation/screens/vault/vault_entry_detail.part.dart',
     'lib/features/password_manager/presentation/widgets/entry/revealed_password_row.dart',
+    // spec-006 T4/T5: `_LockOverlay`/`_PrivacyOverlay` moved out of
+    // vault_entries_details.part.dart into their own
+    // vault_lock_overlay.part.dart — "Unlock vault" (the biometric
+    // `authenticate(reason:)` string) now lives there.
+    'lib/features/password_manager/presentation/screens/vault/vault_lock_overlay.part.dart',
   ],
   'vault_dialog_password.part.dart': [
     // spec-005: moved presentation/utils -> domain/utils (pure logic, no

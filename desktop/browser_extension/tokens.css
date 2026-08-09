@@ -1,0 +1,39 @@
+/* Generated subset of specs/_design/tokens.css -- the extension popup's
+   token dependency. Do NOT hand-edit hex values here: every value below
+   is copied verbatim (byte-identical) from specs/_design/tokens.css so
+   popup.css / background.js badge colours always match the design
+   source (spec 006 T10, AC6). Regenerate with:
+
+   python3 -c "
+import re
+src = open('specs/_design/tokens.css').read()
+props = dict(re.findall(r'(--[a-zA-Z0-9-]+):\\s*([^;]+);', src))
+keep = [...]  # see list in this file
+for k in keep: print(f'  {k}: {props[k]};')"
+*/
+
+:root {
+  --color-text: #201e1d;
+  --color-neutral-100: #f9f4ed;
+  --color-neutral-200: #eee7db;
+  --color-neutral-500: #a19786;
+  --color-neutral-600: #82796a;
+  --color-neutral-700: #645c50;
+  --color-neutral-800: #474238;
+  --color-neutral-900: #2e2b25;
+  --color-divider: color-mix(in srgb, #201e1d 16%, transparent);
+  --color-accent-100: #fff2eb;
+  --color-accent-200: #ffe1d0;
+  --color-accent-300: #ffc6a5;
+  --color-accent-400: #f6a06b;
+  --color-accent-800: #643312;
+  --color-accent-900: #402310;
+  --color-accent-2-100: #f0fae1;
+  --color-accent-2-200: #e1eecc;
+  --color-accent-2-400: #aebf92;
+  --color-accent-2-800: #3d472b;
+  --color-accent-2-900: #272e1b;
+  --shadow-md: 0 3px 10px color-mix(in srgb, #2e2b25 16%, transparent);
+  --font-body: "Figtree", system-ui, sans-serif;
+}
+
