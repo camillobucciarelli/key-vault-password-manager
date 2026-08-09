@@ -147,7 +147,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     _isLocked = widget.debugInitiallyLocked;
     _isBackground = widget.debugInitiallyBackground;
     if (_isLocked) {
-      _lockedAt = DateTime.now();
+      _lockedAt = debugLockOverlayNowOverride();
     }
     _router = VaultShellRouter(
       onPaneChanged: (pane) {
@@ -288,7 +288,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     if (!mounted || _isLocked) return;
     setState(() {
       _isLocked = true;
-      _lockedAt = DateTime.now();
+      _lockedAt = debugLockOverlayNowOverride();
     });
   }
 
@@ -305,12 +305,12 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.inactive:
-        _backgroundedAt ??= DateTime.now();
+        _backgroundedAt ??= debugLockOverlayNowOverride();
         _inactivityTimer?.cancel();
         break;
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
-        _backgroundedAt ??= DateTime.now();
+        _backgroundedAt ??= debugLockOverlayNowOverride();
         _inactivityTimer?.cancel();
         if (!_isLocked && mounted) {
           setState(() => _isBackground = true);
@@ -339,7 +339,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
       _isBackground = false;
       if (shouldLock) {
         _isLocked = true;
-        _lockedAt = DateTime.now();
+        _lockedAt = debugLockOverlayNowOverride();
       }
     });
 
@@ -655,7 +655,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                               .read<VaultBloc>()
                               .state
                               .databasePath,
-                          lockedAt: _lockedAt ?? DateTime.now(),
+                          lockedAt: _lockedAt ?? debugLockOverlayNowOverride(),
                           onUnlocked: _dismissLock,
                           onCloseDatabase: () =>
                               _closeCurrentDatabaseAndSelectAnother(context),
