@@ -522,13 +522,19 @@ function renderResultsIntoMatchArea(strong, possible) {
     );
   }
   if (possible.length > 0) {
+    // createPendingAssociation() is a silent no-op without an origin (no
+    // valid URL on the active tab, e.g. a browser-internal page) — hide the
+    // "Ask app" button rather than render one that does nothing on click.
+    const originAvailable = Boolean(currentTab?.origin);
     matchAreaElement.appendChild(
       renderMatchGroup(
         "Possible",
         possible.length,
         possible.map((result) =>
           renderMatchRow(result, "possible", {
-            onAsk: (r) => void createPendingAssociation(r.entryId, currentTab?.origin),
+            onAsk: originAvailable
+              ? (r) => void createPendingAssociation(r.entryId, currentTab?.origin)
+              : null,
           })
         )
       )

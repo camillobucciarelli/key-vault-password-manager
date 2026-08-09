@@ -8,7 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:password_manager/core/theme/app_theme.dart';
 import 'package:password_manager/features/password_manager/presentation/screens/vault_screen.dart'
-    show PrivacyOverlay;
+    show PrivacyOverlay, debugLockOverlayNowOverride;
 
 import '../features/password_manager/presentation/screens/vault/vault_shell_test_utils.dart';
 
@@ -25,6 +25,19 @@ void main() {
           ..addFont(rootBundle.load('assets/fonts/Figtree-SemiBold.ttf'))
           ..addFont(rootBundle.load('assets/fonts/Figtree-Bold.ttf')))
         .load();
+  });
+
+  // "Locked for <n>" is wall-clock-dependent (lockedAt captured on lock,
+  // "now" read at build time) — freeze both through the same seam so the
+  // elapsed duration, and thus the rendered label, is deterministic
+  // regardless of how long pumpAndSettle() takes. Matches the
+  // debugEntryDetailNowOverride pattern (entry_editor_generator_test.dart).
+  setUp(() {
+    debugLockOverlayNowOverride = () => DateTime.utc(2026, 3, 12, 9, 30);
+  });
+
+  tearDown(() {
+    debugLockOverlayNowOverride = DateTime.now;
   });
 
   tearDown(resetVaultShellTestDi);
