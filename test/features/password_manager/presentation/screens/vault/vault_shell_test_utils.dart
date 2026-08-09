@@ -49,6 +49,9 @@ Future<Widget> pumpableVaultShell({
   // spec-006 T16: lets a golden seed a pending Apple AutoFill association
   // (screen 7, "Link AutoFill credential?") instead of the default Noop.
   AppleAutofillV2CoordinatorContract? appleAutofillV2Coordinator,
+  // Lets a caller inject a spy/fake coordinator (e.g. to count calls) instead
+  // of the default always-empty fake.
+  VaultSessionCoordinator? vaultSessionCoordinator,
 }) async {
   SharedPreferences.setMockInitialValues({});
   final sharedPreferences = await SharedPreferences.getInstance();
@@ -64,7 +67,7 @@ Future<Widget> pumpableVaultShell({
     () => _FakeBiometricDataSource(),
   );
   di.sl.registerLazySingleton<VaultSessionCoordinator>(
-    () => _FakeVaultSessionCoordinator(),
+    () => vaultSessionCoordinator ?? _FakeVaultSessionCoordinator(),
   );
   // spec-005: `_DuplicateGroupCard`/merge preview and the remote-file
   // picker resolve these directly via `di.sl` (matches production

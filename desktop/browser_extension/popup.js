@@ -287,7 +287,11 @@ function renderMatchRow(result, kind, { onFill, onAsk } = {}) {
   const tag = el("span", `match-tag match-tag--${kind}`, kind);
   row.appendChild(tag);
 
-  if (kind === "strong" && onFill) {
+  // __fillable is set by callers from the background/native-host response
+  // (fillAvailable). Only an explicit `false` disables the button — undefined
+  // (e.g. no signal attached) defaults to available, matching prior behavior
+  // for callers that don't yet compute it.
+  if (kind === "strong" && onFill && result.__fillable !== false) {
     const button = el("button", "fill-btn", "Fill");
     button.type = "button";
     button.addEventListener("click", () => onFill(result));
@@ -355,7 +359,9 @@ function renderHostMissingState() {
   const showMe = el("button", "primary-pill-btn", "Show me how");
   showMe.type = "button";
   showMe.addEventListener("click", () => {
-    chrome.tabs.create({ url: "https://github.com/" }); // ponytail: no deep link to the app's browser-setup screen exists from the extension yet; opens nothing app-specific to avoid guessing a URL. Upgrade when a documented help URL exists.
+    chrome.tabs.create({
+      url: "https://github.com/camillobucciarelli/key-vault-password-manager/blob/main/docs/desktop_browser_autofill.md",
+    }); // Deep link to the native-host setup doc (no in-app browser-setup screen to link to yet).
   });
   const checkAgain = el("button", "secondary-pill-btn", "Check again");
   checkAgain.type = "button";
@@ -476,7 +482,14 @@ async function searchMetadata(query) {
     if (!response?.ok) {
       return;
     }
-    renderResultsIntoMatchArea(response.data?.results || [], []);
+    // Manual search never gets a strong/possible classification from the
+    // native host (searchCredentials always returns fillAvailable: false and
+    // an unclassified `results` list — see tool/native_host_protocol.dart
+    // _searchCredentialsResponse). A free-text match also lacks the
+    // host-exact guarantee an automatic tab match has, so every result here
+    // is treated as "possible" (Ask app / pending association), never
+    // "strong" (Fill).
+    renderResultsIntoMatchArea([], response.data?.results || []);
   } finally {
     inFlight = false;
   }

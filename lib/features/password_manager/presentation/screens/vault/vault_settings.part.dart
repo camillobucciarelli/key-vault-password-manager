@@ -32,26 +32,34 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
   String? _keyFilePath;
   bool _busy = false;
   String? _loadedForPath;
+  String? _loadingForPath;
 
   Future<void> _ensureLoaded(String databasePath) async {
-    if (_loadedForPath == databasePath || databasePath.trim().isEmpty) {
+    if (_loadedForPath == databasePath ||
+        _loadingForPath == databasePath ||
+        databasePath.trim().isEmpty) {
       return;
     }
+    _loadingForPath = databasePath;
     final coordinator = di.sl<VaultSessionCoordinator>();
-    final biometricEnabled = await coordinator
-        .getBiometricProtectionEnabledForPath(databasePath: databasePath);
-    final inactivityTimeoutSeconds = await coordinator
-        .getInactivityLockTimeoutForPath(databasePath: databasePath);
-    final keyFilePath = await coordinator.getPersistedKeyFilePath(
-      databasePath,
-    );
-    if (!mounted) return;
-    setState(() {
-      _biometricEnabled = biometricEnabled;
-      _inactivityTimeoutSeconds = inactivityTimeoutSeconds;
-      _keyFilePath = keyFilePath;
-      _loadedForPath = databasePath;
-    });
+    try {
+      final biometricEnabled = await coordinator
+          .getBiometricProtectionEnabledForPath(databasePath: databasePath);
+      final inactivityTimeoutSeconds = await coordinator
+          .getInactivityLockTimeoutForPath(databasePath: databasePath);
+      final keyFilePath = await coordinator.getPersistedKeyFilePath(
+        databasePath,
+      );
+      if (!mounted) return;
+      setState(() {
+        _biometricEnabled = biometricEnabled;
+        _inactivityTimeoutSeconds = inactivityTimeoutSeconds;
+        _keyFilePath = keyFilePath;
+        _loadedForPath = databasePath;
+      });
+    } finally {
+      _loadingForPath = null;
+    }
   }
 
   Future<bool> _persist(String databasePath) async {
