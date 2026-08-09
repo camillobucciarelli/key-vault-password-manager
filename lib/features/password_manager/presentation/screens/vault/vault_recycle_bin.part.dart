@@ -1,5 +1,11 @@
 part of '../vault_screen.dart';
 
+// FR-6 / T13/AC7: Recycle bin destination (screen 13) + empty state and
+// empty-bin confirm sheet (screen 14). Restore inline on the row; Delete
+// permanently in the row overflow; `Empty bin (n)` as the screen action —
+// every literal string below is byte-identical to the pre-spec-005 dialog
+// (see test/fixtures/strings_005_before.txt + the diff test).
+
 Future<VaultDone?> _showRecycleBinDialog(BuildContext context) async {
   final bloc = context.read<VaultBloc>();
   bloc.add(const LoadRecycleBinEntries());
@@ -8,14 +14,17 @@ Future<VaultDone?> _showRecycleBinDialog(BuildContext context) async {
     context: context,
     surface: RecycleBinSurface<VaultDone>(
       builder: (dialogContext) {
-      return BlocProvider.value(value: bloc, child: const _RecycleBinDialog());
+        return BlocProvider.value(
+          value: bloc,
+          child: const _RecycleBinScreen(),
+        );
       },
     ),
   );
 }
 
-class _RecycleBinDialog extends StatelessWidget {
-  const _RecycleBinDialog();
+class _RecycleBinScreen extends StatelessWidget {
+  const _RecycleBinScreen();
 
   Future<void> _handleRecycleEntryAction(
     BuildContext context,
@@ -40,113 +49,153 @@ class _RecycleBinDialog extends StatelessWidget {
     }
   }
 
+  Future<void> _handleEmptyBin(BuildContext context) async {
+    final confirmed = await _showEmptyBinConfirmSheet(context);
+    if (confirmed == ConfirmDecision.confirm && context.mounted) {
+      context.read<VaultBloc>().add(const EmptyRecycleBin());
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Row(
-        children: [
-          const Expanded(child: Text('Recycle bin')),
-          Tooltip(
-            message: 'Refresh recycle bin',
-            ignorePointer: true,
-            child: IconButton(
-              onPressed: () {
-                context.read<VaultBloc>().add(const LoadRecycleBinEntries());
-              },
-              icon: const Icon(AppIcons.refresh),
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return Scaffold(
+      backgroundColor: colors.ground,
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () => VaultOperationScope.of(
+                      context,
+                    ).complete(const VaultDone()),
+                    icon: KvIcon(
+                      glyph: AppGlyph.back,
+                      size: 19,
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                  Expanded(
+                    child: BlocBuilder<VaultBloc, VaultState>(
+                      buildWhen: (p, n) =>
+                          p.recycleBinEntries != n.recycleBinEntries,
+                      builder: (context, state) {
+                        final count = state.recycleBinEntries.length;
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Recycle bin',
+                              style: AppTextStyles.panelTitleLarge.copyWith(
+                                fontSize: 19,
+                                color: colors.textPrimary,
+                              ),
+                            ),
+                            Text(
+                              count == 1 ? '1 record' : '$count records',
+                              style: AppTextStyles.meta.copyWith(
+                                color: colors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Refresh recycle bin',
+                    onPressed: () => context.read<VaultBloc>().add(
+                      const LoadRecycleBinEntries(),
+                    ),
+                    icon: KvIcon(
+                      glyph: AppGlyph.refresh,
+                      size: 18,
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
-      ),
-      content: SizedBox(
-        width: _dialogContentWidth(context, 620),
-        height: _dialogContentHeight(context, 420),
-        child: BlocBuilder<VaultBloc, VaultState>(
-          builder: (context, state) {
-            if (state.isRecycleBinLoading) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            if (state.recycleBinEntries.isEmpty) {
-              return const _RecycleBinEmptyState();
-            }
-
-            return ListView.separated(
-              padding: EdgeInsets.zero,
-              itemCount: state.recycleBinEntries.length,
-              separatorBuilder: (_, _) =>
-                  const SizedBox(height: _VaultUiTokens.recordListSpacing),
-              itemBuilder: (context, index) {
-                final entry = state.recycleBinEntries[index];
-                return _RecycleBinEntryListItem(
-                  entry: entry,
-                  onSelectedAction: (action) {
-                    _handleRecycleEntryAction(context, entry, action);
-                  },
-                );
-              },
-            );
-          },
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => VaultOperationScope.of(
-            context,
-          ).complete(const VaultDone()),
-          child: const Text('Close'),
-        ),
-        BlocBuilder<VaultBloc, VaultState>(
-          builder: (context, state) {
-            final isDisabled =
-                state.isSaving ||
-                state.isRecycleBinLoading ||
-                state.recycleBinEntries.isEmpty;
-
-            return FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error,
-                foregroundColor: Theme.of(context).colorScheme.onError,
-                animationDuration: _VaultUiTokens.buttonTransitionDuration,
-              ),
-              onPressed: isDisabled
-                  ? null
-                  : () async {
-                      final confirmed = await _showDeleteConfirm(
-                        context,
-                        label:
-                            'This will permanently remove all items from recycle bin. This action cannot be undone.',
-                        actionLabel: 'Empty bin',
+            Expanded(
+              child: BlocBuilder<VaultBloc, VaultState>(
+                buildWhen: (p, n) =>
+                    p.isRecycleBinLoading != n.isRecycleBinLoading ||
+                    p.recycleBinEntries != n.recycleBinEntries,
+                builder: (context, state) {
+                  if (state.isRecycleBinLoading) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (state.recycleBinEntries.isEmpty) {
+                    return const _RecycleBinEmptyState();
+                  }
+                  return ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                    itemCount: state.recycleBinEntries.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 9),
+                    itemBuilder: (context, index) {
+                      final entry = state.recycleBinEntries[index];
+                      return _RecycleBinEntryListItem(
+                        entry: entry,
+                        onSelectedAction: (action) =>
+                            _handleRecycleEntryAction(context, entry, action),
                       );
-                      if (confirmed && context.mounted) {
-                        context.read<VaultBloc>().add(const EmptyRecycleBin());
-                      }
                     },
-              icon: state.isSaving
-                  ? SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Theme.of(context).colorScheme.onError,
-                      ),
-                    )
-                  : const Icon(AppIcons.deleteSweep),
-              label: Text(
-                state.recycleBinEntries.isEmpty
-                    ? 'Empty bin'
-                    : 'Empty bin (${state.recycleBinEntries.length})',
+                  );
+                },
               ),
-            );
-          },
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Deleted records stay here until you restore or remove '
+                    'them. They are still inside the .kdbx file.',
+                    style: AppTextStyles.secondary.copyWith(
+                      color: colors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  BlocBuilder<VaultBloc, VaultState>(
+                    buildWhen: (p, n) =>
+                        p.recycleBinEntries != n.recycleBinEntries ||
+                        p.isSaving != n.isSaving,
+                    builder: (context, state) {
+                      final isDisabled =
+                          state.isSaving || state.recycleBinEntries.isEmpty;
+                      return KvPillButton(
+                        icon: AppIcons.deleteSweep,
+                        label: state.recycleBinEntries.isEmpty
+                            ? 'Empty bin'
+                            : 'Empty bin (${state.recycleBinEntries.length})',
+                        onPressed: isDisabled
+                            ? null
+                            : () => _handleEmptyBin(context),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }
 
 enum _RecycleBinEntryAction { restore, deletePermanently }
 
+// Kept here (its original home) though this file no longer uses it itself
+// (T13 restyled recycle bin rows onto `KvListRow`) — still used by
+// vault_entries_details.part.dart (spec-003/004, out of scope for this
+// spec) for the folder/record list hover surface.
 class _InteractiveItemSurface extends StatefulWidget {
   const _InteractiveItemSurface({
     required this.radius,
@@ -262,91 +311,54 @@ class _RecycleBinEntryListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return _InteractiveItemSurface(
-      radius: _VaultUiTokens.recordItemRadius,
-      minHeight: _VaultUiTokens.recordItemHeight,
-      baseColor: colorScheme.surface.withValues(alpha: isDark ? 0.72 : 0.9),
-      hoveredColor: colorScheme.surface.withValues(alpha: isDark ? 0.84 : 0.97),
-      baseBorderColor: colorScheme.outlineVariant.withValues(
-        alpha: isDark ? 0.7 : 0.88,
-      ),
-      hoveredBorderColor: colorScheme.error.withValues(
-        alpha: isDark ? 0.35 : 0.42,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.only(left: 10, right: 6, top: 8, bottom: 8),
-        child: Row(
-          children: [
-            Container(
-              width: _VaultUiTokens.folderIconContainerSize,
-              height: _VaultUiTokens.folderIconContainerSize,
-              decoration: BoxDecoration(
-                color: colorScheme.errorContainer.withValues(
-                  alpha: isDark ? 0.5 : 0.62,
-                ),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                AppIcons.delete,
-                size: 18,
-                color: colorScheme.onErrorContainer,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    entry.title.isEmpty ? '(Untitled)' : entry.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    entry.username.isNotEmpty
-                        ? entry.username
-                        : (entry.url.isNotEmpty ? entry.url : 'No username'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-            Tooltip(
-              message: 'Recycle bin actions',
-              ignorePointer: true,
-              child: PopupMenuButton<_RecycleBinEntryAction>(
-                onSelected: onSelectedAction,
-                itemBuilder: (context) => const [
-                  _RoundedPopupItem(
-                    value: _RecycleBinEntryAction.restore,
-                    child: _MenuItemContent(
-                      icon: AppIcons.refresh,
-                      label: 'Restore',
-                    ),
-                  ),
-                  _RoundedPopupItem(
-                    value: _RecycleBinEntryAction.deletePermanently,
-                    child: _MenuItemContent(
-                      icon: AppIcons.deleteSweep,
-                      label: 'Delete permanently',
-                      isDestructive: true,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return KvListRow(
+      title: entry.title.isEmpty ? '(Untitled)' : entry.title,
+      subtitle: entry.username.isNotEmpty
+          ? entry.username
+          : (entry.url.isNotEmpty ? entry.url : 'No username'),
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: colors.attentionTint,
+          borderRadius: BorderRadius.circular(AppRadii.iconSquare),
         ),
+        alignment: Alignment.center,
+        child: KvIcon(
+          glyph: AppGlyph.delete,
+          size: 18,
+          color: colors.attentionText,
+        ),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextButton(
+            onPressed: () => onSelectedAction(_RecycleBinEntryAction.restore),
+            child: Text(
+              'Restore',
+              style: AppTextStyles.secondary.copyWith(
+                fontWeight: FontWeight.w700,
+                color: colors.linkText,
+              ),
+            ),
+          ),
+          PopupMenuButton<_RecycleBinEntryAction>(
+            onSelected: onSelectedAction,
+            icon: KvIcon(
+              glyph: AppGlyph.more,
+              size: 17,
+              color: colors.textSecondary,
+            ),
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: _RecycleBinEntryAction.deletePermanently,
+                child: Text('Delete permanently'),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -357,53 +369,125 @@ class _RecycleBinEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
     return Center(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-        decoration: BoxDecoration(
-          color: colorScheme.surface.withValues(alpha: isDark ? 0.68 : 0.9),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: colorScheme.outlineVariant.withValues(
-              alpha: isDark ? 0.65 : 0.86,
-            ),
-          ),
-        ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 30),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              width: 46,
-              height: 46,
+              width: 74,
+              height: 74,
               decoration: BoxDecoration(
-                color: colorScheme.errorContainer.withValues(
-                  alpha: isDark ? 0.45 : 0.58,
-                ),
+                color: colors.surface,
                 shape: BoxShape.circle,
               ),
-              child: Icon(
-                AppIcons.deleteSweep,
-                color: colorScheme.onErrorContainer,
+              alignment: Alignment.center,
+              child: KvIcon(
+                glyph: AppGlyph.delete,
+                size: 34,
+                color: colors.textSecondary,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             Text(
               'Recycle bin is empty',
-              style: Theme.of(
-                context,
-              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+              style: AppTextStyles.screenTitle.copyWith(
+                fontSize: 24,
+                color: colors.textPrimary,
+              ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 8),
             Text(
               'Deleted records will appear here until they are restored or removed.',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall,
+              style: AppTextStyles.body.copyWith(color: colors.textSecondary),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+Future<ConfirmDecision?> _showEmptyBinConfirmSheet(BuildContext context) {
+  return VaultShellRouterScope.of(context).open<ConfirmDecision>(
+    context: context,
+    surface: ConfirmationSurface<ConfirmDecision>(
+      builder: (sheetContext) => const _EmptyBinConfirmSheet(),
+    ),
+  );
+}
+
+class _EmptyBinConfirmSheet extends StatelessWidget {
+  const _EmptyBinConfirmSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 20, 18, 26),
+      decoration: BoxDecoration(
+        color: colors.ground,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppRadii.sheet),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Container(
+              width: 46,
+              height: 5,
+              decoration: BoxDecoration(
+                color: colors.divider,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: colors.attentionTint,
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: KvIcon(
+              glyph: AppGlyph.deleteSweep,
+              size: 25,
+              color: colors.attentionText,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Empty the bin?',
+            style: AppTextStyles.sheetTitle.copyWith(color: colors.textPrimary),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'This will permanently remove all items from recycle bin. This action cannot be undone.',
+            style: AppTextStyles.body.copyWith(color: colors.textSecondary),
+          ),
+          const SizedBox(height: 14),
+          KvPillButton(
+            label: 'Empty bin',
+            onPressed: () => VaultOperationScope.of(
+              context,
+            ).complete(ConfirmDecision.confirm),
+          ),
+          const SizedBox(height: 9),
+          KvSecondaryPillButton(
+            label: 'Cancel',
+            onPressed: () => VaultOperationScope.of(
+              context,
+            ).complete(ConfirmDecision.cancel),
+          ),
+        ],
       ),
     );
   }

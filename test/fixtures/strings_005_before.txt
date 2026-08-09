@@ -1,0 +1,22 @@
+# spec-005 T21/AC7 — copy preservation snapshot, recycle-bin scope only.
+#
+# Literal, user-facing strings from the pre-spec-005 recycle-bin dialog
+# (`_RecycleBinDialog` in vault_recycle_bin.part.dart), extracted BEFORE
+# the T13 restyle. AC7: "`Empty bin (n)` and the recycle-bin confirm
+# strings are byte-identical to today." Same convention as
+# strings_003_before.txt / strings_004_before.txt: interpolated literals
+# are recorded as their fixed surrounding segments.
+
+## vault_recycle_bin.part.dart
+
+(Untitled)
+No username
+Recycle bin
+Restore
+Delete permanently
+Empty bin
+This will permanently remove all items from recycle bin. This action cannot be undone.
+Permanently delete this record? This action cannot be undone.
+Delete forever
+Recycle bin is empty
+Deleted records will appear here until they are restored or removed.

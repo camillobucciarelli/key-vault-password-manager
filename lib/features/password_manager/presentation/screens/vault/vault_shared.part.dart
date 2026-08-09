@@ -74,12 +74,6 @@ double _dialogContentWidth(BuildContext context, double preferredWidth) {
   return math.min(preferredWidth, availableWidth);
 }
 
-double _dialogContentHeight(BuildContext context, double preferredHeight) {
-  final viewport = MediaQuery.sizeOf(context).height;
-  final availableHeight = viewport - 140;
-  return math.min(preferredHeight, availableHeight);
-}
-
 bool _isVeryCompactDialogWidth(BuildContext context) {
   return MediaQuery.sizeOf(context).width < 340;
 }
@@ -190,30 +184,20 @@ void _showSyncSnackBar(
     );
 }
 
+// spec-005: the combined create/pick dialog (`_showLinkDatabaseDialog`) is
+// gone — the Sync hero now offers "Create a new file" and "Pick an
+// existing .kdbx" as two independent one-tap actions (see
+// vault_sync.part.dart). This helper (still used by the Vault-tab overflow
+// menu's "Link" item) now goes straight to the existing-file picker, which
+// is the only ambiguous choice left; connecting first is still required.
 Future<void> _startDriveLinkFlow(BuildContext context) async {
   final bloc = context.read<VaultBloc>();
-  final state = bloc.state;
-  if (!state.isDriveConnected) {
+  if (!bloc.state.isDriveConnected) {
     bloc.add(const ConnectGoogleDrive());
     return;
   }
 
-  bloc.add(const LoadDriveRemoteFiles());
-  final choice = await _showLinkDatabaseDialog(context);
-  if (choice == null || !context.mounted) {
-    return;
-  }
-
-  switch (choice) {
-    case ExistingDriveLinkResult():
-      bloc.add(
-        LinkCurrentDatabaseToDrive(remoteFileId: choice.remoteFileId),
-      );
-    case NewDriveLinkResult():
-      bloc.add(
-        LinkCurrentDatabaseToDrive(remoteFileName: choice.remoteFileName),
-      );
-  }
+  await _pickExistingDriveFile(context);
 }
 
 String _formatSyncDateTime(DateTime value) {
@@ -233,17 +217,91 @@ String _formatEntryDateTime(DateTime? value) {
   return _formatSyncDateTime(value);
 }
 
-String _csvSourceFormatLabel(VaultCsvSourceFormat format) {
-  return switch (format) {
-    VaultCsvSourceFormat.bitwarden => 'Bitwarden',
-    VaultCsvSourceFormat.onePassword => '1Password',
-    VaultCsvSourceFormat.lastPass => 'LastPass',
-    VaultCsvSourceFormat.chrome => 'Chrome',
-    VaultCsvSourceFormat.applePasswords => 'Apple Passwords',
-    VaultCsvSourceFormat.generic => 'Generic CSV',
-  };
+// FR-8/T17: shared with the legacy sync-strip overflow menu
+// (`_SyncStripMenuButton`) and the new Backups destination — one
+// implementation, "unchanged in behaviour" per FR-8.
+Future<void> _exportDatabaseBackup(
+  BuildContext context,
+  String databasePath,
+) async {
+  final messenger = ScaffoldMessenger.of(context);
+  if (databasePath.trim().isEmpty) {
+    messenger.showSnackBar(
+      const SnackBar(content: Text('No active database to export.')),
+    );
+    return;
+  }
+
+  final source = File(databasePath);
+  if (!await source.exists()) {
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Current database file not found.')),
+    );
+    return;
+  }
+
+  final defaultName = path.basename(databasePath);
+  final savePath = await FilePicker.saveFile(
+    dialogTitle: 'Export database backup',
+    fileName: defaultName,
+    type: FileType.custom,
+    allowedExtensions: const ['kdbx'],
+  );
+  if (savePath == null || savePath.trim().isEmpty) {
+    return;
+  }
+
+  final resolvedPath = savePath.toLowerCase().endsWith('.kdbx')
+      ? savePath
+      : '$savePath.kdbx';
+  await source.copy(resolvedPath);
+  messenger.showSnackBar(
+    const SnackBar(content: Text('Database backup exported.')),
+  );
 }
 
+Future<void> _exportKeyFileBackup(BuildContext context) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final keyPath = await di
+      .sl<VaultSessionCoordinator>()
+      .getSelectedKeyFilePath();
+  if (keyPath == null || keyPath.trim().isEmpty) {
+    messenger.showSnackBar(
+      const SnackBar(content: Text('No key file configured for this vault.')),
+    );
+    return;
+  }
+
+  final source = File(keyPath);
+  if (!await source.exists()) {
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Configured key file was not found.')),
+    );
+    return;
+  }
+
+  final defaultName = path.basename(keyPath);
+  final savePath = await FilePicker.saveFile(
+    dialogTitle: 'Export key file backup',
+    fileName: defaultName,
+    type: FileType.custom,
+    allowedExtensions: const ['key'],
+  );
+  if (savePath == null || savePath.trim().isEmpty) {
+    return;
+  }
+
+  await source.copy(savePath);
+  messenger.showSnackBar(
+    const SnackBar(content: Text('Key file backup exported.')),
+  );
+}
+
+// FR-7 / T14/T16: CSV import preview (screen 15) and outcome (screen 16).
+// Both screen widgets live in the public `csv_import_screens.dart` (not
+// this part-family) so they can be pumped directly in tests without
+// fighting the unmockable `FilePicker` plugin — this function is the only
+// thing that touches `FilePicker`.
 Future<void> _startCsvImportFlow(BuildContext context) async {
   final picked = await FilePicker.pickFiles(
     allowMultiple: false,
@@ -251,8 +309,9 @@ Future<void> _startCsvImportFlow(BuildContext context) async {
     allowedExtensions: const ['csv'],
     withData: false,
   );
-  final filePath = picked?.files.single.path;
-  if (filePath == null || !context.mounted) {
+  final pickedFile = picked?.files.single;
+  final filePath = pickedFile?.path;
+  if (pickedFile == null || filePath == null || !context.mounted) {
     return;
   }
 
@@ -276,91 +335,56 @@ Future<void> _startCsvImportFlow(BuildContext context) async {
 
   final importResult = await VaultShellRouterScope.of(context)
       .open<CsvImportResult>(
-    context: context,
-    surface: DatabaseSettingsSurface<CsvImportResult>(
-      builder: (dialogContext) {
-      final formatLabel = _csvSourceFormatLabel(preview.format);
-      final skipped = preview.skippedRows;
-      final valid = preview.items.length;
-      final total = preview.totalRows;
-      var avoidDuplicates = true;
-
-      return StatefulBuilder(
-        builder: (dialogContext, setState) {
-          return AlertDialog(
-            title: const Text('Import CSV'),
-            insetPadding: _dialogInsetPadding(dialogContext),
-            contentPadding: _dialogContentPadding(dialogContext),
-            actionsOverflowDirection: VerticalDirection.down,
-            actionsOverflowButtonSpacing: 8,
-            content: SizedBox(
-              width: _dialogContentWidth(dialogContext, 500),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Detected format: $formatLabel'),
-                  const SizedBox(height: 6),
-                  Text('Rows found: $total'),
-                  Text('Valid records: $valid'),
-                  Text('Skipped rows: $skipped'),
-                  const SizedBox(height: 8),
-                  CheckboxListTile(
-                    value: avoidDuplicates,
-                    onChanged: preview.items.isEmpty
-                        ? null
-                        : (value) {
-                            setState(() {
-                              avoidDuplicates = value ?? true;
-                            });
-                          },
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    controlAffinity: ListTileControlAffinity.leading,
-                    title: const Text('Avoid duplicates'),
-                    subtitle: const Text(
-                      'Uses title + username + URL comparison.',
-                    ),
+        context: context,
+        surface: DatabaseSettingsSurface<CsvImportResult>(
+          builder: (dialogContext) => CsvImportPreviewScreen(
+            filePath: filePath,
+            fileSizeBytes: pickedFile.size,
+            preview: preview,
+            onCancel: () => VaultOperationScope.of(dialogContext).cancel(),
+            onImport: (avoidDuplicates) =>
+                VaultOperationScope.of(dialogContext).complete(
+                  CsvImportResult(
+                    filePath: filePath,
+                    avoidDuplicates: avoidDuplicates,
                   ),
-                  if (preview.items.isNotEmpty)
-                    Text(
-                      'This will add records to the current folder.',
-                      style: Theme.of(dialogContext).textTheme.bodySmall,
-                    ),
-                ],
-              ),
-            ),
-            actions: _adaptiveDialogActions(dialogContext, [
-              TextButton(
-                onPressed: () =>
-                    VaultOperationScope.of(dialogContext).cancel(),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: preview.items.isEmpty
-                    ? null
-                    : () => VaultOperationScope.of(dialogContext).complete(
-                        CsvImportResult(
-                          filePath: filePath,
-                          avoidDuplicates: avoidDuplicates,
-                        ),
-                      ),
-                child: const Text('Import'),
-              ),
-            ]),
-          );
-        },
+                ),
+          ),
+        ),
       );
-      },
+
+  if (importResult == null || !context.mounted) {
+    return;
+  }
+
+  final bloc = context.read<VaultBloc>();
+  bloc.add(
+    ImportVaultEntriesFromCsv(
+      filePath: importResult.filePath,
+      avoidDuplicates: importResult.avoidDuplicates,
     ),
   );
 
-  if (importResult != null && context.mounted) {
-    context.read<VaultBloc>().add(
-      ImportVaultEntriesFromCsv(
-        filePath: importResult.filePath,
-        avoidDuplicates: importResult.avoidDuplicates,
-      ),
-    );
+  // AC8: wait for the import to finish so the outcome screen can read the
+  // per-row skip reasons `VaultBloc` just computed, then show it.
+  await bloc.stream.firstWhere((state) => !state.isSaving);
+  if (!context.mounted) {
+    return;
   }
+  final outcome = bloc.state.lastCsvImportOutcome;
+  if (outcome == null) {
+    return;
+  }
+
+  await VaultShellRouterScope.of(context).open<VaultDone>(
+    context: context,
+    surface: DatabaseSettingsSurface<VaultDone>(
+      builder: (dialogContext) => CsvImportOutcomeScreen(
+        outcome: outcome,
+        onDone: () =>
+            VaultOperationScope.of(dialogContext).complete(const VaultDone()),
+      ),
+    ),
+  );
+  bloc.add(const ClearCsvImportOutcome());
 }

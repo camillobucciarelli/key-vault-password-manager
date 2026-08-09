@@ -49,6 +49,11 @@ class DatabaseSyncRepositoryImpl implements DatabaseSyncRepository {
   }
 
   @override
+  Future<List<DatabaseSyncMapping>> getAllMappings() {
+    return _databaseSyncOrchestrator.getAllMappings();
+  }
+
+  @override
   Future<bool> isConnected() {
     return _driveAuthService.isConnected();
   }

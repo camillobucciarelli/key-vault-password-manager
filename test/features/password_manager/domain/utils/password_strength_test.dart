@@ -3,7 +3,7 @@
 // 3.321928 bits/char) give exact, easy-to-reason-about entropy without
 // hand-tuning boundary floats.
 import 'package:flutter_test/flutter_test.dart';
-import 'package:password_manager/features/password_manager/presentation/utils/password_strength.dart';
+import 'package:password_manager/features/password_manager/domain/utils/password_strength.dart';
 
 void main() {
   test('empty password is Weak', () {

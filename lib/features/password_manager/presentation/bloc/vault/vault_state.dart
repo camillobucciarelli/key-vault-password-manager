@@ -7,6 +7,9 @@ import '../../../domain/models/duplicate_group.dart';
 import '../../../domain/models/sync_conflict.dart';
 import '../../../domain/models/vault_entry.dart';
 import '../../../domain/models/vault_group.dart';
+import '../../../domain/models/vault_health_report.dart';
+import '../../../data/services/vault_csv_import_service.dart'
+    show CsvImportOutcome;
 
 enum VaultEntrySort { titleAsc, titleDesc, usernameAsc }
 
@@ -41,9 +44,12 @@ class VaultState extends Equatable {
     this.linkedDriveFileName,
     this.isSyncing = false,
     this.isSyncReloadPending = false,
+    this.isOffline = false,
     this.duplicateGroups = const [],
     this.isDuplicatesLoading = false,
     this.pendingAppleAutofillAssociations = const [],
+    this.healthReport = VaultHealthReport.empty,
+    this.lastCsvImportOutcome,
   });
 
   factory VaultState.initial({required String databasePath}) {
@@ -79,10 +85,23 @@ class VaultState extends Equatable {
   final String? linkedDriveFileName;
   final bool isSyncing;
   final bool isSyncReloadPending;
+
+  /// spec-005 T7: true only for connection-level sync failures
+  /// (`SocketException`) — never for an HTTP error status. See
+  /// `VaultBloc._performSync`.
+  final bool isOffline;
   final List<DuplicateGroup> duplicateGroups;
   final bool isDuplicatesLoading;
   final List<AppleAutofillV2PendingAssociation>
   pendingAppleAutofillAssociations;
+
+  /// spec-005 T3: computed on unlock and after every write (never per
+  /// keystroke) — see `VaultBloc._computeHealth`.
+  final VaultHealthReport healthReport;
+
+  /// spec-005 T16: outcome of the most recent CSV import, shown once by the
+  /// outcome screen then cleared via `ClearCsvImportOutcome`.
+  final CsvImportOutcome? lastCsvImportOutcome;
 
   int get duplicateGroupCount => duplicateGroups.length;
 
@@ -115,14 +134,18 @@ class VaultState extends Equatable {
     String? linkedDriveFileName,
     bool? isSyncing,
     bool? isSyncReloadPending,
+    bool? isOffline,
     List<DuplicateGroup>? duplicateGroups,
     bool? isDuplicatesLoading,
     List<AppleAutofillV2PendingAssociation>? pendingAppleAutofillAssociations,
+    VaultHealthReport? healthReport,
+    CsvImportOutcome? lastCsvImportOutcome,
     bool clearError = false,
     bool clearInfo = false,
     bool clearSyncError = false,
     bool clearSyncConflict = false,
     bool clearSyncReloadPending = false,
+    bool clearCsvImportOutcome = false,
   }) {
     return VaultState(
       databasePath: databasePath,
@@ -159,11 +182,16 @@ class VaultState extends Equatable {
       isSyncReloadPending: clearSyncReloadPending
           ? false
           : isSyncReloadPending ?? this.isSyncReloadPending,
+      isOffline: isOffline ?? this.isOffline,
       duplicateGroups: duplicateGroups ?? this.duplicateGroups,
       isDuplicatesLoading: isDuplicatesLoading ?? this.isDuplicatesLoading,
       pendingAppleAutofillAssociations:
           pendingAppleAutofillAssociations ??
           this.pendingAppleAutofillAssociations,
+      healthReport: healthReport ?? this.healthReport,
+      lastCsvImportOutcome: clearCsvImportOutcome
+          ? null
+          : lastCsvImportOutcome ?? this.lastCsvImportOutcome,
     );
   }
 
@@ -238,9 +266,18 @@ class VaultState extends Equatable {
     linkedDriveFileName,
     isSyncing,
     isSyncReloadPending,
+    isOffline,
     duplicateGroups,
     isDuplicatesLoading,
     pendingAppleAutofillAssociations,
+    // Deliberately NOT `healthReport` itself (plan.md risk: "Adding
+    // healthReport to VaultState triggers rebuild storms" — its
+    // categories carry full entryIds lists that would make every
+    // VaultState `==`/hashCode do O(entries) list comparisons). Score +
+    // per-category counts are enough to detect a change worth reacting to.
+    healthReport.score,
+    for (final category in healthReport.categories) category.count,
+    lastCsvImportOutcome,
   ];
 
   @override
@@ -275,9 +312,12 @@ class VaultState extends Equatable {
         'linkedDriveFileName: $linkedDriveFileName, '
         'isSyncing: $isSyncing, '
         'isSyncReloadPending: $isSyncReloadPending, '
+        'isOffline: $isOffline, '
         'duplicateGroups: ${duplicateGroups.length}, '
         'isDuplicatesLoading: $isDuplicatesLoading, '
         'pendingAppleAutofillAssociations: '
-        '${pendingAppleAutofillAssociations.length})';
+        '${pendingAppleAutofillAssociations.length}, '
+        'healthReport.score: ${healthReport.score}, '
+        'lastCsvImportOutcome: ${lastCsvImportOutcome != null})';
   }
 }
