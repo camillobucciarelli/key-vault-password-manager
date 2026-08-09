@@ -82,6 +82,79 @@ void main() {
     }
   });
 
+  group('Copilot fix (PR #9): stale `disconnected` status after app restart', () {
+    testWidgets(
+      'connected+linked but status still at its disconnected default renders '
+      'the success hero, not the disconnected prompt',
+      (tester) async {
+        // Reproduces VaultBloc._onBackgroundDriveSync: on app restart it
+        // updates isDriveConnected/isDriveLinked without touching
+        // syncStatus (still at its `disconnected` default) until an
+        // explicit sync runs. The hero must not show "Connect Google
+        // account" to an already-connected, already-linked user.
+        await tester.pumpWidget(
+          _wrap(
+            const SyncStatusHero(
+              status: DatabaseSyncStatus.disconnected,
+              isDriveConnected: true,
+              isDriveLinked: true,
+              linkedDriveFileName: 'Personal.kdbx',
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(find.text('Up to date'), findsOneWidget);
+        expect(find.text('Connect Google account'), findsNothing);
+        expect(find.text('This database lives only here'), findsNothing);
+      },
+    );
+  });
+
+  group('_relativeTime singular/plural', () {
+    testWidgets('1 minute/hour/day ago are singular, not "1 minutes/hours/days ago"', (
+      tester,
+    ) async {
+      final now = DateTime(2026, 1, 10, 12, 0, 0);
+      SyncStatusHero.debugNowOverride = now;
+      addTearDown(() => SyncStatusHero.debugNowOverride = null);
+
+      Future<void> pumpAt(DateTime lastSyncAt) => tester.pumpWidget(
+        _wrap(
+          SyncStatusHero(
+            status: DatabaseSyncStatus.success,
+            isDriveConnected: true,
+            isDriveLinked: true,
+            linkedDriveFileName: 'Personal.kdbx',
+            lastSyncAt: lastSyncAt,
+          ),
+        ),
+      );
+
+      await pumpAt(now.subtract(const Duration(minutes: 1)));
+      expect(find.textContaining('Last sync 1 minute ago'), findsOneWidget);
+      expect(find.textContaining('1 minutes ago'), findsNothing);
+
+      await pumpAt(now.subtract(const Duration(minutes: 5)));
+      expect(find.textContaining('Last sync 5 minutes ago'), findsOneWidget);
+
+      await pumpAt(now.subtract(const Duration(hours: 1)));
+      expect(find.textContaining('Last sync 1 hour ago'), findsOneWidget);
+      expect(find.textContaining('1 hours ago'), findsNothing);
+
+      await pumpAt(now.subtract(const Duration(hours: 3)));
+      expect(find.textContaining('Last sync 3 hours ago'), findsOneWidget);
+
+      await pumpAt(now.subtract(const Duration(days: 1)));
+      expect(find.textContaining('Last sync 1 day ago'), findsOneWidget);
+      expect(find.textContaining('1 days ago'), findsNothing);
+
+      await pumpAt(now.subtract(const Duration(days: 4)));
+      expect(find.textContaining('Last sync 4 days ago'), findsOneWidget);
+    });
+  });
+
   group('AC3: disconnected explains the security model before any auth call', () {
     testWidgets(
       'first render of the disconnected hero calls zero DatabaseSyncRepository.connect()',

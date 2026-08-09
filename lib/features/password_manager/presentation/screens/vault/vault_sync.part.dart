@@ -232,6 +232,16 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
                       ),
                     );
                   }
+                  // If the list changed (e.g. the user filtered by typing) and
+                  // the previously selected file is no longer in it, drop the
+                  // stale selection instead of leaving "Link" enabled against
+                  // an id no longer visible/valid — see spec-005 Copilot fix.
+                  if (_selectedId != null &&
+                      !state.remoteDriveFiles.any(
+                        (file) => file.id == _selectedId,
+                      )) {
+                    _selectedId = null;
+                  }
                   _selectedId ??= state.remoteDriveFiles.first.id;
                   return ListView.separated(
                     padding: const EdgeInsets.symmetric(horizontal: 20),

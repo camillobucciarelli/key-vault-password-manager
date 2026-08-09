@@ -995,7 +995,7 @@ class _VaultDestinationScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     final topInset = MediaQuery.paddingOf(context).top;
     return Padding(
-      padding: EdgeInsets.only(top: topInset > 0 ? 0 : 8),
+      padding: EdgeInsets.only(top: topInset > 0 ? topInset : 8),
       child: child,
     );
   }

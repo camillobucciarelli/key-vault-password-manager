@@ -138,9 +138,14 @@ class SyncStatusHero extends StatelessWidget {
       // idle and success both render the "up to date" card — `idle` is the
       // resting state right after a successful connect/link/sync with
       // nothing new to report (see VaultBloc._refreshSyncState).
+      // `disconnected` reaching this branch means the guards above are
+      // already true but `syncStatus` itself hasn't caught up yet (its
+      // default value, per the comment above) — treat it as the same
+      // "connected and settled" resting state as idle/success, not as a
+      // fresh disconnected prompt.
       DatabaseSyncStatus.idle ||
-      DatabaseSyncStatus.success => _successHero(context),
-      DatabaseSyncStatus.disconnected => _disconnectedHero(context),
+      DatabaseSyncStatus.success ||
+      DatabaseSyncStatus.disconnected => _successHero(context),
     };
   }
 
@@ -711,9 +716,13 @@ class SyncStatusHero extends StatelessWidget {
   static String _relativeTime(DateTime value, DateTime now) {
     final diff = now.difference(value);
     if (diff.inMinutes < 1) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes} minutes ago';
-    if (diff.inHours < 24) return '${diff.inHours} hours ago';
-    return '${diff.inDays} days ago';
+    if (diff.inMinutes < 60) {
+      return diff.inMinutes == 1 ? '1 minute ago' : '${diff.inMinutes} minutes ago';
+    }
+    if (diff.inHours < 24) {
+      return diff.inHours == 1 ? '1 hour ago' : '${diff.inHours} hours ago';
+    }
+    return diff.inDays == 1 ? '1 day ago' : '${diff.inDays} days ago';
   }
 }
 
