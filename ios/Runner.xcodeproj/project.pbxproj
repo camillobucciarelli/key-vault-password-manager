@@ -70,6 +70,7 @@
 		1A2B3C4D5E6F700100000014 /* CredentialProviderExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CredentialProviderExtension.entitlements; sourceTree = "<group>"; };
 		1A2B3C4D5E6F700100000015 /* CredentialProviderPasswordGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialProviderPasswordGenerator.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F700100000016 /* CredentialListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialListView.swift; sourceTree = "<group>"; };
+		1A2B3C4D5E6F700100000090 /* Extension.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Extension.xcconfig; sourceTree = "<group>"; };
 		1A2B3C4D5E6F700100000017 /* AppleAutofillV2Channel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleAutofillV2Channel.swift; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -140,6 +141,7 @@
 				1A2B3C4D5E6F700100000016 /* CredentialListView.swift */,
 				1A2B3C4D5E6F700100000013 /* Info.plist */,
 				1A2B3C4D5E6F700100000014 /* CredentialProviderExtension.entitlements */,
+				1A2B3C4D5E6F700100000090 /* Extension.xcconfig */,
 			);
 			path = CredentialProviderExtension;
 			sourceTree = "<group>";
@@ -286,7 +288,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 2650;
+				LastUpgradeCheck = 1510;
 				ORGANIZATIONNAME = "";
 				TargetAttributes = {
 					1A2B3C4D5E6F700100000041 = {
@@ -526,6 +528,7 @@
 /* Begin XCBuildConfiguration section */
 		1A2B3C4D5E6F700100000070 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1A2B3C4D5E6F700100000090 /* Extension.xcconfig */;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_MODULES = YES;
@@ -553,6 +556,7 @@
 		};
 		1A2B3C4D5E6F700100000071 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1A2B3C4D5E6F700100000090 /* Extension.xcconfig */;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_MODULES = YES;
@@ -578,6 +582,7 @@
 		};
 		1A2B3C4D5E6F700100000072 /* Profile */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1A2B3C4D5E6F700100000090 /* Extension.xcconfig */;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CLANG_ENABLE_MODULES = YES;
