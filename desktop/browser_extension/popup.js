@@ -1,19 +1,60 @@
-const hostStatusElement = document.getElementById("hostStatus");
-const appStatusElement = document.getElementById("appStatus");
-const statusButton = document.getElementById("statusButton");
-const queryButton = document.getElementById("queryButton");
-const searchButton = document.getElementById("searchButton");
-const searchInput = document.getElementById("searchInput");
-const statusElement = document.getElementById("status");
-const resultsElement = document.getElementById("results");
+// Extension popup — spec 006 FR-7. Renders four states: matches, app
+// locked, host not found, possible-only matches. Native Messaging v2
+// protocol usage (message shapes to background.js) is unchanged — this
+// file only changed *rendering*, not the wire contract.
+
+const markElement = document.getElementById("mark");
+const bodyElement = document.getElementById("popupBody");
 
 let inFlight = false;
-let currentTargetOrigin = null;
+let currentTab = null; // { id, origin, title } of the active tab, if any
 
-function setStatus(message, isError = false) {
-  statusElement.textContent = message;
-  statusElement.style.color = isError ? "#b42342" : "#5f4a83";
+// ---------- small DOM helpers (no framework: this is a 400px popup) ----------
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
 }
+
+function clearBody() {
+  bodyElement.textContent = "";
+}
+
+function setMarkDim(dim) {
+  markElement.classList.toggle("pop-mark--dim", dim);
+}
+
+function searchIconSvg() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", "14");
+  svg.setAttribute("height", "14");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2.75");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.innerHTML =
+    '<circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/>';
+  return svg;
+}
+
+function lockIconSvg() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", "17");
+  svg.setAttribute("height", "17");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2.75");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.innerHTML =
+    '<rect x="4" y="10" width="16" height="10" rx="4"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>';
+  return svg;
+}
+
+// ---------- native messaging plumbing (unchanged protocol, unchanged shapes) ----------
 
 function errorText(response, fallback) {
   if (!response?.error) {
@@ -173,39 +214,46 @@ async function executeFill(tabId, username, password) {
   });
 }
 
-function renderMessage(title, body) {
-  resultsElement.textContent = "";
-  const wrapper = document.createElement("article");
-  wrapper.className = "result-card";
+// ---------- rendering: shared pieces ----------
 
-  const heading = document.createElement("div");
-  heading.className = "result-title";
-  heading.textContent = title;
-
-  const text = document.createElement("div");
-  text.className = "result-body";
-  text.textContent = body;
-
-  wrapper.appendChild(heading);
-  wrapper.appendChild(text);
-  resultsElement.appendChild(wrapper);
+function tabLetters(origin) {
+  try {
+    const host = new URL(origin).hostname.replace(/^www\./, "");
+    return host.slice(0, 2).toLowerCase();
+  } catch (_) {
+    return "??";
+  }
 }
 
-function updateStatusCards(response) {
-  if (response?.ok) {
-    hostStatusElement.textContent = "Available";
-    const bridgeStatus = response.data?.appBridge?.status || "unavailable";
-    appStatusElement.textContent =
-      bridgeStatus === "metadata_cache_available"
-        ? "Metadata ready"
-        : bridgeStatus === "available"
-          ? "Connected"
-          : "Not connected";
-    return;
-  }
+function renderStatusGrid(host, bridge) {
+  const grid = el("section", "status-grid");
+  grid.appendChild(renderStatusCard("Native host", host.value, host.variant));
+  grid.appendChild(renderStatusCard("App / vault bridge", bridge.value, bridge.variant));
+  return grid;
+}
 
-  hostStatusElement.textContent = "Unavailable";
-  appStatusElement.textContent = "Not connected";
+function renderStatusCard(label, value, variant) {
+  const card = el("article", `status-card status-card--${variant}`);
+  card.appendChild(el("div", "status-label", label));
+  card.appendChild(el("div", "status-value", value));
+  return card;
+}
+
+function renderTabRow(origin, meta, { onRefresh } = {}) {
+  const row = el("div", "tab-row");
+  const avatar = el("span", "tab-avatar", tabLetters(origin));
+  const info = el("div", "tab-info");
+  info.appendChild(el("div", "tab-title", origin.replace(/^https?:\/\//, "")));
+  info.appendChild(el("div", "tab-meta", meta));
+  row.appendChild(avatar);
+  row.appendChild(info);
+  if (onRefresh) {
+    const action = el("button", "tab-action", "Refresh");
+    action.type = "button";
+    action.addEventListener("click", onRefresh);
+    row.appendChild(action);
+  }
+  return row;
 }
 
 function resultTitle(result) {
@@ -217,240 +265,145 @@ function resultTitle(result) {
   return title || service || "Untitled entry";
 }
 
-function resultBody(result, label) {
-  return label;
+function resultMeta(result) {
+  const username = (result.displayUsername || "").trim();
+  if (username) return username;
+  // Avoid repeating displayService here: resultTitle() already folds it
+  // in whenever both title and service are present.
+  const title = (result.title || "").trim();
+  const service = (result.displayService || "").trim();
+  return title && service ? "" : service;
 }
 
-function renderResultCard(result, label, canCreatePending, canFill = false) {
-  const wrapper = document.createElement("article");
-  wrapper.className = "result-card";
+function renderMatchRow(result, kind, { onFill, onAsk } = {}) {
+  const row = el("div", "match-row");
+  const info = el("div", "match-info");
+  info.appendChild(el("div", "match-title", resultTitle(result)));
+  info.appendChild(el("div", "match-meta", resultMeta(result)));
+  row.appendChild(info);
 
-  const badge = document.createElement("span");
-  badge.className = `badge ${result.matchType === "strong" ? "badge-strong" : "badge-possible"}`;
-  badge.textContent = label;
+  // AC5 / T13: `strong` and `possible` are TEXT, never colour-only —
+  // this span's textContent is the actual signal, the class only tints it.
+  const tag = el("span", `match-tag match-tag--${kind}`, kind);
+  row.appendChild(tag);
 
-  const heading = document.createElement("div");
-  heading.className = "result-title";
-  heading.textContent = resultTitle(result);
-
-  const text = document.createElement("div");
-  text.className = "result-body";
-  text.textContent = resultBody(result, label);
-
-  wrapper.appendChild(badge);
-  wrapper.appendChild(heading);
-  wrapper.appendChild(text);
-
-  if (canFill) {
-    const button = document.createElement("button");
+  // __fillable is set by callers from the background/native-host response
+  // (fillAvailable). Only an explicit `false` disables the button — undefined
+  // (e.g. no signal attached) defaults to available, matching prior behavior
+  // for callers that don't yet compute it.
+  if (kind === "strong" && onFill && result.__fillable !== false) {
+    const button = el("button", "fill-btn", "Fill");
     button.type = "button";
-    button.textContent = "Fill on this page";
-    button.addEventListener("click", () => fillCredential(result.entryId));
-    wrapper.appendChild(button);
+    button.addEventListener("click", () => onFill(result));
+    row.appendChild(button);
+  } else if (kind === "possible" && onAsk) {
+    const button = el("button", "ask-btn", "Ask app");
+    button.type = "button";
+    button.addEventListener("click", () => onAsk(result));
+    row.appendChild(button);
   }
 
-  if (canCreatePending) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "secondary-button";
-    button.textContent = "Request link in app";
-    button.addEventListener("click", () => createPendingAssociation(result.entryId));
-    wrapper.appendChild(button);
-  }
+  return row;
+}
 
+function renderMatchGroup(label, count, rows) {
+  const wrapper = el("div");
+  wrapper.appendChild(el("div", "match-group-label", `${label} · ${count}`));
+  const list = el("div", "match-list");
+  rows.forEach((row) => list.appendChild(row));
+  wrapper.appendChild(list);
   return wrapper;
 }
 
-function renderQueryResults(response) {
-  resultsElement.textContent = "";
-  const strong = response.data?.strongMatches || [];
-  const possible = response.data?.possibleMatches || [];
-  const fillAvailable = response.data?.fillAvailable === true;
-
-  if (strong.length === 0 && possible.length === 0) {
-    renderMessage(
-      "No site match",
-      "Use global search below. Selecting a result creates a pending association for app confirmation."
-    );
-    return;
-  }
-
-  for (const result of strong) {
-    resultsElement.appendChild(
-      renderResultCard(result, "Strong exact host match", false, fillAvailable)
-    );
-  }
-  for (const result of possible) {
-    resultsElement.appendChild(renderResultCard(result, "Possible match", true));
-  }
+function renderSearchRow(placeholder, initialValue) {
+  const row = el("div", "search-row");
+  row.appendChild(searchIconSvg());
+  const input = document.createElement("input");
+  input.type = "search";
+  input.id = "searchInput";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  input.placeholder = placeholder;
+  if (initialValue) input.value = initialValue;
+  row.appendChild(input);
+  return { row, input };
 }
 
-function renderSearchResults(response) {
-  resultsElement.textContent = "";
-  const results = response.data?.results || [];
-  if (results.length === 0) {
-    renderMessage("No metadata result", "Try another search term.");
-    return;
-  }
-  for (const result of results) {
-    resultsElement.appendChild(renderResultCard(result, "Manual search result", Boolean(currentTargetOrigin)));
-  }
+function renderFooterNote(text) {
+  return el("p", "footer-note", text);
 }
 
-async function checkHostStatus() {
-  if (inFlight) {
-    return;
-  }
-
-  inFlight = true;
-  setStatus("Checking native host…");
-
-  try {
-    const response = await sendExtensionMessage({
-      type: "KEYVAULT_V2_STATUS",
-    });
-    updateStatusCards(response);
-    if (!response?.ok) {
-      setStatus(errorText(response, "Native host unavailable."), true);
-      renderMessage(
-        "Host check failed",
-        "Verify the native messaging manifest name, allowed origin and launcher path."
-      );
-      return;
-    }
-
-    setStatus("Native host v2 is reachable.");
-    renderMessage(
-      "Desktop metadata mode",
-      response.data?.message || "Unlock KeyVault to publish browser metadata."
-    );
-  } finally {
-    inFlight = false;
-  }
+function renderStatusMessage(text, isError) {
+  return el("p", `status-message${isError ? " status-message--error" : ""}`, text || "");
 }
 
-async function queryCurrentSite() {
-  if (inFlight) {
-    return;
-  }
+// ---------- rendering: the four states ----------
 
-  const tab = await getActiveTab();
-  const origin = activeTabOrigin(tab?.url || "");
-  currentTargetOrigin = origin;
-  if (!origin) {
-    setStatus("Open an http(s) page before querying KeyVault.", true);
-    return;
-  }
-
-  inFlight = true;
-  setStatus("Searching metadata for current site…");
-
-  try {
-    const response = await sendExtensionMessage({
-      type: "KEYVAULT_V2_QUERY_CREDENTIALS",
-      url: origin,
-      title: tab?.title || "",
-      limit: 10,
-    });
-    updateStatusCards(response);
-
-    if (!response?.ok) {
-      setStatus(errorText(response, "Credential metadata query unavailable."), true);
-      renderMessage(
-        "Vault metadata unavailable",
-        "Open and unlock KeyVault desktop. The extension sends only the active site origin and page title."
-      );
-      return;
-    }
-
-    setStatus("Metadata query completed. No password was requested.");
-    renderQueryResults(response);
-  } finally {
-    inFlight = false;
-  }
+function renderHostMissingState() {
+  setMarkDim(true);
+  clearBody();
+  bodyElement.appendChild(
+    renderStatusGrid(
+      { value: "Not found", variant: "warn" },
+      { value: "Unknown", variant: "neutral" }
+    )
+  );
+  bodyElement.appendChild(
+    el(
+      "p",
+      "host-missing-text",
+      "The messaging host isn\u2019t registered for this browser. KeyVault\u2019s desktop app can walk you through it in Desktop browser extension."
+    )
+  );
+  const actions = el("div", "action-row");
+  const showMe = el("button", "primary-pill-btn", "Show me how");
+  showMe.type = "button";
+  showMe.addEventListener("click", () => {
+    chrome.tabs.create({
+      url: "https://github.com/camillobucciarelli/key-vault-password-manager/blob/main/docs/desktop_browser_autofill.md",
+    }); // Deep link to the native-host setup doc (no in-app browser-setup screen to link to yet).
+  });
+  const checkAgain = el("button", "secondary-pill-btn", "Check again");
+  checkAgain.type = "button";
+  checkAgain.addEventListener("click", () => void initializePopup());
+  actions.appendChild(showMe);
+  actions.appendChild(checkAgain);
+  bodyElement.appendChild(actions);
 }
 
-async function searchMetadata() {
-  if (inFlight) {
-    return;
-  }
+function renderLockedState() {
+  setMarkDim(true);
+  clearBody();
+  bodyElement.appendChild(
+    renderStatusGrid(
+      { value: "Connected", variant: "ok" },
+      { value: "Locked", variant: "warn" }
+    )
+  );
+  const warning = el("div", "locked-warning");
+  warning.appendChild(lockIconSvg());
+  const p = document.createElement("p");
+  p.textContent = "KeyVault is locked. Unlock the desktop app to search and fill.";
+  warning.appendChild(p);
+  bodyElement.appendChild(warning);
 
-  const tab = await getActiveTab();
-  currentTargetOrigin = activeTabOrigin(tab?.url || "");
-  inFlight = true;
-  setStatus("Searching KeyVault metadata…");
-
-  try {
-    const response = await sendExtensionMessage({
-      type: "KEYVAULT_V2_SEARCH_CREDENTIALS",
-      query: searchInput.value || "",
-      url: currentTargetOrigin,
-      limit: 25,
-    });
-    updateStatusCards(response);
-    if (!response?.ok) {
-      setStatus(errorText(response, "Global metadata search unavailable."), true);
-      renderMessage(
-        "Search unavailable",
-        "Open and unlock KeyVault desktop, then retry. No credentials were requested."
-      );
-      return;
-    }
-
-    setStatus("Search completed. Results are metadata only.");
-    renderSearchResults(response);
-  } finally {
-    inFlight = false;
-  }
+  const open = el("button", "primary-pill-btn", "Refresh status");
+  open.type = "button";
+  open.style.width = "100%";
+  open.addEventListener("click", () => void initializePopup());
+  bodyElement.appendChild(open);
 }
 
-async function createPendingAssociation(entryId) {
-  if (!currentTargetOrigin) {
-    setStatus("Open an http(s) page before creating an association.", true);
-    return;
-  }
-  if (inFlight) {
-    return;
-  }
-
-  inFlight = true;
-  setStatus("Creating pending association…");
-
-  try {
-    const response = await sendExtensionMessage({
-      type: "KEYVAULT_V2_CREATE_PENDING_ASSOCIATION",
-      entryId,
-      url: currentTargetOrigin,
-    });
-    updateStatusCards(response);
-    if (!response?.ok) {
-      setStatus(errorText(response, "Unable to create pending association."), true);
-      return;
-    }
-    setStatus("Pending association saved. Confirm it in KeyVault desktop.");
-    renderMessage(
-      "Association pending",
-      "KeyVault will update the vault only after you confirm in the desktop app. No password was stored in the browser."
-    );
-  } finally {
-    inFlight = false;
-  }
-}
-
-async function fillCredential(entryId) {
-  if (inFlight) {
-    return;
-  }
-
-  const tab = await getActiveTab();
-  const origin = activeTabOrigin(tab?.url || "");
+async function fillCredential(entryId, origin) {
+  if (inFlight) return;
+  const tab = currentTab;
   if (!tab?.id || !origin) {
-    setStatus("Open an http(s) page before filling.", true);
     return;
   }
 
   inFlight = true;
-  setStatus("Requesting one-shot fill…");
+  const message = renderStatusMessage("Requesting one-shot fill\u2026");
+  bodyElement.appendChild(message);
 
   let username = null;
   let password = null;
@@ -462,27 +415,26 @@ async function fillCredential(entryId) {
       origin,
     });
     if (!response?.ok) {
-      setStatus(errorText(response, "Unable to reveal credential for this site."), true);
+      message.textContent = errorText(response, "Unable to reveal credential for this site.");
+      message.className = "status-message status-message--error";
       return;
     }
 
     username = typeof response.data?.username === "string" ? response.data.username : "";
     password = typeof response.data?.password === "string" ? response.data.password : "";
     if (!password) {
-      setStatus("Credential did not include a fillable password.", true);
+      message.textContent = "Credential did not include a fillable password.";
+      message.className = "status-message status-message--error";
       return;
     }
 
     const fillResult = await executeFill(tab.id, username, password);
-    if (!fillResult.ok) {
-      setStatus("Unable to inject fill script into this page.", true);
+    if (!fillResult.ok || !fillResult.result?.filled) {
+      message.textContent = "Unable to fill this page.";
+      message.className = "status-message status-message--error";
       return;
     }
-    if (!fillResult.result?.filled) {
-      setStatus("No visible password field found on this page.", true);
-      return;
-    }
-    setStatus("Filled current page. Password was not stored by the extension.");
+    message.textContent = "Filled current page. Password was not stored by the extension.";
   } finally {
     if (response?.data) {
       response.data.username = "";
@@ -495,26 +447,241 @@ async function fillCredential(entryId) {
   }
 }
 
-statusButton.addEventListener("click", checkHostStatus);
-queryButton.addEventListener("click", queryCurrentSite);
-searchButton.addEventListener("click", searchMetadata);
-searchInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    searchMetadata();
+async function createPendingAssociation(entryId, origin) {
+  if (!origin || inFlight) return;
+  inFlight = true;
+  const message = renderStatusMessage("Creating pending association\u2026");
+  bodyElement.appendChild(message);
+  try {
+    const response = await sendExtensionMessage({
+      type: "KEYVAULT_V2_CREATE_PENDING_ASSOCIATION",
+      entryId,
+      url: origin,
+    });
+    if (!response?.ok) {
+      message.textContent = errorText(response, "Unable to create pending association.");
+      message.className = "status-message status-message--error";
+      return;
+    }
+    message.textContent = "Pending association saved. Confirm it in KeyVault desktop.";
+  } finally {
+    inFlight = false;
   }
-});
+}
 
-function initializePopup() {
-  setStatus("Checking native host…");
-  renderMessage(
-    "Connecting to KeyVault",
-    "This popup checks Native Messaging status automatically. Filling still requires clicking Fill on an exact strong match."
+async function searchMetadata(query) {
+  if (inFlight) return;
+  inFlight = true;
+  try {
+    const response = await sendExtensionMessage({
+      type: "KEYVAULT_V2_SEARCH_CREDENTIALS",
+      query: query || "",
+      url: currentTab?.origin || null,
+      limit: 25,
+    });
+    if (!response?.ok) {
+      return;
+    }
+    // Manual search never gets a strong/possible classification from the
+    // native host (searchCredentials always returns fillAvailable: false and
+    // an unclassified `results` list — see tool/native_host_protocol.dart
+    // _searchCredentialsResponse). A free-text match also lacks the
+    // host-exact guarantee an automatic tab match has, so every result here
+    // is treated as "possible" (Ask app / pending association), never
+    // "strong" (Fill).
+    renderResultsIntoMatchArea([], response.data?.results || []);
+  } finally {
+    inFlight = false;
+  }
+}
+
+let matchAreaElement = null;
+
+function renderResultsIntoMatchArea(strong, possible) {
+  if (!matchAreaElement) return;
+  matchAreaElement.textContent = "";
+
+  if (strong.length === 0 && possible.length === 0) {
+    matchAreaElement.appendChild(
+      el("p", "host-missing-text", "No match. Selecting a manual search result creates a pending association for app confirmation.")
+    );
+    return;
+  }
+
+  if (strong.length > 0) {
+    matchAreaElement.appendChild(
+      renderMatchGroup(
+        "Matches",
+        strong.length,
+        strong.map((result) =>
+          renderMatchRow(result, "strong", {
+            onFill: (r) => void fillCredential(r.entryId, currentTab?.origin),
+          })
+        )
+      )
+    );
+  }
+  if (possible.length > 0) {
+    // createPendingAssociation() is a silent no-op without an origin (no
+    // valid URL on the active tab, e.g. a browser-internal page) — hide the
+    // "Ask app" button rather than render one that does nothing on click.
+    const originAvailable = Boolean(currentTab?.origin);
+    matchAreaElement.appendChild(
+      renderMatchGroup(
+        "Possible",
+        possible.length,
+        possible.map((result) =>
+          renderMatchRow(result, "possible", {
+            onAsk: originAvailable
+              ? (r) => void createPendingAssociation(r.entryId, currentTab?.origin)
+              : null,
+          })
+        )
+      )
+    );
+  }
+}
+
+async function reportMatchCountForBadge(tabId, strongCount, possibleCount) {
+  if (typeof tabId !== "number") return;
+  // Fire-and-forget: background.js persists this in chrome.storage and
+  // re-derives the badge from there (T14 — never worker-memory-only).
+  void sendExtensionMessage({
+    type: "KEYVAULT_V2_REPORT_MATCH_COUNT",
+    tabId,
+    count: strongCount + possibleCount,
+  });
+}
+
+async function renderMatchesState(tab, origin, response) {
+  setMarkDim(false);
+  clearBody();
+
+  const strong = response.data?.strongMatches || [];
+  const possible = response.data?.possibleMatches || [];
+  const fillAvailable = response.data?.fillAvailable === true;
+
+  bodyElement.appendChild(
+    renderStatusGrid(
+      { value: "Connected", variant: "ok" },
+      { value: "Unlocked", variant: "ok" }
+    )
   );
-  void checkHostStatus();
+
+  const meta = strong.length > 0 ? "Current tab" : "No exact match";
+  bodyElement.appendChild(
+    renderTabRow(origin, meta, { onRefresh: () => void initializePopup() })
+  );
+
+  matchAreaElement = el("div");
+  bodyElement.appendChild(matchAreaElement);
+  renderResultsIntoMatchArea(
+    strong.map((r) => ({ ...r, __fillable: fillAvailable })),
+    possible
+  );
+
+  const { row: searchRow, input } = renderSearchRow("Search title, user, service");
+  bodyElement.appendChild(searchRow);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") void searchMetadata(input.value);
+  });
+
+  bodyElement.appendChild(
+    renderFooterNote(
+      "Passwords are revealed only when you click Fill on an exact match, and dropped right after."
+    )
+  );
+
+  void reportMatchCountForBadge(tab.id, strong.length, possible.length);
+}
+
+// ---------- entry point ----------
+
+async function initializePopup() {
+  setMarkDim(true);
+  clearBody();
+  bodyElement.appendChild(renderStatusMessage("Checking native host\u2026"));
+
+  const statusResponse = await sendExtensionMessage({ type: "KEYVAULT_V2_STATUS" });
+  if (!statusResponse?.ok) {
+    renderHostMissingState();
+    return;
+  }
+
+  const vaultConnected = statusResponse.data?.vault?.connected === true;
+  if (!vaultConnected) {
+    renderLockedState();
+    return;
+  }
+
+  const tab = await getActiveTab();
+  const origin = activeTabOrigin(tab?.url || "");
+  if (!tab?.id || !origin) {
+    setMarkDim(false);
+    clearBody();
+    bodyElement.appendChild(
+      renderStatusGrid(
+        { value: "Connected", variant: "ok" },
+        { value: "Unlocked", variant: "ok" }
+      )
+    );
+    bodyElement.appendChild(
+      el("p", "host-missing-text", "Open an http(s) page to search KeyVault for this site.")
+    );
+    const { row: searchRow, input } = renderSearchRow("Search title, user, service");
+    bodyElement.appendChild(searchRow);
+    matchAreaElement = el("div");
+    bodyElement.appendChild(matchAreaElement);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") void searchMetadata(input.value);
+    });
+    bodyElement.appendChild(
+      renderFooterNote("Passwords are revealed only when you click Fill on an exact match, and dropped right after.")
+    );
+    return;
+  }
+
+  currentTab = { id: tab.id, origin, title: tab.title || "" };
+
+  const queryResponse = await sendExtensionMessage({
+    type: "KEYVAULT_V2_QUERY_CREDENTIALS",
+    url: origin,
+    title: tab.title || "",
+    limit: 10,
+  });
+
+  if (!queryResponse?.ok) {
+    // Host and vault were confirmed reachable/unlocked just above; this is a
+    // separate, likely-transient failure. Don't reuse renderHostMissingState()
+    // here — it would falsely claim the host isn't registered.
+    setMarkDim(false);
+    clearBody();
+    bodyElement.appendChild(
+      renderStatusGrid(
+        { value: "Connected", variant: "ok" },
+        { value: "Unlocked", variant: "ok" }
+      )
+    );
+    bodyElement.appendChild(
+      renderStatusMessage(
+        errorText(queryResponse, "Unable to load matches for this page. Try again."),
+        true
+      )
+    );
+    const actions = el("div", "action-row");
+    const tryAgain = el("button", "secondary-pill-btn", "Try again");
+    tryAgain.type = "button";
+    tryAgain.addEventListener("click", () => void initializePopup());
+    actions.appendChild(tryAgain);
+    bodyElement.appendChild(actions);
+    return;
+  }
+
+  void renderMatchesState(tab, origin, queryResponse);
 }
 
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initializePopup, { once: true });
+  document.addEventListener("DOMContentLoaded", () => void initializePopup(), { once: true });
 } else {
-  initializePopup();
+  void initializePopup();
 }

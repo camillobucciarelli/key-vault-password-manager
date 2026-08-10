@@ -113,10 +113,32 @@ void main() {
     });
 
     testWidgets(
-      'Settings destination shows the Backups screen at mobile width',
+      // spec-006 T1: Settings used to alias to the Backups screen (a
+      // spec-005 stopgap before Settings had its own content) — it now
+      // shows the real Settings destination, and Backups is reached one
+      // level deeper via its "Backups & import" row.
+      'Settings destination shows real settings content at mobile width',
       (tester) async {
         await pumpAtWidth(tester, 390);
         await tester.tap(find.text('Settings'));
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(find.text('Change master password'), findsOneWidget);
+        expect(find.text('Biometric protection'), findsOneWidget);
+        expect(find.text('Import from CSV'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      '"Backups & import" row still reaches the Backups screen',
+      (tester) async {
+        await pumpAtWidth(tester, 390);
+        await tester.tap(find.text('Settings'));
+        await tester.pumpAndSettle();
+
+        await tester.ensureVisible(find.text('Backups & import'));
+        await tester.tap(find.text('Backups & import'));
         await tester.pumpAndSettle();
 
         expect(tester.takeException(), isNull);

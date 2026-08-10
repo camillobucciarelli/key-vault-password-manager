@@ -15,6 +15,7 @@ zip -X "${OUT_FILE}" \
   popup.html \
   popup.js \
   popup.css \
+  tokens.css \
   README.md \
   icons/icon-16.png \
   icons/icon-32.png \

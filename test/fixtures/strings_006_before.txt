@@ -1,0 +1,67 @@
+# spec-006 T0/T8/AC2 — copy preservation snapshot, pre-restyle.
+#
+# IMPORTANT deviation from tasks.md's literal wording: tasks.md/spec.md claim
+# browser_setup_screen.dart already contains "Carica l'estensione beta",
+# "Registra Native Messaging Host", "Ho fatto", "Estensione caricata ✓",
+# "Incolla". A full-file read + `grep` across lib/ before this spec's changes
+# found ZERO occurrences of any of those five strings anywhere in the repo.
+# The real current screen implements a different, more advanced distribution
+# model (Chrome Web Store listing with a fixed extension id +
+# BrowserSetupService.installNativeHost() one-click automated installer),
+# not the mock's "unpacked beta extension + paste id + copy terminal
+# command" model. Flagged to the human via `mcp_Question`; decision was to
+# restyle only (keep the real flow/copy, do not introduce the mock's five
+# strings). This fixture therefore snapshots the REAL pre-restyle literals
+# so T8's restyle cannot silently change them, instead of the five strings
+# named in tasks.md (which do not exist to preserve).
+#
+# Same convention as strings_003/004/005_before.txt: interpolated literals
+# are recorded as their fixed surrounding segments.
+
+## browser_setup_screen.dart
+
+Estensione browser desktop
+Estensione Chrome
+Installa l\'estensione e collegala a KeyVault
+Impossibile aprire Chrome Web Store. Riprova.
+Installa l\'estensione
+Apri Chrome Web Store e installa l\'estensione KeyVault.
+Apertura in corso…
+Apri Chrome Web Store
+Apri il pacchetto scaricato, completa l’installazione e riavvia Chrome.
+Impossibile scaricare Chrome Support per macOS.
+Collega Chrome a KeyVault
+Scarica e installa il componente Chrome Support firmato per macOS.
+Configura automaticamente il collegamento sicuro con Chrome.
+Installer Chrome non disponibile in questa versione di KeyVault.
+Configurazione in corso…
+Scarica Chrome Support
+Configura Chrome
+Chrome configurato. Riavvia Chrome e verifica la connessione.
+Configurazione Chrome non valida. Aggiorna KeyVault e riprova.
+Configurazione automatica di Chrome non supportata su questa piattaforma.
+Configurazione Chrome non riuscita. Riprova o reinstalla KeyVault.
+Verifica la connessione
+Sblocca il vault e tieni KeyVault aperto, poi verifica che il bridge app sia pronto.
+Verifica in corso…
+Sblocca il vault in KeyVault e riprova.
+Bridge non raggiungibile. Riavvia KeyVault, sblocca il vault e riprova.
+Collegamento non disponibile. Blocca e sblocca il vault, poi riprova.
+Ultimo controllo: riavvia Chrome e apri il popup KeyVault. La voce Host deve risultare Available.
+KeyVault è pronto per collegarsi all\'estensione Chrome.
+
+## vault_navigation.part.dart (settings / master-password)
+
+Database settings
+Database file name
+Biometric protection
+Lock on inactivity
+Change master password
+Current master password
+New master password
+Confirm new password
+Confirm security changes
+Confirm and apply
+Save changes
+New password is required.
+Passwords do not match.
