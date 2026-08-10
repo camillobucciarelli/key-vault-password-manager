@@ -387,7 +387,7 @@ function renderLockedState() {
   warning.appendChild(p);
   bodyElement.appendChild(warning);
 
-  const open = el("button", "primary-pill-btn", "Open KeyVault");
+  const open = el("button", "primary-pill-btn", "Refresh status");
   open.type = "button";
   open.style.width = "100%";
   open.addEventListener("click", () => void initializePopup());
@@ -651,7 +651,29 @@ async function initializePopup() {
   });
 
   if (!queryResponse?.ok) {
-    renderHostMissingState();
+    // Host and vault were confirmed reachable/unlocked just above; this is a
+    // separate, likely-transient failure. Don't reuse renderHostMissingState()
+    // here — it would falsely claim the host isn't registered.
+    setMarkDim(false);
+    clearBody();
+    bodyElement.appendChild(
+      renderStatusGrid(
+        { value: "Connected", variant: "ok" },
+        { value: "Unlocked", variant: "ok" }
+      )
+    );
+    bodyElement.appendChild(
+      renderStatusMessage(
+        errorText(queryResponse, "Unable to load matches for this page. Try again."),
+        true
+      )
+    );
+    const actions = el("div", "action-row");
+    const tryAgain = el("button", "secondary-pill-btn", "Try again");
+    tryAgain.type = "button";
+    tryAgain.addEventListener("click", () => void initializePopup());
+    actions.appendChild(tryAgain);
+    bodyElement.appendChild(actions);
     return;
   }
 
