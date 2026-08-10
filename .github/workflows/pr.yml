@@ -33,14 +33,14 @@ jobs:
       - run: flutter test
 
   dependency-audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6.0.2
-
-      - uses: google/osv-scanner-action/osv-scanner-action@v2.2.5
-        with:
-          scan-args: |-
-            --lockfile=pubspec.lock
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@v2.5.0
+    with:
+      scan-args: |-
+        --lockfile=pubspec.lock
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
 
   secret-scan:
     runs-on: ubuntu-latest
