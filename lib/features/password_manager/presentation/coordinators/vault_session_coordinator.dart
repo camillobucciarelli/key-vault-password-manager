@@ -244,6 +244,12 @@ class VaultSessionCoordinator {
     KdbxCredentialChange? credentialChange;
     try {
       if (request.changePassword || keyFileChanged) {
+        // spec-006 T3 / constitution VII: master-password (and key-file)
+        // changes re-encrypt the whole file, so a dated local copy is kept
+        // *in addition to* `beginCredentialChange`'s own transient rollback
+        // `.bak` (which is deleted on success). This one is never deleted
+        // automatically — it is the durable "you can always go back" copy.
+        await _writeDatedPreRekeyBackup(effectivePath);
         credentialChange = await vaultKdbxService.beginCredentialChange(
           databasePath: effectivePath,
           currentPassword: currentPassword!,
@@ -340,6 +346,41 @@ class VaultSessionCoordinator {
         await secureDataSource.saveMasterPassword(password);
       }
     } catch (_) {}
+  }
+
+  /// spec-006 T3 / constitution VII ("Destructive and irreversible
+  /// operations ask first and back up"): writes a dated, kept-forever copy
+  /// of the current `.kdbx` bytes next to the database before a
+  /// master-password or key-file re-key, so the pre-change file is always
+  /// recoverable even after the re-key succeeds. Same dated-suffix
+  /// convention as spec-008's `.pre-merge.kdbx` backups
+  /// (`<name>.<yyyyMMdd-HHmmss-ffffff>.pre-rekey.kdbx`). Best-effort: a
+  /// failure here must not block the credential change itself, since the
+  /// transient rollback `.bak` written by `beginCredentialChange` already
+  /// covers crash-safety for the write.
+  Future<void> _writeDatedPreRekeyBackup(String databasePath) async {
+    try {
+      final source = File(databasePath);
+      if (!await source.exists()) {
+        return;
+      }
+      final now = DateTime.now();
+      String two(int value) => value.toString().padLeft(2, '0');
+      final stamp =
+          '${now.year}${two(now.month)}${two(now.day)}-'
+          '${two(now.hour)}${two(now.minute)}${two(now.second)}-'
+          '${now.microsecond.toString().padLeft(6, '0')}';
+      final directory = p.dirname(databasePath);
+      final baseName = p.basenameWithoutExtension(databasePath);
+      final extension = p.extension(databasePath);
+      final backupPath = p.join(
+        directory,
+        '$baseName.$stamp.pre-rekey$extension',
+      );
+      await source.copy(backupPath);
+    } catch (_) {
+      // Best-effort — see doc comment.
+    }
   }
 
   Future<DatabaseRecord?> _findRecordByPath(String databasePath) async {

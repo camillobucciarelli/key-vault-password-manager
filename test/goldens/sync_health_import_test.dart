@@ -745,6 +745,11 @@ void main() {
 
     await _tapDestination(tester, 'Settings');
     await tester.pumpAndSettle();
+    // spec-006 T1: Settings no longer aliases to Backups — it's a row
+    // ("Backups & import") one level inside the real Settings screen now.
+    await tester.ensureVisible(find.text('Backups & import'));
+    await tester.tap(find.text('Backups & import'));
+    await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
     await expectLater(

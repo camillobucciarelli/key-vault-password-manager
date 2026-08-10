@@ -4,41 +4,19 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>KeyVault Autofill</title>
+    <link rel="stylesheet" href="tokens.css" />
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <main>
-      <h1>KeyVault Autofill</h1>
-
-      <p class="hint">
-        Native Messaging v2 uses app-published metadata. Passwords are revealed only after clicking Fill on an exact strong match.
-      </p>
-
-      <section class="status-grid" aria-live="polite">
-        <article class="status-card">
-          <span class="status-label">Native host</span>
-          <strong id="hostStatus">Not checked</strong>
-        </article>
-        <article class="status-card">
-          <span class="status-label">App / vault bridge</span>
-          <strong id="appStatus">Not connected</strong>
-        </article>
-      </section>
-
-      <button id="statusButton" type="button">Check host status</button>
-      <button id="queryButton" type="button">Find current site</button>
-
-      <label class="search-label" for="searchInput">Global metadata search</label>
-      <div class="search-row">
-        <input id="searchInput" type="search" autocomplete="off" spellcheck="false" placeholder="Search title, user, service" />
-        <button id="searchButton" type="button">Search</button>
-      </div>
-      <p id="status" class="status"></p>
-
-      <section>
-        <h2>Matches</h2>
-        <div id="results" class="results"></div>
-      </section>
+    <header class="pop-header">
+      <img id="mark" class="pop-mark" src="icons/icon-32.png" alt="KeyVault" width="22" height="22" />
+      <span class="pop-title">KeyVault Autofill</span>
+      <span class="pop-beta">beta</span>
+    </header>
+    <main id="popupBody" class="pop-body" aria-live="polite">
+      <!-- Rendered by popup.js: status cards, current-tab row, matches,
+           search field and footer note all change shape per state
+           (matches / app locked / host not found / possible-only). -->
     </main>
     <script src="popup.js"></script>
   </body>
