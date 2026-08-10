@@ -18,7 +18,7 @@ jobs:
       build_number: ${{ steps.bump.outputs.build_number }}
       tag: ${{ steps.bump.outputs.tag }}
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
         with:
           token: ${{ secrets.RELEASE_PAT }}
 
@@ -48,7 +48,7 @@ jobs:
     needs: version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.version.outputs.tag }}
 
@@ -85,7 +85,7 @@ jobs:
     needs: version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.version.outputs.tag }}
 
@@ -120,7 +120,7 @@ jobs:
     needs: version
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.version.outputs.tag }}
 
@@ -159,7 +159,7 @@ jobs:
     runs-on: self-hosted
     environment: app-store-ios
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.version.outputs.tag }}
 
@@ -186,7 +186,7 @@ jobs:
     needs: version
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.version.outputs.tag }}
 
@@ -252,7 +252,7 @@ jobs:
     runs-on: self-hosted
     environment: app-store-macos
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.version.outputs.tag }}
 
@@ -284,7 +284,7 @@ jobs:
     needs: version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.version.outputs.tag }}
 
@@ -387,7 +387,7 @@ jobs:
     needs: version
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.version.outputs.tag }}
 
