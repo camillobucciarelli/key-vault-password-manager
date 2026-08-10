@@ -646,9 +646,8 @@ class _NativeHostCommandBlockState extends State<_NativeHostCommandBlock> {
     await Clipboard.setData(ClipboardData(text: widget.command));
     if (!mounted) return;
     setState(() => _copied = true);
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) setState(() => _copied = false);
-    });
+    await Future.delayed(const Duration(seconds: 2));
+    if (mounted) setState(() => _copied = false);
   }
 
   @override
