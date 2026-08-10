@@ -27,7 +27,7 @@ dependencies:
   mobile_scanner: ^7.2.0
   oauth2: ^2.0.5
   path: ^1.9.1
-  path_provider: ^2.1.5
+  path_provider: ^2.1.6
   shared_preferences: ^2.5.5
   stream_transform: ^2.1.1
   url_launcher: ^6.3.2
