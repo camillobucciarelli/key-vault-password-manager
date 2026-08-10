@@ -20,6 +20,7 @@ import 'package:password_manager/features/password_manager/presentation/bloc/dat
 import 'package:password_manager/features/password_manager/presentation/bloc/database_selection/database_selection_event.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/database_unlock/database_unlock_bloc.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/database_session_coordinator.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/otpauth_deep_link_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/screens/create_database_screen.dart';
 import 'package:password_manager/features/password_manager/presentation/screens/database_selection_screen.dart';
 import 'package:password_manager/features/password_manager/presentation/screens/database_unlock_screen.dart';
@@ -71,6 +72,14 @@ DatabaseTestHarness _buildHarness() {
   );
 
   di.sl.registerLazySingleton<DatabaseSessionCoordinator>(() => coordinator);
+  // `DatabaseUnlockScreen` navigates to `VaultScreen` on a successful
+  // unlock (`state.unlocked`), and `VaultScreen`'s shell resolves
+  // `OtpAuthDeepLinkCoordinator` via `di.sl` in `initState` (matches
+  // production `injection_container.dart`) — register it here so any pump
+  // helper that drives a real unlock success doesn't crash resolving it.
+  di.sl.registerLazySingleton<OtpAuthDeepLinkCoordinator>(
+    () => OtpAuthDeepLinkCoordinator(),
+  );
   // `DatabaseSelectionScreen` navigates to `DatabaseUnlockScreen` on any
   // `DatabaseSelectionSuccess` (initial open, Locate match, duplicate
   // resolution, create) and that screen resolves its bloc through DI —
