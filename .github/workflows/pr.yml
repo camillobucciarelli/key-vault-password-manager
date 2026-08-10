@@ -1,0 +1,58 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - run: flutter pub get
+      - run: flutter analyze
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - run: flutter pub get
+      # Golden tests excluded: reference PNGs generated on macOS (dev
+      # machine); font rasterization differs on Linux CI, producing
+      # false-positive pixel diffs unrelated to logic regressions.
+      # Goldens remain a local pre-push check per AGENTS.md.
+      - run: flutter test $(find test -name '*_test.dart' ! -path 'test/goldens/*')
+
+  dependency-audit:
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@v2.5.0
+    with:
+      scan-args: |-
+        --lockfile=pubspec.lock
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
