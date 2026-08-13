@@ -289,11 +289,15 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  void clearTabMatchCount(tabId);
+  void clearTabMatchCount(tabId).catch(() => {});
 });
 
-chrome.runtime.onStartup.addListener(() => void refreshActiveTabBadge());
-chrome.runtime.onInstalled.addListener(() => void refreshActiveTabBadge());
+chrome.runtime.onStartup.addListener(() =>
+  void refreshActiveTabBadge().catch(() => {})
+);
+chrome.runtime.onInstalled.addListener(() =>
+  void refreshActiveTabBadge().catch(() => {})
+);
 
 // ---------------------------------------------------------------------------
 
