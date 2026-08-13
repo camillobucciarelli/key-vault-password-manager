@@ -273,16 +273,18 @@ async function refreshActiveTabBadge() {
 // listeners fire without it (only sensitive fields like tab.url would be
 // filtered, and this file never reads tab.url — it only ever uses tabId).
 chrome.tabs.onActivated.addListener(({ tabId }) => {
-  void refreshBadgeForTab(tabId);
+  void refreshBadgeForTab(tabId).catch(() => {});
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === "loading") {
     // Navigation invalidates any cached match count for this tab — show
     // the safe "unknown" (no-badge) state rather than a stale count.
-    void clearTabMatchCount(tabId).then(() => refreshBadgeForTab(tabId));
+    void clearTabMatchCount(tabId)
+      .then(() => refreshBadgeForTab(tabId))
+      .catch(() => {});
   } else if (changeInfo.status === "complete") {
-    void refreshBadgeForTab(tabId);
+    void refreshBadgeForTab(tabId).catch(() => {});
   }
 });
 

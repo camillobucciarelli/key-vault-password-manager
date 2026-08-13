@@ -399,7 +399,7 @@ class DatabaseImportService implements DatabaseFileRepository {
         return normalized;
       }
 
-      return MobileFileStorage.copyFileToAppDirectory(
+      return await MobileFileStorage.copyFileToAppDirectory(
         sourcePath: normalized,
         fallbackFileName: p.basename(normalized),
         subdirectory: 'keys',
