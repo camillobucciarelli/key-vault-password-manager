@@ -217,7 +217,7 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
         if (databasePath.trim().isEmpty) {
           return const SizedBox.shrink();
         }
-        _ensureLoaded(databasePath);
+        unawaited(_ensureLoaded(databasePath));
 
         return SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
