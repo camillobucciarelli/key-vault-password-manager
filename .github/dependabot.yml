@@ -4,6 +4,9 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    ignore:
+      - dependency-name: "file_picker"
+        versions: ["12.0.0-beta.*"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
