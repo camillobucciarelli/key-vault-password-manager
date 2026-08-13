@@ -444,7 +444,7 @@ class VaultSessionCoordinator {
       }
 
       final keyBytes = await File(normalized).readAsBytes();
-      return MobileFileStorage.saveBytesToAppDirectory(
+      return await MobileFileStorage.saveBytesToAppDirectory(
         bytes: Uint8List.fromList(keyBytes),
         fileName: p.basename(normalized),
         subdirectory: 'keys',
