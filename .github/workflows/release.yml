@@ -148,7 +148,7 @@ jobs:
           echo "archive_dir=$(dirname "${archive[0]}")" >> "$GITHUB_OUTPUT"
 
       - name: Upload xcarchive artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ios-xcarchive
           path: ${{ steps.locate.outputs.archive_dir }}/Runner-ios.xcarchive
@@ -241,7 +241,7 @@ jobs:
           tar -czf dist/macos-xcarchive.tar.gz -C "$(dirname "${archive[0]}")" "Runner.xcarchive"
 
       - name: Upload xcarchive artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-xcarchive
           path: dist/macos-xcarchive.tar.gz
@@ -311,7 +311,7 @@ jobs:
           files: desktop/browser_extension/dist/keyvault-browser-extension.zip
 
       - name: Upload extension zip artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: chrome-extension-zip
           path: desktop/browser_extension/dist/keyvault-browser-extension.zip
