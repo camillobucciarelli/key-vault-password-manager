@@ -220,6 +220,74 @@ void main() {
       expect(_validateArtifact(artifact), isNotEmpty);
       expect(_qualifiedPlatforms(artifact), isEmpty);
     });
+
+    // A Gate 1 harness can be killed mid-write, so the artifact on disk is not
+    // guaranteed to be parseable JSON at all. That must read as a violation,
+    // not as an exception out of `jsonDecode`.
+    test('a truncated artifact fails with a readable reason', () {
+      final status = _statusFromArtifactJson('{"platform": "linux", "cas');
+      expect(status.status, 'failed');
+      expect(status.featureEnabled, isFalse);
+      expect(status.reason, contains('not valid JSON'));
+    });
+
+    test('a non-JSON artifact fails with a readable reason', () {
+      final status = _statusFromArtifactJson('harness crashed: signal 9');
+      expect(status.status, 'failed');
+      expect(status.featureEnabled, isFalse);
+      expect(status.reason, contains('not valid JSON'));
+    });
+
+    test('an empty artifact fails with a readable reason', () {
+      final status = _statusFromArtifactJson('');
+      expect(status.status, 'failed');
+      expect(status.featureEnabled, isFalse);
+      expect(status.reason, contains('not valid JSON'));
+    });
+
+    // Valid JSON that is not an object: the old cast blew up on these too.
+    test('a JSON list artifact fails with a readable reason', () {
+      final status = _statusFromArtifactJson('[{"platform": "linux"}]');
+      expect(status.status, 'failed');
+      expect(status.featureEnabled, isFalse);
+      expect(status.reason, contains('must be a JSON object'));
+    });
+
+    test('a JSON scalar artifact fails with a readable reason', () {
+      for (final source in const ['42', '"passed"', 'true', 'null']) {
+        final status = _statusFromArtifactJson(source);
+        expect(status.status, 'failed', reason: source);
+        expect(status.featureEnabled, isFalse, reason: source);
+        expect(
+          status.reason,
+          contains('must be a JSON object'),
+          reason: source,
+        );
+      }
+    });
+
+    test('a schema-violating artifact fails with a readable reason', () {
+      final artifact = _sampleArtifact()..remove('flutterVersion');
+      final status = _statusFromArtifactJson(jsonEncode(artifact));
+      expect(status.status, 'failed');
+      expect(status.featureEnabled, isFalse);
+      expect(status.reason, contains('flutterVersion'));
+    });
+
+    test('a well-formed non-passing artifact reports its status', () {
+      final artifact = _sampleArtifact()..['status'] = 'failed';
+      final status = _statusFromArtifactJson(jsonEncode(artifact));
+      expect(status.status, 'failed');
+      expect(status.featureEnabled, isFalse);
+      expect(status.reason, contains('not passed'));
+    });
+
+    test('a well-formed passing artifact enables its platform', () {
+      final status = _statusFromArtifactJson(jsonEncode(_sampleArtifact()));
+      expect(status.status, 'passed');
+      expect(status.featureEnabled, isTrue);
+      expect(status.reason, isNull);
+    });
   });
 }
 
@@ -280,9 +348,16 @@ String _artifactPath(String platform) =>
     'build/safety-evidence/$platform/safe-vault-writer.json';
 
 class _PlatformStatus {
-  const _PlatformStatus(this.status, {required this.featureEnabled});
+  const _PlatformStatus(
+    this.status, {
+    required this.featureEnabled,
+    this.reason,
+  });
   final String status;
   final bool featureEnabled;
+
+  /// Why the artifact was rejected; `null` when there is nothing to report.
+  final String? reason;
 }
 
 /// Gate 0 state: nothing has been executed on any target, so every platform is
@@ -293,10 +368,50 @@ _PlatformStatus _platformStatus(String platform) {
   if (!file.existsSync()) {
     return const _PlatformStatus('not-run', featureEnabled: false);
   }
-  final artifact = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
-  final valid = _validateArtifact(artifact).isEmpty;
-  final passed = valid && artifact['status'] == 'passed';
-  return _PlatformStatus(passed ? 'passed' : 'failed', featureEnabled: passed);
+  return _statusFromArtifactJson(file.readAsStringSync());
+}
+
+/// Decodes one artifact payload into a platform status.
+///
+/// Malformed input must come back as a readable `failed`, never as a stack
+/// trace — same rule `_validateArtifact` already applies to type violations.
+/// In Gate 1 T111 these files are written by real harnesses on five platforms,
+/// where a truncated or half-flushed artifact is a concrete outcome: a crash
+/// here would hide the very evidence the gate exists to collect.
+_PlatformStatus _statusFromArtifactJson(String source) {
+  final Object? decoded;
+  try {
+    decoded = jsonDecode(source);
+  } on FormatException catch (error) {
+    return _PlatformStatus(
+      'failed',
+      featureEnabled: false,
+      reason: 'artifact is not valid JSON: ${error.message}',
+    );
+  }
+  if (decoded is! Map<String, dynamic>) {
+    return _PlatformStatus(
+      'failed',
+      featureEnabled: false,
+      reason: 'artifact root must be a JSON object, got ${decoded.runtimeType}',
+    );
+  }
+  final violations = _validateArtifact(decoded);
+  if (violations.isNotEmpty) {
+    return _PlatformStatus(
+      'failed',
+      featureEnabled: false,
+      reason: 'schema violations: ${violations.join('; ')}',
+    );
+  }
+  if (decoded['status'] != 'passed') {
+    return _PlatformStatus(
+      'failed',
+      featureEnabled: false,
+      reason: 'artifact status is ${decoded['status']}, not passed',
+    );
+  }
+  return const _PlatformStatus('passed', featureEnabled: true);
 }
 
 /// Which platforms a single artifact is allowed to enable: at most its own.

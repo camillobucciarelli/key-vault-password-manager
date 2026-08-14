@@ -585,6 +585,6 @@ closing them is Gate 1 work, outside the Phase 0 scope.
 
 | Gate | Status | Reviewer | Date | Notes |
 | --- | --- | --- | --- | --- |
-| Gate 0 T001–T008 | `failed` | — | 2026-08-13 | T001–T004, T006–T008 pass; T005 partial. **B1 + B2 open. Domain freeze forbidden.** |
+| Gate 0 T001–T008 | `failed` | — | 2026-08-13 | T001–T004, T006–T008 pass; T005 partial. **One blocker open: B1. Domain freeze forbidden.** (B2 was also listed on this date; withdrawn on review — see C2 and the row below.) |
 | Gate 0 T001–T008 (post-review) | `failed` | independent review | 2026-08-14 | Verdict unchanged: **NO-GO**. B2 declassed (not a blocker), R2 closed. **One blocker remains: B1.** Domain freeze still forbidden. |
 | Gate 1 writer/mutex/platform evidence | `not-run` | — | — | All platforms disabled |
