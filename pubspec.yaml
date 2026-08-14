@@ -41,8 +41,9 @@ dev_dependencies:
   plugin_platform_interface: ^2.1.8
   # Used only by the C-7 import gate test
   # (test/.../database_session_coordinator_imports_test.dart).
-  # Do NOT raise to ^14: analyzer 14 requires meta ^1.18.3 while flutter_test
-  # from the pinned Flutter SDK pins meta 1.18.0, which makes `pub get` fail.
+  # Do NOT raise to ^14 without checking `flutter pub get` still resolves:
+  # analyzer 14 needs meta ^1.18.3, while flutter_test from the Flutter
+  # channel in use (.fvmrc: stable) currently pins meta 1.18.0.
   analyzer: ^13.0.0
 
 flutter:
