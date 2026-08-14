@@ -4,33 +4,48 @@ Ordered gates. Later phase cannot start until prior gate exit passes.
 
 ## Phase 0 — Feasibility and report (blocking)
 
-- [ ] **T001 KDBX semantic matrix** — generated KDBX 3/4 cases covering every
+> **Gate 0 executed 2026-08-13 on `feat/008-merge-gate0`, corrected after
+> independent review 2026-08-14 — verdict NO-GO.**
+> T001–T004 and T006–T008 pass; **T005 is partial**. **One** blocker keeps the
+> feature disabled and forbids T201/domain freeze:
+> **B1** server-enforced Drive conditional upload is unproven — the Drive REST
+> v3 `files.update` reference documents no precondition and the v3 `File`
+> resource has no `etag`. The transport is not the obstacle: Drive is called via
+> a raw `http.Client`, so `If-Match` can be sent; it never has been, and only a
+> live-network spike can settle it.
+> Previously listed as B2 (entry colors) and R2 (entry auto-type): **both
+> closed**. Their values round-trip through the exported `KdbxNode.node`.
+> Full evidence: `specs/008-per-field-conflict-resolution/feasibility-report.md`,
+> section "Post-review corrections".
+
+- [x] **T001 KDBX semantic matrix** — generated KDBX 3/4 cases covering every
       installed-library-supported fidelity category: hierarchy/moves, recycle
       bin/tombstones, history, protected custom fields, exact attachment bytes/
       protection, custom data/icons, metadata/settings and header/KDF settings.
-- [ ] **T002 Credential round-trip** — password-only and password+key-file
+- [x] **T002 Credential round-trip** — password-only and password+key-file
       save/reopen semantic parity; no byte-equality criterion.
-- [ ] **T003 Adapter mutation spike** — import one-sided record/group/custom field/
+- [x] **T003 Adapter mutation spike** — import one-sided record/group/custom field/
       attachment and choose one real conflict without changing unrelated manifest.
-- [ ] **T004 Tombstone/lineage spike** — inspect/re-emit deletion evidence and
+- [x] **T004 Tombstone/lineage spike** — inspect/re-emit deletion evidence and
       compare root UUID before diff. Spike pre-diff rejection for duplicate entry,
       duplicate group, group-entry collision, nil live UUID and cross-side kind
       mismatch. Prove no call to unfinished `KdbxFile.merge`.
-- [ ] **T005 Drive conditional spike** — prove server token and stale conditional
-      rejection; distinguish HTTP rejection from timeout after request dispatch.
-- [ ] **T006 Filesystem harness spike** — define portable failure/interruption
+- [~] **T005 Drive conditional spike** — PARTIAL. HTTP-rejection vs
+      timeout-after-dispatch classification proven against a fake transport;
+      server-enforced token NOT proven (blocker B1, needs live-network spike).
+- [x] **T006 Filesystem harness spike** — define portable failure/interruption
       harness and artifact schema for backup/flush/replace semantics.
-- [ ] **T007 Writer/path discovery** — scan current feature for `File.write*`,
+- [x] **T007 Writer/path discovery** — scan current feature for `File.write*`,
       `rename`, `copy`, `delete`, staged commits and service mutations; reconcile
       every result with plan inventory.
-- [ ] **T008 Gate report** — populate
+- [x] **T008 Gate report** — populate
       `specs/008-per-field-conflict-resolution/feasibility-report.md` with KDBX
       support matrix, unsupported detector, Drive token/outcome rules, complete
       writer inventory, path identity design, artifact schema and per-platform
       `not-run|passed|failed|disabled` status/feature flags. Gate 0 may leave target
       artifacts `not-run` and disabled; Gate 1 produces evidence.
 
-**Gate 0 exit**: **T001–T008** pass. T008 is mandatory before T201/domain freeze.
+**Gate 0 exit**: **T001–T008** pass. **NOT MET** — see banner above. T008 is mandatory before T201/domain freeze.
 Unavailable conditional upload or fidelity gap blocks Gate 0. Platform evidence
 may remain `not-run` only with target disabled; Gate 1 T111 must pass before that
 target enables.
@@ -39,6 +54,7 @@ target enables.
 flutter test test/features/password_manager/data/services/vault_kdbx_service_test.dart --plain-name "merge feasibility"
 flutter test test/features/password_manager/data/services/google_drive_api_service_test.dart --plain-name "conditional update"
 flutter test test/features/password_manager/data/services/database_writer_inventory_test.dart --plain-name "inventory baseline"
+flutter test test/features/password_manager/data/services/safe_vault_file_writer_harness_schema_test.dart
 ```
 
 ## Phase 1 — All-writer serialization and filesystem safety
