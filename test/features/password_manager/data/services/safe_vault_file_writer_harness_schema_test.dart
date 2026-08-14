@@ -125,6 +125,57 @@ void main() {
         );
       }
     });
+
+    // A Gate 1 artifact can arrive corrupted or truncated from any of the five
+    // target platforms. The validator's contract is to *return* violations, so
+    // a wrong type must read as a schema error, never as a thrown cast.
+    test('artifact with a non-string provenance field is rejected', () {
+      for (final field in const ['commit', 'command', 'logPath']) {
+        final artifact = _sampleArtifact()..[field] = 42;
+        expect(
+          () => _validateArtifact(artifact),
+          returnsNormally,
+          reason: '$field must not throw when it is not a string',
+        );
+        expect(
+          _validateArtifact(artifact),
+          contains('field must be a string: $field'),
+        );
+      }
+    });
+
+    test('artifact whose cases is not a list is rejected', () {
+      final artifact = _sampleArtifact()..['cases'] = 'not-a-list';
+      expect(() => _validateArtifact(artifact), returnsNormally);
+      expect(_validateArtifact(artifact), contains('cases must be a list'));
+    });
+
+    test('artifact with a non-object case entry is rejected', () {
+      // `jsonDecode` yields `List<dynamic>`, so a non-map element is a real
+      // shape a Gate 1 artifact can arrive in.
+      final artifact = _sampleArtifact()
+        ..['cases'] = <dynamic>['not-an-object'];
+      expect(() => _validateArtifact(artifact), returnsNormally);
+      expect(
+        _validateArtifact(artifact),
+        contains('cases[0] must be an object'),
+      );
+    });
+
+    test('artifact with a non-string case name is rejected', () {
+      final artifact = _sampleArtifact();
+      ((artifact['cases']! as List)[0] as Map)['name'] = 7;
+      expect(() => _validateArtifact(artifact), returnsNormally);
+      expect(
+        _validateArtifact(artifact),
+        contains('cases[0] name must be a string'),
+      );
+    });
+
+    test('a malformed artifact enables nothing', () {
+      final artifact = _sampleArtifact()..['cases'] = 'not-a-list';
+      expect(_qualifiedPlatforms(artifact), isEmpty);
+    });
   });
 
   group('harness platform status', () {
@@ -272,6 +323,30 @@ List<String> _validateArtifact(Map<String, dynamic> artifact) {
     return errors;
   }
 
+  // Type checks before any cast. A truncated or corrupted artifact must come
+  // back as a readable schema violation, never as a stack trace.
+  for (final field in const ['commit', 'command', 'logPath']) {
+    if (artifact[field] is! String) {
+      errors.add('field must be a string: $field');
+    }
+  }
+  final rawCases = artifact['cases'];
+  if (rawCases is! List) {
+    errors.add('cases must be a list');
+  } else {
+    for (var i = 0; i < rawCases.length; i++) {
+      final entry = rawCases[i];
+      if (entry is! Map) {
+        errors.add('cases[$i] must be an object');
+      } else if (entry['name'] is! String) {
+        errors.add('cases[$i] name must be a string');
+      }
+    }
+  }
+  if (errors.isNotEmpty) {
+    return errors;
+  }
+
   if (artifact['schemaVersion'] != 1) {
     errors.add('unsupported schemaVersion: ${artifact['schemaVersion']}');
   }
@@ -292,8 +367,8 @@ List<String> _validateArtifact(Map<String, dynamic> artifact) {
 
   final cases = artifact['cases']! as List;
   final byName = <String, Map<String, dynamic>>{
-    for (final entry in cases.cast<Map<String, dynamic>>())
-      entry['name']! as String: entry,
+    for (final entry in cases.cast<Map<Object?, Object?>>())
+      entry['name']! as String: Map<String, dynamic>.from(entry),
   };
   for (final required in _requiredHarnessCases) {
     if (!byName.containsKey(required)) {
