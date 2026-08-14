@@ -172,6 +172,31 @@ void main() {
       );
     });
 
+    test('artifact with duplicate case names is rejected', () {
+      // A re-run harness that concatenates its output is the realistic source:
+      // without this violation the second copy overwrites the first, and the
+      // required-case check still passes while the first copy is never read.
+      final artifact = _sampleArtifact();
+      final cases = artifact['cases']! as List;
+      final duplicated = Map<String, dynamic>.from(
+        cases.first as Map<String, dynamic>,
+      )..['passed'] = false;
+      artifact['cases'] = [...cases, duplicated];
+
+      expect(() => _validateArtifact(artifact), returnsNormally);
+      expect(
+        _validateArtifact(artifact),
+        contains('duplicate case name: ${_requiredHarnessCases.first}'),
+      );
+    });
+
+    test('a duplicate-case artifact enables nothing', () {
+      final artifact = _sampleArtifact();
+      final cases = artifact['cases']! as List;
+      artifact['cases'] = [...cases, cases.first];
+      expect(_qualifiedPlatforms(artifact), isEmpty);
+    });
+
     test('a malformed artifact enables nothing', () {
       final artifact = _sampleArtifact()..['cases'] = 'not-a-list';
       expect(_qualifiedPlatforms(artifact), isEmpty);
@@ -480,11 +505,20 @@ List<String> _validateArtifact(Map<String, dynamic> artifact) {
     }
   }
 
+  // Keyed by name so the required-case check is a lookup, but a duplicate name
+  // must NOT silently overwrite: two same-named cases would leave the earlier
+  // one unverified while `missing case:` still passes, letting a concatenated
+  // or re-run harness log enable a platform on half-checked evidence.
   final cases = artifact['cases']! as List;
-  final byName = <String, Map<String, dynamic>>{
-    for (final entry in cases.cast<Map<Object?, Object?>>())
-      entry['name']! as String: Map<String, dynamic>.from(entry),
-  };
+  final byName = <String, Map<String, dynamic>>{};
+  for (final entry in cases.cast<Map<Object?, Object?>>()) {
+    final name = entry['name']! as String;
+    if (byName.containsKey(name)) {
+      errors.add('duplicate case name: $name');
+      continue;
+    }
+    byName[name] = Map<String, dynamic>.from(entry);
+  }
   for (final required in _requiredHarnessCases) {
     if (!byName.containsKey(required)) {
       errors.add('missing case: $required');

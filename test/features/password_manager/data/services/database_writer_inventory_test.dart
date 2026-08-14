@@ -23,7 +23,7 @@ void main() {
     late Map<String, List<String>> discovered;
 
     setUpAll(() {
-      discovered = _scanWriters();
+      discovered = _discoveredWriters;
     });
 
     test('every filesystem writer is accounted for', () {
@@ -141,7 +141,7 @@ void main() {
     late Map<String, List<String>> discovered;
 
     setUpAll(() {
-      discovered = _scanWriters();
+      discovered = _discoveredWriters;
     });
 
     test('GAP 1: MobileFileStorage is an unlisted database-path writer', () {
@@ -327,6 +327,19 @@ final _nonFilesystem = RegExp(
 /// All of `lib/`: narrowing this to the feature package would let a writer
 /// added to `lib/main.dart` or `lib/injection_container.dart` go unnoticed.
 const _roots = ['lib'];
+
+/// Memoized scan, shared by both groups.
+///
+/// Guard semantics are unchanged: the scan is a pure read of `lib/`, which
+/// cannot change while the run is in flight, so caching only removes a second
+/// identical walk. A new writer still fails the baseline comparison. The view
+/// is unmodifiable so one group can never perturb what the other asserts on.
+///
+/// Top-level `final` is lazily initialized on first access, so the walk still
+/// happens inside the first `setUpAll`, not at import time.
+final Map<String, List<String>> _discoveredWriters = Map.unmodifiable(
+  _scanWriters(),
+);
 
 Map<String, List<String>> _scanWriters() {
   final result = <String, List<String>>{};
