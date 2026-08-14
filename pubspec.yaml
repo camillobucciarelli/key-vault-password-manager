@@ -31,6 +31,10 @@ dependencies:
   shared_preferences: ^2.5.5
   stream_transform: ^2.1.1
   url_launcher: ^6.3.2
+  # Already resolved transitively via `kdbx` at the same version; declared
+  # explicitly because spec 008 reads KDBX constructs the library does not
+  # model (entry colors, entry AutoType) straight off `KdbxNode.node`.
+  xml: ^6.6.1
 
 dev_dependencies:
   flutter_test:
