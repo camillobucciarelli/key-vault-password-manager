@@ -812,18 +812,87 @@ In memory only — no network, no filesystem, no KDBX, no `lib/` dependency. It
 validates the **model** of the FR-7 cycle, not its integration; the integration
 tests remain T4xx, after the gate.
 
-Required properties, each asserted under adversarial multi-device interleavings:
+Required properties. The scope of the enumeration is stated exactly, because
+overstating it is what hid N1 (see below): the model enumerates **2 injection
+points** — inside the race window, and between the write and the verification —
+across **2 concurrent writers**, plus **sequential** scenarios at **3 and 4
+devices** covering every ordering and every association of the merge.
+Interleaved concurrency at three or more writers is **not** enumerated.
 
-| # | Property | Guards |
-| --- | --- | --- |
-| 1 | The cycle reaches a stable state within the declared retry budget | C1, C7 |
-| 2 | No record and no one-sided field is lost, under **every** enumerated interleaving | the founding invariant |
-| 3 | A timestamp tie produces no oscillation, and mirrored perspectives choose the same winner | C4, C4b |
-| 4 | A semantically complete union terminates instead of ping-ponging | C2 |
-| 5 | Explicit user decisions survive a re-merge; a never-seen conflict reopens review | C3 |
-| 6 | A non-executable verification is classified ambiguous, never finalized | C5 |
+| # | Property | Enumeration | Guards |
+| --- | --- | --- | --- |
+| 1 | The cycle reaches a stable state within the declared retry budget | 2 injection points, 2 writers | C1, C7 |
+| 2 | No record and no one-sided field is lost | both injection points; 3-device sequential in all 6 orders; late rejoin | the founding invariant |
+| 3 | A timestamp tie produces no oscillation, and mirrored perspectives choose the same winner | 2 devices, 6 alternating sessions | C4, C4b |
+| 4 | A semantically complete union terminates instead of ping-ponging | single and repeating peer rewrites | C2 |
+| 5 | Explicit user decisions survive a re-merge; a never-seen conflict reopens review | 1 and 2 consecutive divergence rounds | C3 |
+| 6 | A non-executable verification is classified ambiguous, never finalized | first and later read-back | C5 |
+| 7 | The merge is associative, commutative and idempotent | all orderings and associations at 3 and 4 sides, known and unknown timestamps | N1, N3 |
 
 Gate 0 closes when these pass. Nothing else remains open in Gate 0.
+
+### Second-pass review (2026-08-17)
+
+A second independent review confirmed C1, C2, C3, C5, C6 and C7 as corrected,
+confirmed C4b, and rejected the amendment on one blocking defect and three
+specification gaps. The blocking defect was found by **running this model at
+three devices**, which the suite did not do.
+
+| # | Severity | Defect | Correction |
+| --- | --- | --- | --- |
+| **N1** | blocking | C4b fixed the *operand order* of the notes concatenation, which is sufficient at two devices and not at three: concatenation is not associative. `(A‖B)‖C = alpha‖zeta‖mike` while `A‖(B‖C) = alpha‖mike‖zeta`. Two devices that merged the same three notes in different orders hold different values → different manifests → the C2 short-circuit stops firing → the next merge concatenates the concatenations and **duplicates user-written text** in the field where recovery codes live. Measured to stabilize rather than livelock, which makes it silent. | `spec.md` FR-3, "Notes are an ordered union of segments": split on the separator, set-union the segments, drop empties, sort by the same total order, rejoin. Associative, commutative and idempotent. AC **15j**. |
+| **N2** | grave | The spec equated "no ledger entry" with "never shown to the user". A user who saw a conflict and **accepted the automatic default** left no entry and was sent back to review forever; and FR-6 never said whether shortcut decisions enter the ledger at all. Neither loop is charged to the retry budget, so review re-entry was unbounded. | FR-7 now declares all three: confirming review records an entry for **every conflict presented**, including defaults accepted; **shortcuts record**, one entry per conflict resolved; a session may re-enter review at most **3 times**, counted separately from the retry budget, after which it ends unresolved with the local merged state and backup retained. |
+| **N3** | grave | FR-3 extended the tie-break to "an unknown timestamp" without saying which timestamp the winner carried, and the model could not express an unknown timestamp at all — so the suite asserted nothing about a case the spec names. Treating unknown as a bare tie makes the relation non-transitive: `A=(t5,"x")`, `B=(unknown,"y")`, `C=(t3,"z")` gives `"z"` one way and `"x"` the other. | FR-3 defines the order over `(modification time, value)`: known beats unknown, then newer wins, then the value order — used on equal known times **and** on two unknowns. The winning side's timestamp travels with the value. `Field.mtime` in the model is now nullable and the case is asserted. AC **15k**. |
+| **N4** | minor | The C2 short-circuit's correctness depends entirely on the canonical manifest being complete, and that dependency was implied by a reference to FR-1 rather than declared. | FR-7 divergence branch item 2 gains an explicit **safety invariant**: every semantic field omitted from the manifest is a field on which a real divergence is finalized in silence; the manifest is defined by exclusion from a closed list, never by a hand-maintained inclusion list. |
+
+Two overclaims in this file were corrected at the same time, because they are
+what allowed N1 to pass unnoticed:
+
+- the T009 property table read *"each asserted under adversarial multi-device
+  interleavings"* and property 2 read *"under **every** enumerated
+  interleaving"*, while the enumeration was 2 injection points across 2 devices.
+  Nothing at three devices existed, and N1 is only visible at three. The table
+  now states the enumeration per property, and names what is **not** enumerated.
+- the same table implied a closed enumeration where the model is a
+  finite hand-written set of scenarios. It is not exhaustive and does not claim
+  to be.
+
+#### Mutation check
+
+Each mutation reverts one correction in the model and the suite is re-run. A
+correction whose only guard is a single assertion on a counter is not guarded.
+Measured with `--reporter json`; the `expanded` reporter truncates its failure
+list at four and understates these counts.
+
+| Mutation | Reverts | Tests killed | Strongest kill |
+| --- | --- | --- | --- |
+| expected base not re-anchored | C1 | **7** | `a writer landing after our write converges in one round` — outcome becomes `staleRemote` |
+| semantic short-circuit removed | C2 | **2** | `a peer that keeps rewriting the same content still finalizes` — outcome becomes `unresolved`, budget fully spent |
+| ledger not consulted | C3 | **2** | `a decision survives two consecutive divergence rounds` — outcome becomes `needsReview` |
+| tie-break → prefer local | C4 | **7** | `two devices that each keep their own value stop the remote moving across sessions` — the remote alternates `alpha`/`beta` forever |
+| notes union → fixed-order binary concatenation | C4b, N1 | **6** | `three devices reach the same remote state in any merge order` — six sync orders yield distinct manifests |
+| non-executable read-back → finalized | C5 | **2** | `a read-back that fails on a later round is ambiguous too` |
+| unknown timestamp treated as a bare tie | N3 | **2** | `an unknown timestamp does not break associativity` |
+
+Two mutations previously killed exactly one weak assertion each and were
+strengthened rather than accepted:
+
+- **C4** was killed only by the pure-function test; the system test
+  `two devices tied converge instead of ping-ponging` **passed** under
+  prefer-local, because the re-syncing device adopted the remote content
+  wholesale and so had nothing left to flip. The new scenario keeps each device
+  holding its own candidate across six alternating sessions — the ordinary case
+  of two phones edited in the same second — and dies under prefer-local.
+- **C2** was killed only by `roundsUsed == 0`: with a single peer write the
+  session finalizes either way and only budget accounting changes. The new
+  scenario has the peer re-serialize the same semantic content after every one
+  of our writes, so without the arbiter the session exhausts the budget and ends
+  `unresolved`. The **outcome** now depends on the short-circuit.
+
+`C5` and `N3` are each killed by two tests covering two distinct paths (first
+versus later read-back; ordering rule versus associativity under it). Their
+guards are narrow because the rules are narrow — each is a single
+classification — and this is recorded as accepted, not overlooked.
 
 ## Post-review corrections (2026-08-14)
 
@@ -858,5 +927,6 @@ closing them is Gate 1 work, outside the Phase 0 scope.
 | Gate 0 T005 live re-spike (B1) | `failed` | — | 2026-08-15 | B1 **measured**: Drive v3 enforces no precondition. 6 decisive probes `200` with remote bytes overwritten; 6 counter-probes exclude every alternative explanation. **Not a blocker**: spec 008 FR-7 rewritten to require only `get` + `put`. |
 | ~~Gate 0 close~~ | ~~`passed`~~ | — | 2026-08-15 | **REVERTED 2026-08-16.** Declared T001–T008 complete and T201 startable. The exit criterion it measured itself against had been rewritten in the same commit, and the mechanism replacing B1 was `not-run`. Struck, not deleted: the reversal is part of the record. |
 | Gate 0 amendment review | `failed` | independent review | 2026-08-16 | **Not validated, rework.** Convergence cycle non-convergent as written: no re-anchor on retry, no semantic arbiter, perspective-dependent tie-break. Five further defects. Gate 0 **reopened**; **T009 added**; T201 and domain freeze **blocked**. Drive `versionHistory` demoted to absent. |
-| Gate 0 T009 convergence model | `not-run` | — | — | **The remaining Gate 0 blocker.** Gate 0 closes when this passes and on no other condition. |
+| Gate 0 amendment review (2nd pass) | `failed` | independent review | 2026-08-17 | C1, C2, C3, C5, C6, C7 and C4b confirmed corrected; 010 validated. **One blocking defect: N1**, the notes concatenation is not associative, found by running the model at three devices. Three specification gaps N2–N4. The T009 enumeration was 2 devices while the report claimed adversarial multi-device coverage — the overclaim that hid N1. |
+| Gate 0 T009 convergence model | `not-run` | — | — | **The remaining Gate 0 blocker.** 28 model assertions pass and every correction is mutation-guarded, but the status stays `not-run` until the PM accepts the gate: a suite declaring itself green is the failure mode this row exists to prevent. Gate 0 closes when this is accepted and on no other condition. |
 | Gate 1 writer/mutex/platform evidence | `not-run` | — | — | All platforms disabled |

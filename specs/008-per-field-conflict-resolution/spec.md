@@ -223,26 +223,43 @@ mismatch.
 Match entries/groups by KDBX UUID, never title/path. One-sided records/groups are
 automatic union members. Conflicting fields use newer KDBX modification time.
 
-**On a tie or an unknown timestamp the default is decided by a globally
-deterministic total order over the two candidate values, never by the observer's
-perspective.** "Prefer local" as a tie-break is forbidden: it makes the merge
-function non-commutative, so two devices holding the same pair of candidates
-choose opposite winners, write over each other and oscillate indefinitely —
-across sync sessions, where the FR-7 retry budget cannot stop them. KDBX
-modification times have one-second granularity, so a tie is an ordinary event,
-not an exotic one.
+**The default is decided by a globally deterministic total order, never by the
+observer's perspective.** "Prefer local" as a tie-break is forbidden: it makes
+the merge function non-commutative, so two devices holding the same pair of
+candidates choose opposite winners, write over each other and oscillate
+indefinitely — across sync sessions, where the FR-7 retry budget cannot stop
+them. KDBX modification times have one-second granularity, so a tie is an
+ordinary event, not an exotic one.
 
-The order is defined once, in the data layer, as:
+The order is defined once, in the data layer, over the pair
+`(modification time, value)`:
 
-1. compare the two candidate values as byte sequences, lexicographically,
-   unsigned, shortest-is-smaller on a common prefix;
-2. **the greater byte sequence wins.**
+1. **a known modification time beats an unknown one.** An unknown timestamp is
+   the absence of evidence and never outranks evidence;
+2. otherwise the **newer** known modification time wins;
+3. on equal known times — and when **both** timestamps are unknown — compare the
+   candidate values as byte sequences, lexicographically, unsigned,
+   shortest-is-smaller on a common prefix, and **the greater byte sequence
+   wins.**
 
-The choice of "greater" is arbitrary by design; what matters is that it is
-fixed, total and computed from the data alone. Both devices compare the same
-unordered pair `{A, B}` and therefore select the same winner, so the merge
-function is commutative on ties and the cycle converges. Equal values are not a
-conflict, so the order is strict wherever it is consulted.
+Rule 1 is not decoration. Treating an unknown timestamp as a bare tie — sending
+the pair straight to the value comparison — makes the relation non-transitive,
+and a non-transitive relation is not a total order, so the merge stops being
+associative. With `A = (t5, "x")`, `B = (unknown, "y")` and `C = (t3, "z")`,
+`(A ⊔ B) ⊔ C` yields `"z"` and `A ⊔ (B ⊔ C)` yields `"x"`: two devices that
+merged the same three sides in different orders hold different values, which is
+the failure mode set out for notes below.
+
+The choice of "greater" in rule 3 is arbitrary by design; what matters is that
+the order is fixed, total and computed from the data alone. Both devices compare
+the same unordered pair `{A, B}` and therefore select the same winner, so the
+merge function is commutative on ties and the cycle converges. Equal values with
+equal timestamps are not a conflict, so the order is strict wherever it is
+consulted.
+
+**The winning side's timestamp travels with the winning value**, so the merged
+field is itself a member of the ordered set and can be merged again without
+special-casing.
 
 Comparison uses the decrypted value bytes and therefore runs inside the data
 layer only; no candidate value, and no indication of which side won, crosses the
@@ -254,10 +271,39 @@ Ordering by the involved object UUIDs is explicitly rejected: in a field
 conflict both candidates sit under the same entry UUID and the same field key,
 so the UUID does not discriminate them. Only the values do.
 
-Notes may choose a deterministic concatenation of both sides, but its operand
-order is fixed by the same total order — smaller byte sequence first, separator
-`"\n\n---\n\n"`, greater second. Concatenating as `local + remote` would be
-perspective-dependent for exactly the reason above and is forbidden.
+#### Notes are an ordered union of segments, not a concatenation
+
+Notes may keep both sides. The operation is **not** a binary concatenation. It is
+an **ordered, deduplicated union of segments**:
+
+1. split each side on the separator `"\n\n---\n\n"` into segments;
+2. take the **set** union of the segments of both sides, discarding empty ones;
+3. sort the result by the same total order used for the tie-break — rule 3
+   above, over the segment bytes;
+4. join with the same separator.
+
+A concatenation whose operand order is merely *fixed* is deterministic and still
+**not associative**, which is enough for two devices and wrong for three. With
+three tied notes `zeta`, `alpha`, `mike`, a fixed-order concatenation gives
+`(A‖B)‖C = alpha‖zeta‖mike` and `A‖(B‖C) = alpha‖mike‖zeta`. Two devices that
+merged the same three sides in a different order then hold different Notes
+values, so their canonical manifests differ, **the FR-7 semantic short-circuit
+stops firing**, and the following merge concatenates the concatenations and
+**duplicates text the user wrote**. On a password manager, Notes is where
+recovery codes are kept; silent duplication of that field is not cosmetic.
+
+An ordered deduplicated union is associative, commutative and idempotent — a
+join-semilattice — which is exactly the property the convergence cycle needs.
+Idempotence is the part that stops the duplication: merging an already-merged
+value with either of its inputs, or with itself, returns it unchanged.
+
+Concatenating as `local + remote` remains forbidden for the perspective reason
+above; it is now also forbidden as a *shape*, whatever the operand order.
+
+Accepted cost, stated rather than hidden: a user whose own notes contain the
+separator sequence has those paragraphs treated as segments, so a merge may
+reorder them. Ordering is only ever applied to a field that is **already in
+conflict**; a field with no conflict is never rewritten.
 
 ### FR-4 — Field-level presence semantics
 
@@ -366,6 +412,17 @@ the cycle would otherwise fail to terminate.
    - manifests **different** → continue to step 3 below.
    The byte comparison remains the **detector**; the semantic manifest is the
    **arbiter**. Neither replaces the other.
+
+   **Safety invariant — manifest completeness.** The correctness of this
+   short-circuit rests entirely on the canonical manifest covering every
+   semantically meaningful field defined by FR-1. **Any semantic field omitted
+   from the manifest is a field on which a real divergence is finalized in
+   silence**, because two states differing only in that field compare equal here
+   and the round ends without merging it. The manifest is therefore defined by
+   exclusion from a closed list — salts, master seed, IVs, ciphertext,
+   `HeaderHash` — and never by inclusion of a hand-maintained field list. Adding
+   a semantic field to FR-1 without adding it to the manifest is a data-loss
+   defect, not an omission.
 3. **Re-merge, preserving the user's decisions.** Merge the observed remote
    content against the retained local merged state, then repeat from step 3 of
    the cycle against the re-anchored base.
@@ -380,6 +437,26 @@ never be allowed to silently reverse a choice the user already made under FR-4.
   **re-applied after every re-merge**. LWW, the FR-3 deterministic tie-break and
   the shortcuts all lose to a recorded explicit decision. A decision the user
   made once is never silently reversed by a later automatic round.
+- **The ledger records what the user has seen, not only what the user changed.**
+  Confirming review writes a ledger entry for **every conflict presented in that
+  review**, including the ones left at their automatic default. An absent entry
+  therefore means "never shown", and only that. Without this rule a user who
+  reviewed a conflict and accepted the proposed default leaves no entry, the
+  re-merge classifies it as never-seen, and the same conflict reopens review on
+  every divergence — the user is punished for agreeing.
+- **Shortcut decisions are recorded.** FR-6's Prefer local and Prefer remote are
+  explicit decisions over exactly the conflict set displayed, and each conflict
+  they resolve gets its own ledger entry. Without this, every user who resolves
+  by shortcut is sent back to review on each divergence, which is the whole
+  population the shortcut exists to spare.
+- **A commit session may return to review at most 3 times.** Beyond that the
+  session ends as an unresolved conflict: the merged local file and the dated
+  backup are retained, the mapping is not marked synced, nothing further is
+  written. Review re-entries are counted separately from the FR-7 retry budget,
+  because a retry is automatic and a re-entry is not. With the two rules above,
+  every re-entry must carry a conflict genuinely never shown before, so the cap
+  bites only under sustained contention — where terminating with the local state
+  intact is better than an unbounded review loop.
 - If a re-merge produces a conflict the user has **never** been shown — a new
   `fieldConflict`, `deletionConflict` or `fieldDeletionConflict` with no entry in
   the ledger — the round does **not** resolve it automatically. The commit ends,
@@ -694,7 +771,21 @@ navigation/list and detail landmark containers.
     carrying the earlier decisions.
 15i. **Step-5 non-executable test**: a re-read that times out is classified
     `ambiguous` and enters the FR-10 triage. It is never finalized, never counted
-    as a divergence and never marks the mapping synced.
+    as a divergence and never marks the mapping synced. The classification holds
+    on a read-back reached after a re-anchor and a re-merge, not only on the
+    first one.
+15j. **Associativity test, three and four devices**: the merge produces the same
+    result under every ordering and every association of three and of four
+    sides, and the same holds end-to-end — three devices syncing in any of the
+    six orders converge to the same remote state, a device rejoining late adds
+    its contribution and nothing else, and a second pass over already-merged
+    content changes nothing. Notes specifically: every segment appears exactly
+    once, and a fixed-order binary concatenation is shown to fail this test, so
+    it is not vacuous.
+15k. **Unknown-timestamp test**: a known modification time beats an unknown one,
+    two unknowns fall back to the value order, mirrored perspectives still agree,
+    and a set of sides mixing known and unknown timestamps is order-independent
+    at three and four devices.
 15c. **Capability-parity test**: the coordinator, use cases and merge adapter
     produce identical decisions against a CAS adapter, a `versionHistory`
     adapter and a bare `get`/`put` adapter. Only the guarantee tier reported to
