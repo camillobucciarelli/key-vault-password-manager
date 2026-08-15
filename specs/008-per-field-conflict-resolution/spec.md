@@ -1,7 +1,11 @@
 # 008 — Per-field sync conflict resolution
 
-**Status**: Draft · Gate 0 closed 2026-08-15; feature stays disabled per platform
-until Gate 1 atomicity artifacts  
+**Status**: Draft · **Gate 0 OPEN**. The 2026-08-15 close was reverted on
+independent review: the exit bar was rewritten in the same commit that declared
+it met, and the replacement mechanism — the FR-7 write-verify-converge cycle — is
+itself `not-run`. Gate 0 now closes on **T009**, the model validation of that
+cycle. **T201 and the domain freeze stay blocked.** Feature also stays disabled
+per platform until Gate 1 atomicity artifacts  
 **Kind**: New feature  
 **Depends on**: 001, 002, 005 · consumes the storage-capability port defined by
 **010** (008 is the consumer; 010 owns the port)
@@ -35,8 +39,9 @@ protected-field flags, custom icons, metadata or settings.
 
 First implementation work is test-only spike against installed `kdbx` 2.4.2 and
 Drive API, plus target-filesystem harness/schema definition. Gate 1 executes that
-harness per platform. Gate report task **T008** is part of Gate 0 and must pass
-before domain model freezes.
+harness per platform. Gate report task **T008** and cycle-validation task
+**T009** are both part of Gate 0 and must both pass before the domain model
+freezes.
 
 Spike must:
 
@@ -70,12 +75,36 @@ Any supported construct that cannot be preserved, or platform without passing
 atomicity artifact, keeps feature disabled. Unsupported KDBX data is detected
 before backup/write; never normalized silently.
 
+10. **Validate the write-verify-converge cycle as a model**, before any
+    implementation depends on it. In-memory only: no network, no filesystem, no
+    KDBX. Simulate N devices against a shared remote under adversarial
+    interleavings and assert the cycle's properties — convergence to a stable
+    state in a bounded number of rounds, no loss of one-sided records or fields
+    under any interleaving, no oscillation on a timestamp tie, termination when
+    the semantic union is already complete, and survival of explicit user
+    decisions across a re-merge. Task **T009**; artifact
+    `test/features/password_manager/data/services/sync_merge_convergence_model_test.dart`.
+
 **A backend without server-enforced conditional write does not keep the feature
-disabled.** It selects a lower guarantee tier. This is a deliberate amendment:
-the original text made conditional upload a precondition, the 2026-08-15
-live-network spike measured its absence on Drive, and FR-7 was rewritten to stop
-depending on it rather than to declare the problem solved. Drive still has no
-compare-and-swap; the spec no longer needs one.
+disabled.** It selects a lower guarantee tier.
+
+This is a **proposed amendment, not a derivation.** It must be read as such: the
+original Gate 0 bar was *"prove server-enforced Drive conditional upload"*, the
+2026-08-15 live-network spike measured its absence, and the bar was then rewritten
+to *"measure the capability; a negative measurement is a valid Gate 0 result"* —
+in the same commit that declared the rewritten bar satisfied. Rewriting an exit
+criterion is a legitimate response to a measurement. Declaring the new criterion
+met by the act of writing it is not, and the 2026-08-15 close was reverted on that
+ground.
+
+The amendment stands or falls on item 10 above. Drive has no compare-and-swap:
+measured, and not in dispute. What is not yet established is that the replacement
+— a cycle expressed in `get` + `put` — actually converges. Reading the first draft
+of it found three defects that each prevented convergence: an expected base that
+was never re-anchored, a byte comparison with no semantic arbiter, and a
+perspective-dependent tie-break. All three are corrected above, and none of them
+was caught by a test, because no test existed. Gate 0 does not close on the
+argument that the cycle converges; it closes on T009 executing that argument.
 
 ## Guarantee by backend category
 
@@ -92,6 +121,15 @@ In every category the lost update is **detected**, and in no category is it
 **destructive** — the FR-7 invariant guarantees the overwritten state still
 exists locally on the device that produced it. The categories differ only in how
 fast and from where the overwritten content is recovered.
+
+**With one condition, which belongs in this table rather than in a footnote.**
+Outside the CAS row, recovery is performed *by the overwritten device*, so it
+requires that device to resynchronize. A device that never returns takes its
+contribution with it, permanently and silently. `versionHistory` shortens the
+wait but does not remove the dependency, because nothing triggers a revision
+fetch that no device reports as missing. Only the CAS row is unconditional, and
+it is unconditional for a different reason: the write never lands, so there is
+nothing to recover. See "Out of scope / residual limits".
 
 The coordinator, the use cases and the merge adapter are identical across all
 three. Capabilities are declared by the storage adapter (spec 010), consumed by
@@ -183,9 +221,43 @@ mismatch.
 ### FR-3 — Entry/group diff
 
 Match entries/groups by KDBX UUID, never title/path. One-sided records/groups are
-automatic union members. Conflicting fields use newer KDBX modification time;
-tie/unknown defaults local and UI marks uncertainty. Notes may choose deterministic
-`local + "\n\n---\n\n" + remote`.
+automatic union members. Conflicting fields use newer KDBX modification time.
+
+**On a tie or an unknown timestamp the default is decided by a globally
+deterministic total order over the two candidate values, never by the observer's
+perspective.** "Prefer local" as a tie-break is forbidden: it makes the merge
+function non-commutative, so two devices holding the same pair of candidates
+choose opposite winners, write over each other and oscillate indefinitely —
+across sync sessions, where the FR-7 retry budget cannot stop them. KDBX
+modification times have one-second granularity, so a tie is an ordinary event,
+not an exotic one.
+
+The order is defined once, in the data layer, as:
+
+1. compare the two candidate values as byte sequences, lexicographically,
+   unsigned, shortest-is-smaller on a common prefix;
+2. **the greater byte sequence wins.**
+
+The choice of "greater" is arbitrary by design; what matters is that it is
+fixed, total and computed from the data alone. Both devices compare the same
+unordered pair `{A, B}` and therefore select the same winner, so the merge
+function is commutative on ties and the cycle converges. Equal values are not a
+conflict, so the order is strict wherever it is consulted.
+
+Comparison uses the decrypted value bytes and therefore runs inside the data
+layer only; no candidate value, and no indication of which side won, crosses the
+domain port. The UI still marks the decision as uncertain and still offers an
+explicit override — the tie-break governs only the **default**, and an explicit
+user choice supersedes it under FR-7's sticky-decision rule.
+
+Ordering by the involved object UUIDs is explicitly rejected: in a field
+conflict both candidates sit under the same entry UUID and the same field key,
+so the UUID does not discriminate them. Only the values do.
+
+Notes may choose a deterministic concatenation of both sides, but its operand
+order is fixed by the same total order — smaller byte sequence first, separator
+`"\n\n---\n\n"`, greater second. Concatenating as `local + remote` would be
+perspective-dependent for exactly the reason above and is forbidden.
 
 ### FR-4 — Field-level presence semantics
 
@@ -245,23 +317,80 @@ this invariant; no optimization may weaken it.
 The remote write follows one storage-agnostic cycle. It requires only `get` and
 `put`, so it is implementable on every backend:
 
-1. **Read** the remote and record its checksum as the expected base.
+1. **Read** the remote and record its checksum as the **expected base**.
 2. **Merge** locally against that base.
 3. **Revalidate under the per-database mutex, immediately before writing**:
    recompute the local checksum and re-read the remote checksum. Local mismatch
-   returns `staleLocal`; remote mismatch returns `staleRemote`, and neither
-   writes anything. This step exists to shrink the race window from the duration
-   of the user's review — minutes — to the few hundred milliseconds between the
-   re-read and the write.
+   returns `staleLocal`; a remote checksum differing from the **current expected
+   base** returns `staleRemote`, and neither writes anything. This step exists
+   to shrink the race window from the duration of the user's review — minutes —
+   to the few hundred milliseconds between the re-read and the write.
 4. **Write** the merged bytes.
 5. **Verify**: re-read the remote and compare its checksum to the merged
-   checksum.
-   - equal → the write is confirmed applied; finalize.
-   - different → another writer overwrote us. Fetch that content, merge it
-     against the retained local merged state, and repeat from step 3.
+   checksum. The comparison is on **bytes**, deliberately: a byte comparison
+   detects an overwrite with no false negatives, which a semantic comparison
+   could not.
+   - **equal** → the write is confirmed applied; finalize.
+   - **not executable** — the re-read times out, disconnects or otherwise fails
+     to yield a checksum → the outcome is neither equal nor different. It is
+     classified **`ambiguous`** and enters the FR-10 recovery triage. It is never
+     finalized and never treated as a divergence.
+   - **different** → run the divergence branch below.
 
 Step 5 is mandatory on every backend and is the only source of truth about
 whether a write landed. A `2xx` response is a claim, not a confirmation.
+
+#### The divergence branch — how the cycle actually converges
+
+Reaching this branch means the bytes at the remote are not the bytes we wrote.
+Three things must happen, in this order, and each exists to stop a specific way
+the cycle would otherwise fail to terminate.
+
+1. **Re-anchor the expected base.** The expected base becomes the checksum of
+   the content just observed at step 5. It is *not* the base recorded at step 1.
+   Without this re-anchoring the retry aborts at its own step 3 — the remote no
+   longer matches a base captured before the other writer landed, so every retry
+   returns `staleRemote` and the session always terminates as an unresolved
+   conflict. The re-anchor is what makes the loop a loop.
+2. **Short-circuit on semantic equivalence.** Before merging anything, compare
+   the **canonical semantic manifest** of the observed remote content against the
+   manifest of our retained merged state, using the same manifest that FR-1
+   validates — salts, master seed, IVs, ciphertext and `HeaderHash` excluded.
+   - manifests **equal** → the union is already complete on the remote. This is
+     not a divergence: the other writer's bytes carry exactly our semantic
+     content. Finalize, and do not write again. Without this test two devices
+     whose merged content is semantically identical still produce different bytes
+     — different salts and IVs on every serialization, as required by
+     "Approved product behavior" — see each other as divergent forever, and burn
+     the whole retry budget re-writing a conflict that does not exist.
+   - manifests **different** → continue to step 3 below.
+   The byte comparison remains the **detector**; the semantic manifest is the
+   **arbiter**. Neither replaces the other.
+3. **Re-merge, preserving the user's decisions.** Merge the observed remote
+   content against the retained local merged state, then repeat from step 3 of
+   the cycle against the re-anchored base.
+
+#### Explicit user decisions are sticky across a re-merge
+
+The re-merge in the divergence branch is automatic, and FR-3's LWW default must
+never be allowed to silently reverse a choice the user already made under FR-4.
+
+- Every explicit user decision is recorded in a session-lived decision ledger
+  keyed by the object UUID plus the field key or attachment name, and is
+  **re-applied after every re-merge**. LWW, the FR-3 deterministic tie-break and
+  the shortcuts all lose to a recorded explicit decision. A decision the user
+  made once is never silently reversed by a later automatic round.
+- If a re-merge produces a conflict the user has **never** been shown — a new
+  `fieldConflict`, `deletionConflict` or `fieldDeletionConflict` with no entry in
+  the ledger — the round does **not** resolve it automatically. The commit ends,
+  the mutex is released, no further write is attempted, and the session returns
+  to review carrying the previous decisions plus the new conflicts. Only
+  conflicts already decided may be replayed without asking.
+
+The consequence is deliberate: a contended remote can send the user back to
+review. That is correct. Resolving a never-seen conflict by automatic policy, in
+a flow the user believes they have already confirmed, is the failure this rule
+exists to prevent.
 
 Consequence, to be stated plainly rather than hidden: **on a backend without
 conditional write the lost update is not prevented — it is made non-destructive.**
@@ -270,10 +399,27 @@ invariant above, detects the divergence at step 5 or at its next sync, and
 re-proposes it. The union converges by mutual detection rather than by mutual
 exclusion.
 
-The convergence retry is bounded: after a spec-declared retry budget the session
-ends as an unresolved conflict, retaining the local merged file and the dated
-backup, and never marking the mapping synced. Convergence must not loop forever
-against a remote peer writing continuously.
+The convergence retry is bounded. **The retry budget is 3 divergence rounds per
+commit session.** After the third, the session ends as an unresolved conflict,
+retaining the local merged file and the dated backup, and never marking the
+mapping synced. Convergence must not loop forever against a remote peer writing
+continuously.
+
+Three, and not more, because the budget is not a convergence mechanism. Each
+round costs a full download, decrypt, merge, serialize and upload, so a large
+budget converts a contended remote into a long unresponsive commit rather than
+into a resolution. Two well-behaved devices settle in one round; a third round is
+slack for an unlucky interleaving. Beyond that the contention is structural, and
+the unresolved-conflict terminal state is both safe — the merged file and the
+dated backup survive locally, per the founding invariant — and honest to the
+user. Rounds that terminate early are not charged to the budget: a semantic
+short-circuit finalizes, and a never-seen conflict returns to review.
+
+The budget is **per commit session**, so it bounds one commit and nothing wider.
+It is explicitly not a defence against a cross-session oscillation: that failure
+mode is prevented at its source by FR-3's globally deterministic tie-break, which
+is what makes the merge function commutative. A budget cannot substitute for
+commutativity.
 
 Optional capabilities are layered on top of this cycle without replacing it:
 
@@ -379,7 +525,15 @@ backend can produce, and what the client is allowed to conclude from each.
 | --- | --- | --- | --- |
 | **Certain rejection** | **`conditionalWrite` adapters only** | Server refused a stale precondition; certainly not applied | Refetch and surface stale/new conflict. Never retry against the freshly observed token. |
 | **Apparent success** | every backend | The response claims success; on a non-CAS backend it also carries no proof that a concurrent writer did not land between our read and our write | **Not** terminal. Run FR-7 step 5. Equal checksum → finalize mapping and clear the recovery record. Different → convergence retry. |
-| **Ambiguous** | every backend | Transport timeout/disconnect after dispatch; the request may have applied | Never blindly retry, never mark failure or success. Enter the recovery triage below. |
+| **Ambiguous** | every backend | Either a transport timeout/disconnect after dispatch, **or** an FR-7 step-5 read-back that could not be executed at all. In both cases the request may have applied and the client cannot tell | Never blindly retry, never mark failure or success. Enter the recovery triage below. |
+
+**The step-5 read-back has three outcomes, not two.** Equal and different are the
+two branches FR-7 defines; a read-back that times out, disconnects or otherwise
+returns no checksum is the third, and it is `ambiguous`. A procedure whose whole
+job is to disambiguate a write must define its own ambiguous state, or an
+implementer will reasonably finalize on the absence of a reported difference —
+which is precisely the "a `2xx` is a claim, not a confirmation" error, displaced
+one step later. A failed verification is not a passed verification.
 
 Two amendments follow from this table and must not be read past:
 
@@ -392,9 +546,10 @@ Two amendments follow from this table and must not be read past:
 
 Ambiguous recovery, including after app restart. The triage is unchanged in
 substance; only its **trigger** widens. It previously ran on a transport
-ambiguity alone; it now also runs whenever an apparent success fails its step-5
+ambiguity alone; it now also runs when an apparent success fails its step-5
 verification and the session is interrupted before the convergence retry
-completes. Both entry points execute the same steps:
+completes, **and when the step-5 read-back itself cannot be executed**. All three
+entry points execute the same steps:
 
 1. Acquire same per-database mutex used by every writer.
 2. Read current local bytes and compare checksum to persisted
@@ -514,9 +669,32 @@ navigation/list and detail landmark containers.
 15b. **Convergence test**: with the remote overwritten by a simulated concurrent
     writer between step 3 and step 5, the session detects the divergence,
     re-merges against the observed remote content and converges without losing
-    either side's records. The same test with the retry budget exhausted ends as
-    an unresolved conflict, retains the merged local file and the dated backup,
-    and does not mark the mapping synced.
+    either side's records. The same test with the retry budget of 3 exhausted
+    ends as an unresolved conflict, retains the merged local file and the dated
+    backup, and does not mark the mapping synced.
+15e. **Re-anchor test**: after a divergence round the expected base equals the
+    content observed at step 5, not the base recorded at step 1. Asserted by the
+    interleaving in which a concurrent writer lands between the step-3
+    revalidation and the step-4 write: the retry must proceed past its own
+    step 3 instead of returning `staleRemote`.
+15f. **Semantic short-circuit test**: two devices whose merged content is
+    semantically identical but byte-different — different salts and IVs — finalize
+    on the first divergence round, write no second time and consume no retry
+    budget. The byte comparison still reports them different; the manifest
+    comparison is what terminates the round.
+15g. **Deterministic tie-break test**: for a field conflict with equal KDBX
+    modification times, two devices holding mirrored local/remote perspectives
+    select the **same** winning value, and the same holds for the deterministic
+    notes concatenation operand order. A run of the same scenario in both
+    perspectives produces byte-identical semantic manifests.
+15h. **Sticky-decision test**: an explicit user decision survives a re-merge and
+    is not reversed by LWW or by the tie-break. A conflict first introduced by a
+    re-merge and never shown to the user does not resolve automatically: the
+    commit ends, no further write is attempted and the session returns to review
+    carrying the earlier decisions.
+15i. **Step-5 non-executable test**: a re-read that times out is classified
+    `ambiguous` and enters the FR-10 triage. It is never finalized, never counted
+    as a divergence and never marks the mapping synced.
 15c. **Capability-parity test**: the coordinator, use cases and merge adapter
     produce identical decisions against a CAS adapter, a `versionHistory`
     adapter and a bare `get`/`put` adapter. Only the guarantee tier reported to
@@ -549,6 +727,24 @@ navigation/list and detail landmark containers.
   FR-7 guarantees only that it is detected and non-destructive. Preventing it
   would require a capability Google Drive does not offer — measured, see the
   feasibility report — and no client-side construction substitutes for it.
+- **"Non-destructive" is conditional on resynchronization, and the condition is
+  part of the claim.** FR-7 step 5 proves the remote contained the merged state
+  *at the instant it was read*. If a concurrent writer overwrites it immediately
+  afterwards and **that device never comes back online** — uninstalled, lost,
+  factory-reset, or simply never opened again — the overwritten contribution is
+  gone from the remote permanently, and gone silently: the overwriting device
+  completed its own step 5 successfully and legitimately displayed "synced".
+  Nothing in the `get` + `put` cycle can detect this, because detection is
+  delegated to the very device that never returns. The honest statement of the
+  guarantee is therefore: **on a backend without `conditionalWrite`, no
+  contribution is lost provided every device that wrote eventually
+  resynchronizes.** A `versionHistory` backend narrows this window — the
+  overwritten revision is retrievable from the server without the other device —
+  but does not close it, because nothing prompts a fetch of a revision no device
+  reports as missing. Only `conditionalWrite` removes the condition entirely, by
+  refusing the overwrite in the first place. Every user-facing promise derived
+  from this guarantee must state the condition before the reassurance; see spec
+  010's safety-category copy.
 - The FR-7 window is narrowed to the revalidate-then-write interval, not
   eliminated. Two devices writing inside that interval both converge, but the
   user may see one extra conflict round.

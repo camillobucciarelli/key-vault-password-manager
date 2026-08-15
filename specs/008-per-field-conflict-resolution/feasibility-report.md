@@ -1,9 +1,13 @@
 # 008 — Feasibility report
 
 **Report task**: T008
-**Current status**: Gate 0 **closed 2026-08-15**. B1 measured and **confirmed
-`failed`**; it is no longer a blocker because spec 008 FR-7 no longer depends on
-it. Feature stays disabled on every platform, on the platform-atomicity rows.
+**Current status**: Gate 0 **OPEN**. The 2026-08-15 close was **reverted** on
+independent review 2026-08-16. B1 remains measured and `failed`, and it is
+correctly no longer a blocker — but the mechanism that replaced it, the FR-7
+write-verify-converge cycle, is itself `not-run`, and the close was declared in
+the same commit that rewrote the exit criterion. Gate 0 now closes on **T009**,
+the model validation of that cycle. **T201 and the domain freeze stay blocked.**
+Feature stays disabled on every platform, on the platform-atomicity rows.
 **Safety rule**: `not-run`, `failed` or `disabled` never enables feature
 
 This file is authoritative Gate 0/Gate 1 record. Update rows with command, commit,
@@ -30,19 +34,47 @@ Second run — the B1 live-network re-spike:
 | Date | 2026-08-15 |
 | Detail | see "B1 live-network re-spike (2026-08-15)" |
 
-> **Read "Post-review corrections" at the end of this file first.** An
-> independent review of the 2026-08-13 run found one fabricated evidence
-> citation and a set of `passed` cells with no executed test behind them. The
-> verdict is unchanged (**NO-GO**) but the supporting record was rewritten. Every
-> row below is the corrected version.
+Third pass — the 2026-08-16 independent review of the amendment:
 
-**Toolchain caveat (environment, not a spec finding).** `flutter pub get` cannot
-resolve on this checkout: `pubspec.yaml` pins `analyzer: ^14.1.0`, which needs
-`meta ^1.18.3`, while the active Flutter 3.44.8 pins `meta 1.18.0`. Every command
-below therefore ran with `--no-pub` against the already-resolved
-`.dart_tool/package_config.json`. This predates Gate 0 and is unrelated to spec
-008, but it blocks plain `flutter analyze`/`flutter test` and must be fixed
-before CI can reproduce this report.
+| Item | Value |
+| --- | --- |
+| Branch | `feat/008-drive-conditional-spike` |
+| Reviewed commits | `434d0d3` (FR-7 rewrite), `281a1f0` (spec 010 draft) |
+| Verdict | **not validated, rework**. Two blocking design defects in the convergence cycle, five further correctness/safety defects, Gate 0 close reverted |
+| Outcome | spec 008 FR-3/FR-7/FR-10 corrected, Gate 0 reopened with new item **T009**, spec 010 Drive row demoted |
+| Date | 2026-08-16 |
+| Detail | see "Convergence-cycle review (2026-08-16)" |
+
+> **Read "Post-review corrections" and "Convergence-cycle review" at the end of
+> this file before any row above.** Two independent reviews have now rewritten
+> parts of this record: the 2026-08-14 one found a fabricated evidence citation
+> and `passed` cells with no executed test, and the 2026-08-16 one reverted the
+> Gate 0 close and found the replacement convergence cycle non-convergent as
+> written. Every row below is the corrected version.
+
+**Toolchain caveat — resolved 2026-08-16.** The 2026-08-13/14 runs recorded that
+`flutter pub get` could not resolve on this checkout (`pubspec.yaml` pinned
+`analyzer: ^14.1.0` needing `meta ^1.18.3`, while Flutter 3.44.8 pins
+`meta 1.18.0`), so every command ran with `--no-pub`. **That is no longer true.**
+Commit `c139ee1` (`fix(deps): pin analyzer to ^13 so pub get resolves again`,
+#32) repaired the constraint. `flutter analyze` and `flutter test` now run with
+no flags and CI can reproduce this report. The `--no-pub` flag in the commands
+below is retained verbatim as the historical record of how those runs were
+executed; it is not required today.
+
+Re-verified 2026-08-16 on `feat/008-drive-conditional-spike`:
+
+```text
+$ flutter analyze
+No issues found! (ran in 6.7s)
+
+$ flutter test
+00:14 +570: All tests passed!
+```
+
+The full-suite count is **570**, not the 555 recorded for the 2026-08-14 run.
+The delta is unrelated to spec 008 — no Gate 0 test was added or removed by this
+review pass.
 
 ### Commands executed and real results
 
@@ -97,14 +129,40 @@ the package must be declared rather than used transitively.
 
 ## Gate 0 verdict
 
-**Closed 2026-08-15.** T001–T008 completed. T005 was closed by the live-network
-re-spike recorded in "B1 live-network re-spike" below.
+**OPEN. The 2026-08-15 close is reverted.** T001–T008 have executed evidence, and
+T005 was genuinely closed by the live-network re-spike recorded below. Gate 0
+nonetheless does not close, for three reasons established by the 2026-08-16
+review:
+
+1. **The exit bar was rewritten in the commit that declared it met.** Item 7 of
+   the Gate 0 spike list changed from *"prove server-enforced Drive conditional
+   upload"* to *"measure which optional concurrency capabilities the backend
+   offers; a negative measurement is a valid Gate 0 result"*. That is a
+   legitimate **proposal**, and it is probably the right one — but it is not a
+   derivation, and a criterion cannot be satisfied by the act of being written.
+2. **The replacement mechanism is `not-run`.** The concurrency question was not
+   resolved; it moved from "measured absent" to "substituted by an unvalidated
+   cycle". By this report's own safety rule — `not-run`, `failed` or `disabled`
+   never enables a feature — an unvalidated substitute cannot close the gate the
+   measured absence opened.
+3. **Reading the cycle found it non-convergent.** Three defects, each
+   independently fatal to termination: no re-anchoring of the expected base on
+   retry, a byte comparison with no semantic arbiter, and a tie-break that
+   defaulted to "local" and was therefore perspective-dependent. All are now
+   corrected in `spec.md`, and none was caught by a test, because none existed.
 
 **B1 is `failed`, not `passed`, and not withdrawn.** Google Drive REST v3 offers
-no compare-and-swap on the upload path. That is now measured against the real
-service, not inferred from documentation. What changed is not the finding but the
-spec: 008 FR-7 was rewritten around a `get` + `put` write-verify-converge cycle
-that requires no server-enforced precondition, so B1 no longer gates anything.
+no compare-and-swap on the upload path. That is measured against the real
+service, not inferred from documentation. B1 correctly no longer gates the
+feature — FR-7 was rewritten around a `get` + `put` cycle needing no
+server-enforced precondition. What gates the feature now is proving that cycle
+converges: **T009**.
+
+**Gate 0 closes when T009 passes**, and on no other condition. T009 is a
+model-level validation — in memory, no network, no filesystem, no KDBX — of the
+FR-7 write-verify-converge cycle under adversarial multi-device interleavings.
+Its required properties are listed in "T009 — convergence model validation"
+below. Every other Gate 0 item already has its evidence.
 
 | # | Finding | Status | Gates the feature? |
 | --- | --- | --- | --- |
@@ -138,17 +196,20 @@ explicitly before T301:
 | UUID integrity validation | `passed` | `T004 pre-diff UUID validation…` (5 tests) | duplicate entry/group, group-entry collision, nil, cross-side kind |
 | Entry colors + entry AutoType (constructs the library does not model) | `passed` | `T001 entry colors round-trip…`, `T001 entry AutoType survives…` | read/written through the exported `KdbxNode.node` |
 | Drive server-enforced conditional update | **`failed`** | live-network spike 2026-08-15, `tool/drive_conditional_spike.dart` | **B1**, measured. No CAS on Drive v3. **Not blocking** — FR-7 no longer requires it |
-| Drive backend guarantee tier | `passed` | same spike | **Versioned**: no `conditionalWrite`, `versionHistory` present (revisions API) |
-| Storage-agnostic write-verify-converge cycle (`get` + `put` only) | `not-run` | FR-7 as rewritten 2026-08-15 | design accepted; implementation + tests are T4xx |
+| Drive `versionHistory` | **`not-run`** | none — documentation only | **Demoted 2026-08-16.** Previously `passed` on the strength of Drive's documented revisions API. Spec 010's own rules forbid that: *"Documentation alone is not a declaration"* and *"when a behaviour is uncertain, the capability is absent"*. Retention, `keepRevisionForever`, the pinned-revision ceiling and quota impact are all unmeasured. Drive therefore declares `versionHistory` **absent** |
+| Drive backend guarantee tier | **`not-run`** | derived from the two rows above | **Bare**, pending the revisions spike: no `conditionalWrite`, no declared `versionHistory`. Spec 010 category **Ricostruibile**, down from Recuperabile. Restored to Versioned/Recuperabile only when a live revisions spike passes |
+| Storage-agnostic write-verify-converge cycle — model validation | **`not-run`** | **T009**, `sync_merge_convergence_model_test.dart` | **This is the Gate 0 blocker.** The FR-7 rewrite of 2026-08-15 was accepted as a direction and corrected on review; it is validated by nothing. Gate 0 closes when this row passes |
+| Storage-agnostic write-verify-converge cycle — production implementation | `not-run` | FR-7 as corrected 2026-08-16 | implementation + integration tests are T4xx, after Gate 0 |
 | Ambiguous transport outcome classification | `passed` | `conditional update` (10 tests) | client-side rules only, fake transport |
 | Writer/path inventory reconciled | `passed` | `inventory baseline` (12 tests) | 14 writer files; 6 gaps vs FR-8 |
 | Path identity/alias design reviewed | `not-run` | design drafted below | executed in Gate 1 T103/T107 |
 | Platform artifact schema recorded | `passed` | `harness schema` (10 tests) | schema only; **no platform evidence** |
 
-Gate 0 may close when T001–T008 evidence is complete and every unresolved target
-platform remains disabled. **That condition is now met: T001–T008 all have
-executed evidence, B1 has a measured result, and every platform row stays
-`not-run`/disabled.** T201/domain freeze may start. No platform is enabled.
+Gate 0 closes when **T001–T009** evidence is complete and every unresolved target
+platform remains disabled. **That condition is not met.** T001–T008 all have
+executed evidence and B1 has a measured result, but T009 is `not-run` and the
+mechanism that replaced B1 rests on it. **T201/domain freeze remains blocked.**
+No platform is enabled.
 
 ## KDBX support matrix
 
@@ -416,16 +477,27 @@ founding invariant — locally merged state is never discarded until the remote 
 proven to contain it — makes a lost update **detected and non-destructive**
 without any server precondition.
 
-Drive therefore lands in the **Versioned** tier of `spec.md` §"Guarantee by
-backend category": no `conditionalWrite`, `versionHistory` present. See
-`specs/010-multi-cloud-storage/spec.md` for the capability taxonomy.
+**Corrected 2026-08-16.** This section originally placed Drive in the
+**Versioned** tier on the strength of a documented revisions API. That was a
+declaration from documentation, which spec 010 forbids in the same breath it
+defines the taxonomy: *"A capability is declared only when a spike has observed
+the behaviour against the real service. Documentation alone is not a
+declaration"*, and *"when a behaviour is uncertain, the capability is absent"*.
+Nothing about Drive's revisions was measured — not retention, not
+`keepRevisionForever`, not the ceiling on pinned revisions, not quota impact —
+and this spike did not probe them at all.
 
-Not measured by this spike, and therefore **not** claimed: the details of Drive's
-revisions API — retention policy, `keepRevisionForever` semantics, the ceiling on
-pinned revisions and the quota impact. `versionHistory` is recorded as present
-for Drive on the strength of the documented revisions API, and its operational
-details are `not-run`. Spec 010 requires a dedicated spike before any adapter
-relies on them.
+Drive therefore declares `versionHistory` **absent** and lands in the **Bare**
+tier of `spec.md` §"Guarantee by backend category": `get` + `put` only. Spec 010
+category **Ricostruibile**. This is a demotion from what the 2026-08-15 pass
+recorded, and it is the conservative direction the rules mandate — an absent
+capability costs a guarantee tier, a wrongly present one costs user data.
+
+The demotion is **reversible and cheap to reverse**: a live revisions spike per
+010 FR-5, measuring retention, `keepRevisionForever`, the pinning ceiling and
+quota impact, restores `versionHistory`, the Versioned tier and the
+**Recuperabile** category. Until it runs, no user-facing promise may depend on
+the server holding a previous revision.
 
 ## Writer inventory evidence
 
@@ -607,7 +679,14 @@ No artifact file exists under `build/safety-evidence/`; asserted by
 
 ## Model corrections from spike
 
-Input to T201. **T201 must not start while B1 is open.**
+Input to T201. **T201 must not start while Gate 0 is open.**
+
+This line previously read *"T201 must not start while B1 is open"* while the
+sign-off table simultaneously declared Gate 0 closed and T201 startable — the two
+statements contradicted each other inside one file. Both are now resolved the
+same way and in one direction: **B1 is closed** (measured `failed`, and correctly
+non-blocking), **Gate 0 is open** on T009, and T201 is blocked by Gate 0, not by
+B1.
 
 - **chosen full-fidelity adapter mechanism**: opened `KdbxFile` object graph,
   mutated in place, serialized with `save()`, reopened with the original
@@ -629,8 +708,15 @@ Input to T201. **T201 must not start while B1 is open.**
   because Drive enforces nothing. `md5Checksum` is content-derived and cannot
   serialize writes on its own (two generations with identical content share it)
   — but it **is** sufficient as the FR-7 step-5 read-back comparator, which is
-  what the rewritten FR-7 actually needs. T401 is unblocked and is respecified
-  as "implement the write-verify-converge cycle", not "select a token".
+  what the rewritten FR-7 actually needs. **T401 is respecified in `tasks.md`**
+  as "implement the write-verify-converge cycle", not "select a token". The
+  2026-08-15 pass asserted this respecification had happened while
+  `tasks.md:163-164` still read *"add Gate 0-proven concurrency token and
+  server-enforced conditional `updateFile`"*; the report declared a change that
+  had not been made. That is the same class of error the 2026-08-14 review
+  corrected under C1, and it is corrected here by actually editing `tasks.md`.
+  T401 remains **blocked by Gate 0** in any case, like every other post-Gate-0
+  task.
 - **platform path identity/global-lock fallback**: design recorded above;
   `identityConfidence` flag with coarse global lock fallback. Per-platform
   decision `not-run`.
@@ -647,11 +733,18 @@ Listed so no reader mistakes them for results:
    absent**, never tested live.~~ **Resolved 2026-08-15**: tested live and
    measured absent. This is now evidence (`failed`), not an assumption. See
    "B1 live-network re-spike".
-1a. Drive revisions API operational details — retention window,
-   `keepRevisionForever` semantics, ceiling on pinned revisions, quota impact.
-   `versionHistory` is recorded as present for Drive from its documented API;
-   none of these details was measured. `not-run`. Required by spec 010 before an
-   adapter relies on them.
+1a. Drive revisions API — **the whole capability, not only its details.**
+   Retention window, `keepRevisionForever` semantics, ceiling on pinned
+   revisions and quota impact are all unmeasured, and so is the basic claim that
+   an overwritten revision is retrievable at all. `versionHistory` was briefly
+   recorded as present for Drive from its documented API; that was a declaration
+   from documentation and is withdrawn (2026-08-16). Drive declares
+   `versionHistory` **absent** until a live spike per 010 FR-5 measures it.
+   `not-run`.
+1c. **The FR-7 write-verify-converge cycle converges.** Argued in prose,
+   corrected twice on review, executed by nothing. This is the Gate 0 blocker
+   and the subject of T009. Until it passes, "detected but never destructive" is
+   a design intent, not a result.
 1b. Every non-Drive provider's capabilities. Nothing was measured. Spec 010
    lists them as **to verify** and requires a per-adapter spike.
 2. Detection of malformed non-UUID constructs — recycle bin, tombstones,
@@ -666,6 +759,71 @@ Listed so no reader mistakes them for results:
    beyond `^2.4.2`. R1.
 6. Whether the `<AutoType>` node survives a round-trip performed by **another**
    KeePass implementation. Proven here for `kdbx 2.4.2` only.
+
+## Convergence-cycle review (2026-08-16)
+
+An independent review of commits `434d0d3` (FR-7 rewrite) and `281a1f0` (spec 010
+draft) returned **not validated, rework**. It accepted the direction — a
+storage-agnostic cycle is the right response to a measured absence of CAS, FR-9
+backup-failure promoted to a hard stop is correct reasoning, and the crash window
+between steps 4 and 5 is well covered — and rejected the cycle as written,
+because it does not converge.
+
+Every defect below was found by reading a document. None was found by a test,
+because no test covered any of it. That is the argument for T009, and it is why
+Gate 0 reopens rather than closing with a note.
+
+| # | Severity | Defect | Correction |
+| --- | --- | --- | --- |
+| **C1** | blocking | The expected base was recorded at step 1 and never re-anchored. A writer landing between the step-3 revalidation and the step-4 write makes every subsequent retry fail its own step 3 with `staleRemote`. The loop never runs twice; the session always ends as an unresolved conflict. | `spec.md` FR-7, "The divergence branch", item 1: the expected base becomes the checksum of the content observed at step 5. Stated in the step text, not left to inference. AC **15e**. |
+| **C2** | blocking | Step 5 compares bytes — correctly — but two devices whose semantic union is *already complete* serialize to different bytes, because salts and IVs differ by design ("Approved product behavior"). They see each other as permanently divergent and exhaust the retry budget on a conflict that does not exist. | FR-7 divergence branch item 2: before re-merging, compare canonical semantic manifests; equal ⇒ finalize. The byte comparison stays the **detector**, the manifest is the **arbiter**. AC **15f**. |
+| **C3** | grave | The divergence branch re-merged automatically, so FR-3's LWW could silently reverse an explicit FR-4 user decision after the user had confirmed it. | FR-7, "Explicit user decisions are sticky": a session decision ledger keyed by object UUID + field key is re-applied after every re-merge and beats LWW, the tie-break and the shortcuts. A conflict never shown to the user reopens review instead of auto-resolving. AC **15h**. |
+| **C4** | blocking | FR-3 read *"tie/unknown defaults local"*. "Local" is perspective-dependent, so the merge function is not commutative: two devices with equal timestamps flip the field back and forth **across sync sessions**, where the per-session retry budget cannot reach them. KDBX timestamps have one-second granularity, so ties are common. | FR-3 rewritten around a globally deterministic total order on the candidate **values** (unsigned lexicographic byte comparison, greater wins). The deterministic notes concatenation is ordered by the same rule. UI still marks uncertainty; only the **default** is fixed. AC **15g**. |
+| **C5** | grave | Step 5 was declared the sole source of truth with exactly two branches, equal and different. A read-back that times out is neither, so a procedure whose job is disambiguation left its own ambiguous state undefined — and an implementer could reasonably finalize. | FR-7 step 5 and FR-10 both gain the third branch explicitly: a non-executable read-back is `ambiguous` and enters the FR-10 triage. AC **15i**. |
+| **C6** | grave | "Non-destructive" was asserted unconditionally. Step 5 proves the remote held the merged state *at that instant*; if a concurrent writer overwrites immediately after and **never returns**, the contribution is permanently and silently lost, after "synced" was displayed. | Declared in `spec.md` "Out of scope / residual limits" and in the guarantee-category table: the claim is **conditional on every writing device resynchronizing**. `versionHistory` narrows the window; only `conditionalWrite` removes the condition. Spec 010's user-facing copy is rewritten to state the condition first. |
+| **C7** | grave | FR-7 cited a *"spec-declared retry budget"* that was never declared, leaving conflict behaviour to the implementer. | Declared: **3 divergence rounds per commit session**, with the reasoning recorded in FR-7 — each round is a full download/merge/upload, so a larger budget converts contention into an unresponsive commit rather than a resolution. Cross-session oscillation is prevented by C4's commutativity, not by the budget. |
+
+Two further findings, accepted:
+
+- The report claimed T401 had been *"respecified"* while `tasks.md` still
+  described selecting a concurrency token. The report declared a change that was
+  never made — the same error class as the fabricated citation corrected under
+  C1 of the 2026-08-14 pass. `tasks.md` T401 is now actually rewritten.
+- Spec 010 declared Drive's `versionHistory` **present** on documentation alone,
+  in violation of two of its own rules. Demoted to absent; Drive drops to
+  **Ricostruibile**. See the corrected rows above.
+
+One correction was made beyond the review's list, from the same root cause as C4:
+
+- **C4b** — FR-3's deterministic notes merge read `local + "\n\n---\n\n" +
+  remote`. That is perspective-dependent for exactly C4's reason: device A
+  produces `A‖B` and device B produces `B‖A`, two different byte sequences and
+  two different semantic manifests, so the notes field alone would keep the cycle
+  divergent forever even after C1, C2 and C4 were fixed. The operand order is now
+  fixed by the same total order that decides the tie-break.
+
+### T009 — convergence model validation
+
+The new Gate 0 item, and the only one still open. Status **`not-run`**.
+
+Artifact:
+`test/features/password_manager/data/services/sync_merge_convergence_model_test.dart`.
+In memory only — no network, no filesystem, no KDBX, no `lib/` dependency. It
+validates the **model** of the FR-7 cycle, not its integration; the integration
+tests remain T4xx, after the gate.
+
+Required properties, each asserted under adversarial multi-device interleavings:
+
+| # | Property | Guards |
+| --- | --- | --- |
+| 1 | The cycle reaches a stable state within the declared retry budget | C1, C7 |
+| 2 | No record and no one-sided field is lost, under **every** enumerated interleaving | the founding invariant |
+| 3 | A timestamp tie produces no oscillation, and mirrored perspectives choose the same winner | C4, C4b |
+| 4 | A semantically complete union terminates instead of ping-ponging | C2 |
+| 5 | Explicit user decisions survive a re-merge; a never-seen conflict reopens review | C3 |
+| 6 | A non-executable verification is classified ambiguous, never finalized | C5 |
+
+Gate 0 closes when these pass. Nothing else remains open in Gate 0.
 
 ## Post-review corrections (2026-08-14)
 
@@ -698,5 +856,7 @@ closing them is Gate 1 work, outside the Phase 0 scope.
 | Gate 0 T001–T008 | `failed` | — | 2026-08-13 | T001–T004, T006–T008 pass; T005 partial. **One blocker open: B1. Domain freeze forbidden.** (B2 was also listed on this date; withdrawn on review — see C2 and the row below.) |
 | Gate 0 T001–T008 (post-review) | `failed` | independent review | 2026-08-14 | Verdict unchanged: **NO-GO**. B2 declassed (not a blocker), R2 closed. **One blocker remains: B1.** Domain freeze still forbidden. |
 | Gate 0 T005 live re-spike (B1) | `failed` | — | 2026-08-15 | B1 **measured**: Drive v3 enforces no precondition. 6 decisive probes `200` with remote bytes overwritten; 6 counter-probes exclude every alternative explanation. **Not a blocker**: spec 008 FR-7 rewritten to require only `get` + `put`. |
-| Gate 0 close | `passed` | — | 2026-08-15 | T001–T008 all have executed evidence. Domain freeze (T201) may start. **No platform is enabled**; every platform row stays `not-run`. |
+| ~~Gate 0 close~~ | ~~`passed`~~ | — | 2026-08-15 | **REVERTED 2026-08-16.** Declared T001–T008 complete and T201 startable. The exit criterion it measured itself against had been rewritten in the same commit, and the mechanism replacing B1 was `not-run`. Struck, not deleted: the reversal is part of the record. |
+| Gate 0 amendment review | `failed` | independent review | 2026-08-16 | **Not validated, rework.** Convergence cycle non-convergent as written: no re-anchor on retry, no semantic arbiter, perspective-dependent tie-break. Five further defects. Gate 0 **reopened**; **T009 added**; T201 and domain freeze **blocked**. Drive `versionHistory` demoted to absent. |
+| Gate 0 T009 convergence model | `not-run` | — | — | **The remaining Gate 0 blocker.** Gate 0 closes when this passes and on no other condition. |
 | Gate 1 writer/mutex/platform evidence | `not-run` | — | — | All platforms disabled |

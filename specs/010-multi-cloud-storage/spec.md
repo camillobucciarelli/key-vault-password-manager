@@ -25,7 +25,14 @@ found it offers **no compare-and-swap** — no `If-Match`, no `412`, no `ETag`
 live-network re-spike"). Spec 008 responded by rewriting FR-7 around a
 storage-agnostic write-verify-converge cycle needing only `get` and `put`.
 
-That rewrite has a consequence worth naming: the sync safety model no longer
+That rewrite is **accepted as a direction and not yet validated**: spec 008's
+Gate 0 was reopened on 2026-08-16 because the cycle was declared sufficient in
+the same commit that rewrote the criterion, and reading it found three defects
+that each prevented convergence. They are corrected, and 008 T009 makes the
+cycle's properties executable. **This spec therefore describes a port shape, not
+a shipped guarantee**, and no adapter here ships before 008's Gate 0 closes.
+
+The rewrite's consequence is still worth naming: the sync safety model no longer
 depends on any Drive-specific mechanism. Nothing about it is Drive-shaped
 anymore, so nothing justifies Drive being the only backend — and the same
 measurement showed that providers differ in ways the user deserves to see before
@@ -110,9 +117,29 @@ the account is connected.
 
 | Category | Derivation | What the user is told |
 | --- | --- | --- |
-| **Protetto** | `conditionalWrite` present | "If another device saves at the same moment, this service refuses the second save. Nothing you saved is ever replaced without you being asked." |
-| **Recuperabile** | no `conditionalWrite`, `versionHistory` present | "If two devices save at the same moment, one save can replace the other — KeyVault notices and gets the replaced version back from the service. Nothing is lost." |
-| **Ricostruibile** | neither | "If two devices save at the same moment, one save can replace the other — KeyVault notices and restores the replaced version from the copy on your device. Nothing is lost, but the other device has to reconnect first." |
+| **Protetto** | `conditionalWrite` present | "If another device saves at the same moment, this service refuses the second save. Nothing you save here is replaced by another device without you being asked." |
+| **Recuperabile** | no `conditionalWrite`, `versionHistory` present | "If two devices save at the same moment, one save can replace the other. As long as the device that made the replaced save connects again, KeyVault gets it back from the service and nothing is lost. Until then, that save exists only on that device." |
+| **Ricostruibile** | neither | "If two devices save at the same moment, one save can replace the other. As long as the device that made the replaced save connects again, KeyVault restores it from the copy kept on that device and nothing is lost. If that device never connects again, that save is lost." |
+
+**Every string above states its condition before its reassurance, and that
+ordering is a requirement, not a style choice.** The earlier drafts all ended on
+an unconditional "Nothing is lost". On the two lower tiers that is false: 008's
+guarantee is conditional on the overwritten device resynchronizing, and a device
+that is uninstalled, lost, reset or simply never opened again takes its
+contribution with it (008 §"Out of scope / residual limits", defect C6). On a
+password manager an unconditional promise that does not hold is worse than a
+qualified one — it is exactly the promise a user would rely on when deciding not
+to keep their own backup.
+
+**Protetto** is the one tier where C6 does **not** apply: with a true
+compare-and-swap the second write is refused, so no contribution is ever
+overwritten and there is no device to wait for. Its copy was still narrowed, for
+a different reason: "Nothing you saved is ever replaced without you being asked"
+promised more than any capability in this taxonomy delivers. `conditionalWrite`
+governs **concurrent remote writes** and nothing else — it says nothing about a
+local write interrupted mid-save, and 008's FR-9 local atomicity rows are
+`not-run` on every platform. The string is therefore scoped to what the
+capability actually guarantees: not replaced **by another device**.
 
 ### Naming rationale
 
@@ -130,10 +157,13 @@ What the names deliberately avoid:
 - No jargon. The strings above name no ETag, no CAS, no precondition, no
   revision, no checksum. A user choosing a cloud provider is not being asked to
   understand HTTP semantics.
-- No fear words. "base", "weak", "unsafe", "degraded" would be wrong as well as
-  scary: on **all three** tiers the overwritten data is recovered, per 008's
-  invariant. The tiers differ in *from where* and *how fast*, and the copy says
-  exactly that.
+- No fear words. "base", "weak", "unsafe", "degraded" would be scary and, for
+  the wrong reason, imprecise: on all three tiers the overwritten data **is**
+  recovered. But it is not recovered unconditionally, and the copy no longer
+  pretends otherwise — on the two lower tiers recovery is performed by the
+  overwritten device and therefore requires that device to come back. The tiers
+  differ in *from where*, *how fast* and *on what condition*, and the strings
+  now say all three.
 - No false equivalence either. **Ricostruibile** states the real cost out loud —
   the other device has to reconnect — so a user who syncs from a device they
   rarely open can weigh it.
@@ -155,17 +185,22 @@ What the names deliberately avoid:
 
 ## Candidate providers
 
-**Only Google Drive is verified.** Its row is measured against the live service.
-Every other row is an **expectation**, recorded so the work can be planned, and
-carries no evidential weight whatsoever.
+**Only Google Drive's `conditionalWrite` is verified.** Everything else in this
+table — including Drive's other three capabilities — is an **expectation**,
+recorded so the work can be planned, and carries no evidential weight whatsoever.
 
 Marking an unverified expectation as fact is the exact error this gate already
-made once and corrected (feasibility report, §"Post-review corrections", C1). It
-is not repeated here.
+made once and corrected (feasibility report, §"Post-review corrections", C1).
+**It was then repeated in this spec's first draft**, which declared Drive's
+`versionHistory` present from its documented API and derived a **Recuperabile**
+category from it — one tier above what the evidence supported, on the strength of
+a document. Corrected 2026-08-16. AC-9 already required a review to fail on
+exactly this, which is why open question 4 below is closed rather than open: the
+rules answered it.
 
 | Provider | `conditionalWrite` | `versionHistory` | `atomicCreateIfAbsent` | `changeNotification` | Category | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| **Google Drive** | **no** | **yes** | **no** | to verify | **Recuperabile** | **verified** — live spike 2026-08-15 |
+| **Google Drive** | **no** | **no** (unmeasured) | **no** | to verify | **Ricostruibile** | `conditionalWrite` **verified absent** — live spike 2026-08-15. `versionHistory` **not measured**, therefore declared absent (see below) |
 | Dropbox | to verify | to verify | to verify | to verify | *to verify* | **not measured** |
 | OneDrive | to verify | to verify | to verify | to verify | *to verify* | **not measured** |
 | iCloud Drive | to verify | to verify | to verify | to verify | *to verify* | **not measured** |
@@ -183,10 +218,10 @@ what the tier system exists to prevent.
 | Capability | Declared | Basis |
 | --- | --- | --- |
 | `conditionalWrite` | **no** | Measured. `If-Match` (invented, stale `version`, stale `headRevisionId`), `If-None-Match: *` and `If-Unmodified-Since` with a past date all returned `200` **with the remote bytes actually overwritten**. Counter-probes exclude a transport fault: `Range` on the read path returned `206`, so arbitrary headers do reach and are interpreted; a malformed `If-Match` returned `200` rather than `400`, so the upload path does not parse preconditions at all. No `ETag` header and no `etag` field are returned; `version` and `headRevisionId` exist but are purely descriptive. |
-| `versionHistory` | **yes**, details `not-run` | Drive exposes a documented revisions API. **The operational details are not measured**: retention window, `keepRevisionForever` semantics, the ceiling on pinned revisions, and the quota impact of retained revisions. The Drive adapter must not depend on any of them until FR-5's spike closes them. |
+| `versionHistory` | **no** (`not-run`) | **Demoted 2026-08-16.** Previously declared **yes** on the strength of Drive's documented revisions API. That is a declaration from documentation, which rule 1 above forbids in as many words — *"Documentation alone is not a declaration"* — and rule 2 resolves the uncertainty against the capability: *"when a behaviour is uncertain, the capability is absent"*. Nothing was measured: not retention, not `keepRevisionForever`, not the ceiling on pinned revisions, not quota impact, and not the base claim that an overwritten revision is retrievable. The 2026-08-15 spike did not probe revisions at all. Declared **absent** until an FR-5 spike measures it. |
 | `atomicCreateIfAbsent` | **no** | Drive permits two files with the same name in the same folder, so a create cannot be conditioned on absence. |
 | `changeNotification` | to verify | Drive documents a changes/watch API; not measured. |
-| **Category** | **Recuperabile** | Derived: no `conditionalWrite`, `versionHistory` present. |
+| **Category** | **Ricostruibile** | Derived: no `conditionalWrite`, no declared `versionHistory`. Down from **Recuperabile**, which the 2026-08-15 draft derived from an undeclarable capability. The demotion is cheap to reverse: one FR-5 revisions spike restores `versionHistory`, and the category follows automatically — which is the derivation rule working as intended. |
 
 ## Functional requirements
 
@@ -207,6 +242,37 @@ codebase.
 
 A capability absent from the declaration is treated as absent even if the backend
 happens to support it.
+
+**Every declared capability must be backed by a dated spike artifact, and this is
+enforced structurally, not by review.** The derivation *category ← capabilities*
+is already safe: one pure function, test-enforced, no override (FR-3). The link
+*capabilities ← reality* is not, and that is the gap the Drive `versionHistory`
+demotion came through — an adapter can declare `conditionalWrite: true` with no
+spike behind it and become **Protetto** by doing so. AC-8 catches that only if a
+human reviewer notices, and the bypass was in fact used before any reviewer did.
+
+The enforceable form:
+
+1. An adapter declares each capability as a value carrying its evidence:
+   the capability, the artifact path inside `specs/010-multi-cloud-storage/`, and
+   the date the spike ran. A capability cannot be declared present without one —
+   it is not a separate field to remember, it is the only constructor.
+2. A test enumerates every registered adapter, and for every capability declared
+   present asserts that the named artifact file exists, parses, is dated, and
+   names that adapter and that capability. A missing, unparseable or
+   mismatched artifact fails the suite.
+3. The test also asserts the converse: an artifact recording a **negative**
+   result cannot accompany a present declaration.
+
+**This test ships with the first adapter, and cannot ship before it.** There is
+no adapter registry today — 010 is a draft with no code, and 008 is behind an
+open Gate 0 — so the test would have an empty set to enumerate and would assert
+nothing. Building a registry now, only to satisfy a test with no members, is
+infrastructure disproportionate to a draft. The obligation is therefore recorded
+here and in AC-13, and the one live instance of the bypass is closed by
+measurement discipline instead: Drive's `versionHistory` is demoted to absent in
+this revision, so no capability in this spec is currently declared without
+evidence.
 
 ### FR-3 — Derived categories, no overrides
 
@@ -298,6 +364,17 @@ to the merged state.
     logs, serialization or error strings.
 12. Provider migration verifies the read-back on the new provider before dropping
     the old mapping.
+13. **Capability ⇒ artifact, enforced by test.** Every capability an adapter
+    declares present resolves to an existing, parseable, dated spike artifact in
+    this folder naming that adapter and that capability; a negative artifact
+    cannot accompany a present declaration. Ships with the first adapter. Until
+    then no capability may be declared present without its artifact existing.
+14. **Every category string states its condition before its reassurance.**
+    Asserted over the exact strings: no tier's copy ends on an unconditional
+    "nothing is lost" unless its capabilities make it unconditional, and only
+    `conditionalWrite` does. **Protetto**'s copy is scoped to concurrent writes
+    by another device, and claims nothing about a locally interrupted save,
+    which is 008 FR-9's `not-run` territory.
 
 ## Out of scope
 
@@ -325,6 +402,18 @@ to the merged state.
 3. Does `changeNotification` deserve any user-visible expression at all? Current
    answer: no — it affects freshness, not safety, and mixing the two would dilute
    the three categories.
-4. Do the Drive revisions details (retention, `keepRevisionForever`, pinning
-   ceiling, quota) hold well enough for the **Recuperabile** promise, or does
-   Drive need to be reported one tier lower until they are measured?
+4. ~~Do the Drive revisions details hold well enough for the **Recuperabile**
+   promise, or does Drive need to be reported one tier lower until they are
+   measured?~~ **Closed 2026-08-16 — the spec's own rules already answered it.**
+   Not one revisions behaviour was measured, so rule 1 ("documentation alone is
+   not a declaration") and rule 2 ("when a behaviour is uncertain, the capability
+   is absent") make `versionHistory` absent, and AC-9 requires a review to
+   **fail** where an unmeasured capability is stated as fact. Drive is reported
+   as **Ricostruibile**. This was never a judgement call; it was a rule already
+   written down and not applied. The live question that remains is only *when the
+   revisions spike runs*, and it is FR-5 work, not an open design question.
+
+5. Which capability should the first FR-5 spike measure? Drive's
+   `versionHistory` is the cheapest candidate with a user-visible payoff — it
+   moves the only shipped provider from **Ricostruibile** back to
+   **Recuperabile** — and it needs no new provider integration.
