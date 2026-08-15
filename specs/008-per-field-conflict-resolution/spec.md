@@ -1,8 +1,10 @@
 # 008 — Per-field sync conflict resolution
 
-**Status**: Draft, blocked on Gate 0 feasibility report  
+**Status**: Draft · Gate 0 closed 2026-08-15; feature stays disabled per platform
+until Gate 1 atomicity artifacts  
 **Kind**: New feature  
-**Depends on**: 001, 002, 005
+**Depends on**: 001, 002, 005 · consumes the storage-capability port defined by
+**010** (008 is the consumer; 010 owns the port)
 
 ## Approved product behavior
 
@@ -49,19 +51,51 @@ Spike must:
 5. Prove root UUID lineage check before diff.
 6. Prove tombstones can be inspected/emitted without `KdbxFile.merge`; installed
    API marks that method unfinished and it is forbidden.
-7. Prove server-enforced Drive conditional upload.
+7. Measure which optional concurrency capabilities the remote backend actually
+   offers — server-enforced conditional write, version history — and record the
+   measurement. A negative measurement is a valid Gate 0 result: FR-7 requires
+   only `get` + `put`, so absent capabilities lower the guarantee tier
+   (see "Guarantee by backend category") without blocking the feature.
 8. Define per-platform atomic replace/fsync artifact schema and record every
    platform as `not-run`, `passed`, `failed` or `disabled`. Gate 0 does not claim
    target evidence; Gate 1 produces it. Host macOS evidence never qualifies
    Android, iOS, Windows or Linux.
 9. Produce T008 report at
    `specs/008-per-field-conflict-resolution/feasibility-report.md`: KDBX support
-   matrix, Drive token, writer inventory, path-identity rules, artifact schema and
+   matrix, measured remote-backend capabilities and the resulting guarantee tier,
+   writer inventory, path-identity rules, artifact schema and
    explicit per-platform status/feature flag.
 
-Any supported construct that cannot be preserved, unavailable conditional
-upload, or platform without passing atomicity artifact keeps feature disabled.
-Unsupported KDBX data is detected before backup/write; never normalized silently.
+Any supported construct that cannot be preserved, or platform without passing
+atomicity artifact, keeps feature disabled. Unsupported KDBX data is detected
+before backup/write; never normalized silently.
+
+**A backend without server-enforced conditional write does not keep the feature
+disabled.** It selects a lower guarantee tier. This is a deliberate amendment:
+the original text made conditional upload a precondition, the 2026-08-15
+live-network spike measured its absence on Drive, and FR-7 was rewritten to stop
+depending on it rather than to declare the problem solved. Drive still has no
+compare-and-swap; the spec no longer needs one.
+
+## Guarantee by backend category
+
+FR-7 is expressed in `get` + `put` only, so it holds on any storage backend.
+Backends that offer more raise the guarantee without changing the coordinator.
+
+| Backend category | Capabilities | Lost update prevented? | Overwritten content recovered from | Window |
+| --- | --- | --- | --- | --- |
+| **CAS** | conditional write (+ usually version history) | **yes**, server rejects the stale write | not needed; the write never lands | closed |
+| **Versioned** | version history, no conditional write | no | the server's own previous revision, immediately | ~100s of ms |
+| **Bare** | `get`/`put` only | no | the overwritten device's local merged state, on its next sync | ~100s of ms |
+
+In every category the lost update is **detected**, and in no category is it
+**destructive** — the FR-7 invariant guarantees the overwritten state still
+exists locally on the device that produced it. The categories differ only in how
+fast and from where the overwritten content is recovered.
+
+The coordinator, the use cases and the merge adapter are identical across all
+three. Capabilities are declared by the storage adapter (spec 010), consumed by
+the data-layer repository, and never branch domain or presentation logic.
 
 ## Architecture and secret boundary
 
@@ -195,18 +229,64 @@ shortcut. For explicit deletion conflict it maps side state to explicit
 
 **Prefer local** and **Prefer remote** set only actual conflict decisions and jump
 to confirmation. They preserve all record-level and field-level one-sided data.
-Both use lineage, staleness, backup, atomicity and conditional-upload gates.
+Both use lineage, staleness, backup, atomicity and FR-7 write-verify gates.
 
-### FR-7 — Staleness preconditions
+### FR-7 — Staleness preconditions and write-verify-converge
 
-Data-private session captures exact local source checksum, canonical path, Drive
-file ID, remote checksum, server concurrency token, root UUID and session
-generation. None appears in coordinator/BLoC state except opaque IDs.
+Data-private session captures exact local source checksum, canonical path, remote
+file identity, remote checksum, root UUID, session generation and — **only when
+the storage adapter declares `conditionalWrite`** — a server concurrency token.
+None appears in coordinator/BLoC state except opaque IDs.
 
-Inside per-database mutex immediately before backup/local commit, data repository
-recomputes local checksum and refetches remote metadata. Mismatch returns
-`staleLocal`/`staleRemote` with no write. Upload uses server-enforced conditional
-token; preflight alone is insufficient.
+**Founding invariant. Locally merged state is never discarded until the remote
+has been read back and proven to contain it.** Every rule below exists to serve
+this invariant; no optimization may weaken it.
+
+The remote write follows one storage-agnostic cycle. It requires only `get` and
+`put`, so it is implementable on every backend:
+
+1. **Read** the remote and record its checksum as the expected base.
+2. **Merge** locally against that base.
+3. **Revalidate under the per-database mutex, immediately before writing**:
+   recompute the local checksum and re-read the remote checksum. Local mismatch
+   returns `staleLocal`; remote mismatch returns `staleRemote`, and neither
+   writes anything. This step exists to shrink the race window from the duration
+   of the user's review — minutes — to the few hundred milliseconds between the
+   re-read and the write.
+4. **Write** the merged bytes.
+5. **Verify**: re-read the remote and compare its checksum to the merged
+   checksum.
+   - equal → the write is confirmed applied; finalize.
+   - different → another writer overwrote us. Fetch that content, merge it
+     against the retained local merged state, and repeat from step 3.
+
+Step 5 is mandatory on every backend and is the only source of truth about
+whether a write landed. A `2xx` response is a claim, not a confirmation.
+
+Consequence, to be stated plainly rather than hidden: **on a backend without
+conditional write the lost update is not prevented — it is made non-destructive.**
+The device that gets overwritten still holds its merged state locally by the
+invariant above, detects the divergence at step 5 or at its next sync, and
+re-proposes it. The union converges by mutual detection rather than by mutual
+exclusion.
+
+The convergence retry is bounded: after a spec-declared retry budget the session
+ends as an unresolved conflict, retaining the local merged file and the dated
+backup, and never marking the mapping synced. Convergence must not loop forever
+against a remote peer writing continuously.
+
+Optional capabilities are layered on top of this cycle without replacing it:
+
+| Declared capability | Effect on the cycle |
+| --- | --- |
+| `conditionalWrite` | Step 4 sends the concurrency token; the server rejects a stale write, so the window closes entirely and step 5 confirms rather than repairs. |
+| `versionHistory` | Step 5's divergence branch fetches the exact overwritten revision from the server instead of waiting for the other device to resynchronize. |
+| neither | The cycle runs unchanged with the base guarantee. |
+
+The concurrency token is **optional** and is used only where the adapter declares
+`conditionalWrite`. Its absence changes the guarantee tier, never the flow. A
+preflight check alone was never sufficient and still is not — on a CAS backend
+the token enforces the precondition, and on every backend step 5 verifies it.
 
 ### FR-8 — Writer inventory and per-database serialization
 
@@ -270,28 +350,51 @@ After fresh preconditions and under mutex:
 Tests freeze clock to same microsecond and precreate colliding names; every backup
 survives with unique content. Backup failure prevents target write.
 
+**On a backend without `conditionalWrite` the verified backup is part of the
+guarantee, not a precaution.** FR-7 cannot prevent a concurrent overwrite there;
+it can only guarantee the overwritten state survives locally. The dated pre-merge
+backup and the retained local merged file are that survival. Therefore, on such a
+backend, backup verification failure is a hard stop for the whole merge — not
+only for the local write — and the session ends with no remote write attempted.
+Skipping or best-efforting the backup would downgrade "detected but never
+destructive" to "silently destructive", which the invariant forbids.
+
 Atomic capability is platform-qualified. Each enabled platform must produce its
 own harness artifact showing process interruption and injected temp-write/flush/
 rename failures leave old or full new target, never missing/truncated. macOS host
 unit tests do not qualify any other platform. Feature defaults disabled per
 platform until matching artifact passes.
 
-### FR-10 — Remote upload outcomes and restart recovery
+### FR-10 — Remote write outcomes and restart recovery
 
-Before conditional upload, persist non-secret `pendingUpload` recovery record
-containing merged checksum, expected old remote checksum/token and local committed
-checksum. Then attempt upload.
+Before the FR-7 step-4 write, persist non-secret `pendingUpload` recovery record
+containing merged checksum, expected old remote checksum, local committed
+checksum and — only on a `conditionalWrite` adapter — the expected old token.
+Then attempt the write.
 
-Outcomes:
+The three outcome classes are unchanged. What changed is which of them a given
+backend can produce, and what the client is allowed to conclude from each.
 
-- **Conditional rejection**: certain not applied. Refetch and surface stale/new
-  conflict; never retry against changed token.
-- **Definite success response**: refetch metadata, verify remote merged checksum,
-  finalize mapping and clear recovery record.
-- **Transport timeout/disconnect after request dispatch**: outcome ambiguous;
-  request may have applied. Never blindly retry or mark failure/success.
+| Outcome | Available on | Meaning | Mandated action |
+| --- | --- | --- | --- |
+| **Certain rejection** | **`conditionalWrite` adapters only** | Server refused a stale precondition; certainly not applied | Refetch and surface stale/new conflict. Never retry against the freshly observed token. |
+| **Apparent success** | every backend | The response claims success; on a non-CAS backend it also carries no proof that a concurrent writer did not land between our read and our write | **Not** terminal. Run FR-7 step 5. Equal checksum → finalize mapping and clear the recovery record. Different → convergence retry. |
+| **Ambiguous** | every backend | Transport timeout/disconnect after dispatch; the request may have applied | Never blindly retry, never mark failure or success. Enter the recovery triage below. |
 
-Ambiguous recovery, including after app restart:
+Two amendments follow from this table and must not be read past:
+
+- A certain rejection **only exists on a CAS backend**. On any other backend the
+  absence of a rejection is not evidence that nothing was overwritten, and the
+  client must never treat it as such.
+- A success response is renamed from "definite success" to "apparent success"
+  precisely because it is not definite. The FR-7 step-5 read-back — not the
+  response status — is what promotes it to confirmed.
+
+Ambiguous recovery, including after app restart. The triage is unchanged in
+substance; only its **trigger** widens. It previously ran on a transport
+ambiguity alone; it now also runs whenever an apparent success fails its step-5
+verification and the session is interrupted before the convergence retry
+completes. Both entry points execute the same steps:
 
 1. Acquire same per-database mutex used by every writer.
 2. Read current local bytes and compare checksum to persisted
@@ -302,14 +405,19 @@ Ambiguous recovery, including after app restart:
    pending evidence, then require fresh conflict from current local/remote state.
 4. Only when local checksum matches, refetch remote metadata/bytes.
 5. Remote checksum equals merged checksum -> upload applied; finalize mapping.
-6. Remote checksum/token still equal expected old values -> upload not applied;
-   retry same conditional upload safely.
-7. Any third checksum/token state -> remote changed independently; retain local
-   merged file + dated backup and open new conflict.
+6. Remote checksum still equals the expected old value -> the write was not
+   applied; safely re-enter FR-7 from step 3. On a `conditionalWrite` adapter the
+   token is re-sent; on any other adapter the re-read at step 3 plus the
+   verification at step 5 carry the safety.
+7. Any third checksum state -> remote changed independently; retain local
+   merged file + dated backup and open new conflict. On a `versionHistory`
+   adapter the overwritten revision is additionally fetched and offered as the
+   remote side of that new conflict, instead of waiting for the other device.
 
 Recovery record clears only after verified finalization or handoff to new
-conflict. Mapping never claims synced while ambiguous. Local merge is never
-auto-rolled back.
+conflict. Mapping never claims synced while ambiguous, and never claims synced on
+an unverified apparent success. Local merge is never auto-rolled back — this is
+the invariant, restated at its most dangerous point.
 
 ### FR-11 — UI, scale and golden inventory
 
@@ -358,10 +466,10 @@ size/theme, calls `tester.takeException()` after settle and asserts no
 | `field phone dark has no overflow and exposes field decision roles` | field | 390×844 | dark | field heading/category, local choice, remote choice, preserved-missing status, masked-secret action |
 | `field tablet light has no overflow and exposes field decision roles` | field | 1024×768 | light | field heading/category, local choice, remote choice, preserved-missing status, masked-secret action, two-pane container |
 | `field tablet dark has no overflow and exposes field decision roles` | field | 1024×768 | dark | field heading/category, local choice, remote choice, preserved-missing status, masked-secret action, two-pane container |
-| `ready phone light has no overflow and exposes merge commit roles` | ready | 390×844 | light | ready heading, union counts, editable decisions, backup status, conditional-upload status, commit action |
-| `ready phone dark has no overflow and exposes merge commit roles` | ready | 390×844 | dark | ready heading, union counts, editable decisions, backup status, conditional-upload status, commit action |
-| `ready tablet light has no overflow and exposes merge commit roles` | ready | 1024×768 | light | ready heading, union counts, editable decisions, backup status, conditional-upload status, commit action, two-pane container |
-| `ready tablet dark has no overflow and exposes merge commit roles` | ready | 1024×768 | dark | ready heading, union counts, editable decisions, backup status, conditional-upload status, commit action, two-pane container |
+| `ready phone light has no overflow and exposes merge commit roles` | ready | 390×844 | light | ready heading, union counts, editable decisions, backup status, remote-write verification status, commit action |
+| `ready phone dark has no overflow and exposes merge commit roles` | ready | 390×844 | dark | ready heading, union counts, editable decisions, backup status, remote-write verification status, commit action |
+| `ready tablet light has no overflow and exposes merge commit roles` | ready | 1024×768 | light | ready heading, union counts, editable decisions, backup status, remote-write verification status, commit action, two-pane container |
+| `ready tablet dark has no overflow and exposes merge commit roles` | ready | 1024×768 | dark | ready heading, union counts, editable decisions, backup status, remote-write verification status, commit action, two-pane container |
 
 Parameterized widget test asserts matrix length `12`, unique names and execution
 of all rows. “Heading” requires header semantics, actions require enabled/disabled
@@ -385,7 +493,9 @@ navigation/list and detail landmark containers.
    custom fields and attachments inside same entry UUID under every shortcut.
 9. Missing side is never selected as null; deletion requires explicit evidence
    and explicit choice/policy. No resurrection by ambiguity.
-10. Local/remote stale preconditions and conditional upload race fail safely.
+10. Local/remote stale preconditions fail safely, and the FR-7 revalidation runs
+    inside the mutex immediately before the write on every backend, with or
+    without a concurrency token.
 11. Writer inventory is complete; import/replace/create/settings/rename/export/
     sync/edit all share path mutex. Alias and deterministic two-path rename tests
     pass.
@@ -395,14 +505,31 @@ navigation/list and detail landmark containers.
     platform has its own passing harness artifact.
 14. Concurrent save/sync/auto-sync/merge serializes; lock before boundary leaves
     target untouched; post-boundary lock reaches safe terminal bookkeeping.
-15. Conditional rejection, definite success and ambiguous timeout each follow
-    required recovery branch.
+15. Certain rejection (CAS adapters only), apparent success and ambiguous timeout
+    each follow the required FR-10 branch. An apparent success is never treated
+    as terminal without the FR-7 step-5 read-back.
+15a. **Invariant test**: locally merged state is never discarded before a
+    read-back proves the remote contains it. Asserted on the success path, the
+    divergence path, the ambiguous path and the restart path.
+15b. **Convergence test**: with the remote overwritten by a simulated concurrent
+    writer between step 3 and step 5, the session detects the divergence,
+    re-merges against the observed remote content and converges without losing
+    either side's records. The same test with the retry budget exhausted ends as
+    an unresolved conflict, retains the merged local file and the dated backup,
+    and does not mark the mapping synced.
+15c. **Capability-parity test**: the coordinator, use cases and merge adapter
+    produce identical decisions against a CAS adapter, a `versionHistory`
+    adapter and a bare `get`/`put` adapter. Only the guarantee tier reported to
+    the user differs. No domain or presentation code branches on a capability.
+15d. On a backend without `conditionalWrite`, backup verification failure aborts
+    the whole merge and attempts no remote write.
 16. Restart recovery acquires database mutex and checks current local checksum
     against `localCommittedChecksum` before remote triage/mutation. Mismatch returns
     `staleRecoveryLocal`, retains backup, performs no upload/finalization and
     requires fresh conflict.
-17. Matching-local restart recovery executes remote checksum/token triage and
-    finalizes, retries, or starts new conflict correctly.
+17. Matching-local restart recovery executes remote checksum triage — plus token
+    triage where the adapter declares `conditionalWrite` — and finalizes,
+    retries, or starts new conflict correctly.
 18. Upload failure/ambiguity keeps merged local + dated backup and never marks
     synced prematurely.
 19. Result reopens with original password+key file and matches semantic parity for
@@ -418,3 +545,12 @@ navigation/list and detail landmark containers.
 - Native durability code is not added here. Failed target artifact requires
   platform specialist before enabling target.
 - Dart managed secrets cannot be guaranteed zeroized.
+- On a backend without `conditionalWrite` the lost update is **not prevented**.
+  FR-7 guarantees only that it is detected and non-destructive. Preventing it
+  would require a capability Google Drive does not offer — measured, see the
+  feasibility report — and no client-side construction substitutes for it.
+- The FR-7 window is narrowed to the revalidate-then-write interval, not
+  eliminated. Two devices writing inside that interval both converge, but the
+  user may see one extra conflict round.
+- The storage-capability port itself is **spec 010**. 008 consumes the
+  capabilities; it does not define the multi-provider abstraction.

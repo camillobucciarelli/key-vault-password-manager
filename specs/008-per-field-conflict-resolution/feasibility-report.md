@@ -1,7 +1,9 @@
 # 008 — Feasibility report
 
 **Report task**: T008
-**Current status**: Gate 0 executed — **NO-GO**, feature stays disabled on every platform
+**Current status**: Gate 0 **closed 2026-08-15**. B1 measured and **confirmed
+`failed`**; it is no longer a blocker because spec 008 FR-7 no longer depends on
+it. Feature stays disabled on every platform, on the platform-atomicity rows.
 **Safety rule**: `not-run`, `failed` or `disabled` never enables feature
 
 This file is authoritative Gate 0/Gate 1 record. Update rows with command, commit,
@@ -17,6 +19,16 @@ runtime and artifact evidence. Never convert assumption into `passed`.
 | Flutter | 3.44.8 stable (fvm), revision `058e0af2c2` |
 | Host | macOS (darwin), APFS |
 | Date | 2026-08-13; corrected after independent review 2026-08-14 |
+
+Second run — the B1 live-network re-spike:
+
+| Item | Value |
+| --- | --- |
+| Branch | `feat/008-drive-conditional-spike` |
+| Spike commit | `6354da0` (`chore(008): add live-network Drive conditional upload spike`) |
+| Working tree | `lib/` untouched; spike lives in `tool/`, runs manually, is in no CI suite |
+| Date | 2026-08-15 |
+| Detail | see "B1 live-network re-spike (2026-08-15)" |
 
 > **Read "Post-review corrections" at the end of this file first.** An
 > independent review of the 2026-08-13 run found one fabricated evidence
@@ -85,22 +97,26 @@ the package must be declared rather than used transitively.
 
 ## Gate 0 verdict
 
-**NO-GO.** T001–T004 and T006–T008 completed. T005 is **partial**. **One**
-blocker prevents Gate 0 from closing; per `spec.md` lines 62–63 it alone keeps
-the feature disabled on every platform.
+**Closed 2026-08-15.** T001–T008 completed. T005 was closed by the live-network
+re-spike recorded in "B1 live-network re-spike" below.
 
-| # | Blocker | Owner task |
-| --- | --- | --- |
-| **B1** | Server-enforced Drive conditional upload is **unproven**. The Drive REST v3 reference for `files.update` documents no precondition — no `If-Match`, no precondition query parameter, no `412` response — and the v3 `File` resource exposes no `etag` (present in v2, removed in v3). Only client-side outcome classification was proven, against a fake transport. **Sending `If-Match` by hand is possible and untested**: see below. | T005 re-spike with live network |
+**B1 is `failed`, not `passed`, and not withdrawn.** Google Drive REST v3 offers
+no compare-and-swap on the upload path. That is now measured against the real
+service, not inferred from documentation. What changed is not the finding but the
+spec: 008 FR-7 was rewritten around a `get` + `put` write-verify-converge cycle
+that requires no server-enforced precondition, so B1 no longer gates anything.
 
-The transport is **not** the obstacle. `GoogleDriveApiService.updateFile` calls
-Drive through a raw `http.Client` and spreads its header map at the call site
+| # | Finding | Status | Gates the feature? |
+| --- | --- | --- | --- |
+| **B1** | Drive v3 does not enforce any HTTP precondition on `files.update`. Confirmed live, with byte-level counter-proof. | **`failed`** (measured) | **No.** Spec 008 FR-7 (rewritten 2026-08-15) requires only `get` + `put`. Drive lands in the **Versioned** guarantee tier: no CAS, but `versionHistory` present. See "Guarantee by backend category" in `spec.md`. |
+
+The transport was never the obstacle, and the re-spike proved that positively
+rather than by assumption: `GoogleDriveApiService.updateFile` calls Drive through
+a raw `http.Client` and spreads its header map at the call site
 (`lib/features/password_manager/data/services/google_drive_api_service.dart:138-148`,
-`_httpClient.patch(uri, headers: {...headers, …}, body: bytes)`), so an arbitrary
-header — `If-Match` included — is a one-line client change. That path has
-**never been exercised**, against either a fake or a real server, and it is the
-only remaining candidate. It must be closed by a live-network spike; nothing
-short of an observed server response can turn it into evidence.
+`_httpClient.patch(uri, headers: {...headers, …}, body: bytes)`). The spike used
+the same header-spreading shape and demonstrated that arbitrary headers do reach
+Drive and are honoured on the read path.
 
 One further finding is a **risk**, not a blocker, but must be accepted
 explicitly before T301:
@@ -121,15 +137,18 @@ explicitly before T301:
 | Root UUID lineage check | `passed` | `T004 root group UUID lineage…` | Drive file id proven insufficient |
 | UUID integrity validation | `passed` | `T004 pre-diff UUID validation…` (5 tests) | duplicate entry/group, group-entry collision, nil, cross-side kind |
 | Entry colors + entry AutoType (constructs the library does not model) | `passed` | `T001 entry colors round-trip…`, `T001 entry AutoType survives…` | read/written through the exported `KdbxNode.node` |
-| Drive server-enforced conditional update | **`not-run`** | — | **B1**; no live-network evidence exists |
+| Drive server-enforced conditional update | **`failed`** | live-network spike 2026-08-15, `tool/drive_conditional_spike.dart` | **B1**, measured. No CAS on Drive v3. **Not blocking** — FR-7 no longer requires it |
+| Drive backend guarantee tier | `passed` | same spike | **Versioned**: no `conditionalWrite`, `versionHistory` present (revisions API) |
+| Storage-agnostic write-verify-converge cycle (`get` + `put` only) | `not-run` | FR-7 as rewritten 2026-08-15 | design accepted; implementation + tests are T4xx |
 | Ambiguous transport outcome classification | `passed` | `conditional update` (10 tests) | client-side rules only, fake transport |
 | Writer/path inventory reconciled | `passed` | `inventory baseline` (12 tests) | 14 writer files; 6 gaps vs FR-8 |
 | Path identity/alias design reviewed | `not-run` | design drafted below | executed in Gate 1 T103/T107 |
 | Platform artifact schema recorded | `passed` | `harness schema` (10 tests) | schema only; **no platform evidence** |
 
 Gate 0 may close when T001–T008 evidence is complete and every unresolved target
-platform remains disabled. **B1 is unresolved, so Gate 0 does not close and
-T201/domain freeze must not start.**
+platform remains disabled. **That condition is now met: T001–T008 all have
+executed evidence, B1 has a measured result, and every platform row stays
+`not-run`/disabled.** T201/domain freeze may start. No platform is enabled.
 
 ## KDBX support matrix
 
@@ -254,6 +273,9 @@ a `KdbxFile` held in a variable whose name contains no `kdbx` is not caught.
 transport (`package:http/testing.dart` `MockClient`). They prove the client-side
 contract. They do **not** and cannot prove that Google's servers enforce a
 precondition. No row below is marked `passed` on the strength of a fake server.
+The live-network evidence that settled the question is in
+"B1 live-network re-spike (2026-08-15)" further down; the rows in this section
+were written before it and are now annotated with the measured result.
 
 Documentation review performed as part of T005:
 
@@ -288,9 +310,10 @@ observing a real server response to it.
 
 | Item | Recorded value/status |
 | --- | --- |
-| Concurrency token selected | **`not-run`** — no documented server-enforced token exists on Drive v3 |
-| Metadata fields/headers | `not-run` — candidate `If-Match` + `ETag` response header is **undocumented legacy behaviour**, never sent and never observed. The transport allows it (raw `http.Client`, spreadable header map); only server enforcement is unknown |
-| Conditional rejection proven not applied | `not-run` against real Drive; `passed` against fake transport (`conditional rejection proves the write was NOT applied`) |
+| Concurrency token selected | **`failed`** — measured 2026-08-15: no server-enforced token exists on Drive v3. **No longer required**; FR-7 declares the token optional |
+| Metadata fields/headers | **`failed`** — `If-Match`, `If-None-Match` and `If-Unmodified-Since` were sent live and all were ignored on the upload path; no `ETag` header and no `etag` field is returned. The transport is proven adequate by the `Range` → `206` counter-probe |
+| Conditional rejection proven not applied | `failed` against real Drive (no `412` is producible); `passed` against fake transport (`conditional rejection proves the write was NOT applied`). Retained because the client rule stays correct for future CAS adapters |
+| Storage-agnostic read-back verification (FR-7 step 5) | `not-run` — replaces the conditional token as the primary safety mechanism; implemented and tested in T4xx |
 | Timeout-after-dispatch classified ambiguous | `passed` (client-side rule) — `timeout after dispatch is ambiguous even though it APPLIED` / `… when it did NOT apply` / `the two ambiguous cases are indistinguishable to the client` |
 | Persisted `localCommittedChecksum` recovery guard | `not-run` — design only, implemented in T404/T407 |
 | Restart local mismatch returns `staleRecoveryLocal` before remote call/mutation | `not-run` — T407/T409 |
@@ -314,6 +337,9 @@ conflict.
 
 ### Required before B1 can clear
 
+Superseded by the live-network re-spike below. Recorded verbatim as the standard
+that was applied: option 1 was executed, and it returned a negative result.
+
 One of:
 
 1. a live-network spike against a throwaway Drive account, sending `If-Match`
@@ -325,8 +351,81 @@ One of:
    resumable-upload session bound to an observed generation) that provides
    server-enforced serialization.
 
-Until then the feature stays disabled regardless of every other row in this
-report.
+## B1 live-network re-spike (2026-08-15)
+
+**Result: B1 confirmed. Google Drive REST v3 enforces no precondition on the
+upload path. Measured, not assumed.**
+
+| Item | Value |
+| --- | --- |
+| Artifact | `tool/drive_conditional_spike.dart` (commit `6354da0`) |
+| Command | `DRIVE_SPIKE_TOKEN='<redacted>' dart run tool/drive_conditional_spike.dart` |
+| Date | 2026-08-15 |
+| Target | live `https://www.googleapis.com/drive/v3` + `/upload/drive/v3`, `uploadType=media` |
+| Account | throwaway Google account, OAuth Playground token, scope `https://www.googleapis.com/auth/drive` |
+| Subject | one spike-created file of random bytes, deleted in `finally`. No `.kdbx`, no vault data, no pre-existing file touched |
+| `lib/` changes | none |
+
+No token, file ID, account identifier or response body is reproduced in this
+report. The spike never prints the token, not even truncated.
+
+**Method — why a `200` is evidence here.** Every probe re-downloads the object
+after the write and compares the bytes to the payload it sent. A `200` counts
+only when the remote bytes actually changed. Without that counter-proof a `200`
+would be indistinguishable from a silently discarded request.
+
+### Decisive probes — all five wrote through
+
+| # | Probe | Expected if CAS existed | Observed | Remote bytes overwritten |
+| --- | --- | --- | --- | --- |
+| 1 | `If-Match: "<invented value>"` | `412` | **`200`** | **yes** |
+| 2 | `If-Match: "<stale version>"` | `412` | **`200`** | **yes** |
+| 3 | `If-Match: <stale ETag-shaped value>` | `412` | **`200`** | **yes** |
+| 4 | `If-Match: "<stale headRevisionId>"` | `412` | **`200`** | **yes** |
+| 5 | `If-None-Match: *` on an existing resource | `412` | **`200`** | **yes** |
+| 6 | `If-Unmodified-Since: <past date>` | `412` | **`200`** | **yes** |
+
+Stale values in probes 2–4 are genuinely stale: they were read before the
+earlier writes in the same run, not fabricated.
+
+### Counter-probes — every alternative explanation excluded
+
+| Probe | Observed | What it rules out |
+| --- | --- | --- |
+| `Range` header on the read path | **`206`** | Arbitrary headers **do reach** Drive and **are interpreted**. The negative result is not a limitation of our transport, our client or the header-spreading call shape. |
+| `If-Match` with deliberately malformed syntax | **`200`**, not even a `400` | Drive does not parse conditional headers on the upload path at all. It is not parsing-then-ignoring; there is no precondition machinery to address. |
+| `If-Match` stale on `GET` metadata | **`200`** | No precondition on the read path either. |
+| JSON `etag` field on the `File` resource | **absent** | Confirms v3 dropped the v2 `etag`. |
+| HTTP `ETag` response header | **absent** | No server-supplied validator to build a precondition from. |
+| `version`, `headRevisionId` | present, but writes succeed against stale values | Both are **descriptive only**, not write preconditions. |
+
+### Verdict
+
+Google Drive offers **no compare-and-swap**. Options 2 and 3 of "Required before
+B1 can clear" were not pursued: option 2 is refuted by the same measurement, and
+option 3 — a client-side lock or marker file — cannot provide server-enforced
+serialization on a backend with no atomic create-if-absent, so it would trade a
+measured limitation for an unmeasured one.
+
+### This no longer blocks the feature
+
+Spec 008 FR-7 was rewritten on 2026-08-15 around a **write-verify-converge**
+cycle expressed in `get` + `put` only, with revalidation under the per-database
+mutex immediately before the write, and a mandatory read-back afterwards. Its
+founding invariant — locally merged state is never discarded until the remote is
+proven to contain it — makes a lost update **detected and non-destructive**
+without any server precondition.
+
+Drive therefore lands in the **Versioned** tier of `spec.md` §"Guarantee by
+backend category": no `conditionalWrite`, `versionHistory` present. See
+`specs/010-multi-cloud-storage/spec.md` for the capability taxonomy.
+
+Not measured by this spike, and therefore **not** claimed: the details of Drive's
+revisions API — retention policy, `keepRevisionForever` semantics, the ceiling on
+pinned revisions and the quota impact. `versionHistory` is recorded as present
+for Drive on the strength of the documented revisions API, and its operational
+details are `not-run`. Spec 010 requires a dedicated spike before any adapter
+relies on them.
 
 ## Writer inventory evidence
 
@@ -525,10 +624,13 @@ Input to T201. **T201 must not start while B1 is open.**
   by value through the exported `KdbxNode.node`, so the adapter does not need to
   refuse databases carrying them. The adapter must read and write them through
   the entry's XML node, because the typed API does not expose them.
-- **chosen Drive token**: **none available**. `not-run`. `DriveRemoteFile` has no
-  concurrency-token field today; `md5Checksum` is content-derived and cannot
-  serialize writes on its own (two generations with identical content share it).
-  T401 is blocked on B1.
+- **chosen Drive token**: **none exists**. `failed`, measured 2026-08-15.
+  `DriveRemoteFile` has no concurrency-token field, and none can be added,
+  because Drive enforces nothing. `md5Checksum` is content-derived and cannot
+  serialize writes on its own (two generations with identical content share it)
+  — but it **is** sufficient as the FR-7 step-5 read-back comparator, which is
+  what the rewritten FR-7 actually needs. T401 is unblocked and is respecified
+  as "implement the write-verify-converge cycle", not "select a token".
 - **platform path identity/global-lock fallback**: design recorded above;
   `identityConfidence` flag with coarse global lock fallback. Per-platform
   decision `not-run`.
@@ -541,9 +643,17 @@ Input to T201. **T201 must not start while B1 is open.**
 
 Listed so no reader mistakes them for results:
 
-1. Google Drive server-side enforcement of any precondition — **assumed absent**,
-   never tested live. Sending `If-Match` through the existing raw `http.Client`
-   is possible and has never been attempted. B1.
+1. ~~Google Drive server-side enforcement of any precondition — **assumed
+   absent**, never tested live.~~ **Resolved 2026-08-15**: tested live and
+   measured absent. This is now evidence (`failed`), not an assumption. See
+   "B1 live-network re-spike".
+1a. Drive revisions API operational details — retention window,
+   `keepRevisionForever` semantics, ceiling on pinned revisions, quota impact.
+   `versionHistory` is recorded as present for Drive from its documented API;
+   none of these details was measured. `not-run`. Required by spec 010 before an
+   adapter relies on them.
+1b. Every non-Drive provider's capabilities. Nothing was measured. Spec 010
+   lists them as **to verify** and requires a per-adapter spike.
 2. Detection of malformed non-UUID constructs — recycle bin, tombstones,
    strings/protection, attachments, cipher/compression, KDF parameters,
    credential shapes. Round-trip evidence exists for all of them; **detector**
@@ -587,4 +697,6 @@ closing them is Gate 1 work, outside the Phase 0 scope.
 | --- | --- | --- | --- | --- |
 | Gate 0 T001–T008 | `failed` | — | 2026-08-13 | T001–T004, T006–T008 pass; T005 partial. **One blocker open: B1. Domain freeze forbidden.** (B2 was also listed on this date; withdrawn on review — see C2 and the row below.) |
 | Gate 0 T001–T008 (post-review) | `failed` | independent review | 2026-08-14 | Verdict unchanged: **NO-GO**. B2 declassed (not a blocker), R2 closed. **One blocker remains: B1.** Domain freeze still forbidden. |
+| Gate 0 T005 live re-spike (B1) | `failed` | — | 2026-08-15 | B1 **measured**: Drive v3 enforces no precondition. 6 decisive probes `200` with remote bytes overwritten; 6 counter-probes exclude every alternative explanation. **Not a blocker**: spec 008 FR-7 rewritten to require only `get` + `put`. |
+| Gate 0 close | `passed` | — | 2026-08-15 | T001–T008 all have executed evidence. Domain freeze (T201) may start. **No platform is enabled**; every platform row stays `not-run`. |
 | Gate 1 writer/mutex/platform evidence | `not-run` | — | — | All platforms disabled |
