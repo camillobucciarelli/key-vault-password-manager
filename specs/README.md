@@ -34,6 +34,7 @@ specs/NNN-slug/spec.md|plan.md|tasks.md
 | 007B | [App icon family — UI/badge integration](007-app-icon-family/spec.md) | Restyle integration | 001, 002, 007A |
 | 008 | [Per-field sync conflict resolution](008-per-field-conflict-resolution/spec.md) | **New feature** | 001, 002, 005 |
 | 009 | [In-page autofill overlay](009-in-page-autofill-overlay/spec.md) | **New feature** | 006 |
+| 011 | [Master password session scope](011-master-password-session-scope/spec.md) | **Security fix** | 003, 006 |
 
 Journey 03 (navigation models) resolved into spec 002; journey 14 (dark mode) is
 not a separate spec — the dark token mapping lands in 001 and every screen spec
@@ -47,6 +48,10 @@ carries dark acceptance criteria.
    both prerequisites for every later UI integration, including **007B**.
 3. **003 → 004 → 005 → 006** may then proceed; 004 is the highest-traffic surface.
 4. **007B** follows 001, 002 and 007A. **008** follows 005; **009** follows 006.
+5. **011** is a security fix, independent of the restyle sequence, and takes
+   priority over new-feature work: it removes an unbounded plaintext lifetime
+   that violates constitution principle I and blocks the accurate privacy claim
+   required for store submission.
 
 ## Definition of done, every spec
 
