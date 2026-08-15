@@ -93,15 +93,37 @@ Ordered gates. Later phase cannot start until prior gate exit passes.
       Every correction must be **mutation-guarded**: reverting it in the model
       must kill at least one test that asserts an outcome, not only a counter.
       Record the mutation table in the feasibility report.
+      **Scope limit — T009 says nothing about deletions.** The model expresses
+      no tombstone, no `fieldDeletionConflict` (FR-4/FR-5) and no attachment, so
+      the join-semilattice result is **no evidence** about the convergence of
+      deletion. A grow-only union is also the wrong structure for it: it cannot
+      remove an element, so a delete either fails to converge or is resurrected
+      by the next peer that still holds the value. Convergent deletion needs
+      removal evidence — a 2P-Set or a tombstone with a causal clock — proved
+      over both operations. Tracked as **T009b**, below; T009 passing does not
+      discharge it.
       Artifact:
       `test/features/password_manager/data/services/sync_merge_convergence_model_test.dart`.
       This task exists because C1, C2 and C4 were found by reading a document,
       and N1 by running the model at a device count the suite did not cover.
       Convergence must be **executable**, not argued in prose.
+- [ ] **T009b Deletion convergence model** — **a separate gate, not part of
+      Gate 0.** Extend the convergence model to express deletion evidence and
+      prove that the chosen structure converges over **both** add and remove:
+      associative, commutative and idempotent, at 3 and 4 devices, mutation-
+      guarded to the same standard as T009. Covers tombstones and record
+      deletion (FR-5), the deletion-evidence rows of the FR-4 table
+      (`fieldDeletionConflict`), and attachments. **Must pass before any
+      deletion, tombstone or attachment behaviour enters the implementation.**
+      T009 passing does not discharge it: T009's union is grow-only and
+      therefore says nothing about removal. Nothing in the current design
+      depends on this — FR-4 states that a missing KDBX field or attachment is
+      normally a union, not a deletion — so it blocks the deletion work only.
 
 **Gate 0 exit**: **T001–T009** pass. **NOT MET** — T001–T008 have executed
 evidence; **T009 is `not-run` and is the only remaining blocker**. T008 and T009
-are both mandatory before T201/domain freeze.
+are both mandatory before T201/domain freeze. **T009b is not a Gate 0 condition**
+and does not block it; it gates the deletion/attachment work only.
 
 A backend's **absent** concurrency capability no longer blocks Gate 0 — it
 selects a lower guarantee tier (`spec.md` §"Guarantee by backend category").

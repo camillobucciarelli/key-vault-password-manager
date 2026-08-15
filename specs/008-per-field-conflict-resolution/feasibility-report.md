@@ -198,7 +198,8 @@ explicitly before T301:
 | Drive server-enforced conditional update | **`failed`** | live-network spike 2026-08-15, `tool/drive_conditional_spike.dart` | **B1**, measured. No CAS on Drive v3. **Not blocking** — FR-7 no longer requires it |
 | Drive `versionHistory` | **`not-run`** | none — documentation only | **Demoted 2026-08-16.** Previously `passed` on the strength of Drive's documented revisions API. Spec 010's own rules forbid that: *"Documentation alone is not a declaration"* and *"when a behaviour is uncertain, the capability is absent"*. Retention, `keepRevisionForever`, the pinned-revision ceiling and quota impact are all unmeasured. Drive therefore declares `versionHistory` **absent** |
 | Drive backend guarantee tier | **`not-run`** | derived from the two rows above | **Bare**, pending the revisions spike: no `conditionalWrite`, no declared `versionHistory`. Spec 010 category **Ricostruibile**, down from Recuperabile. Restored to Versioned/Recuperabile only when a live revisions spike passes |
-| Storage-agnostic write-verify-converge cycle — model validation | **`not-run`** | **T009**, `sync_merge_convergence_model_test.dart` | **This is the Gate 0 blocker.** The FR-7 rewrite of 2026-08-15 was accepted as a direction and corrected on review; it is validated by nothing. Gate 0 closes when this row passes |
+| Storage-agnostic write-verify-converge cycle — model validation | **`not-run`** | **T009**, `sync_merge_convergence_model_test.dart` | **This is the Gate 0 blocker.** The FR-7 rewrite of 2026-08-15 was accepted as a direction and corrected on review; it is validated by nothing. Gate 0 closes when this row passes. **Scope: additions only** — no tombstone, no `fieldDeletionConflict`, no attachment; see §"What T009 does not cover" |
+| Deletion convergence — model validation | **`not-run`** | **T009b**, not started | **Separate gate, not a Gate 0 condition.** T009's grow-only union is no evidence about removal, and is the wrong structure for it. Must pass before deletion, tombstone or attachment behaviour enters the implementation |
 | Storage-agnostic write-verify-converge cycle — production implementation | `not-run` | FR-7 as corrected 2026-08-16 | implementation + integration tests are T4xx, after Gate 0 |
 | Ambiguous transport outcome classification | `passed` | `conditional update` (10 tests) | client-side rules only, fake transport |
 | Writer/path inventory reconciled | `passed` | `inventory baseline` (12 tests) | 14 writer files; 6 gaps vs FR-8 |
@@ -831,6 +832,45 @@ Interleaved concurrency at three or more writers is **not** enumerated.
 
 Gate 0 closes when these pass. Nothing else remains open in Gate 0.
 
+#### What T009 does not cover — deletions are a separate gate
+
+Stated explicitly because a green T009 will otherwise be read as "convergence is
+proved", unqualified. That is the same shape of overclaim that hid N1 once
+already, and it is worth more here, because the uncovered area is the one that
+is *hardest* to get right.
+
+The model expresses a document as a map of field key to `(value, mtime)`, where
+a missing key is absence and absence is never deletion evidence. It therefore
+**does not express**:
+
+- **tombstones and record deletion (FR-5)** — no deletion marker exists in the
+  model at all;
+- **`fieldDeletionConflict` (FR-4)** — the deletion-evidence rows of the FR-4
+  table have no representation, so none of them is asserted;
+- **attachments** — modelled as nothing; binary identity, deduplication and
+  deletion of attachments are all outside the model.
+
+Consequently the join-semilattice result of property 7 says **nothing about the
+convergence of deletions**. It is not weak evidence for them; it is no evidence.
+And a set union is not merely unproven for deletion, it is the **wrong
+structure**: a grow-only union can never remove an element, so a delete either
+does not converge or is resurrected by the next merge from a peer that still
+holds the value. Convergent deletion needs a structure that carries removal
+evidence — a 2P-Set, or a tombstone with a causal clock — and its own proof of
+associativity, commutativity and idempotence over *both* operations. Deletion is
+routinely the hardest case in a CRDT design, and none of that work is done here.
+
+This is a **limit of coverage, not a defect**: FR-4 already states that a
+missing KDBX field or attachment is normally a union and not a deletion, so
+nothing in the current design depends on the uncovered behaviour.
+
+**Gate: `T009b` — deletion convergence model.** Separate from T009 and from
+Gate 0. T009 passing does **not** discharge it. It must be superseded before any
+deletion, tombstone, `fieldDeletionConflict` or attachment behaviour enters the
+implementation, and it requires: a model that expresses deletion evidence, a
+demonstration that the chosen structure is a semilattice over both add and
+remove, and a mutation check of the same standard applied to T009.
+
 ### Second-pass review (2026-08-17)
 
 A second independent review confirmed C1, C2, C3, C5, C6 and C7 as corrected,
@@ -857,6 +897,24 @@ what allowed N1 to pass unnoticed:
   finite hand-written set of scenarios. It is not exhaustive and does not claim
   to be.
 
+### Third-pass review (2026-08-18)
+
+A third independent review reproduced the mutation table 7/7, confirmed N1 closed
+by execution, confirmed the two strengthened guards, and validated the
+join-semilattice claim over 20 000 randomized trials — beyond what the suite
+itself asserted. Verdict **validated with risk**, with three closures required.
+None is a convergence defect; two are data-loss disclosures.
+
+| # | Severity | Finding | Correction |
+| --- | --- | --- | --- |
+| **Q1** | grave | The declared cost of the `\n\n---\n\n` notes separator was **incomplete**. It disclosed reordering only. Two damages existed: the peer's text was **inserted between** the user's own paragraphs, and — undisclosed — the set union **silently deleted** segments the user legitimately repeated (`TODO / rotate key / TODO` came back as two). Under-declaring a data-loss defect is worse than not declaring it. | The separator is now the sentinel `"\n\n---\u241E---\n\n"`. The union property belongs to the set union, not the delimiter, so the restriction is free. Ordinary user text is now a single indivisible segment, and both damages are eliminated for it. `spec.md` FR-3 gains §"The separator is a sentinel, and why" with the complete disclosure and the residual cost. Mutation **Q1**. |
+| **Q2** | latent | In the ledger branch, `l.value == decided ? l : r` degenerates to *"take the second operand"* when `decided` matches neither side: operand-order-dependent (defect C4's class, relocated) and the sticky decision is discarded **in silence**. Measured 22678/30000 commutativity violations in that state, against 0/30000 when the decision is live. Unreachable today — but only because of FR-4 and the ledger's session lifetime, neither of which anything asserted, and `011-master-password-session-scope` is live work on exactly that scope. | The invariant `decided ∈ {local.value, remote.value}` is now checked. On violation the field **returns to review** as an undecided conflict carrying both candidates — never resolved by picking an operand. Written into `spec.md` FR-7 with the two constraints it rests on and the warning that changing either reopens it as silent data loss. Mutation **Q2**. |
+| **Q3** | disclosure | The model expresses no tombstone, no `fieldDeletionConflict` and no attachment, so the proved algebra says **nothing** about the convergence of deletions — and a grow-only union is not merely unproven for deletion, it is the wrong structure. A green T009 would have been read as "convergence is proved", unqualified: the same overclaim that hid N1. | §"What T009 does not cover" added above, the T009 status rows now carry **"scope: additions only"**, and the work is registered as a **separate gate T009b** in `tasks.md` — to be superseded before any deletion, tombstone or attachment behaviour enters the implementation. Not a Gate 0 condition. |
+
+Test counts: convergence model 28 → **31**, full suite 598 → **601**. No test was
+deleted, and no assumption was promoted to `passed`: T009 remains `not-run`,
+T009b opens as `not-run`. `lib/` remains untouched.
+
 #### Mutation check
 
 Each mutation reverts one correction in the model and the suite is re-run. A
@@ -868,11 +926,13 @@ list at four and understates these counts.
 | --- | --- | --- | --- |
 | expected base not re-anchored | C1 | **7** | `a writer landing after our write converges in one round` — outcome becomes `staleRemote` |
 | semantic short-circuit removed | C2 | **2** | `a peer that keeps rewriting the same content still finalizes` — outcome becomes `unresolved`, budget fully spent |
-| ledger not consulted | C3 | **2** | `a decision survives two consecutive divergence rounds` — outcome becomes `needsReview` |
+| ledger not consulted | C3 | **3** | `a decision survives two consecutive divergence rounds` — outcome becomes `needsReview` |
 | tie-break → prefer local | C4 | **7** | `two devices that each keep their own value stop the remote moving across sessions` — the remote alternates `alpha`/`beta` forever |
-| notes union → fixed-order binary concatenation | C4b, N1 | **6** | `three devices reach the same remote state in any merge order` — six sync orders yield distinct manifests |
+| notes union → fixed-order binary concatenation | C4b, N1 | **7** | `three devices reach the same remote state in any merge order` — six sync orders yield distinct manifests |
 | non-executable read-back → finalized | C5 | **2** | `a read-back that fails on a later round is ambiguous too` |
 | unknown timestamp treated as a bare tie | N3 | **2** | `an unknown timestamp does not break associativity` |
+| sentinel separator → plain `\n\n---\n\n` | Q1 | **1** | `the sentinel separator leaves ordinary user text intact` — the user's own paragraphs are split, interleaved and deduplicated |
+| ledger invariant guard removed (apply a decision naming neither side) | Q2 | **1** | `a ledger decision naming neither candidate reopens review instead of silently taking an operand` — outcome stops being `needsReview` and becomes operand-order-dependent |
 
 Two mutations previously killed exactly one weak assertion each and were
 strengthened rather than accepted:
@@ -888,6 +948,28 @@ strengthened rather than accepted:
   scenario has the peer re-serialize the same semantic content after every one
   of our writes, so without the arbiter the session exhausts the budget and ends
   `unresolved`. The **outcome** now depends on the short-circuit.
+
+The two mutations added on 2026-08-18 (Q1, Q2) each kill exactly **one** test,
+and that is accepted here rather than strengthened, for a reason that does not
+apply to the C2 and C4 cases above. Both kills assert an **outcome** — text
+present or lost, `needsReview` or an operand silently taken — not a counter,
+which is the standard this table applies. Neither can be reached from a
+system-level scenario:
+
+- **Q1** is only visible when the user's own text contains the separator, which
+  after the fix is a sequence no scenario can produce by writing ordinary
+  Markdown; a system test would have to type the sentinel on purpose, which
+  tests the sentinel rather than the correction.
+- **Q2** is **unreachable by construction** while FR-4 and the session lifetime
+  of the ledger hold — that is precisely the finding. A system-level scenario
+  that reached it would mean one of those two constraints is already broken. The
+  direct test is therefore the only instrument that can hold the invariant, and
+  holding it is the whole point: the state must fail loudly if a later change
+  (spec 011) makes it reachable.
+
+The C4 and C2 cases were different in kind: those states *were* reachable from
+ordinary two-device traffic, and the suite simply had no scenario that reached
+them.
 
 `C5` and `N3` are each killed by two tests covering two distinct paths (first
 versus later read-back; ordering rule versus associativity under it). Their
@@ -928,5 +1010,6 @@ closing them is Gate 1 work, outside the Phase 0 scope.
 | ~~Gate 0 close~~ | ~~`passed`~~ | — | 2026-08-15 | **REVERTED 2026-08-16.** Declared T001–T008 complete and T201 startable. The exit criterion it measured itself against had been rewritten in the same commit, and the mechanism replacing B1 was `not-run`. Struck, not deleted: the reversal is part of the record. |
 | Gate 0 amendment review | `failed` | independent review | 2026-08-16 | **Not validated, rework.** Convergence cycle non-convergent as written: no re-anchor on retry, no semantic arbiter, perspective-dependent tie-break. Five further defects. Gate 0 **reopened**; **T009 added**; T201 and domain freeze **blocked**. Drive `versionHistory` demoted to absent. |
 | Gate 0 amendment review (2nd pass) | `failed` | independent review | 2026-08-17 | C1, C2, C3, C5, C6, C7 and C4b confirmed corrected; 010 validated. **One blocking defect: N1**, the notes concatenation is not associative, found by running the model at three devices. Three specification gaps N2–N4. The T009 enumeration was 2 devices while the report claimed adversarial multi-device coverage — the overclaim that hid N1. |
-| Gate 0 T009 convergence model | `not-run` | — | — | **The remaining Gate 0 blocker.** 28 model assertions pass and every correction is mutation-guarded, but the status stays `not-run` until the PM accepts the gate: a suite declaring itself green is the failure mode this row exists to prevent. Gate 0 closes when this is accepted and on no other condition. |
+| Gate 0 amendment review (3rd pass) | `validated with risk` | independent review | 2026-08-18 | N1 confirmed closed by execution, the mutation table reproduced 7/7 independently, both strengthened guards confirmed strong, the semilattice claim held over 20 000 randomized trials. Three closures required, all applied here: **Q1** the `\n\n---\n\n` disclosure under-declared a second, data-loss damage and the separator is now a sentinel; **Q2** the ledger Case Q is now guarded by an asserted invariant instead of being merely unreachable; **Q3** T009's silence on deletions is declared and gated as T009b. |
+| Gate 0 T009 convergence model | `not-run` | — | — | **The remaining Gate 0 blocker.** 31 model assertions pass and every correction is mutation-guarded, but the status stays `not-run` until the PM accepts the gate: a suite declaring itself green is the failure mode this row exists to prevent. Gate 0 closes when this is accepted and on no other condition. **Scope: additions only** — deletions are T009b and are not covered. |
 | Gate 1 writer/mutex/platform evidence | `not-run` | — | — | All platforms disabled |
