@@ -4,19 +4,32 @@ Ordered gates. Later phase cannot start until prior gate exit passes.
 
 ## Phase 0 — Feasibility and report (blocking)
 
-> **Gate 0 executed 2026-08-13 on `feat/008-merge-gate0`, corrected after
-> independent review 2026-08-14 — verdict NO-GO.**
-> T001–T004 and T006–T008 pass; **T005 is partial**. **One** blocker keeps the
-> feature disabled and forbids T201/domain freeze:
-> **B1** server-enforced Drive conditional upload is unproven — the Drive REST
-> v3 `files.update` reference documents no precondition and the v3 `File`
-> resource has no `etag`. The transport is not the obstacle: Drive is called via
-> a raw `http.Client`, so `If-Match` can be sent; it never has been, and only a
-> live-network spike can settle it.
+> **Gate 0 is OPEN. T201 and the domain freeze are blocked.**
+>
+> History: executed 2026-08-13 on `feat/008-merge-gate0`; corrected after
+> independent review 2026-08-14; **B1 closed by live-network measurement
+> 2026-08-15**; Gate 0 declared closed the same day and **that close was
+> reverted by independent review 2026-08-16**.
+>
+> **B1 is settled and is no longer a blocker.** Google Drive REST v3 enforces no
+> precondition on the upload path — measured live, six decisive probes and six
+> counter-probes. Spec 008 FR-7 was rewritten around a storage-agnostic
+> `get` + `put` write-verify-converge cycle that needs no server precondition.
+>
+> **What blocks Gate 0 now is that the replacement cycle is validated by
+> nothing.** The 2026-08-15 close rewrote the Gate 0 exit criterion in the same
+> commit that declared it met, and the cycle it substituted for B1 is `not-run`.
+> Reading it found three defects that each prevented convergence — no
+> re-anchoring of the expected base on retry, a byte comparison with no semantic
+> arbiter, and a perspective-dependent tie-break — plus four correctness and
+> safety defects. All are corrected in `spec.md`; none was caught by a test.
+>
+> **Gate 0 closes when T009 passes, and on no other condition.**
+>
 > Previously listed as B2 (entry colors) and R2 (entry auto-type): **both
 > closed**. Their values round-trip through the exported `KdbxNode.node`.
 > Full evidence: `specs/008-per-field-conflict-resolution/feasibility-report.md`,
-> section "Post-review corrections".
+> sections "Convergence-cycle review (2026-08-16)" and "Post-review corrections".
 
 - [x] **T001 KDBX semantic matrix** — generated KDBX 3/4 cases covering every
       installed-library-supported fidelity category: hierarchy/moves, recycle
@@ -30,9 +43,16 @@ Ordered gates. Later phase cannot start until prior gate exit passes.
       compare root UUID before diff. Spike pre-diff rejection for duplicate entry,
       duplicate group, group-entry collision, nil live UUID and cross-side kind
       mismatch. Prove no call to unfinished `KdbxFile.merge`.
-- [~] **T005 Drive conditional spike** — PARTIAL. HTTP-rejection vs
-      timeout-after-dispatch classification proven against a fake transport;
-      server-enforced token NOT proven (blocker B1, needs live-network spike).
+- [x] **T005 Drive concurrency-capability measurement** — DONE, negative result.
+      HTTP-rejection vs timeout-after-dispatch classification proven against a
+      fake transport; **server-enforced conditional write measured ABSENT**
+      against live Drive (`tool/drive_conditional_spike.dart`, 2026-08-15). B1 is
+      `failed` and closed. A negative measurement is a valid outcome: FR-7 now
+      requires only `get` + `put`, so the capability's absence lowers the
+      guarantee tier instead of blocking the feature.
+      **Drive `versionHistory` is NOT covered by this task** and is declared
+      absent — it was briefly recorded present from documentation alone, which
+      spec 010's own rules forbid. Measuring it is a spec 010 FR-5 spike.
 - [x] **T006 Filesystem harness spike** — define portable failure/interruption
       harness and artifact schema for backup/flush/replace semantics.
 - [x] **T007 Writer/path discovery** — scan current feature for `File.write*`,
@@ -44,17 +64,45 @@ Ordered gates. Later phase cannot start until prior gate exit passes.
       writer inventory, path identity design, artifact schema and per-platform
       `not-run|passed|failed|disabled` status/feature flags. Gate 0 may leave target
       artifacts `not-run` and disabled; Gate 1 produces evidence.
+- [ ] **T009 Convergence model validation** — **the remaining Gate 0 blocker.**
+      Validate the FR-7 write-verify-converge cycle as a **model**, in memory:
+      no network, no filesystem, no KDBX, no `lib/` dependency. Simulate N
+      devices against a shared bare `get`/`put` remote under adversarial
+      interleavings and assert:
+      1. convergence to a stable state within the declared retry budget of 3;
+      2. no record and no one-sided field lost, under every enumerated
+         interleaving — including the honest case where a write inside the race
+         window IS clobbered and is recovered only when that device resyncs;
+      3. no oscillation on a timestamp tie; mirrored perspectives pick the same
+         winner, for the tie-break and for the deterministic notes concatenation;
+      4. a semantically complete union terminates instead of ping-ponging on
+         byte difference alone;
+      5. explicit user decisions survive a re-merge, and a never-seen conflict
+         reopens review instead of auto-resolving;
+      6. a non-executable step-5 read-back is classified ambiguous, never
+         finalized.
+      Artifact:
+      `test/features/password_manager/data/services/sync_merge_convergence_model_test.dart`.
+      This task exists because C1, C2 and C4 were found by reading a document.
+      Convergence must be **executable**, not argued in prose.
 
-**Gate 0 exit**: **T001–T008** pass. **NOT MET** — see banner above. T008 is mandatory before T201/domain freeze.
-Unavailable conditional upload or fidelity gap blocks Gate 0. Platform evidence
-may remain `not-run` only with target disabled; Gate 1 T111 must pass before that
-target enables.
+**Gate 0 exit**: **T001–T009** pass. **NOT MET** — T001–T008 have executed
+evidence; **T009 is `not-run` and is the only remaining blocker**. T008 and T009
+are both mandatory before T201/domain freeze.
+
+A backend's **absent** concurrency capability no longer blocks Gate 0 — it
+selects a lower guarantee tier (`spec.md` §"Guarantee by backend category").
+What blocks Gate 0 is the storage-agnostic cycle that replaced it being
+unvalidated. A fidelity gap still blocks Gate 0. Platform evidence may remain
+`not-run` only with target disabled; Gate 1 T111 must pass before that target
+enables.
 
 ```bash
 flutter test test/features/password_manager/data/services/vault_kdbx_service_test.dart --plain-name "merge feasibility"
 flutter test test/features/password_manager/data/services/google_drive_api_service_test.dart --plain-name "conditional update"
 flutter test test/features/password_manager/data/services/database_writer_inventory_test.dart --plain-name "inventory baseline"
 flutter test test/features/password_manager/data/services/safe_vault_file_writer_harness_schema_test.dart
+flutter test test/features/password_manager/data/services/sync_merge_convergence_model_test.dart
 ```
 
 ## Phase 1 — All-writer serialization and filesystem safety
@@ -160,18 +208,48 @@ UUID/lineage, presence, deletion, shortcut, secret boundary and DI tests pass.
 
 ## Phase 4 — Preconditions, commit and remote recovery
 
-- [ ] **T401 Drive model/API** — add Gate 0-proven concurrency token and
-      server-enforced conditional `updateFile`.
+- [ ] **T401 Write-verify-converge cycle** — implement FR-7's storage-agnostic
+      cycle in `get` + `put` terms: read/record expected base, merge, revalidate
+      under the mutex, write, and **mandatory step-5 read-back verification**.
+      On divergence: re-anchor the expected base to the observed content,
+      short-circuit on canonical semantic-manifest equality, then re-merge with
+      the sticky decision ledger re-applied. Retry budget 3 per commit session.
+      A non-executable read-back is `ambiguous`, not `finalized`.
+      **No concurrency token is selected or added.** Drive enforces none —
+      measured, B1 — and FR-7 declares the token optional, used only where the
+      storage adapter declares `conditionalWrite`. `DriveRemoteFile` gains no
+      token field. `md5Checksum` serves as the step-5 comparator.
+      *(Respecified 2026-08-16. This task previously read "add Gate 0-proven
+      concurrency token and server-enforced conditional `updateFile`". The
+      2026-08-15 report claimed the respecification had happened while this line
+      was unchanged — a declared-but-unmade change, the same error class as the
+      fabricated citation corrected in the 2026-08-14 pass. It is made here.)*
+- [ ] **T401a Deterministic tie-break** — implement FR-3's globally deterministic
+      total order over candidate values (unsigned lexicographic, greater wins)
+      for timestamp ties and unknown timestamps, and use the same order to fix
+      the operand order of the deterministic notes concatenation. Never "prefer
+      local": that is perspective-dependent and makes the merge non-commutative.
+      Promote the T009 model properties to adapter-level tests.
+- [ ] **T401b Sticky decision ledger** — record explicit user decisions keyed by
+      object UUID plus field key/attachment name, re-apply after every re-merge
+      ahead of LWW/tie-break/shortcuts, and return the session to review when a
+      re-merge introduces a conflict the user has never been shown.
 - [ ] **T402 Local/remote staleness** — recompute local checksum and refetch remote
-      checksum/token under path mutex immediately before backup; stale side causes
-      zero write.
+      checksum under path mutex immediately before backup; compare the remote
+      against the **current** expected base, which the divergence branch
+      re-anchors. Refetch the token too, but only on a `conditionalWrite`
+      adapter. Stale side causes zero write.
 - [ ] **T403 Atomic commit integration** — candidate semantic validation, verified
       collision-safe backup, target temp/replace and mapping transaction.
 - [ ] **T404 Persist `_PendingMergeUpload` before dispatch** — merged/local
-      checksums, expected old remote checksum/token, Drive ID, private backup/path,
-      no plaintext/credentials.
-- [ ] **T405 Definite outcomes** — conditional rejection means not applied;
-      successful response refetches merged checksum before finalizing mapping.
+      checksums, expected old remote checksum, remote file ID, private backup/
+      path, no plaintext/credentials. The expected old **token** is persisted
+      only on a `conditionalWrite` adapter; on a bare adapter there is none.
+- [ ] **T405 Outcome classification** — a **certain rejection exists only on a
+      `conditionalWrite` adapter** and means not applied. On every other backend
+      a success response is an **apparent** success, never terminal: the FR-7
+      step-5 read-back promotes it to confirmed before the mapping is finalized.
+      Absence of a rejection is not evidence that nothing was overwritten.
 - [ ] **T406 Ambiguous transport outcome** — timeout/disconnect after dispatch
       persists `outcomeAmbiguous`; do not retry blindly or mark synced/failed.
 - [ ] **T407 Recovery local guard** — under per-database mutex, hash current local
@@ -180,15 +258,26 @@ UUID/lineage, presence, deletion, shortcut, secret boundary and DI tests pass.
       retry, finalization or success mapping update; retain backup/evidence and
       require fresh conflict.
 - [ ] **T408 Matching-local remote triage** — only after T407 match, refetch:
-      merged checksum -> finalize; unchanged old checksum+token -> conditional
-      retry; third state -> new conflict while retaining local+backup.
+      merged checksum -> finalize; unchanged expected-old checksum -> safely
+      re-enter FR-7 from step 3 (re-sending the token only on a
+      `conditionalWrite` adapter; on any other adapter the step-3 re-read plus
+      the step-5 verification carry the safety); third state -> new conflict
+      while retaining local+backup. On a `versionHistory` adapter the overwritten
+      revision is additionally fetched and offered as the remote side.
 - [ ] **T409 Restart recovery tests** — recreate process/data repository with
       pending record. Cover local mismatch first and assert zero remote calls/
       mutation, then matching-local applied/not-applied/third-state branches before
       normal auto-sync.
-- [ ] **T410 Upload tests** — conditional reject, success, timeout-applied,
-      timeout-not-applied, timeout-third-state, retry timeout and verification
-      failure. Mapping never claims synced prematurely.
+- [ ] **T410 Upload tests** — apparent success verified and unverified,
+      timeout-applied, timeout-not-applied, timeout-third-state, retry timeout,
+      **non-executable step-5 read-back**, divergence-then-converge, semantic
+      short-circuit, retry-budget exhaustion, and conditional reject (on a
+      `conditionalWrite` fake adapter only). Mapping never claims synced
+      prematurely and never on an unverified apparent success.
+- [ ] **T412 Capability parity** — coordinator, use cases and merge adapter
+      produce identical decisions against a CAS adapter, a `versionHistory`
+      adapter and a bare `get`/`put` adapter. Only the reported guarantee tier
+      differs; no domain or presentation code branches on a capability.
 - [ ] **T411 Upload-failure reopen** — local merged file and dated backup remain;
       reopen with password+key file succeeds.
 

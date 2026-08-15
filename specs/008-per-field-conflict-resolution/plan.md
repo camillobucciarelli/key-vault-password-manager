@@ -17,7 +17,7 @@ under all choices.
 | --- | --- |
 | `lib/features/password_manager/data/services/vault_kdbx_service.dart` | `_openFile` resolves passed password/key file; `_save` writes target directly. Entry/group/attachment/recycle-bin mutations converge here, except credential transaction uses separate temp/rename/rollback paths. |
 | `lib/features/password_manager/data/services/database_sync_orchestrator.dart` | `syncNow` detects conflicts, performs direct local remote-replacement, backup and Drive upload. |
-| `lib/features/password_manager/data/services/google_drive_api_service.dart` | Metadata currently requests `id,name,modifiedTime,md5Checksum`; `updateFile` lacks conditional token. |
+| `lib/features/password_manager/data/services/google_drive_api_service.dart` | Metadata requests `id,name,modifiedTime,md5Checksum`. `updateFile` sends no precondition, and **none is available**: Drive enforces no conditional write (measured, B1). `md5Checksum` is what FR-7 step 5 compares. |
 | `lib/features/password_manager/data/services/database_import_service.dart` | Owns import, staging, commit/finalize/rollback, managed replace/move, database create and key-file save. Several rename/write/delete paths. |
 | `lib/features/password_manager/presentation/coordinators/database_session_coordinator.dart` | Drives import/create/replace and directly deletes database file in recent-removal path. |
 | `lib/features/password_manager/presentation/coordinators/vault_session_coordinator.dart` | `updateDatabaseSettings` changes credentials, renames database old->new, updates metadata and rolls back. `lockVault` clears credentials. |
@@ -26,7 +26,7 @@ under all choices.
 | `lib/features/password_manager/data/datasources/secure_data_source.dart` | Data-owned master-password source. Never expose through sync merge port. |
 | `lib/features/password_manager/data/datasources/local_data_source.dart` | Cached key-file path fallback for matching active database. |
 | `lib/features/password_manager/domain/repositories/database_registry_repository.dart` and `database_security_repository.dart` | Data implementation uses records/profiles to resolve persisted key-file path and database identity. |
-| `lib/features/password_manager/domain/models/database_sync_mapping.dart` | Stores current local/remote checksum baseline; needs proven token and pending recovery metadata. |
+| `lib/features/password_manager/domain/models/database_sync_mapping.dart` | Stores current local/remote checksum baseline; needs pending-recovery metadata. A concurrency token is added **only** for a storage adapter declaring `conditionalWrite`; Drive declares none. |
 | `lib/features/password_manager/presentation/bloc/vault/vault_bloc.dart` | `_scheduleAutoSync` debounces background sync. Must call coordinator/use cases only and share data mutex transitively. |
 | `lib/features/password_manager/di/password_manager_{data,domain,presentation}_di.dart` | Register data implementation, domain use cases, singleton path mutex and coordinator in correct layer. |
 
@@ -42,11 +42,33 @@ root UUID must be inspectable without `KdbxFile.merge`. Spike also proves
 pre-diff rejection for nil live UUID, duplicate entry/group UUID, group-entry UUID
 collision and cross-side object-kind mismatch.
 
-### Drive
+### Remote concurrency capabilities
 
-Prove ETag, Drive `version`, or revision token supports server-enforced
-conditional update. Stale request must not overwrite. Record distinction between
-HTTP conditional rejection and transport failure after request dispatch.
+**Measure** which optional concurrency capabilities the backend actually offers
+— server-enforced conditional write, version history — against the live service,
+with a counter-proof that arbitrary headers reach it. A negative measurement is
+a valid Gate 0 result, not a blocker: FR-7 requires only `get` + `put`, so an
+absent capability lowers the guarantee tier instead of stopping the feature.
+
+Executed 2026-08-15. Result: **Drive enforces no precondition on the upload
+path** — `If-Match`, `If-None-Match: *` and `If-Unmodified-Since` all returned
+`200` with the remote bytes actually overwritten, while a `Range` probe returned
+`206` to exclude a transport explanation. Drive's `versionHistory` was **not**
+measured and is therefore declared **absent**; Drive sits in the **Bare** tier.
+
+Still record the distinction between an HTTP conditional rejection and a
+transport failure after dispatch: the rule stays correct for a future
+`conditionalWrite` adapter, even though Drive can never produce a rejection.
+
+### Convergence cycle
+
+Because the capability measurement came back negative, the safety mechanism is
+FR-7's storage-agnostic write-verify-converge cycle. **That cycle is itself a
+Gate 0 deliverable (T009)** and is validated as an in-memory model before any
+implementation depends on it: bounded convergence, no one-sided loss under
+adversarial interleavings, no oscillation on a timestamp tie, termination on a
+semantically complete union, sticky user decisions across a re-merge, and an
+ambiguous classification for a non-executable verification.
 
 ### Filesystem
 
@@ -63,7 +85,9 @@ prerequisite for Phase 1. It contains:
 
 - KDBX read/import/mutate/write/verify support matrix;
 - unsupported-data detector;
-- chosen Drive conditional token and ambiguous-response behavior;
+- measured remote concurrency capabilities, the resulting guarantee tier and
+  the apparent-success/rejection/ambiguous outcome rules;
+- the convergence-model validation result (T009);
 - complete writer inventory below, updated from implementation-time search;
 - canonical path/alias identity algorithm;
 - per-platform artifact schema, `not-run|passed|failed|disabled` status, artifact
@@ -71,7 +95,8 @@ prerequisite for Phase 1. It contains:
   while Gate 1 must produce `passed` evidence before enabling;
 - model changes required by findings.
 
-Gate 0 exits only when T001–T008 pass.
+Gate 0 exits only when **T001–T009** pass. T001–T008 have executed evidence;
+T009 is `not-run` and is the only remaining blocker.
 
 ## Clean Architecture
 
@@ -176,6 +201,19 @@ missing/present            -> preserve present remote automatically
 missing/missing            -> absent
 ```
 
+On a conflicting field the default is the newer KDBX modification time. **On a
+tie or an unknown timestamp the default comes from a globally deterministic total
+order over the candidate values — unsigned lexicographic, greater wins — never
+from "prefer local".** A perspective-dependent default makes the merge function
+non-commutative, so two devices flip the field back and forth across sync
+sessions. The same order fixes the operand order of the deterministic notes
+concatenation. The UI still marks the uncertainty and still offers an override;
+only the default is fixed.
+
+An explicit user decision is recorded in a session decision ledger keyed by
+object UUID plus field key/attachment name, and re-applied ahead of LWW and the
+tie-break on every re-merge round.
+
 Shortcut iteration includes only decision records. It cannot choose missing side.
 Explicit field deletion marker, if Gate 0 proves one, creates deletion decision;
 delete requires explicit choice/policy. Tests cover local-only/remote-only custom
@@ -244,9 +282,16 @@ Inside database mutex:
 8. write same-directory target temp; flush/fsync/close
 9. recheck invalidation/cancel; atomic replace, never delete-first
 10. persist pendingUpload record before remote request
-11. conditional upload
-12. classify definite success/rejection/ambiguous transport outcome
-13. refetch/verify or retain recovery record; update mapping only when proven
+11. upload (`put`); a concurrency token is sent only on a `conditionalWrite`
+    adapter
+12. classify apparent success / certain rejection (CAS adapters only) /
+    ambiguous transport outcome
+13. **mandatory step-5 read-back**: equal -> finalize; not executable ->
+    ambiguous, enter recovery triage; different -> re-anchor the expected base,
+    short-circuit on semantic-manifest equality, else re-merge with the sticky
+    decision ledger and repeat from step 3, up to a budget of 3 rounds
+14. update mapping only when the read-back proved the remote holds the merged
+    state
 ```
 
 Backup naming collision retries; existing backups never overwritten. Freeze-clock
@@ -256,8 +301,18 @@ tests use same microsecond plus precreated final candidates.
 
 ```text
 pendingUpload
-  + conditional rejection -> refetch -> new conflict/stale
-  + success response       -> refetch merged checksum -> finalized
+  + certain rejection      -> CAS adapters only; refetch -> new conflict/stale
+  + apparent success       -> step-5 read-back
+        equal              -> finalized
+        not executable     -> persisted ambiguous
+        different          -> re-anchor base
+                              semantic manifests equal -> finalized
+                              new unseen conflict      -> back to review
+                              else                     -> re-merge, retry (max 3)
+                              budget spent             -> unresolved conflict:
+                                                          retain merged local +
+                                                          dated backup, never
+                                                          mark synced
   + transport ambiguity    -> persisted ambiguous
 
 ambiguous/restart recovery under per-database mutex:
@@ -268,8 +323,9 @@ ambiguous/restart recovery under per-database mutex:
       -> refetch remote only now
          remote checksum == merged checksum
              -> finalize mapping, clear pending record
-         remote checksum/token == expected old checksum/token
-             -> retry same conditional request
+         remote checksum == expected old checksum
+             -> safely re-enter FR-7 from step 3; the token is re-sent only on a
+                conditionalWrite adapter
          otherwise
              -> retain local+backup, clear retry eligibility, start new conflict
 ```
@@ -323,7 +379,7 @@ additional exact names from spec. Scale vault is generated in memory.
 ## Sequence
 
 ```text
-G0 T001–T008 spike + report
+G0 T001–T009 spike + report + convergence model
  -> G1 writer inventory/path identity/mutex/platform artifacts
  -> G2 frozen safe domain models/port/use cases (compiling, no data impl)
  -> G3 data adapter/repository implementation/presence/lineage + DI
@@ -338,6 +394,8 @@ G0 T001–T008 spike + report
 ### New
 
 - `specs/008-per-field-conflict-resolution/feasibility-report.md`
+- `test/features/password_manager/data/services/sync_merge_convergence_model_test.dart`
+  (T009; in-memory model, no `lib/` dependency)
 - `lib/features/password_manager/domain/repositories/sync_merge_repository.dart`
 - focused `lib/features/password_manager/domain/usecases/*sync_merge*.dart`
 - `lib/features/password_manager/domain/models/sync_merge_models.dart`
@@ -362,6 +420,7 @@ for database paths.
 dart format lib/features/password_manager test/features/password_manager integration_test
 flutter analyze
 flutter test test/features/password_manager/data/services/vault_kdbx_service_test.dart --plain-name "merge feasibility"
+flutter test test/features/password_manager/data/services/sync_merge_convergence_model_test.dart
 flutter test test/features/password_manager/data/services/database_path_mutex_test.dart
 flutter test test/features/password_manager/data/services/database_writer_inventory_test.dart
 flutter test test/features/password_manager/domain/usecases/sync_merge_usecases_test.dart
@@ -377,7 +436,9 @@ flutter test integration_test/safe_vault_file_writer_test.dart -d <target-device
 
 Manual: both shortcuts with one-sided records/fields/attachments; record and field
 deletions; local/remote stale races; backup/disk failures; edit/auto-sync/lock at
-commit boundary; conditional rejection; timeout with applied/not-applied/third
+commit boundary; apparent success verified and diverged; semantic-equivalence
+short-circuit; retry-budget exhaustion; non-executable read-back; conditional
+rejection on a CAS fake adapter only; timeout with applied/not-applied/third
 remote state; restart recovery; reopen with password+key file.
 
 ## Residual limits
@@ -386,3 +447,8 @@ remote state; restart recovery; reopen with password+key file.
 - Unsupported library constructs block merge.
 - Exact Dart secret zeroization unavailable.
 - Platform remains disabled until its own evidence artifact passes.
+- On a backend without `conditionalWrite` a lost update is detected, not
+  prevented, and "non-destructive" is **conditional on every writing device
+  resynchronizing**. A device that is overwritten and never comes back online
+  loses its contribution from the remote permanently and silently. See `spec.md`
+  §"Out of scope / residual limits".
