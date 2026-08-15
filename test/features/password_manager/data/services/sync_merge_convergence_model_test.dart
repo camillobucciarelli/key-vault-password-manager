@@ -20,6 +20,8 @@
 //   4. semantically complete union terminates         (guards C2)
 //   5. explicit user decisions survive a re-merge     (guards C3)
 //   6. non-executable verification is ambiguous       (guards C5)
+//   7. the merge is a join-semilattice: associative,
+//      commutative and idempotent, at 3 and 4 devices (guards N1, N3)
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -32,11 +34,14 @@ import 'package:flutter_test/flutter_test.dart';
 /// [mtime] has whole-second granularity on purpose — that is what makes a tie
 /// an ordinary event rather than an exotic one, and a tie is what defect C4
 /// turned into an infinite oscillation.
+///
+/// [mtime] is nullable because FR-3 names an **unknown** timestamp explicitly.
+/// A model that cannot express one cannot assert anything about it (defect N3).
 class Field {
   const Field(this.value, this.mtime);
 
   final String value;
-  final int mtime;
+  final int? mtime;
 
   @override
   bool operator ==(Object other) =>
@@ -69,14 +74,59 @@ int compareValues(String a, String b) {
   return ua.length.compareTo(ub.length);
 }
 
-/// FR-3's deterministic notes concatenation.
+/// FR-3's total order over a field, `(mtime, value)` with unknown lowest.
 ///
-/// Operand order is fixed by [compareValues], NOT by `local + remote`. Ordering
-/// by perspective would make two devices produce `A‖B` and `B‖A` — two byte
-/// sequences and two semantic manifests — so the notes field alone would keep
-/// the cycle divergent forever (defect C4b).
-String concatNotes(String a, String b) =>
-    compareValues(a, b) <= 0 ? '$a\n\n---\n\n$b' : '$b\n\n---\n\n$a';
+/// An unknown modification time carries no evidence, so it sorts **below** every
+/// known one; two unknowns fall through to the value order. Treating "unknown"
+/// as a bare tie — the previous rule — made the order partial: with mixed
+/// known/unknown mtimes `(A|B)|C` and `A|(B|C)` selected different winners, so
+/// the merge stopped being associative (defect N3).
+///
+/// Returns > 0 when [a] wins, < 0 when [b] wins, 0 when the two are identical.
+int compareFields(Field a, Field b) {
+  final am = a.mtime;
+  final bm = b.mtime;
+  if (am != bm) {
+    if (am == null) return -1;
+    if (bm == null) return 1;
+    return am.compareTo(bm);
+  }
+  return compareValues(a.value, b.value);
+}
+
+/// The winning field's own timestamp is the one that travels with it; the
+/// notes union has no single winner, so it takes the greatest known mtime and
+/// stays unknown only when every contributing side was unknown.
+int? maxMtime(int? a, int? b) {
+  if (a == null) return b;
+  if (b == null) return a;
+  return a >= b ? a : b;
+}
+
+/// FR-3's notes separator. Segments are delimited by it on both input and
+/// output, so the operation is closed over its own output.
+const String notesSeparator = '\n\n---\n\n';
+
+/// FR-3's notes merge: an **ordered, deduplicated union of segments**.
+///
+/// Fixing the operand order of a binary concatenation (defect C4b) is enough for
+/// two devices and not enough for three: concatenation is not associative, so
+/// `(A‖B)‖C` and `A‖(B‖C)` produce different notes, different manifests, and the
+/// C2 short-circuit stops firing — after which the next merge concatenates the
+/// concatenations and duplicates text the user wrote (defect N1).
+///
+/// A sorted deduplicated union is associative, commutative and idempotent, which
+/// is exactly the join-semilattice property the cycle needs. Empty segments are
+/// dropped: they carry no user text and would otherwise leave a leading
+/// separator when one side's notes are empty.
+String mergeNotes(String a, String b) {
+  final segments = <String>{
+    ...a.split(notesSeparator),
+    ...b.split(notesSeparator),
+  }..removeWhere((s) => s.isEmpty);
+  final ordered = segments.toList()..sort(compareValues);
+  return ordered.join(notesSeparator);
+}
 
 /// The canonical semantic manifest: everything that is semantically meaningful,
 /// and nothing that legitimately differs between two serializations of the same
@@ -84,7 +134,9 @@ String concatNotes(String a, String b) =>
 /// IV, ciphertext and `HeaderHash`; here it excludes the salt.
 String manifest(Doc doc) {
   final keys = doc.keys.toList()..sort();
-  return keys.map((k) => '$k=${doc[k]!.value}@${doc[k]!.mtime}').join(';');
+  return keys
+      .map((k) => '$k=${doc[k]!.value}@${doc[k]!.mtime ?? 'unknown'}')
+      .join(';');
 }
 
 /// Serialization is nondeterministic, exactly as KDBX serialization is: the
@@ -161,7 +213,7 @@ MergeResult mergeDocs(
       continue;
     }
     if (l.value == r.value) {
-      result[key] = l.mtime >= r.mtime ? l : r;
+      result[key] = compareFields(l, r) >= 0 ? l : r;
       continue;
     }
 
@@ -178,21 +230,19 @@ MergeResult mergeDocs(
     }
 
     if (notesKeys.contains(key)) {
-      // Deterministic both-sides concatenation, operand order fixed by value.
+      // Ordered, deduplicated union of segments — associative, so a third
+      // device merging in a different order reaches the same value.
       result[key] = Field(
-        concatNotes(l.value, r.value),
-        l.mtime >= r.mtime ? l.mtime : r.mtime,
+        mergeNotes(l.value, r.value),
+        maxMtime(l.mtime, r.mtime),
       );
       continue;
     }
 
-    // Last-writer-wins on the KDBX modification time...
-    if (l.mtime != r.mtime) {
-      result[key] = l.mtime > r.mtime ? l : r;
-      continue;
-    }
-    // ...and, on a tie, the globally deterministic total order. Never "local".
-    result[key] = compareValues(l.value, r.value) >= 0 ? l : r;
+    // Last-writer-wins on the KDBX modification time and, where that is a tie
+    // or unknown, the globally deterministic total order over the values.
+    // Never "local": `compareFields` reads the data alone.
+    result[key] = compareFields(l, r) >= 0 ? l : r;
   }
 
   if (unseen.isNotEmpty) return MergeResult.review(unseen);
@@ -537,6 +587,117 @@ void main() {
       // The real conflict resolves by LWW; the one-sided fields are untouched.
       expect(remote.content['title']?.value, 'remoteTitle');
     });
+
+    test('three devices reach the same remote state in any merge order', () {
+      // The scenario that exposed N1. Every enumeration in this suite used to
+      // stop at two devices, and a binary concatenation is deterministic at two
+      // and non-associative at three: two devices that merged the same three
+      // notes in a different order held different values, so the C2 manifest
+      // short-circuit stopped firing and the next merge concatenated the
+      // concatenations, duplicating text the user wrote.
+      Doc device(String note) =>
+          doc({'Notes': Field(note, 100), 'shared': const Field('s', 5)});
+      final devices = {
+        'zeta': device('zeta'),
+        'alpha': device('alpha'),
+        'mike': device('mike'),
+      };
+
+      String syncInOrder(List<String> order) {
+        final remote = Remote(doc({'shared': const Field('s', 5)}));
+        for (final name in order) {
+          final session = CommitSession(
+            local: devices[name]!,
+            remote: remote,
+            notesKeys: const {'Notes'},
+          );
+          expect(session.run(), Outcome.finalized, reason: '$order/$name');
+        }
+        return manifest(remote.content);
+      }
+
+      final baseline = syncInOrder(['zeta', 'alpha', 'mike']);
+      for (final order in [
+        ['zeta', 'mike', 'alpha'],
+        ['alpha', 'zeta', 'mike'],
+        ['alpha', 'mike', 'zeta'],
+        ['mike', 'zeta', 'alpha'],
+        ['mike', 'alpha', 'zeta'],
+      ]) {
+        expect(
+          syncInOrder(order),
+          baseline,
+          reason: 'merge order $order must not change the converged state',
+        );
+      }
+
+      // Every device's text survives, exactly once each.
+      final notes = baseline;
+      for (final segment in ['zeta', 'alpha', 'mike']) {
+        expect(
+          notesSeparator.allMatches(notes).length + 1,
+          3,
+          reason: 'three segments, no duplication',
+        );
+        expect(notes, contains(segment));
+      }
+    });
+
+    test('a device rejoining late contributes without duplicating anything', () {
+      // C syncs only after A and B have converged, then everyone re-syncs. The
+      // late arrival must add its segment and nothing else, and the second pass
+      // over already-merged content must be a no-op.
+      final remote = Remote(doc({'shared': const Field('s', 5)}));
+      Doc device(String note) =>
+          doc({'Notes': Field(note, 100), 'shared': const Field('s', 5)});
+      final a = device('alpha');
+      final b = device('bravo');
+      final c = device('charlie');
+
+      for (final d in [a, b]) {
+        expect(
+          CommitSession(
+            local: d,
+            remote: remote,
+            notesKeys: const {'Notes'},
+          ).run(),
+          Outcome.finalized,
+        );
+      }
+      final beforeLateJoin = manifest(remote.content);
+
+      expect(
+        CommitSession(
+          local: c,
+          remote: remote,
+          notesKeys: const {'Notes'},
+        ).run(),
+        Outcome.finalized,
+      );
+      final afterLateJoin = manifest(remote.content);
+      expect(afterLateJoin, isNot(beforeLateJoin));
+      expect(remote.content['Notes']!.value.split(notesSeparator), [
+        'alpha',
+        'bravo',
+        'charlie',
+      ]);
+
+      // Everyone re-syncs, twice. Idempotence at the system level: no round
+      // may add, drop or reorder a segment.
+      for (var pass = 0; pass < 2; pass++) {
+        for (final d in [a, b, c]) {
+          expect(
+            CommitSession(
+              local: d,
+              remote: remote,
+              notesKeys: const {'Notes'},
+            ).run(),
+            Outcome.finalized,
+          );
+          expect(manifest(remote.content), afterLateJoin);
+        }
+      }
+    });
   });
 
   group('T009 property 3 — no oscillation on a tie (guards C4, C4b)', () {
@@ -616,6 +777,50 @@ void main() {
             'otherwise the stability assertion is vacuous',
       );
     });
+
+    test('two devices that each keep their own value stop the remote moving '
+        'across sessions', () {
+      // The system-level guard for C4. The test above passes even under a
+      // `prefer local` tie-break, because the re-syncing device adopts the
+      // remote content wholesale and so has nothing to flip back. The failure
+      // mode C4 actually prevents is cross-session oscillation between two
+      // devices that each RETAIN their own candidate, which is the ordinary
+      // case: two phones, each holding its own edit at the same second.
+      final remote = Remote(doc({'f': const Field('alpha', 100)}));
+      final deviceA = doc({'f': const Field('alpha', 100)});
+      final deviceB = doc({'f': const Field('beta', 100)});
+
+      final observed = <String>[];
+      for (var round = 0; round < 6; round++) {
+        final local = round.isEven ? deviceA : deviceB;
+        expect(
+          CommitSession(local: local, remote: remote).run(),
+          Outcome.finalized,
+        );
+        observed.add(manifest(remote.content));
+      }
+
+      // Under a perspective-dependent tie-break this list alternates forever:
+      // A writes `alpha`, B writes `beta`, and no per-session retry budget can
+      // see it, because each session finalizes happily on its own terms.
+      expect(
+        observed.skip(1).toSet(),
+        hasLength(1),
+        reason:
+            'the remote must settle on one winner and stay there; '
+            'observed sequence: $observed',
+      );
+      expect(
+        observed.first,
+        isNot(observed[1]),
+        reason:
+            'B must really have moved the field once, otherwise the '
+            'stability assertion is vacuous',
+      );
+      // And it settled on the value the total order selects, not on whichever
+      // device happened to write last.
+      expect(remote.content['f']!.value, 'beta');
+    });
   });
 
   group('T009 property 4 — a complete union terminates (guards C2)', () {
@@ -647,6 +852,39 @@ void main() {
         remote.writeCount,
         2,
         reason: 'exactly our write plus the peer write; no re-write loop',
+      );
+    });
+
+    test('a peer that keeps rewriting the same content still finalizes', () {
+      // The system-level guard for C2. The test above dies under the mutation
+      // only on its `roundsUsed == 0` assertion: with a single peer write the
+      // session finalizes either way, and only the budget accounting changes.
+      // Here the peer re-serializes the same semantic content after every one
+      // of our writes — the steady state of two devices already in agreement.
+      // Without the manifest arbiter the session burns all 3 rounds on a
+      // conflict that does not exist and ends `unresolved`, so the OUTCOME,
+      // not just a counter, depends on the short-circuit.
+      final content = doc({'a': const Field('same', 1)});
+      final remote = Remote(content);
+
+      final session = CommitSession(
+        local: content,
+        remote: remote,
+        onAfterWrite: () => remote.put(serialize(content), content),
+      );
+
+      expect(
+        session.run(),
+        Outcome.finalized,
+        reason:
+            'a semantically complete union must terminate, not exhaust '
+            'the retry budget',
+      );
+      expect(session.roundsUsed, 0);
+      expect(
+        remote.writeCount,
+        2,
+        reason: 'our single write plus the peer write; no re-write loop',
       );
     });
 
@@ -689,6 +927,34 @@ void main() {
       expect(remote.content['extra']?.value, 'E');
     });
 
+    test('a decision survives two consecutive divergence rounds', () {
+      // One round proves the ledger is replayed once. The failure mode is a
+      // ledger that is consulted on the first re-merge and then dropped, which
+      // a single-round test cannot see.
+      final remote = Remote(doc({'pwd': const Field('old', 1)}));
+      var n = 0;
+
+      final session = CommitSession(
+        local: doc({'pwd': const Field('chosen', 5)}),
+        remote: remote,
+        ledger: const {'pwd': 'chosen'},
+        onAfterWrite: () {
+          if (n >= 2) return;
+          final x = doc({
+            'pwd': Field('peerNewer$n', 900 + n),
+            'peer$n': Field('P$n', 10 + n),
+          });
+          n++;
+          remote.put(serialize(x), x);
+        },
+      );
+
+      expect(session.run(), Outcome.finalized);
+      expect(session.roundsUsed, 2);
+      expect(remote.content['pwd']?.value, 'chosen');
+      expect(remote.content.keys, containsAll(['peer0', 'peer1']));
+    });
+
     test('a conflict never shown to the user reopens review', () {
       final remote = Remote(doc({'a': const Field('base', 1)}));
       var injected = false;
@@ -714,6 +980,196 @@ void main() {
     });
   });
 
+  group('T009 property 7 — the merge is a join-semilattice (guards N1, N3)', () {
+    // Two devices only need the merge to be commutative. Three need it to be
+    // associative as well, and nothing in this suite used to have three. Both
+    // N1 (notes concatenation) and N3 (unknown timestamps) are invisible at two
+    // devices and break the C2 short-circuit at three.
+    Doc mergeOf(Doc a, Doc b) =>
+        mergeDocs(a, b, notesKeys: const {'Notes'}).doc;
+
+    List<List<T>> permutations<T>(List<T> items) {
+      if (items.length <= 1) return [items];
+      final out = <List<T>>[];
+      for (var i = 0; i < items.length; i++) {
+        final rest = [...items]..removeAt(i);
+        for (final tail in permutations(rest)) {
+          out.add([items[i], ...tail]);
+        }
+      }
+      return out;
+    }
+
+    /// Every association of [docs] under [mergeOf], as manifests: both folds,
+    /// plus the balanced pairing once there are four operands.
+    Set<String> allAssociations(List<Doc> docs) {
+      final results = <String>{};
+      for (final order in permutations(docs)) {
+        results.add(manifest(order.reduce(mergeOf)));
+        results.add(
+          manifest(order.reversed.reduce((acc, d) => mergeOf(d, acc))),
+        );
+        if (order.length == 4) {
+          results.add(
+            manifest(
+              mergeOf(mergeOf(order[0], order[1]), mergeOf(order[2], order[3])),
+            ),
+          );
+        }
+      }
+      return results;
+    }
+
+    test('the notes union is associative at three and four devices', () {
+      const zeta = 'zeta';
+      const alpha = 'alpha';
+      const mike = 'mike';
+      const delta = 'delta';
+
+      expect(
+        mergeNotes(mergeNotes(zeta, alpha), mike),
+        mergeNotes(zeta, mergeNotes(alpha, mike)),
+      );
+      expect(
+        mergeNotes(mergeNotes(zeta, alpha), mergeNotes(mike, delta)),
+        mergeNotes(zeta, mergeNotes(alpha, mergeNotes(mike, delta))),
+      );
+
+      // And under every ordering of the operands, not just these two shapes.
+      final four = [zeta, alpha, mike, delta];
+      final seen = <String>{};
+      for (final order in permutations(four)) {
+        seen.add(order.reduce(mergeNotes));
+        seen.add(order.reversed.reduce((acc, s) => mergeNotes(s, acc)));
+        seen.add(
+          mergeNotes(
+            mergeNotes(order[0], order[1]),
+            mergeNotes(order[2], order[3]),
+          ),
+        );
+      }
+      expect(seen, hasLength(1), reason: 'observed distinct results: $seen');
+      expect(seen.single.split(notesSeparator), [alpha, delta, mike, zeta]);
+    });
+
+    test('the notes union is idempotent — re-merging duplicates nothing', () {
+      final once = mergeNotes('alpha', 'zeta');
+      expect(mergeNotes(once, once), once);
+      expect(mergeNotes(once, 'zeta'), once);
+      expect(mergeNotes(once, 'alpha'), once);
+      expect(
+        mergeNotes(mergeNotes(once, 'mike'), 'mike'),
+        mergeNotes(once, 'mike'),
+      );
+      // The failure this asserts against: a segment appearing twice.
+      expect(mergeNotes(once, once).split(notesSeparator), ['alpha', 'zeta']);
+    });
+
+    test('a binary concatenation would have failed the test above', () {
+      // Guards the premise: the property is not vacuously true of any merge.
+      String concat(String a, String b) => compareValues(a, b) <= 0
+          ? '$a$notesSeparator$b'
+          : '$b$notesSeparator$a';
+      expect(
+        concat(concat('zeta', 'alpha'), 'mike'),
+        isNot(concat('zeta', concat('alpha', 'mike'))),
+      );
+    });
+
+    test('the whole merge is associative at three and four devices', () {
+      Doc device(String note, String value, int? mtime) => doc({
+        'Notes': Field(note, 100),
+        'f': Field(value, mtime),
+        'shared': const Field('s', 5),
+      });
+
+      expect(
+        allAssociations([
+          device('zeta', 'x', 100),
+          device('alpha', 'y', 100),
+          device('mike', 'z', 100),
+        ]),
+        hasLength(1),
+      );
+      expect(
+        allAssociations([
+          device('zeta', 'x', 100),
+          device('alpha', 'y', 100),
+          device('mike', 'z', 100),
+          device('delta', 'w', 100),
+        ]),
+        hasLength(1),
+      );
+    });
+
+    test('an unknown timestamp does not break associativity', () {
+      // The N3 case, verbatim: with "unknown" treated as a bare tie the winner
+      // was `z` under one association and `x` under another.
+      final a = doc({'f': const Field('x', 5)});
+      final b = doc({'f': const Field('y', null)});
+      final c = doc({'f': const Field('z', 3)});
+
+      expect(allAssociations([a, b, c]), hasLength(1));
+      expect(
+        mergeOf(mergeOf(a, b), c)['f']!.value,
+        'x',
+        reason: 'the newest known timestamp wins; unknown carries no evidence',
+      );
+
+      // Four devices, mixed known and unknown on both sides of the order.
+      expect(
+        allAssociations([
+          a,
+          b,
+          c,
+          doc({'f': const Field('w', null)}),
+        ]),
+        hasLength(1),
+      );
+    });
+
+    test('an unknown timestamp loses to any known one, and two unknowns fall '
+        'back to the value order', () {
+      expect(
+        compareFields(const Field('z', null), const Field('a', 1)),
+        lessThan(0),
+      );
+      expect(
+        compareFields(const Field('a', 1), const Field('z', null)),
+        greaterThan(0),
+      );
+      expect(
+        compareFields(const Field('b', null), const Field('a', null)),
+        greaterThan(0),
+      );
+      expect(compareFields(const Field('a', null), const Field('a', null)), 0);
+      // Mirrored perspectives still agree, which is why it is a tie-break.
+      final l = doc({'f': const Field('a', null)});
+      final r = doc({'f': const Field('b', null)});
+      expect(mergeOf(l, r)['f'], mergeOf(r, l)['f']);
+    });
+
+    test('the merge is commutative and idempotent', () {
+      final a = doc({
+        'Notes': const Field('alpha', 100),
+        'f': const Field('x', 7),
+      });
+      final b = doc({
+        'Notes': const Field('zeta', 100),
+        'f': const Field('y', null),
+      });
+
+      expect(manifest(mergeOf(a, b)), manifest(mergeOf(b, a)));
+      expect(manifest(mergeOf(a, a)), manifest(a));
+      expect(manifest(mergeOf(b, b)), manifest(b));
+
+      final joined = mergeOf(a, b);
+      expect(manifest(mergeOf(joined, a)), manifest(joined));
+      expect(manifest(mergeOf(joined, b)), manifest(joined));
+      expect(manifest(mergeOf(joined, joined)), manifest(joined));
+    });
+  });
+
   group('T009 property 6 — a failed verification is not a passed one (C5)', () {
     test('a non-executable read-back is ambiguous, never finalized', () {
       final remote = Remote(doc({'a': const Field('r', 1)}));
@@ -730,6 +1186,33 @@ void main() {
       expect(outcome, isNot(Outcome.unresolved));
       // The merged state survives for the FR-10 triage to act on.
       expect(session.retainedMerged, isNotNull);
+    });
+
+    test('a read-back that fails on a later round is ambiguous too', () {
+      // The classification must not depend on which round the read-back failed
+      // in: the second read-back runs after a re-anchor and a re-merge, which
+      // is a different path through the cycle.
+      final remote = Remote(doc({'a': const Field('r', 1)}));
+      var injected = false;
+
+      final session = CommitSession(
+        local: doc({'a': const Field('r', 1), 'l': const Field('L', 2)}),
+        remote: remote,
+        onAfterWrite: () {
+          if (injected) {
+            remote.readBackFails = true;
+            return;
+          }
+          injected = true;
+          final x = doc({'a': const Field('r', 1), 'x': const Field('X', 3)});
+          remote.put(serialize(x), x);
+        },
+      );
+
+      expect(session.run(), Outcome.ambiguous);
+      expect(session.roundsUsed, 1, reason: 'it really reached a later round');
+      // Both contributions are retained locally for the FR-10 triage.
+      expect(session.retainedMerged!.keys, containsAll(['l', 'x']));
     });
   });
 }

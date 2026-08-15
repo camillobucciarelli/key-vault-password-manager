@@ -66,24 +66,37 @@ Ordered gates. Later phase cannot start until prior gate exit passes.
       artifacts `not-run` and disabled; Gate 1 produces evidence.
 - [ ] **T009 Convergence model validation** — **the remaining Gate 0 blocker.**
       Validate the FR-7 write-verify-converge cycle as a **model**, in memory:
-      no network, no filesystem, no KDBX, no `lib/` dependency. Simulate N
-      devices against a shared bare `get`/`put` remote under adversarial
-      interleavings and assert:
+      no network, no filesystem, no KDBX, no `lib/` dependency. Simulate
+      devices against a shared bare `get`/`put` remote and assert the properties
+      below. The enumeration is **2 injection points across 2 concurrent
+      writers**, plus **sequential scenarios at 3 and 4 devices** covering every
+      ordering and association of the merge; interleaved concurrency at three or
+      more writers is not enumerated. State the enumeration, never "every
+      interleaving" — the previous 2-device-only enumeration is what hid N1.
       1. convergence to a stable state within the declared retry budget of 3;
-      2. no record and no one-sided field lost, under every enumerated
-         interleaving — including the honest case where a write inside the race
-         window IS clobbered and is recovered only when that device resyncs;
+      2. no record and no one-sided field lost, at both injection points and
+         across all six 3-device sync orders — including the honest case where a
+         write inside the race window IS clobbered and is recovered only when
+         that device resyncs, and a device that rejoins late;
       3. no oscillation on a timestamp tie; mirrored perspectives pick the same
-         winner, for the tie-break and for the deterministic notes concatenation;
+         winner, and two devices that each **retain** their own candidate stop
+         the remote moving across sessions;
       4. a semantically complete union terminates instead of ping-ponging on
-         byte difference alone;
-      5. explicit user decisions survive a re-merge, and a never-seen conflict
-         reopens review instead of auto-resolving;
+         byte difference alone, including against a peer that keeps rewriting;
+      5. explicit user decisions survive a re-merge — over two consecutive
+         rounds — and a never-seen conflict reopens review instead of
+         auto-resolving;
       6. a non-executable step-5 read-back is classified ambiguous, never
-         finalized.
+         finalized, on the first read-back and on a later one;
+      7. the merge is associative, commutative and idempotent at 3 and 4 sides,
+         with known and unknown timestamps.
+      Every correction must be **mutation-guarded**: reverting it in the model
+      must kill at least one test that asserts an outcome, not only a counter.
+      Record the mutation table in the feasibility report.
       Artifact:
       `test/features/password_manager/data/services/sync_merge_convergence_model_test.dart`.
-      This task exists because C1, C2 and C4 were found by reading a document.
+      This task exists because C1, C2 and C4 were found by reading a document,
+      and N1 by running the model at a device count the suite did not cover.
       Convergence must be **executable**, not argued in prose.
 
 **Gate 0 exit**: **T001–T009** pass. **NOT MET** — T001–T008 have executed
