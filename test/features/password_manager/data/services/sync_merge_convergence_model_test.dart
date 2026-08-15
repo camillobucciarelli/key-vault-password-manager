@@ -105,7 +105,32 @@ int? maxMtime(int? a, int? b) {
 
 /// FR-3's notes separator. Segments are delimited by it on both input and
 /// output, so the operation is closed over its own output.
-const String notesSeparator = '\n\n---\n\n';
+///
+/// It is a **sentinel**, not ordinary Markdown. The union property does not
+/// depend on which separator is chosen, so restricting it to a sequence a human
+/// would not type is free — and the plain `\n\n---\n\n` was not free. A user
+/// whose own notes contain a Markdown thematic break had two distinct damages
+/// inflicted on an already-conflicted field:
+///
+///   1. **insertion** — the other device's text was sorted *between* the user's
+///      own paragraphs, not appended after them;
+///   2. **silent deletion** — the set union deduplicates segments the user
+///      legitimately repeated, so `TODO / rotate key / TODO` came back as two
+///      segments. That is not a reordering; it is loss of written text.
+///
+/// `U+241E SYMBOL FOR RECORD SEPARATOR` (`␞`) is the discriminator: it is a
+/// printable glyph, so the fused field still reads as a rule rather than
+/// running two notes together invisibly, and it is on no keyboard layout and
+/// carries no meaning in prose, so it does not occur in a notes field by
+/// accident. The `---` on either side keeps it legible to a human reading the
+/// merged result.
+///
+/// Both damages are eliminated for ordinary user text, because ordinary text
+/// splits into exactly one segment: the field is an atom, it cannot be split
+/// open and interleaved, and no segment of it can be deduplicated against
+/// another. Asserted below in "the sentinel separator leaves ordinary user
+/// text intact".
+const String notesSeparator = '\n\n---\u241E---\n\n';
 
 /// FR-3's notes merge: an **ordered, deduplicated union of segments**.
 ///
@@ -218,8 +243,27 @@ MergeResult mergeDocs(
     }
 
     // An explicit user decision is sticky and is replayed before any policy.
+    //
+    // FR-7 invariant: a live decision names one of the two values now on the
+    // table. `l.value == decided ? l : r` is only a decision replay while that
+    // holds; if `decided` matches neither operand it silently degenerates into
+    // "take the second operand", which is order-dependent — defect C4's class,
+    // relocated into the ledger branch — and discards the sticky decision
+    // without reopening review. Today FR-4 (the decision is always one of the
+    // two values presented) and the session lifetime of the ledger make it
+    // unreachable; neither is enforced by anything but this check.
     final decided = ledger[key];
     if (decided != null) {
+      if (decided != l.value && decided != r.value) {
+        // Fail safe, not fail silent: the decision does not apply to this pair,
+        // so this is a conflict the user has not decided. Route it to review
+        // rather than picking an operand. Throwing would abort a sync over a
+        // stale ledger entry and lose the merge; reopening review is the path
+        // FR-7 already defines for an undecided conflict and it keeps both
+        // candidates alive.
+        unseen.add(key);
+        continue;
+      }
       result[key] = l.value == decided ? l : r;
       continue;
     }
@@ -563,6 +607,80 @@ void main() {
           'fromPeer',
         }, reason: why);
       }
+    });
+
+    test('the sentinel separator leaves ordinary user text intact', () {
+      // The two damages the plain Markdown separator `\n\n---\n\n` inflicted on
+      // a user who wrote a thematic break in their own notes. Both are asserted
+      // as *absent*, and each is paired with a demonstration that it was real
+      // under the old separator — otherwise these assertions are vacuous.
+      const oldSeparator = '\n\n---\n\n';
+      String mergeWith(String sep, String a, String b) {
+        final segments = <String>{...a.split(sep), ...b.split(sep)}
+          ..removeWhere((s) => s.isEmpty);
+        return (segments.toList()..sort(compareValues)).join(sep);
+      }
+
+      // Damage 1 — insertion. The peer's text was sorted BETWEEN the user's own
+      // paragraphs, not appended after them.
+      const mine =
+          'Zeta account recovery codes${oldSeparator}Alpha backup email';
+      const theirs = 'Mike says rotate this quarterly';
+      expect(
+        mergeWith(oldSeparator, mine, theirs),
+        isNot(contains(mine)),
+        reason: 'premise: the old separator really did split and interleave',
+      );
+      expect(
+        mergeNotes(mine, theirs),
+        contains(mine),
+        reason: "the user's own paragraphs stay contiguous and in their order",
+      );
+      expect(mergeNotes(mine, theirs), contains(theirs));
+
+      // Damage 2 — silent deletion. A legitimately repeated paragraph was
+      // deduplicated away by the set union: three segments in, two out.
+      const repeated = 'TODO${oldSeparator}rotate key${oldSeparator}TODO';
+      expect(
+        mergeWith(oldSeparator, repeated, 'zzz').split(oldSeparator),
+        hasLength(3),
+        reason:
+            'premise: TODO/rotate key/TODO + zzz is 4 segments and the old '
+            'separator returned 3 — one of the two TODOs was lost',
+      );
+      expect(
+        mergeNotes(repeated, 'zzz'),
+        contains(repeated),
+        reason: 'no segment of the user text is deduplicated against another',
+      );
+
+      // Ordinary paragraphs separated by a blank line were never affected, and
+      // still are not: they are not a separator on either scheme.
+      const paragraphs = 'para one\n\npara two';
+      expect(mergeNotes(paragraphs, 'other'), contains(paragraphs));
+
+      // What makes it work: ordinary text is a single indivisible segment.
+      expect(mine.split(notesSeparator), hasLength(1));
+      expect(repeated.split(notesSeparator), hasLength(1));
+
+      // The residual cost, stated rather than hidden: a user who types U+241E
+      // between two rules is still split. Nothing eliminates that; the sentinel
+      // makes it a case that does not arise by writing Markdown.
+      expect('a${notesSeparator}b'.split(notesSeparator), hasLength(2));
+    });
+
+    test('the sentinel does not weaken the union property', () {
+      // The separator is free: associativity, commutativity and idempotence are
+      // properties of the set union, not of the delimiter. Re-asserted here so
+      // that changing the sentinel again cannot quietly break the semilattice.
+      expect(
+        mergeNotes(mergeNotes('zeta', 'alpha'), 'mike'),
+        mergeNotes('zeta', mergeNotes('alpha', 'mike')),
+      );
+      expect(mergeNotes('alpha', 'zeta'), mergeNotes('zeta', 'alpha'));
+      final once = mergeNotes('alpha', 'zeta');
+      expect(mergeNotes(once, once), once);
+      expect(once.split(notesSeparator), ['alpha', 'zeta']);
     });
 
     test('a one-sided field is never selected away by a conflict elsewhere', () {
@@ -953,6 +1071,59 @@ void main() {
       expect(session.roundsUsed, 2);
       expect(remote.content['pwd']?.value, 'chosen');
       expect(remote.content.keys, containsAll(['peer0', 'peer1']));
+    });
+
+    test('a ledger decision naming neither candidate reopens review instead of '
+        'silently taking an operand', () {
+      // Case Q. Today unreachable: FR-4 guarantees the recorded decision is one
+      // of the two values presented, and the ledger does not outlive the
+      // session. Nothing asserted either constraint, and the degenerate branch
+      // — `l.value == decided ? l : r` with `decided` on neither side — is
+      // "return the second operand", i.e. order-dependent, i.e. defect C4's
+      // class inside the ledger branch, with the decision dropped in silence.
+      //
+      // This matters because it fails as SILENT DATA LOSS, not as an error, so
+      // if the ledger ever becomes cross-session (spec 011) it opens with no
+      // symptom. The invariant is asserted here so a future violation fails.
+      final l = doc({'pwd': const Field('local', 5)});
+      final r = doc({'pwd': const Field('remote', 5)});
+      const stale = {'pwd': 'neitherOfThem'};
+
+      final fromL = mergeDocs(l, r, ledger: stale);
+      final fromR = mergeDocs(r, l, ledger: stale);
+
+      expect(
+        fromL.needsReview,
+        isTrue,
+        reason: 'a decision that does not apply is not a decision',
+      );
+      expect(fromL.newConflicts, {'pwd'});
+      expect(
+        fromR.needsReview,
+        isTrue,
+        reason: 'and the classification does not depend on operand order',
+      );
+      expect(fromR.newConflicts, fromL.newConflicts);
+
+      // The premise: under the degenerate branch these two orders disagree,
+      // which is exactly the commutativity violation the review measured.
+      Field degenerate(Doc a, Doc b) =>
+          a['pwd']!.value == stale['pwd'] ? a['pwd']! : b['pwd']!;
+      expect(
+        degenerate(l, r),
+        isNot(degenerate(r, l)),
+        reason: 'premise: silently applying the stale entry is order-dependent',
+      );
+
+      // A live decision — one that does name a candidate — still applies, so
+      // the guard has not swallowed the sticky-decision rule itself.
+      final live = mergeDocs(l, r, ledger: const {'pwd': 'remote'});
+      expect(live.needsReview, isFalse);
+      expect(live.doc['pwd']!.value, 'remote');
+      expect(
+        mergeDocs(r, l, ledger: const {'pwd': 'remote'}).doc['pwd']!.value,
+        'remote',
+      );
     });
 
     test('a conflict never shown to the user reopens review', () {

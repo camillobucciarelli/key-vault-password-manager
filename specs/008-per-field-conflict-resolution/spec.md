@@ -276,7 +276,7 @@ so the UUID does not discriminate them. Only the values do.
 Notes may keep both sides. The operation is **not** a binary concatenation. It is
 an **ordered, deduplicated union of segments**:
 
-1. split each side on the separator `"\n\n---\n\n"` into segments;
+1. split each side on the separator `"\n\n---\u241E---\n\n"` into segments;
 2. take the **set** union of the segments of both sides, discarding empty ones;
 3. sort the result by the same total order used for the tie-break — rule 3
    above, over the segment bytes;
@@ -300,10 +300,57 @@ value with either of its inputs, or with itself, returns it unchanged.
 Concatenating as `local + remote` remains forbidden for the perspective reason
 above; it is now also forbidden as a *shape*, whatever the operand order.
 
-Accepted cost, stated rather than hidden: a user whose own notes contain the
-separator sequence has those paragraphs treated as segments, so a merge may
-reorder them. Ordering is only ever applied to a field that is **already in
-conflict**; a field with no conflict is never rewritten.
+##### The separator is a sentinel, and why
+
+The separator is **not** a plain Markdown thematic break. It is
+`"\n\n---\u241E---\n\n"`, carrying `U+241E SYMBOL FOR RECORD SEPARATOR` (`␞`)
+between two rules.
+
+The first draft used `"\n\n---\n\n"`, and the cost of that choice was declared
+here as "a merge may reorder them". That declaration was **incomplete**, and
+under-declaring a data-loss defect is worse than not declaring it. The plain
+separator inflicted **two** distinct damages on a user who wrote a thematic
+break in their own notes:
+
+1. **Insertion, not merely reordering.** The other device's text was sorted
+   *between* the user's own paragraphs. With local
+   `"Zeta account recovery codes ¶ --- ¶ Alpha backup email"` and remote
+   `"Mike says rotate this quarterly"`, the result is
+   `alpha backup email · mike says… · zeta account recovery codes`: the peer's
+   sentence lands in the middle of a note the user wrote as one block.
+2. **Silent deletion.** The union is over a **set**, so segments the user
+   legitimately repeated collapse. `"TODO ¶ --- ¶ rotate key ¶ --- ¶ TODO"`
+   merged against `"zzz"` returns three segments, not four: one of the two
+   `TODO`s is gone. This is not reordering — it is loss of text the user wrote,
+   in the field where recovery codes are kept.
+
+The union property is a property of the **set union**, not of the delimiter, so
+restricting the delimiter costs nothing: associativity, commutativity and
+idempotence are unaffected. `U+241E` is chosen because it is printable — so the
+fused field still reads as a rule rather than running two notes together
+invisibly — while appearing on no keyboard layout and carrying no meaning in
+prose, so it does not occur in a notes field by accident. The `---` on either
+side keeps the merged result legible.
+
+With the sentinel, ordinary user text splits into exactly **one** segment. The
+field is an atom: it cannot be opened and interleaved, and none of its
+paragraphs can be deduplicated against another. Both damages above are
+eliminated for it. Asserted in the T009 model as "the sentinel separator leaves
+ordinary user text intact", with each damage paired against a demonstration
+that it was real under the old separator.
+
+No compatibility question arises: no implementation has ever written the old
+separator — FR-3 is behind Gate 0 and the notes merge exists only as a model —
+so there is no stored data to migrate.
+
+Residual cost, now stated completely:
+
+- a user who types `␞` between two rules is still split into segments, and for
+  that text both damages above remain possible. Nothing eliminates this; the
+  sentinel makes it a case that cannot be reached by writing ordinary Markdown;
+- splitting is only ever applied to a field that is **already in conflict**, and
+  a field with no conflict is never rewritten;
+- the operation is idempotent, so it does not degrade further on each sync.
 
 ### FR-4 — Field-level presence semantics
 
@@ -437,6 +484,40 @@ never be allowed to silently reverse a choice the user already made under FR-4.
   **re-applied after every re-merge**. LWW, the FR-3 deterministic tie-break and
   the shortcuts all lose to a recorded explicit decision. A decision the user
   made once is never silently reversed by a later automatic round.
+- **Invariant — a replayed decision must name one of the two candidates now on
+  the table.** Formally: for every ledger entry applied to a field, `decided ∈
+  {local.value, remote.value}`. The replay is implemented as "the side whose
+  value equals the decision"; if the decision matches **neither** side, that
+  reduces to *"take whichever side is second"* — a result that depends on which
+  device is called local, which is defect C4's class of error relocated into the
+  ledger branch, and which discards the user's recorded decision **in silence**.
+  Measured on the model: 22678/30000 randomized pairs violate commutativity in
+  that state, against 0/30000 when the decision is live on one side.
+
+  This state is **unreachable today**, and it is unreachable for exactly two
+  reasons, neither of which is a property of the ledger code itself:
+
+  1. **FR-4** guarantees a recorded decision is always one of the two values
+     presented to the user;
+  2. the ledger is **session-lived**, so it cannot carry a decision forward to a
+     later pair of candidates it was never taken over.
+
+  **Changing either one reopens the defect**, and it reopens as silent data
+  loss rather than as an error. Any proposal to extend the ledger beyond the
+  commit session — spec `011-master-password-session-scope` is the live example
+  — must re-establish this invariant before it lands.
+
+  **Behaviour when the invariant is violated: the field returns to review**, as
+  an undecided conflict, carrying both candidates. It is never resolved by
+  picking an operand. Reopening review is chosen over throwing because a stale
+  entry is a bookkeeping fault, not a corrupt vault: aborting the commit would
+  discard a valid merge and lose the session's work, whereas review is the path
+  FR-7 already defines for a conflict the user has not decided, it is
+  non-destructive, and it puts the choice back where the invariant says it
+  belongs. Silently discarding the decision is the one unacceptable option.
+  Asserted in the T009 model as "a ledger decision naming neither candidate
+  reopens review instead of silently taking an operand".
+
 - **The ledger records what the user has seen, not only what the user changed.**
   Confirming review writes a ledger entry for **every conflict presented in that
   review**, including the ones left at their automatic default. An absent entry
