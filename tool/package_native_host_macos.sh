@@ -158,6 +158,9 @@ chmod 0755 "${HOST_PATH}"
 codesign --force --options runtime --timestamp --sign "${APPLICATION_IDENTITY}" "${HOST_PATH}"
 codesign --verify --strict --verbose=2 "${HOST_PATH}"
 install -m 0644 "${MANIFEST}" "${MANIFEST_DIR}/$(basename -- "${MANIFEST}")"
+# AGPL-3.0: ship the license alongside the separately distributed binary.
+install -m 0644 "${ROOT_DIR}/LICENSE" "${HOST_DIR}/LICENSE"
+install -m 0644 "${ROOT_DIR}/LICENSE-EXCEPTIONS.txt" "${HOST_DIR}/LICENSE-EXCEPTIONS.txt"
 xattr -cr "${PAYLOAD_ROOT}"
 
 COPYFILE_DISABLE=1 pkgbuild \
