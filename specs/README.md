@@ -34,6 +34,7 @@ specs/NNN-slug/spec.md|plan.md|tasks.md
 | 007B | [App icon family — UI/badge integration](007-app-icon-family/spec.md) | Restyle integration | 001, 002, 007A |
 | 008 | [Per-field sync conflict resolution](008-per-field-conflict-resolution/spec.md) | **New feature** | 001, 002, 005 |
 | 009 | [In-page autofill overlay](009-in-page-autofill-overlay/spec.md) | **New feature** | 006 |
+| 010 | [Multi-cloud remote storage](010-multi-cloud-storage/spec.md) | **New feature** (draft) | 005 |
 
 Journey 03 (navigation models) resolved into spec 002; journey 14 (dark mode) is
 not a separate spec — the dark token mapping lands in 001 and every screen spec
@@ -47,6 +48,10 @@ carries dark acceptance criteria.
    both prerequisites for every later UI integration, including **007B**.
 3. **003 → 004 → 005 → 006** may then proceed; 004 is the highest-traffic surface.
 4. **007B** follows 001, 002 and 007A. **008** follows 005; **009** follows 006.
+5. **010** is a draft and follows 005. It owns the storage-capability port that
+   **008** consumes, so 010's port shape is frozen before 008's remote-write work
+   (T4xx) starts. 010 needs no `plan.md`/`tasks.md` until a second provider is
+   actually scheduled.
 
 ## Definition of done, every spec
 
