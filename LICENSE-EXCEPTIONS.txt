@@ -1,0 +1,30 @@
+ADDITIONAL PERMISSIONS UNDER GNU AGPL VERSION 3 SECTION 7
+
+Copyright (C) 2026 Camillo Bucciarelli
+
+The following additional permissions apply to this program and to any work
+based on it. They are granted under section 7 of the GNU Affero General
+Public License version 3.
+
+1. APPLICATION STORE DISTRIBUTION
+
+   You are granted permission to convey this program, or a work based on it,
+   through an application distribution platform (including but not limited to
+   the Apple App Store, Mac App Store, Google Play, Microsoft Store, Chrome
+   Web Store, and Mozilla Add-ons) even where the terms of service of that
+   platform impose restrictions on the recipient that would otherwise be
+   incompatible with sections 4, 5, 6, 10 or 12 of the GNU Affero General
+   Public License.
+
+   This permission is granted on the condition that the complete corresponding
+   source code of the version so conveyed remains publicly available under the
+   GNU Affero General Public License version 3 or later, at no charge, for as
+   long as that version is distributed through the platform.
+
+2. NO TRADEMARK RIGHTS
+
+   This permission does not grant any right to use the names, logos, or icons
+   of the original author to endorse or promote works based on this program.
+
+You may remove these additional permissions from any copy you convey, as
+provided by section 7 of the GNU Affero General Public License.
