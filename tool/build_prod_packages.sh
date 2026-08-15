@@ -347,6 +347,10 @@ for raw_platform in "${selected_platforms[@]}"; do
       fi
 
       configure_app_store_connect_api_args
+      (( ${#app_store_connect_api_args[@]} )) || {
+        echo "App Store Connect API auth required for upload (set APP_STORE_CONNECT_API_KEY_PATH, APP_STORE_CONNECT_API_KEY_ID, APP_STORE_CONNECT_API_ISSUER_ID)"
+        exit 1
+      }
       echo "Uploading iOS archive to App Store Connect..."
       run_xcodebuild_filtered "(error:|warning:|\*\* EXPORT (SUCCEEDED|FAILED) \*\*|Uploaded)" \
         xcodebuild -exportArchive \
@@ -422,6 +426,10 @@ for raw_platform in "${selected_platforms[@]}"; do
       fi
 
       configure_app_store_connect_api_args
+      (( ${#app_store_connect_api_args[@]} )) || {
+        echo "App Store Connect API auth required for upload (set APP_STORE_CONNECT_API_KEY_PATH, APP_STORE_CONNECT_API_KEY_ID, APP_STORE_CONNECT_API_ISSUER_ID)"
+        exit 1
+      }
       preflight_macos_appstore_signing "A8QUU5F9G3"
       echo "Uploading macOS archive to App Store Connect..."
       run_xcodebuild_filtered "(error:|warning:|\*\* EXPORT (SUCCEEDED|FAILED) \*\*|Uploaded)" \
