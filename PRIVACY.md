@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Application:** KeyVault Password Manager
+**Application:** KDBX Vault Manager
 **Data controller:** Camillo Bucciarelli
 **Contact:** bucciarelli.camillo92@gmail.com
 **Last updated:** 2026-08-15
