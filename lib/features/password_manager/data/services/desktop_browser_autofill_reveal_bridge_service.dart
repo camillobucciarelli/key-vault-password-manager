@@ -288,36 +288,10 @@ bool _isExactBrowserMatch(
   _DesktopBrowserRevealCredential credential,
   String origin,
 ) {
-  final targetOrigin = DesktopBrowserAutofillMetadataMapper.normalizedOrigin(
-    origin,
+  return DesktopBrowserAutofillMetadataMapper.isRevealAuthorizedOrigin(
+    serviceIdentifiers: credential.serviceIdentifiers,
+    origin: origin,
   );
-  final targetHost = DesktopBrowserAutofillMetadataMapper.normalizedHost(
-    origin,
-  );
-  if (targetOrigin == null || targetHost == null) {
-    return false;
-  }
-
-  for (final identifier in credential.serviceIdentifiers) {
-    if (identifier.type == 'url') {
-      final identifierOrigin =
-          DesktopBrowserAutofillMetadataMapper.normalizedOrigin(
-            identifier.value,
-          );
-      if (identifierOrigin != null && identifierOrigin == targetOrigin) {
-        return true;
-      }
-    }
-
-    if (identifier.type == 'domain' || identifier.type == 'url') {
-      final identifierHost =
-          DesktopBrowserAutofillMetadataMapper.normalizedHost(identifier.value);
-      if (identifierHost != null && identifierHost == targetHost) {
-        return true;
-      }
-    }
-  }
-  return false;
 }
 
 String? _canonicalBrowserOrigin(Object? rawValue) {

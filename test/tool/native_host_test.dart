@@ -296,6 +296,136 @@ void main() {
       },
     );
 
+    group('revealForFill origin scheme and port binding', () {
+      const httpsEntry = [
+        DesktopBrowserAutofillServiceIdentifier(
+          type: 'url',
+          value: 'https://example.test',
+        ),
+        DesktopBrowserAutofillServiceIdentifier(
+          type: 'domain',
+          value: 'example.test',
+        ),
+      ];
+
+      test('denies https entry on a downgraded http page', () async {
+        _expectRevealRefused(
+          await _revealForFill(
+            identifiers: httpsEntry,
+            origin: 'http://example.test',
+          ),
+        );
+      });
+
+      test('still allows the matching https page', () async {
+        final result = await _revealForFill(
+          identifiers: httpsEntry,
+          origin: 'https://example.test',
+        );
+
+        expect(result.response['ok'], isTrue);
+        final data = result.response['data']! as Map<String, Object?>;
+        expect(data['password'], 'test-only-secret');
+        expect(result.bridgeCalls, 1);
+      });
+
+      test('denies a port mismatch on the same host', () async {
+        _expectRevealRefused(
+          await _revealForFill(
+            identifiers: const [
+              DesktopBrowserAutofillServiceIdentifier(
+                type: 'url',
+                value: 'https://example.test:8443',
+              ),
+              DesktopBrowserAutofillServiceIdentifier(
+                type: 'domain',
+                value: 'example.test',
+              ),
+            ],
+            origin: 'https://example.test',
+          ),
+        );
+      });
+
+      test(
+        'denies an unexpected port on a pinned default-port entry',
+        () async {
+          _expectRevealRefused(
+            await _revealForFill(
+              identifiers: httpsEntry,
+              origin: 'https://example.test:8443',
+            ),
+          );
+        },
+      );
+
+      test('allows a domain-only entry on an https page', () async {
+        final result = await _revealForFill(
+          identifiers: const [
+            DesktopBrowserAutofillServiceIdentifier(
+              type: 'domain',
+              value: 'example.test',
+            ),
+          ],
+          origin: 'https://example.test',
+        );
+
+        expect(result.response['ok'], isTrue);
+        expect(result.bridgeCalls, 1);
+      });
+
+      test('denies a domain-only entry on an http page', () async {
+        _expectRevealRefused(
+          await _revealForFill(
+            identifiers: const [
+              DesktopBrowserAutofillServiceIdentifier(
+                type: 'domain',
+                value: 'example.test',
+              ),
+            ],
+            origin: 'http://example.test',
+          ),
+        );
+      });
+
+      test('allows the http entry / https page upgrade', () async {
+        final result = await _revealForFill(
+          identifiers: const [
+            DesktopBrowserAutofillServiceIdentifier(
+              type: 'url',
+              value: 'http://example.test',
+            ),
+            DesktopBrowserAutofillServiceIdentifier(
+              type: 'domain',
+              value: 'example.test',
+            ),
+          ],
+          origin: 'https://example.test',
+        );
+
+        expect(result.response['ok'], isTrue);
+        expect(result.bridgeCalls, 1);
+      });
+
+      test('denies the upgrade when the port differs', () async {
+        _expectRevealRefused(
+          await _revealForFill(
+            identifiers: const [
+              DesktopBrowserAutofillServiceIdentifier(
+                type: 'url',
+                value: 'http://example.test:8080',
+              ),
+              DesktopBrowserAutofillServiceIdentifier(
+                type: 'domain',
+                value: 'example.test',
+              ),
+            ],
+            origin: 'https://example.test',
+          ),
+        );
+      });
+    });
+
     test('revealForFill denies descriptor/database mismatch', () async {
       final directory = await Directory.systemTemp.createTemp(
         'kv-native-host-',
@@ -538,6 +668,68 @@ void main() {
       },
     );
   });
+}
+
+typedef _RevealAttempt = ({Map<String, Object?> response, int bridgeCalls});
+
+Future<_RevealAttempt> _revealForFill({
+  required List<DesktopBrowserAutofillServiceIdentifier> identifiers,
+  required String origin,
+}) async {
+  final directory = await Directory.systemTemp.createTemp('kv-native-host-');
+  final store = DesktopBrowserAutofillCacheStore(directory: directory);
+  await store.writeMetadataCache(
+    DesktopBrowserAutofillMetadataCache(
+      version: desktopBrowserAutofillCacheVersion,
+      databaseId: 'db-1',
+      generatedAtEpochMs: 1,
+      entries: [
+        DesktopBrowserAutofillCredentialMetadata(
+          id: 'entry-1',
+          title: 'Example',
+          username: 'alice',
+          displayService: 'example.test',
+          serviceIdentifiers: identifiers,
+          updatedAtEpochMs: 1,
+        ),
+      ],
+    ),
+  );
+
+  final bridge = await _FakeRevealBridge.start(
+    responseData: const {
+      'entryId': 'entry-1',
+      'username': 'alice',
+      'password': 'test-only-secret',
+    },
+  );
+  addTearDown(bridge.close);
+  await store.writeBridgeDescriptor(bridge.descriptor(databaseId: 'db-1'));
+
+  final response = await handleNativeHostRequest({
+    'version': nativeProtocolVersion,
+    'id': 'reveal-origin',
+    'type': 'revealForFill',
+    'payload': {'entryId': 'entry-1', 'origin': origin},
+  }, store: store);
+
+  return (response: response, bridgeCalls: bridge.requestCount);
+}
+
+void _expectRevealRefused(_RevealAttempt attempt) {
+  expect(attempt.response['ok'], isFalse);
+  final error = attempt.response['error']! as Map<String, Object?>;
+  expect(error['code'], 'strong_match_required');
+  // The bridge must never be asked for the secret in the first place.
+  expect(attempt.bridgeCalls, 0);
+  final encoded = jsonEncode(attempt.response);
+  expect(encoded, isNot(contains('test-only-secret')));
+  expect(encoded, isNot(contains('alice')));
+  // The refusal must not tell the caller which rule rejected it.
+  final message = (error['message']! as String).toLowerCase();
+  expect(message, isNot(contains('scheme')));
+  expect(message, isNot(contains('http')));
+  expect(message, isNot(contains('port')));
 }
 
 class _FakeRevealBridge {
