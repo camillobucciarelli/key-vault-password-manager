@@ -26,7 +26,7 @@ live-network re-spike"). Spec 008 responded by rewriting FR-7 around a
 storage-agnostic write-verify-converge cycle needing only `get` and `put`.
 
 That rewrite is **accepted as a direction and not yet validated**: spec 008's
-Gate 0 was reopened on 2026-08-16 because the cycle was declared sufficient in
+Gate 0 was reopened on 2026-08-15 because the cycle was declared sufficient in
 the same commit that rewrote the criterion, and reading it found three defects
 that each prevented convergence. They are corrected, and 008 T009 makes the
 cycle's properties executable. **This spec therefore describes a port shape, not
@@ -197,7 +197,7 @@ made once and corrected (feasibility report, §"Post-review corrections", C1).
 **It was then repeated in this spec's first draft**, which declared Drive's
 `versionHistory` present from its documented API and derived a **Recuperabile**
 category from it — one tier above what the evidence supported, on the strength of
-a document. Corrected 2026-08-16. AC-9 already required a review to fail on
+a document. Corrected 2026-08-15. AC-9 already required a review to fail on
 exactly this, which is why open question 4 below is closed rather than open: the
 rules answered it.
 
@@ -221,7 +221,7 @@ what the tier system exists to prevent.
 | Capability | Declared | Basis |
 | --- | --- | --- |
 | `conditionalWrite` | **no** | Measured. `If-Match` (invented, stale `version`, stale `headRevisionId`), `If-None-Match: *` and `If-Unmodified-Since` with a past date all returned `200` **with the remote bytes actually overwritten**. Counter-probes exclude a transport fault: `Range` on the read path returned `206`, so arbitrary headers do reach and are interpreted; a malformed `If-Match` returned `200` rather than `400`, so the upload path does not parse preconditions at all. No `ETag` header and no `etag` field are returned; `version` and `headRevisionId` exist but are purely descriptive. |
-| `versionHistory` | **no** (`not-run`) | **Demoted 2026-08-16.** Previously declared **yes** on the strength of Drive's documented revisions API. That is a declaration from documentation, which rule 1 above forbids in as many words — *"Documentation alone is not a declaration"* — and rule 2 resolves the uncertainty against the capability: *"when a behaviour is uncertain, the capability is absent"*. Nothing was measured: not retention, not `keepRevisionForever`, not the ceiling on pinned revisions, not quota impact, and not the base claim that an overwritten revision is retrievable. The 2026-08-15 spike did not probe revisions at all. Declared **absent** until an FR-5 spike measures it. |
+| `versionHistory` | **no** (`not-run`) | **Demoted 2026-08-15.** Previously declared **yes** on the strength of Drive's documented revisions API. That is a declaration from documentation, which rule 1 above forbids in as many words — *"Documentation alone is not a declaration"* — and rule 2 resolves the uncertainty against the capability: *"when a behaviour is uncertain, the capability is absent"*. Nothing was measured: not retention, not `keepRevisionForever`, not the ceiling on pinned revisions, not quota impact, and not the base claim that an overwritten revision is retrievable. The 2026-08-15 spike did not probe revisions at all. Declared **absent** until an FR-5 spike measures it. |
 | `atomicCreateIfAbsent` | **no** | Drive permits two files with the same name in the same folder, so a create cannot be conditioned on absence. |
 | `changeNotification` | to verify | Drive documents a changes/watch API; not measured. |
 | **Category** | **Ricostruibile** | Derived: no `conditionalWrite`, no declared `versionHistory`. Down from **Recuperabile**, which the 2026-08-15 draft derived from an undeclarable capability. The demotion is cheap to reverse: one FR-5 revisions spike restores `versionHistory`, and the category follows automatically — which is the derivation rule working as intended. |
@@ -407,7 +407,7 @@ to the merged state.
    the three categories.
 4. ~~Do the Drive revisions details hold well enough for the **Recuperabile**
    promise, or does Drive need to be reported one tier lower until they are
-   measured?~~ **Closed 2026-08-16 — the spec's own rules already answered it.**
+   measured?~~ **Closed 2026-08-15 — the spec's own rules already answered it.**
    Not one revisions behaviour was measured, so rule 1 ("documentation alone is
    not a declaration") and rule 2 ("when a behaviour is uncertain, the capability
    is absent") make `versionHistory` absent, and AC-9 requires a review to

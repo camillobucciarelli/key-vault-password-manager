@@ -9,7 +9,7 @@ Ordered gates. Later phase cannot start until prior gate exit passes.
 > History: executed 2026-08-13 on `feat/008-merge-gate0`; corrected after
 > independent review 2026-08-14; **B1 closed by live-network measurement
 > 2026-08-15**; Gate 0 declared closed the same day and **that close was
-> reverted by independent review 2026-08-16**.
+> reverted by independent review 2026-08-15**.
 >
 > **B1 is settled and is no longer a blocker.** Google Drive REST v3 enforces no
 > precondition on the upload path — measured live, six decisive probes and six
@@ -29,7 +29,7 @@ Ordered gates. Later phase cannot start until prior gate exit passes.
 > Previously listed as B2 (entry colors) and R2 (entry auto-type): **both
 > closed**. Their values round-trip through the exported `KdbxNode.node`.
 > Full evidence: `specs/008-per-field-conflict-resolution/feasibility-report.md`,
-> sections "Convergence-cycle review (2026-08-16)" and "Post-review corrections".
+> sections "Convergence-cycle review (2026-08-15)" and "Post-review corrections".
 
 - [x] **T001 KDBX semantic matrix** — generated KDBX 3/4 cases covering every
       installed-library-supported fidelity category: hierarchy/moves, recycle
@@ -254,7 +254,7 @@ UUID/lineage, presence, deletion, shortcut, secret boundary and DI tests pass.
       measured, B1 — and FR-7 declares the token optional, used only where the
       storage adapter declares `conditionalWrite`. `DriveRemoteFile` gains no
       token field. `md5Checksum` serves as the step-5 comparator.
-      *(Respecified 2026-08-16. This task previously read "add Gate 0-proven
+      *(Respecified 2026-08-15. This task previously read "add Gate 0-proven
       concurrency token and server-enforced conditional `updateFile`". The
       2026-08-15 report claimed the respecification had happened while this line
       was unchanged — a declared-but-unmade change, the same error class as the
