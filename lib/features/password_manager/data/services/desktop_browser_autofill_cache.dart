@@ -1163,9 +1163,15 @@ DesktopBrowserAutofillAssociationTarget? _normalizedPendingAssociationTarget(
     'domain' => DesktopBrowserAutofillMetadataMapper.normalizedHost(
       target.value,
     ),
-    'url' => DesktopBrowserAutofillMetadataMapper.normalizedOrigin(
-      target.value,
-    ),
+    // Same de-pin rule as _serviceIdentifiersForEntry: a `url` target that
+    // names no scheme asserts no origin, and inferring `https://` here would
+    // attribute one to the user. Unreachable from the extension today (the
+    // native host only ever builds `domain` targets), aligned so the rule does
+    // not live in one place out of two.
+    'url' =>
+      DesktopBrowserAutofillMetadataMapper._hasExplicitScheme(target.value)
+          ? DesktopBrowserAutofillMetadataMapper.normalizedOrigin(target.value)
+          : null,
     _ => null,
   };
   if (value == null || value.isEmpty) {
