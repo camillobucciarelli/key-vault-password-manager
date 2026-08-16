@@ -166,7 +166,7 @@ below. Every other Gate 0 item already has its evidence.
 
 | # | Finding | Status | Gates the feature? |
 | --- | --- | --- | --- |
-| **B1** | Drive v3 does not enforce any HTTP precondition on `files.update`. Confirmed live, with byte-level counter-proof. | **`failed`** (measured) | **No.** Spec 008 FR-7 (rewritten 2026-08-15) requires only `get` + `put`. Drive lands in the **Versioned** guarantee tier: no CAS, but `versionHistory` present. See "Guarantee by backend category" in `spec.md`. |
+| **B1** | Drive v3 does not enforce any HTTP precondition on `files.update`. Confirmed live, with byte-level counter-proof. | **`failed`** (measured) | **No.** Spec 008 FR-7 (rewritten 2026-08-15) requires only `get` + `put`. Drive lands in the **Bare** guarantee tier: no CAS, and `versionHistory` **absent** — not measured, therefore not declared (demoted 2026-08-16, see the rows below). Spec 010 category **Ricostruibile**, pending the revisions spike. See "Guarantee by backend category" in `spec.md`. |
 
 The transport was never the obstacle, and the re-spike proved that positively
 rather than by assumption: `GoogleDriveApiService.updateFile` calls Drive through
