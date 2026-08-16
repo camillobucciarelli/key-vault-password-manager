@@ -72,9 +72,15 @@ $ flutter test
 00:14 +570: All tests passed!
 ```
 
-The full-suite count is **570**, not the 555 recorded for the 2026-08-14 run.
-The delta is unrelated to spec 008 — no Gate 0 test was added or removed by this
-review pass.
+That run measured the full suite at **570**, against the 555 recorded for the
+2026-08-14 run. The 2026-08-15 pass itself added and removed no test. The delta of
+15 is the harness schema file: it landed in `80b796b` with **30** tests, while the
+2026-08-14 transcript below recorded it at 15, and 555 + 15 = 570. That pre-squash
+branch state no longer exists, so the 555 / `+15` transcript cannot be re-executed;
+it is kept verbatim as the record of that run rather than restated as fact.
+
+Both 555 and 570 are historical. The suite stands at **603** today — see the
+fourth-pass review below for the current count.
 
 ### Commands executed and real results
 
@@ -109,7 +115,7 @@ Counts above are the post-review run (2026-08-14). The pre-review run was
 | `test/features/password_manager/data/services/vault_kdbx_service_test.dart` | added `merge feasibility` group (T001–T004), 18 tests |
 | `test/features/password_manager/data/services/google_drive_api_service_test.dart` | new, `conditional update` group (T005), 10 tests |
 | `test/features/password_manager/data/services/database_writer_inventory_test.dart` | new, `inventory baseline` groups (T007), 13 tests |
-| `test/features/password_manager/data/services/safe_vault_file_writer_harness_schema_test.dart` | new, harness/artifact schema (T006), 15 tests |
+| `test/features/password_manager/data/services/safe_vault_file_writer_harness_schema_test.dart` | new, harness/artifact schema (T006), **30** tests (`harness schema` 17 + `harness platform status` 13). The 2026-08-14 transcript above records `+15`; the file has been unchanged since it landed in `80b796b`, where it measures 30 |
 | `pubspec.yaml` | declared `xml: ^6.6.1` (already resolved transitively at that exact version via `kdbx`) |
 | `specs/008-per-field-conflict-resolution/feasibility-report.md` | this file |
 
@@ -202,9 +208,9 @@ explicitly before T301:
 | Deletion convergence — model validation | **`not-run`** | **T009b**, not started | **Separate gate, not a Gate 0 condition.** T009's grow-only union is no evidence about removal, and is the wrong structure for it. Must pass before deletion, tombstone or attachment behaviour enters the implementation |
 | Storage-agnostic write-verify-converge cycle — production implementation | `not-run` | FR-7 as corrected 2026-08-15 | implementation + integration tests are T4xx, after Gate 0 |
 | Ambiguous transport outcome classification | `passed` | `conditional update` (10 tests) | client-side rules only, fake transport |
-| Writer/path inventory reconciled | `passed` | `inventory baseline` (12 tests) | 14 writer files; 6 gaps vs FR-8 |
+| Writer/path inventory reconciled | `passed` | `inventory baseline` (13 tests) | 14 writer files; 6 gaps vs FR-8 |
 | Path identity/alias design reviewed | `not-run` | design drafted below | executed in Gate 1 T103/T107 |
-| Platform artifact schema recorded | `passed` | `harness schema` (10 tests) | schema only; **no platform evidence** |
+| Platform artifact schema recorded | `passed` | `harness schema` (17 tests) | schema only; **no platform evidence** |
 
 Gate 0 closes when **T001–T009** evidence is complete and every unresolved target
 platform remains disabled. **That condition is not met.** T001–T008 all have
@@ -927,8 +933,10 @@ the specification are supposed to be the same statement.
 The notes-segment sort already used `compareValues`, so no second ordering had to
 be reconciled; the spec now says so, which is what stops one appearing later.
 
-Test counts: convergence model 31 → **33**, full suite 635 → **637** (the 601
-recorded above predates the merge with `main`). No test was deleted, no assumption
+Test counts: convergence model 31 → **33**, full suite 601 → **603**. The merge
+with `main` that precedes this pass left the suite count unchanged at 601, so the
+figure recorded by the third pass above still holds as the baseline for this one.
+No test was deleted, no assumption
 was promoted to `passed`, and `lib/` remains untouched.
 
 #### Mutation check
