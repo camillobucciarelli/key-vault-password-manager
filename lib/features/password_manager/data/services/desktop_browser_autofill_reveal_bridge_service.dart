@@ -288,36 +288,10 @@ bool _isExactBrowserMatch(
   _DesktopBrowserRevealCredential credential,
   String origin,
 ) {
-  final targetOrigin = DesktopBrowserAutofillMetadataMapper.normalizedOrigin(
-    origin,
+  return DesktopBrowserAutofillMetadataMapper.isRevealAuthorizedOrigin(
+    serviceIdentifiers: credential.serviceIdentifiers,
+    origin: origin,
   );
-  final targetHost = DesktopBrowserAutofillMetadataMapper.normalizedHost(
-    origin,
-  );
-  if (targetOrigin == null || targetHost == null) {
-    return false;
-  }
-
-  for (final identifier in credential.serviceIdentifiers) {
-    if (identifier.type == 'url') {
-      final identifierOrigin =
-          DesktopBrowserAutofillMetadataMapper.normalizedOrigin(
-            identifier.value,
-          );
-      if (identifierOrigin != null && identifierOrigin == targetOrigin) {
-        return true;
-      }
-    }
-
-    if (identifier.type == 'domain' || identifier.type == 'url') {
-      final identifierHost =
-          DesktopBrowserAutofillMetadataMapper.normalizedHost(identifier.value);
-      if (identifierHost != null && identifierHost == targetHost) {
-        return true;
-      }
-    }
-  }
-  return false;
 }
 
 String? _canonicalBrowserOrigin(Object? rawValue) {
@@ -332,7 +306,14 @@ String? _canonicalBrowserOrigin(Object? rawValue) {
       (uri.scheme != 'http' && uri.scheme != 'https')) {
     return null;
   }
-  final host = DesktopBrowserAutofillMetadataMapper.normalizedHost(uri.host);
+  // Keep the host as the browser served it: the reveal policy re-normalizes it
+  // for matching, but it also has to ask whether *this* name can obtain a
+  // WebPKI certificate, and collapsing `m.`/`www.`/`mobile.` here would hand it
+  // a single-label name (`m.me` -> `me`) that would pass as non-public.
+  final host = DesktopBrowserAutofillMetadataMapper.normalizedHost(
+    uri.host,
+    stripPrefixes: false,
+  );
   if (host == null) {
     return null;
   }
