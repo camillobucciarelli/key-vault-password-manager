@@ -667,7 +667,7 @@ class _Spike {
     return Uint8List.fromList([
       ...preamble,
       ...bytes,
-      ...utf8.encode('\r\n--$boundary--'),
+      ...utf8.encode('\r\n--$boundary--\r\n'),
     ]);
   }
 
