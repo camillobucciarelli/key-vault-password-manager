@@ -115,9 +115,8 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
     if (_busy) return;
     final selected = await KvBottomSheet.show<Object?>(
       context: context,
-      builder: (sheetContext) => _InactivityTimeoutSheet(
-        current: _inactivityTimeoutSeconds,
-      ),
+      builder: (sheetContext) =>
+          _InactivityTimeoutSheet(current: _inactivityTimeoutSeconds),
     );
     // Dismissing the sheet without picking (back gesture / tap outside)
     // resolves the `showModalBottomSheet` future with `null` — distinct
@@ -206,6 +205,23 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
     );
   }
 
+  Future<void> _openExternal(BuildContext context, String url) async {
+    var opened = false;
+    try {
+      opened = await launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      opened = false;
+    }
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Unable to open $url')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
@@ -232,9 +248,7 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
               ),
               Text(
                 path.basename(databasePath),
-                style: AppTextStyles.body.copyWith(
-                  color: colors.textSecondary,
-                ),
+                style: AppTextStyles.body.copyWith(color: colors.textSecondary),
               ),
               const SizedBox(height: 18),
               _SettingsGroupLabel('Database'),
@@ -291,8 +305,9 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
                 onTap: () async {
                   await Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                      builder: (_) =>
-                          ChangeMasterPasswordScreen(databasePath: databasePath),
+                      builder: (_) => ChangeMasterPasswordScreen(
+                        databasePath: databasePath,
+                      ),
                     ),
                   );
                   _loadedForPath = null;
@@ -335,9 +350,35 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
                 onTap: () => _openBackups(context),
               ),
               const SizedBox(height: 18),
-              Center(
-                child: _SettingsClosePill(onTap: widget.onCloseDatabase),
+              _SettingsGroupLabel('About'),
+              const SizedBox(height: 8),
+              _SettingsRow(
+                glyph: AppGlyph.fileText,
+                title: 'Open source licences',
+                subtitle: 'Third-party notices bundled with this build',
+                onTap: () => showLicensePage(
+                  context: context,
+                  applicationName: _kApplicationName,
+                  applicationVersion: _kApplicationVersion,
+                  applicationLegalese: _kApplicationLegalese,
+                ),
               ),
+              const SizedBox(height: 8),
+              _SettingsRow(
+                glyph: AppGlyph.shieldCheck,
+                title: 'Privacy policy',
+                subtitle: null,
+                onTap: () => _openExternal(context, _kPrivacyPolicyUrl),
+              ),
+              const SizedBox(height: 8),
+              _SettingsRow(
+                glyph: AppGlyph.linkSimple,
+                title: 'App licence',
+                subtitle: 'AGPL-3.0',
+                onTap: () => _openExternal(context, _kAppLicenceUrl),
+              ),
+              const SizedBox(height: 18),
+              Center(child: _SettingsClosePill(onTap: widget.onCloseDatabase)),
             ],
           ),
         );
@@ -345,6 +386,23 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
     );
   }
 }
+
+const _kApplicationName = 'Antigravity Password Manager';
+
+/// Marketing version, mirrored by hand from `pubspec.yaml` `version:`.
+/// `.github/workflows/release.yml` only bumps the build number after the `+`,
+/// so this string changes only on a deliberate release bump. Kept literal so
+/// no runtime dependency (e.g. `package_info_plus`) has to be added.
+const _kApplicationVersion = '0.3.0';
+
+const _kApplicationLegalese =
+    'Copyright (C) 2026 Camillo Bucciarelli - AGPL-3.0';
+
+const _kPrivacyPolicyUrl =
+    'https://github.com/camillobucciarelli/key-vault-password-manager/blob/main/PRIVACY.md';
+
+const _kAppLicenceUrl =
+    'https://github.com/camillobucciarelli/key-vault-password-manager/blob/main/LICENSE';
 
 String _inactivityTimeoutLabel(int? seconds) {
   if (seconds == null) return 'Never';
@@ -380,9 +438,14 @@ class _InactivityTimeoutSheet extends StatelessWidget {
             KvListRow(
               title: _inactivityTimeoutLabel(option),
               trailing: option == current
-                  ? KvIcon(glyph: AppGlyph.check, size: 18, color: colors.actionEmphasis)
+                  ? KvIcon(
+                      glyph: AppGlyph.check,
+                      size: 18,
+                      color: colors.actionEmphasis,
+                    )
                   : const SizedBox.shrink(),
-              onTap: () => Navigator.of(context).pop(option ?? _kInactivityNever),
+              onTap: () =>
+                  Navigator.of(context).pop(option ?? _kInactivityNever),
             ),
             const SizedBox(height: 8),
           ],
@@ -571,11 +634,7 @@ class _SettingsSwitchRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          KvSwitch(
-            value: value,
-            onChanged: onChanged,
-            semanticLabel: title,
-          ),
+          KvSwitch(value: value, onChanged: onChanged, semanticLabel: title),
         ],
       ),
     );
@@ -644,12 +703,13 @@ class _ThemePill extends StatelessWidget {
           ),
           child: Text(
             label,
-            style: const TextStyle(
-              fontFamily: AppTextStyles.headingFamily,
-              fontSize: 13.5,
-            ).copyWith(
-              color: selected ? colors.actionText : colors.textPrimary,
-            ),
+            style:
+                const TextStyle(
+                  fontFamily: AppTextStyles.headingFamily,
+                  fontSize: 13.5,
+                ).copyWith(
+                  color: selected ? colors.actionText : colors.textPrimary,
+                ),
           ),
         ),
       ),
