@@ -35,6 +35,7 @@ specs/NNN-slug/spec.md|plan.md|tasks.md
 | 008 | [Per-field sync conflict resolution](008-per-field-conflict-resolution/spec.md) | **New feature** | 001, 002, 005 |
 | 009 | [In-page autofill overlay](009-in-page-autofill-overlay/spec.md) | **New feature** | 006 |
 | 010 | [Multi-cloud remote storage](010-multi-cloud-storage/spec.md) | **New feature** (draft) | 005 |
+| 011 | [Master password session scope](011-master-password-session-scope/spec.md) | **Security fix** | 003, 006 |
 
 Journey 03 (navigation models) resolved into spec 002; journey 14 (dark mode) is
 not a separate spec — the dark token mapping lands in 001 and every screen spec
@@ -52,6 +53,10 @@ carries dark acceptance criteria.
    **008** consumes, so 010's port shape is frozen before 008's remote-write work
    (T4xx) starts. 010 needs no `plan.md`/`tasks.md` until a second provider is
    actually scheduled.
+6. **011** is a security fix, independent of the restyle sequence, and takes
+   priority over new-feature work: it removes an unbounded plaintext lifetime
+   that violates constitution principle I and blocks the accurate privacy claim
+   required for store submission.
 
 ## Definition of done, every spec
 
