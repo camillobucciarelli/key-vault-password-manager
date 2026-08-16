@@ -1,4 +1,4 @@
-# KeyVault Chrome/Edge extension (Native Messaging v2)
+# KDBX Vault Manager Chrome/Edge extension (Native Messaging v2)
 
 Current scope: safe metadata search, pending-association requests, and explicit
 popup-triggered fill for exact strong matches. The extension/native host do
@@ -7,8 +7,8 @@ fill pages silently.
 
 Production setup:
 
-1. Install KeyVault from Chrome Web Store.
-2. Open **Desktop browser extension** in KeyVault.
+1. Install KDBX Vault Manager from Chrome Web Store.
+2. Open **Desktop browser extension** in KDBX Vault Manager.
 3. On Windows/Linux, click **Configure Chrome**. On macOS, download and run the
    signed **KeyVault Chrome Support** package offered by the app.
 4. Restart Chrome, unlock the vault, then open the extension popup.
@@ -77,7 +77,7 @@ host status** remains a refresh button. No fill runs until the user clicks
 
 Flow:
 
-1. Unlock KeyVault desktop. The app publishes a metadata-only cache for the
+1. Unlock KDBX Vault Manager desktop. The app publishes a metadata-only cache for the
    native host.
 2. Popup **Find current site** sends only active tab origin + title.
 3. Exact normalized host matches are labeled strong. If the app reveal bridge is

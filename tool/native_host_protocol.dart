@@ -224,7 +224,7 @@ Future<Map<String, Object?>> handleNativeHostRequest(
       type: type ?? 'error',
       code: 'legacy_fields_rejected',
       message:
-          'Native Messaging v2 rejects legacy secret-bearing fields. Open and unlock KeyVault in the desktop app instead.',
+          'Native Messaging v2 rejects legacy secret-bearing fields. Open and unlock KDBX Vault Manager in the desktop app instead.',
     );
   }
 
@@ -417,7 +417,7 @@ Future<Map<String, Object?>> _queryCredentialsResponse({
           .toList(growable: false),
       'message': bridgeAvailable
           ? 'Desktop browser v2 returned metadata. Exact strong matches can be filled after popup user action.'
-          : 'Desktop browser v2 returned metadata only. Unlock KeyVault desktop to enable one-shot fill.',
+          : 'Desktop browser v2 returned metadata only. Unlock KDBX Vault Manager desktop to enable one-shot fill.',
     },
   );
 }
@@ -505,7 +505,7 @@ Future<Map<String, Object?>> _createPendingAssociationResponse({
       type: type,
       code: 'pending_association_failed',
       message:
-          'Unable to create pending association. Open and unlock KeyVault, then try again.',
+          'Unable to create pending association. Open and unlock KDBX Vault Manager, then try again.',
     );
   }
 
@@ -515,7 +515,7 @@ Future<Map<String, Object?>> _createPendingAssociationResponse({
     data: {
       'pendingAssociation': pending.toJson(),
       'message':
-          'Pending association saved. Confirm or reject it in the KeyVault desktop app.',
+          'Pending association saved. Confirm or reject it in the KDBX Vault Manager desktop app.',
     },
   );
 }
@@ -590,7 +590,7 @@ Future<Map<String, Object?>> _revealForFillResponse({
       type: type,
       code: 'app_bridge_unavailable',
       message:
-          'KeyVault reveal bridge is unavailable. Open and unlock the desktop app first.',
+          'KDBX Vault Manager reveal bridge is unavailable. Open and unlock the desktop app first.',
     );
   }
   if (descriptor.databaseId != cache.databaseId) {
@@ -598,7 +598,8 @@ Future<Map<String, Object?>> _revealForFillResponse({
       id: id,
       type: type,
       code: 'database_mismatch',
-      message: 'KeyVault database changed. Query the current site again.',
+      message:
+          'KDBX Vault Manager database changed. Query the current site again.',
     );
   }
 
@@ -687,8 +688,8 @@ Future<Map<String, Object?>> _statusData(
     'message': status.revealBridgeAvailable
         ? 'Native Messaging v2 can fill exact strong matches after popup user action.'
         : status.cacheAvailable
-        ? 'Native Messaging v2 can read metadata, but reveal bridge is unavailable. Unlock KeyVault desktop.'
-        : 'Native Messaging v2 is running; open and unlock KeyVault to publish desktop browser metadata.',
+        ? 'Native Messaging v2 can read metadata, but reveal bridge is unavailable. Unlock KDBX Vault Manager desktop.'
+        : 'Native Messaging v2 is running; open and unlock KDBX Vault Manager to publish desktop browser metadata.',
   };
 }
 
@@ -701,7 +702,7 @@ Map<String, Object?> _cacheUnavailableResponse({
     type: type,
     code: 'app_bridge_unavailable',
     message:
-        'KeyVault desktop metadata cache is unavailable. Open and unlock the desktop app first.',
+        'KDBX Vault Manager desktop metadata cache is unavailable. Open and unlock the desktop app first.',
   );
 }
 
@@ -1149,18 +1150,19 @@ String? _safeRequestType(Object? value) {
 
 String _publicRevealErrorMessage(String code) {
   return switch (code) {
-    'app_bridge_timeout' => 'KeyVault reveal bridge timed out.',
+    'app_bridge_timeout' => 'KDBX Vault Manager reveal bridge timed out.',
     'app_bridge_unavailable' =>
-      'KeyVault reveal bridge is unavailable. Open and unlock the desktop app.',
+      'KDBX Vault Manager reveal bridge is unavailable. Open and unlock the desktop app.',
     'app_bridge_invalid_response' =>
-      'KeyVault reveal bridge returned an invalid response.',
-    'database_mismatch' => 'KeyVault database changed. Query the site again.',
+      'KDBX Vault Manager reveal bridge returned an invalid response.',
+    'database_mismatch' =>
+      'KDBX Vault Manager database changed. Query the site again.',
     'credential_unavailable' => 'Requested credential is unavailable.',
     'strong_match_required' =>
       'Credential reveal requires an exact strong match for the current site.',
     'invalid_request' => 'Reveal request is invalid.',
-    'unauthorized' => 'KeyVault reveal bridge authentication failed.',
-    _ => 'KeyVault reveal bridge failed.',
+    'unauthorized' => 'KDBX Vault Manager reveal bridge authentication failed.',
+    _ => 'KDBX Vault Manager reveal bridge failed.',
   };
 }
 
