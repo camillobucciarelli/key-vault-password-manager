@@ -509,6 +509,49 @@ void main() {
           });
         }
       });
+
+      group('a written port binds without a scheme pin', () {
+        for (final (domain, origin) in const [
+          ('bank.example:8443', 'https://bank.example:9999'),
+          ('bank.example:8443', 'https://bank.example'),
+          ('192.168.1.10:8443', 'http://192.168.1.10:9999'),
+          ('192.168.1.10:8443', 'http://192.168.1.10'),
+        ]) {
+          test('denies $domain on $origin', () async {
+            _expectRevealRefused(
+              await _revealForFill(
+                identifiers: [
+                  DesktopBrowserAutofillServiceIdentifier(
+                    type: 'domain',
+                    value: domain,
+                  ),
+                ],
+                origin: origin,
+              ),
+            );
+          });
+        }
+
+        for (final (domain, origin) in const [
+          ('bank.example:8443', 'https://bank.example:8443'),
+          ('192.168.1.10:8443', 'http://192.168.1.10:8443'),
+        ]) {
+          test('allows $domain on $origin', () async {
+            final result = await _revealForFill(
+              identifiers: [
+                DesktopBrowserAutofillServiceIdentifier(
+                  type: 'domain',
+                  value: domain,
+                ),
+              ],
+              origin: origin,
+            );
+
+            expect(result.response['ok'], isTrue);
+            expect(result.bridgeCalls, 1);
+          });
+        }
+      });
     });
 
     test('revealForFill denies descriptor/database mismatch', () async {

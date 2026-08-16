@@ -470,6 +470,78 @@ void main() {
       });
     });
 
+    group('a written port keeps binding when the scheme is inferred', () {
+      // The de-pin drops the *scheme* claim the user never made; it must not
+      // drop the *port* claim they did make. Without this, a hostile service on
+      // another port of the same host — the LAN/shared-host case the de-pin
+      // exists to serve — would be authorized.
+      for (final (storedUrl, origin) in const [
+        ('bank.example:8443', 'https://bank.example:9999'),
+        ('bank.example:8443', 'https://bank.example'),
+        ('192.168.1.10:8443', 'http://192.168.1.10:9999'),
+        ('192.168.1.10:8443', 'http://192.168.1.10'),
+      ]) {
+        test('denies $storedUrl on $origin', () async {
+          _expectRevealRefused(
+            await _reveal(
+              entry: _entry(
+                id: 'entry-1',
+                username: 'alice',
+                password: 'test-only-secret',
+                url: storedUrl,
+              ),
+              origin: origin,
+            ),
+          );
+        });
+      }
+
+      for (final (storedUrl, origin) in const [
+        ('bank.example:8443', 'https://bank.example:8443'),
+        ('192.168.1.10:8443', 'http://192.168.1.10:8443'),
+        // No port written, no port asserted: unchanged from `main`.
+        ('bank.example', 'https://bank.example:9999'),
+        ('192.168.1.10', 'http://192.168.1.10:9999'),
+        // A written default port must survive the inferred `https://` both
+        // ways, or the assertion would depend on a scheme the user never wrote.
+        ('bank.example:443', 'https://bank.example'),
+        ('192.168.1.10:80', 'http://192.168.1.10'),
+      ]) {
+        test('allows $storedUrl on $origin', () async {
+          final response = await _reveal(
+            entry: _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: 'test-only-secret',
+              url: storedUrl,
+            ),
+            origin: origin,
+          );
+
+          expect(response.statusCode, HttpStatus.ok);
+          final data = response.json['data']! as Map<String, Object?>;
+          expect(data['password'], 'test-only-secret');
+        });
+      }
+
+      test('the port also binds through a domain custom field', () async {
+        _expectRevealRefused(
+          await _reveal(
+            entry: _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: 'test-only-secret',
+              url: '',
+              customFields: const [
+                VaultCustomField(key: 'domain', value: '192.168.1.10:8443'),
+              ],
+            ),
+            origin: 'http://192.168.1.10:8080',
+          ),
+        );
+      });
+    });
+
     test('denies a www-stripped https entry on an http page', () async {
       // `_cleanHost` still collapses `www.`/`m.`/`mobile.` onto the bare host,
       // so `https://www.bank.example` and `http://bank.example` compare on the

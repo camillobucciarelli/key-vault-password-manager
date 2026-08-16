@@ -19,7 +19,14 @@ import '../../domain/models/vault_entry.dart';
 ///
 /// Accepted cost: browser autofill is unavailable until the next vault unlock,
 /// which is an event the user causes anyway.
-const desktopBrowserAutofillCacheVersion = 3;
+///
+/// Bumped 3 -> 4 when the `domain` identifier started carrying `:port`. This
+/// bump *is* load-bearing: a version 3 cache holds a bare `domain=host` for an
+/// entry stored as `host:8443`, so the port the user wrote is simply not in the
+/// data and cannot constrain the match. Any port of that host would stay
+/// authorized until the cache happened to be rewritten — which is exactly the
+/// LAN / shared-host case the scheme de-pin exists to serve.
+const desktopBrowserAutofillCacheVersion = 4;
 const desktopBrowserAutofillBridgeDescriptorVersion = 1;
 const desktopBrowserAutofillPlatform = 'desktop/browser';
 const desktopBrowserAutofillMaxPendingAssociations = 100;
@@ -728,12 +735,14 @@ class DesktopBrowserAutofillMetadataMapper {
   /// - a `domain` identifier authorizes the bare host when the entry does not
   ///   also pin a `url` identifier for that host, on an `https` page always and
   ///   on an `http` page only when the host cannot obtain a public WebPKI
-  ///   certificate (see [_cannotObtainWebPkiCertificate]).
+  ///   certificate (see [_cannotObtainWebPkiCertificate]); when the stored
+  ///   value declared a port, that port must match too.
   ///
   /// The pin is only ever set by an entry that *declared* a scheme: a URL field
   /// holding a bare host emits no `url` identifier at all, because inferring
   /// `https://` there would invent an origin the user never wrote. See
-  /// [_serviceIdentifiersForEntry].
+  /// [_serviceIdentifiersForEntry]. The port is not inferred but written, so it
+  /// survives that de-pin inside the `domain` identifier.
   ///
   /// The `http` allowance for non-WebPKI hosts is not a comfort/security
   /// trade-off. On those hosts `https` is *not obtainable*, so requiring it
@@ -791,9 +800,17 @@ class DesktopBrowserAutofillMetadataMapper {
           continue;
         }
         final host = normalizedHost(identifier.value);
-        if (host != null && host == targetHost) {
-          return true;
+        if (host == null || host != targetHost) {
+          continue;
         }
+        // A port the user wrote is an assertion they actually made, so it keeps
+        // constraining even when no scheme was written. Only the *scheme* claim
+        // is inferred and therefore dropped.
+        final declaredPort = _declaredPort(identifier.value);
+        if (declaredPort != null && declaredPort != target.port) {
+          continue;
+        }
+        return true;
       }
     }
     return false;
@@ -917,9 +934,11 @@ class DesktopBrowserAutofillMetadataMapper {
   static String displayServiceFromIdentifiers(
     List<DesktopBrowserAutofillServiceIdentifier> identifiers,
   ) {
+    // A `domain` identifier may carry `:port`; display stays host-only.
     final domain = identifiers
         .where((identifier) => identifier.type == 'domain')
-        .map((identifier) => identifier.value)
+        .map((identifier) => normalizedHost(identifier.value))
+        .whereType<String>()
         .firstOrNull;
     if (domain != null && domain.isNotEmpty) {
       return domain;
@@ -959,7 +978,7 @@ class DesktopBrowserAutofillMetadataMapper {
     final origin = _hasExplicitScheme(entry.url)
         ? normalizedOrigin(entry.url)
         : null;
-    final host = normalizedHost(entry.url);
+    final host = _domainIdentifierValue(entry.url);
     if (origin != null) {
       add(DesktopBrowserAutofillServiceIdentifier(type: 'url', value: origin));
     }
@@ -971,7 +990,7 @@ class DesktopBrowserAutofillMetadataMapper {
       final key = _normalizeFieldKey(field.key);
       if (_isDomainField(key)) {
         for (final value in _splitCustomFieldValues(field.value)) {
-          final domain = normalizedHost(value);
+          final domain = _domainIdentifierValue(value);
           if (domain != null) {
             add(
               DesktopBrowserAutofillServiceIdentifier(
@@ -988,7 +1007,7 @@ class DesktopBrowserAutofillMetadataMapper {
           final urlOrigin = _hasExplicitScheme(value)
               ? normalizedOrigin(value)
               : null;
-          final urlHost = normalizedHost(value);
+          final urlHost = _domainIdentifierValue(value);
           if (urlOrigin != null) {
             add(
               DesktopBrowserAutofillServiceIdentifier(
@@ -1060,6 +1079,35 @@ class DesktopBrowserAutofillMetadataMapper {
   static bool _hasExplicitScheme(String? rawValue) {
     final value = rawValue?.trim() ?? '';
     return RegExp(r'^[a-zA-Z][a-zA-Z0-9+.-]*://').hasMatch(value);
+  }
+
+  /// The port the stored value spells out, or `null` when it spells out none.
+  ///
+  /// Parsed under a scheme with no default port on purpose: `Uri` drops a port
+  /// equal to the scheme default, so under the inferred `https://` a written
+  /// `:443` would vanish and a written `:80` would survive — the presence of
+  /// the user's assertion would depend on a scheme they never wrote.
+  static int? _declaredPort(String? rawValue) {
+    final value = rawValue?.trim() ?? '';
+    if (value.isEmpty || _isNativeAppValue(value)) {
+      return null;
+    }
+    final authorityAndRest = _hasExplicitScheme(value)
+        ? value.replaceFirst(RegExp(r'^[a-zA-Z][a-zA-Z0-9+.-]*://'), '')
+        : (value.startsWith('//') ? value.substring(2) : value);
+    final uri = Uri.tryParse('pm-port://$authorityAndRest');
+    return (uri != null && uri.hasPort) ? uri.port : null;
+  }
+
+  /// The `domain` identifier value for a stored URL/host: the normalized host,
+  /// carrying `:port` when the stored value declared one.
+  static String? _domainIdentifierValue(String? rawValue) {
+    final host = normalizedHost(rawValue);
+    if (host == null) {
+      return null;
+    }
+    final port = _declaredPort(rawValue);
+    return port == null ? host : '$host:$port';
   }
 
   static String _valueWithDefaultScheme(String value) {
