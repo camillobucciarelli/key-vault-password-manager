@@ -424,6 +424,72 @@ void main() {
           ),
         );
       });
+
+      group('hosts that cannot obtain a WebPKI certificate', () {
+        // A URL stored without a scheme emits a `domain` identifier and no
+        // `url` pin, so the page scheme is decided here.
+        for (final host in const [
+          '192.168.1.10',
+          '10.4.0.7',
+          '172.16.9.9',
+          '127.0.0.1',
+          '169.254.10.10',
+          'nas',
+          'router.local',
+          'printer.home.arpa',
+          'wiki.internal',
+          'vault.lan',
+        ]) {
+          test('allows $host over http', () async {
+            final result = await _revealForFill(
+              identifiers: [
+                DesktopBrowserAutofillServiceIdentifier(
+                  type: 'domain',
+                  value: host,
+                ),
+              ],
+              origin: 'http://$host',
+            );
+
+            expect(result.response['ok'], isTrue);
+            expect(result.bridgeCalls, 1);
+          });
+        }
+
+        for (final host in const ['bank.example', '1.1.1.1', 'example.test']) {
+          test('denies $host over http', () async {
+            _expectRevealRefused(
+              await _revealForFill(
+                identifiers: [
+                  DesktopBrowserAutofillServiceIdentifier(
+                    type: 'domain',
+                    value: host,
+                  ),
+                ],
+                origin: 'http://$host',
+              ),
+            );
+          });
+        }
+
+        test('denies an http page when the entry pins https', () async {
+          _expectRevealRefused(
+            await _revealForFill(
+              identifiers: const [
+                DesktopBrowserAutofillServiceIdentifier(
+                  type: 'url',
+                  value: 'https://192.168.1.10',
+                ),
+                DesktopBrowserAutofillServiceIdentifier(
+                  type: 'domain',
+                  value: '192.168.1.10',
+                ),
+              ],
+              origin: 'http://192.168.1.10',
+            ),
+          );
+        });
+      });
     });
 
     test('revealForFill denies descriptor/database mismatch', () async {

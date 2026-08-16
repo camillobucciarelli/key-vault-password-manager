@@ -270,6 +270,152 @@ void main() {
       });
     });
 
+    group('hosts that cannot obtain a WebPKI certificate', () {
+      // A URL stored without a scheme declares no origin, so it must not be
+      // pinned to an inferred `https://`. On these hosts `https` is not
+      // obtainable at all, so `http` is the only origin they can ever have.
+      for (final host in const [
+        '192.168.1.10', // RFC 1918
+        '10.4.0.7', // RFC 1918
+        '172.16.9.9', // RFC 1918
+        '127.0.0.1', // RFC 1122 loopback
+        '169.254.10.10', // RFC 3927 link-local
+        'nas', // single label
+        'router.local', // RFC 6762
+        'printer.home.arpa', // RFC 8375
+        'wiki.internal',
+        'vault.lan',
+      ]) {
+        test('allows $host over http when stored without a scheme', () async {
+          final response = await _reveal(
+            entry: _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: 'test-only-secret',
+              url: host,
+            ),
+            origin: 'http://$host',
+          );
+
+          expect(response.statusCode, HttpStatus.ok);
+          final data = response.json['data']! as Map<String, Object?>;
+          expect(data['password'], 'test-only-secret');
+        });
+      }
+
+      // The other side of the same criterion: on these hosts `https` *is*
+      // obtainable, so a bare host stays denied over cleartext http.
+      for (final host in const [
+        'bank.example', // bare public domain: the most common entry shape
+        '1.1.1.1', // a public IP literal can hold a WebPKI certificate
+        'example.test', // RFC 2606, deliberately kept out of the allow set
+      ]) {
+        test('denies $host over http when stored without a scheme', () async {
+          _expectRevealRefused(
+            await _reveal(
+              entry: _entry(
+                id: 'entry-1',
+                username: 'alice',
+                password: 'test-only-secret',
+                url: host,
+              ),
+              origin: 'http://$host',
+            ),
+          );
+        });
+
+        test('still allows $host over https', () async {
+          final response = await _reveal(
+            entry: _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: 'test-only-secret',
+              url: host,
+            ),
+            origin: 'https://$host',
+          );
+
+          expect(response.statusCode, HttpStatus.ok);
+        });
+      }
+
+      test('denies an explicit https entry on a private-IP http page', () async {
+        // The de-pin only covers inferred schemes: a declared origin still wins.
+        _expectRevealRefused(
+          await _reveal(
+            entry: _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: 'test-only-secret',
+              url: 'https://192.168.1.10',
+            ),
+            origin: 'http://192.168.1.10',
+          ),
+        );
+      });
+    });
+
+    group('default ports written explicitly', () {
+      // Guards a `dart:core` Uri property, not our own code: Uri drops a port
+      // equal to the scheme default, so `https://h:443` and `https://h` share
+      // one normalized origin. An SDK upgrade that changed it would otherwise
+      // start denying these silently.
+      for (final (entryUrl, origin) in const [
+        ('https://example.test:443/login', 'https://example.test'),
+        ('https://example.test/login', 'https://example.test:443'),
+        ('http://example.test:80/login', 'http://example.test'),
+        ('http://example.test/login', 'http://example.test:80'),
+      ]) {
+        test('allows $entryUrl on $origin', () async {
+          final response = await _reveal(
+            entry: _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: 'test-only-secret',
+              url: entryUrl,
+            ),
+            origin: origin,
+          );
+
+          expect(response.statusCode, HttpStatus.ok);
+          final data = response.json['data']! as Map<String, Object?>;
+          expect(data['password'], 'test-only-secret');
+        });
+      }
+
+      test('denies a non-default port against a default-port entry', () async {
+        _expectRevealRefused(
+          await _reveal(
+            entry: _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: 'test-only-secret',
+              url: 'https://example.test:443/login',
+            ),
+            origin: 'https://example.test:8443',
+          ),
+        );
+      });
+    });
+
+    test('denies a www-stripped https entry on an http page', () async {
+      // `_cleanHost` still collapses `www.`/`m.`/`mobile.` onto the bare host,
+      // so `https://www.bank.example` and `http://bank.example` compare on the
+      // same host. Freezing the case here: the strip must never turn into a
+      // downgrade until it is removed.
+      _expectRevealRefused(
+        await _reveal(
+          entry: _entry(
+            id: 'entry-1',
+            username: 'alice',
+            password: 'test-only-secret',
+            url: 'https://www.bank.example/login',
+          ),
+          origin: 'http://bank.example',
+        ),
+      );
+    });
+
     test('stop removes descriptor and closes bridge', () async {
       final directory = await Directory.systemTemp.createTemp(
         'kv-reveal-bridge-',
