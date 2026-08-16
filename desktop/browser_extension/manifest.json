@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "KeyVault Browser Autofill BETA",
+  "name": "KDBX Vault Manager Browser Autofill BETA",
   "version": "0.4.0",
-  "description": "THIS EXTENSION IS FOR BETA TESTING. Autofill for KeyVault; requires the local KeyVault desktop app and Native Messaging host.",
+  "description": "THIS EXTENSION IS FOR BETA TESTING. Autofill for KDBX Vault Manager; requires the local KDBX Vault Manager desktop app and Native Messaging host.",
   "permissions": ["activeTab", "nativeMessaging", "scripting", "storage"],
   "icons": {
     "16": "icons/icon-16.png",
@@ -14,7 +14,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "KeyVault Autofill",
+    "default_title": "KDBX Vault Manager Autofill",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",

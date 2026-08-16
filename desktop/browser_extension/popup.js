@@ -352,7 +352,7 @@ function renderHostMissingState() {
     el(
       "p",
       "host-missing-text",
-      "The messaging host isn\u2019t registered for this browser. KeyVault\u2019s desktop app can walk you through it in Desktop browser extension."
+      "The messaging host isn\u2019t registered for this browser. The KDBX Vault Manager desktop app can walk you through it in Desktop browser extension."
     )
   );
   const actions = el("div", "action-row");
@@ -383,7 +383,7 @@ function renderLockedState() {
   const warning = el("div", "locked-warning");
   warning.appendChild(lockIconSvg());
   const p = document.createElement("p");
-  p.textContent = "KeyVault is locked. Unlock the desktop app to search and fill.";
+  p.textContent = "KDBX Vault Manager is locked. Unlock the desktop app to search and fill.";
   warning.appendChild(p);
   bodyElement.appendChild(warning);
 
@@ -463,7 +463,7 @@ async function createPendingAssociation(entryId, origin) {
       message.className = "status-message status-message--error";
       return;
     }
-    message.textContent = "Pending association saved. Confirm it in KeyVault desktop.";
+    message.textContent = "Pending association saved. Confirm it in KDBX Vault Manager desktop.";
   } finally {
     inFlight = false;
   }
@@ -626,7 +626,7 @@ async function initializePopup() {
       )
     );
     bodyElement.appendChild(
-      el("p", "host-missing-text", "Open an http(s) page to search KeyVault for this site.")
+      el("p", "host-missing-text", "Open an http(s) page to search KDBX Vault Manager for this site.")
     );
     const { row: searchRow, input } = renderSearchRow("Search title, user, service");
     bodyElement.appendChild(searchRow);
