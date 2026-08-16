@@ -915,6 +915,22 @@ Test counts: convergence model 28 → **31**, full suite 598 → **601**. No tes
 deleted, and no assumption was promoted to `passed`: T009 remains `not-run`,
 T009b opens as `not-run`. `lib/` remains untouched.
 
+### Fourth-pass review (2026-08-16, PR #37)
+
+A fourth review found one defect in the model, at the point where the model and
+the specification are supposed to be the same statement.
+
+| # | Severity | Finding | Correction |
+| --- | --- | --- | --- |
+| **R1** | grave | `compareValues` compared `String.codeUnits` — **UTF-16 code units** — while its own doc-comment and FR-3 both prescribe a comparison of **byte** sequences. The two are not two spellings of one order. UTF-16 encodes an astral character as a surrogate pair in `U+D800..DFFF`, which sorts *below* `U+E000..FFFF`; the same character's UTF-8 bytes and its code point sort *above*. `U+1F600` against `U+FFFD` elects opposite winners under the two encodings, and an emoji in a notes or title field reaches it. The consequence is not cosmetic: **T009 proved commutativity, associativity and idempotence about a total order the spec does not prescribe**, so an implementation that followed the spec would not be the function the model validated — the "model validates itself rather than the specification" failure, in the one place the spec is most explicit. | `compareValues` now compares `utf8.encode(a)` against `utf8.encode(b)`. The three algebraic properties were **re-measured** on the values that moved, not assumed to survive: new test `the semilattice still holds on the values where the byte order and the UTF-16 order disagree`. A discriminating test, `the tie-break orders by UTF-8 bytes, not by UTF-16 code units`, pins the encoding so restoring `codeUnits` fails loudly; it also asserts the UTF-8 order equals the code-point order. `spec.md` FR-3 rule 3 now names **UTF-8** explicitly and states why the encoding is load-bearing, and the notes-segment sort is declared to be the **same comparator**, not a second string ordering. Mutation **R1**. |
+
+The notes-segment sort already used `compareValues`, so no second ordering had to
+be reconciled; the spec now says so, which is what stops one appearing later.
+
+Test counts: convergence model 31 → **33**, full suite 635 → **637** (the 601
+recorded above predates the merge with `main`). No test was deleted, no assumption
+was promoted to `passed`, and `lib/` remains untouched.
+
 #### Mutation check
 
 Each mutation reverts one correction in the model and the suite is re-run. A
@@ -927,12 +943,33 @@ list at four and understates these counts.
 | expected base not re-anchored | C1 | **7** | `a writer landing after our write converges in one round` — outcome becomes `staleRemote` |
 | semantic short-circuit removed | C2 | **2** | `a peer that keeps rewriting the same content still finalizes` — outcome becomes `unresolved`, budget fully spent |
 | ledger not consulted | C3 | **3** | `a decision survives two consecutive divergence rounds` — outcome becomes `needsReview` |
-| tie-break → prefer local | C4 | **7** | `two devices that each keep their own value stop the remote moving across sessions` — the remote alternates `alpha`/`beta` forever |
-| notes union → fixed-order binary concatenation | C4b, N1 | **7** | `three devices reach the same remote state in any merge order` — six sync orders yield distinct manifests |
+| tie-break → prefer local | C4 | **9** | `two devices that each keep their own value stop the remote moving across sessions` — the remote alternates `alpha`/`beta` forever |
+| notes union → fixed-order binary concatenation | C4b, N1 | **11** | `three devices reach the same remote state in any merge order` — six sync orders yield distinct manifests |
 | non-executable read-back → finalized | C5 | **2** | `a read-back that fails on a later round is ambiguous too` |
 | unknown timestamp treated as a bare tie | N3 | **2** | `an unknown timestamp does not break associativity` |
 | sentinel separator → plain `\n\n---\n\n` | Q1 | **1** | `the sentinel separator leaves ordinary user text intact` — the user's own paragraphs are split, interleaved and deduplicated |
 | ledger invariant guard removed (apply a decision naming neither side) | Q2 | **1** | `a ledger decision naming neither candidate reopens review instead of silently taking an operand` — outcome stops being `needsReview` and becomes operand-order-dependent |
+| `compareValues` → UTF-16 `codeUnits` | R1 | **2** | `the tie-break orders by UTF-8 bytes, not by UTF-16 code units` — `U+1F600` and `U+FFFD` swap winners, and the notes segments swap order |
+
+The R1 correction was re-measured against the two mutations it could plausibly
+have weakened, since it changed the comparator both of them depend on. Both got
+**stronger**, and no mutation lost a kill:
+
+| Mutation | Before R1 | After R1 |
+| --- | --- | --- |
+| tie-break → prefer local (C4) | 7 | **9** |
+| notes union → fixed-order concatenation (C4b, N1) | 9 | **11** |
+| sentinel separator → plain `\n\n---\n\n` (Q1) | 1 | **1** |
+
+Both gains are the two tests added for R1, which depend on the tie-break and on
+the notes order respectively and therefore die under those mutations too.
+
+The C4b/N1 row also **corrects a stale count**: this table read `7`, but the
+mutation kills 9 on the pre-R1 file. The two extra kills are Q1's own tests —
+`the sentinel separator leaves ordinary user text intact` and `the sentinel does
+not weaken the union property` — which were added on 2026-08-18 without the C4b
+row being re-measured. The guard had been stronger than recorded since then; the
+number was wrong, not the guard.
 
 Two mutations previously killed exactly one weak assertion each and were
 strengthened rather than accepted:
@@ -1011,5 +1048,5 @@ closing them is Gate 1 work, outside the Phase 0 scope.
 | Gate 0 amendment review | `failed` | independent review | 2026-08-16 | **Not validated, rework.** Convergence cycle non-convergent as written: no re-anchor on retry, no semantic arbiter, perspective-dependent tie-break. Five further defects. Gate 0 **reopened**; **T009 added**; T201 and domain freeze **blocked**. Drive `versionHistory` demoted to absent. |
 | Gate 0 amendment review (2nd pass) | `failed` | independent review | 2026-08-17 | C1, C2, C3, C5, C6, C7 and C4b confirmed corrected; 010 validated. **One blocking defect: N1**, the notes concatenation is not associative, found by running the model at three devices. Three specification gaps N2–N4. The T009 enumeration was 2 devices while the report claimed adversarial multi-device coverage — the overclaim that hid N1. |
 | Gate 0 amendment review (3rd pass) | `validated with risk` | independent review | 2026-08-18 | N1 confirmed closed by execution, the mutation table reproduced 7/7 independently, both strengthened guards confirmed strong, the semilattice claim held over 20 000 randomized trials. Three closures required, all applied here: **Q1** the `\n\n---\n\n` disclosure under-declared a second, data-loss damage and the separator is now a sentinel; **Q2** the ledger Case Q is now guarded by an asserted invariant instead of being merely unreachable; **Q3** T009's silence on deletions is declared and gated as T009b. |
-| Gate 0 T009 convergence model | `not-run` | — | — | **The remaining Gate 0 blocker.** 31 model assertions pass and every correction is mutation-guarded, but the status stays `not-run` until the PM accepts the gate: a suite declaring itself green is the failure mode this row exists to prevent. Gate 0 closes when this is accepted and on no other condition. **Scope: additions only** — deletions are T009b and are not covered. |
+| Gate 0 T009 convergence model | `not-run` | — | — | **The remaining Gate 0 blocker.** 33 model assertions pass and every correction is mutation-guarded, but the status stays `not-run` until the PM accepts the gate: a suite declaring itself green is the failure mode this row exists to prevent. Gate 0 closes when this is accepted and on no other condition. **Scope: additions only** — deletions are T009b and are not covered. |
 | Gate 1 writer/mutex/platform evidence | `not-run` | — | — | All platforms disabled |

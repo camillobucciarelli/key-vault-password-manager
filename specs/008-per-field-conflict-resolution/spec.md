@@ -238,9 +238,21 @@ The order is defined once, in the data layer, over the pair
    the absence of evidence and never outranks evidence;
 2. otherwise the **newer** known modification time wins;
 3. on equal known times — and when **both** timestamps are unknown — compare the
-   candidate values as byte sequences, lexicographically, unsigned,
-   shortest-is-smaller on a common prefix, and **the greater byte sequence
-   wins.**
+   candidate values as their **UTF-8 encoded byte sequences**, lexicographically,
+   unsigned, shortest-is-smaller on a common prefix, and **the greater byte
+   sequence wins.**
+
+The encoding in rule 3 is **UTF-8, and no other**. Naming it is not pedantry: it
+is the difference between two distinct total orders. UTF-16 — which is what a
+Dart `String`'s `codeUnits` are, and what a naive implementation reaches for —
+encodes an astral character as a surrogate pair in `U+D800..DFFF`, which sorts
+**below** the BMP range `U+E000..FFFF`; the same character's UTF-8 bytes, and its
+code point, sort **above** it. So an emoji in a notes or title field, compared
+against a character in `U+E000..FFFF`, elects **opposite winners** under the two
+encodings. Two devices that disagree on the encoding disagree on the winner, and
+the tie-break's whole purpose — that both sides pick the same value from the same
+unordered pair — is gone. UTF-8 is chosen because it is order-preserving over
+code points, so the byte order and the code-point order are one relation.
 
 Rule 1 is not decoration. Treating an unknown timestamp as a bare tie — sending
 the pair straight to the value comparison — makes the relation non-transitive,
@@ -279,7 +291,10 @@ an **ordered, deduplicated union of segments**:
 1. split each side on the separator `"\n\n---\u241E---\n\n"` into segments;
 2. take the **set** union of the segments of both sides, discarding empty ones;
 3. sort the result by the same total order used for the tie-break — rule 3
-   above, over the segment bytes;
+   above, over the segments' UTF-8 bytes. It is the **same comparator**, not a
+   second string ordering that happens to agree: a segment order that drifted
+   from the tie-break order would make two devices disagree on the merged notes
+   while agreeing on every other field;
 4. join with the same separator.
 
 A concatenation whose operand order is merely *fixed* is deterministic and still

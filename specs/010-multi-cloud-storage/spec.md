@@ -185,7 +185,10 @@ What the names deliberately avoid:
 
 ## Candidate providers
 
-**Only Google Drive's `conditionalWrite` is verified.** Everything else in this
+**Exactly one cell in this table rests on measurement: Google Drive's
+`conditionalWrite`, which was measured and found *absent*.** The live spike
+established that Drive does **not** have the capability; "verified" here refers
+to the evidence, never to the presence of the feature. Everything else in this
 table — including Drive's other three capabilities — is an **expectation**,
 recorded so the work can be planned, and carries no evidential weight whatsoever.
 
