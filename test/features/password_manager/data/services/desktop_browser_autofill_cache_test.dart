@@ -203,6 +203,81 @@ void main() {
       },
     );
   });
+
+  group('service identifiers only pin a declared scheme', () {
+    const mapper = DesktopBrowserAutofillMetadataMapper();
+
+    List<DesktopBrowserAutofillServiceIdentifier> identifiersFor(
+      String url, {
+      List<VaultCustomField> customFields = const [],
+    }) {
+      return mapper
+          .mapEntry(
+            _entry(
+              id: 'entry-1',
+              title: 'Example',
+              username: 'alice',
+              password: 'secret',
+              url: url,
+              customFields: customFields,
+            ),
+            updatedAtEpochMs: 1,
+          )!
+          .serviceIdentifiers;
+    }
+
+    test('a bare host emits no url identifier', () {
+      expect(identifiersFor('bank.example'), const [
+        DesktopBrowserAutofillServiceIdentifier(
+          type: 'domain',
+          value: 'bank.example',
+        ),
+      ]);
+    });
+
+    test('a protocol-relative url declares no scheme either', () {
+      expect(
+        identifiersFor(
+          '//bank.example/login',
+        ).where((identifier) => identifier.type == 'url'),
+        isEmpty,
+      );
+    });
+
+    test('a declared scheme is still pinned', () {
+      expect(identifiersFor('https://bank.example/login'), const [
+        DesktopBrowserAutofillServiceIdentifier(
+          type: 'url',
+          value: 'https://bank.example',
+        ),
+        DesktopBrowserAutofillServiceIdentifier(
+          type: 'domain',
+          value: 'bank.example',
+        ),
+      ]);
+    });
+
+    test('a non-http scheme silently declasses the entry to domain-only', () {
+      expect(identifiersFor('ftp://files.example/pub'), const [
+        DesktopBrowserAutofillServiceIdentifier(
+          type: 'domain',
+          value: 'files.example',
+        ),
+      ]);
+    });
+
+    test('the same rule applies to url custom fields', () {
+      final identifiers = identifiersFor(
+        '',
+        customFields: const [
+          VaultCustomField(key: 'loginUrl', value: 'nas.local'),
+        ],
+      );
+
+      expect(identifiers.where((i) => i.type == 'url'), isEmpty);
+      expect(identifiers.single.value, 'nas.local');
+    });
+  });
 }
 
 VaultEntry _entry({
