@@ -104,7 +104,7 @@ private struct EmptyCredentialsView: View {
         .foregroundColor(.secondary)
       Text("No matching credentials")
         .font(.headline)
-      Text("Open KeyVault, unlock your vault, and publish the encrypted AutoFill cache before filling.")
+      Text("Open KDBX Vault Manager, unlock your vault, and publish the encrypted AutoFill cache before filling.")
         .font(.footnote)
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)

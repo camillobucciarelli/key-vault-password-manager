@@ -1,11 +1,11 @@
 {
-    "name": "KeyVault",
-    "short_name": "KeyVault",
+    "name": "KDBX Vault Manager",
+    "short_name": "KDBX Vault",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "KeyVault Smart Password Security",
+    "description": "KDBX Vault Manager Smart Password Security",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -372,7 +372,7 @@ class _NameStepState extends State<_NameStep> {
         ),
         const SizedBox(height: 12),
         Text(
-          'KeyVault app storage',
+          'KDBX Vault Manager app storage',
           style: AppTextStyles.secondary.copyWith(color: colors.textSecondary),
         ),
         const SizedBox(height: 4),

@@ -90,7 +90,7 @@ void main() {
 
       expect(
         find.text(
-          'Installer Chrome non disponibile in questa versione di KeyVault.',
+          'Installer Chrome non disponibile in questa versione di KDBX Vault Manager.',
         ),
         findsOneWidget,
       );
@@ -102,7 +102,7 @@ void main() {
       expect(service.installCalls, 1);
       expect(
         find.text(
-          'Installer Chrome non disponibile in questa versione di KeyVault.',
+          'Installer Chrome non disponibile in questa versione di KDBX Vault Manager.',
         ),
         findsNWidgets(2),
       );

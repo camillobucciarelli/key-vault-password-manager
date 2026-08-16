@@ -18,7 +18,7 @@ Future<void> showInvalidDatabaseFileSheet(
     builder: (sheetContext) => _MessageSheet(
       icon: AppIcons.warning,
       title: 'Invalid database file',
-      body: '"$basename" is not a valid KeyVault database file.',
+      body: '"$basename" is not a valid KDBX database file.',
       primaryLabel: 'OK',
       onPrimary: () => Navigator.of(sheetContext).pop(),
     ),

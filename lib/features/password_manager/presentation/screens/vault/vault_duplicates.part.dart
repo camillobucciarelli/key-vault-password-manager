@@ -553,7 +553,7 @@ class _DuplicatesEmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'No two records share the same site and username. KeyVault '
+              'No two records share the same site and username. KDBX Vault Manager '
               'checks again every time you open the vault.',
               style: AppTextStyles.body.copyWith(color: colors.textSecondary),
             ),

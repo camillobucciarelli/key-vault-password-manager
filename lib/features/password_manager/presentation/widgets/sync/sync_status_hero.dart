@@ -180,7 +180,7 @@ class SyncStatusHero extends StatelessWidget {
                 TextSpan(
                   text:
                       'Connect a Google account to keep this database in '
-                      'sync across your devices. KeyVault uploads the '
+                      'sync across your devices. KDBX Vault Manager uploads the '
                       'encrypted file as-is — ',
                 ),
                 TextSpan(
@@ -404,7 +404,7 @@ class SyncStatusHero extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'Your edits are already saved in the local file. KeyVault will '
+            'Your edits are already saved in the local file. KDBX Vault Manager will '
             "upload them automatically as soon as you're back online.",
             style: AppTextStyles.secondary.copyWith(
               color: colors.attentionText,

@@ -33,7 +33,7 @@ class PrivacyOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      label: 'KeyVault is backgrounded',
+      label: 'KDBX Vault Manager is backgrounded',
       child: ColoredBox(
         color: AppColors.neutral900,
         child: Center(

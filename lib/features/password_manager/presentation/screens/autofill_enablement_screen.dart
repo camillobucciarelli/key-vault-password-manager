@@ -161,7 +161,7 @@ class AutofillEnablementScreen extends StatelessWidget {
                           const SizedBox(height: 8),
                           _EnablementStep(
                             number: 3,
-                            text: 'Pick KeyVault in the list',
+                            text: 'Pick KDBX Vault Manager in the list',
                           ),
                           const SizedBox(height: 14),
                           KvPillButton(
@@ -238,7 +238,7 @@ class AutofillEnablementScreen extends StatelessWidget {
                       ),
                     const SizedBox(height: 14),
                     Text(
-                      'KeyVault never fills a field without you choosing the '
+                      'KDBX Vault Manager never fills a field without you choosing the '
                       'record first.',
                       style: AppTextStyles.meta.copyWith(
                         color: colors.textSecondary,
