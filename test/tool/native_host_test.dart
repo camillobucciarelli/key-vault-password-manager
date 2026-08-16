@@ -489,6 +489,25 @@ void main() {
             ),
           );
         });
+
+        // This layer canonicalizes the page origin itself before handing it to
+        // the policy. Collapsing `m.`/`www.`/`mobile.` there would make `m.me`
+        // arrive as the single-label `me` and pass as non-public.
+        for (final host in const ['m.me', 'www.com', 'mobile.io']) {
+          test('denies $host over http', () async {
+            _expectRevealRefused(
+              await _revealForFill(
+                identifiers: [
+                  DesktopBrowserAutofillServiceIdentifier(
+                    type: 'domain',
+                    value: host,
+                  ),
+                ],
+                origin: 'http://$host',
+              ),
+            );
+          });
+        }
       });
     });
 
