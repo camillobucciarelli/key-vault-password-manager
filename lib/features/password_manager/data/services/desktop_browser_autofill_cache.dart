@@ -699,6 +699,80 @@ class DesktopBrowserAutofillMetadataMapper {
     ).toString();
   }
 
+  /// Whether the http(s) page [origin] is authorized to receive the secrets of
+  /// an entry exposing [serviceIdentifiers].
+  ///
+  /// This is the single authorization policy for credential reveal; both the
+  /// native host and the in-app reveal bridge must route through it.
+  ///
+  /// Rules:
+  /// - a `url` identifier authorizes its exact origin only (scheme, host and
+  ///   port), plus the `http` -> `https` upgrade of that same host and port;
+  /// - a `domain` identifier authorizes the bare host, but only on an `https`
+  ///   page and only when the entry does not also pin a `url` identifier for
+  ///   that host. An entry that stored a full URL already declared its origin,
+  ///   so the host-only path must not silently widen it back.
+  ///
+  /// Consequence: a page served over `http` can never obtain the secrets of an
+  /// entry stored as `https`, and a port mismatch is never authorized.
+  static bool isRevealAuthorizedOrigin({
+    required List<DesktopBrowserAutofillServiceIdentifier> serviceIdentifiers,
+    required String origin,
+  }) {
+    final targetOrigin = normalizedOrigin(origin);
+    final targetHost = normalizedHost(origin);
+    if (targetOrigin == null || targetHost == null) {
+      return false;
+    }
+    final target = Uri.parse(targetOrigin);
+
+    final pinnedHosts = <String>{};
+    for (final identifier in serviceIdentifiers) {
+      if (identifier.type != 'url') {
+        continue;
+      }
+      final host = normalizedHost(identifier.value);
+      if (host != null) {
+        pinnedHosts.add(host);
+      }
+    }
+
+    for (final identifier in serviceIdentifiers) {
+      if (identifier.type == 'url') {
+        final identifierOrigin = normalizedOrigin(identifier.value);
+        if (identifierOrigin == null) {
+          continue;
+        }
+        if (identifierOrigin == targetOrigin ||
+            _isHttpsUpgrade(Uri.parse(identifierOrigin), target)) {
+          return true;
+        }
+        continue;
+      }
+      if (identifier.type == 'domain' &&
+          target.scheme == 'https' &&
+          !pinnedHosts.contains(targetHost)) {
+        final host = normalizedHost(identifier.value);
+        if (host != null && host == targetHost) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /// Same host and port, `http` stored but the page is served over `https`.
+  ///
+  /// Safe to allow: it is the opposite of a downgrade, and an attacker able to
+  /// serve a trusted `https` origin for that host already controls the origin.
+  static bool _isHttpsUpgrade(Uri identifier, Uri target) {
+    return identifier.scheme == 'http' &&
+        target.scheme == 'https' &&
+        identifier.host == target.host &&
+        (identifier.hasPort ? identifier.port : null) ==
+            (target.hasPort ? target.port : null);
+  }
+
   static DesktopBrowserAutofillAssociationTarget? targetFromUrl(
     String? rawUrl,
   ) {

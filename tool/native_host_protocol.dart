@@ -874,19 +874,17 @@ bool _isStrongBrowserMatch(
   DesktopBrowserAutofillAssociationTarget target, {
   String? origin,
 }) {
-  final targetOrigin = origin == null
-      ? null
-      : DesktopBrowserAutofillMetadataMapper.normalizedOrigin(origin);
+  if (origin != null) {
+    // Reveal path: the page origin must be authorized as a whole (scheme, host
+    // and port), never by host alone.
+    return DesktopBrowserAutofillMetadataMapper.isRevealAuthorizedOrigin(
+      serviceIdentifiers: entry.serviceIdentifiers,
+      origin: origin,
+    );
+  }
+  // Metadata-only path (queryCredentials): no secret leaves the host, and the
+  // caller only supplies a host target, so a host match stays sufficient.
   for (final identifier in entry.serviceIdentifiers) {
-    if (identifier.type == 'url' && targetOrigin != null) {
-      final identifierOrigin =
-          DesktopBrowserAutofillMetadataMapper.normalizedOrigin(
-            identifier.value,
-          );
-      if (identifierOrigin != null && identifierOrigin == targetOrigin) {
-        return true;
-      }
-    }
     if (identifier.type == 'domain' || identifier.type == 'url') {
       final host = DesktopBrowserAutofillMetadataMapper.normalizedHost(
         identifier.value,

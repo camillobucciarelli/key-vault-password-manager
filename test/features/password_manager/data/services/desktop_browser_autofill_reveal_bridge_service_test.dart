@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/data/services/desktop_browser_autofill_cache.dart';
 import 'package:password_manager/features/password_manager/data/services/desktop_browser_autofill_reveal_bridge_service.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
 
 void main() {
@@ -171,6 +172,104 @@ void main() {
       expect(error['code'], 'strong_match_required');
     });
 
+    group('origin scheme and port binding', () {
+      test('denies https entry on a downgraded http page', () async {
+        _expectRevealRefused(
+          await _reveal(
+            entry: _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: 'test-only-secret',
+              url: 'https://example.test/login',
+            ),
+            origin: 'http://example.test',
+          ),
+        );
+      });
+
+      test('still allows the matching https page', () async {
+        final response = await _reveal(
+          entry: _entry(
+            id: 'entry-1',
+            username: 'alice',
+            password: 'test-only-secret',
+            url: 'https://example.test/login',
+          ),
+          origin: 'https://example.test',
+        );
+
+        expect(response.statusCode, HttpStatus.ok);
+        final data = response.json['data']! as Map<String, Object?>;
+        expect(data['password'], 'test-only-secret');
+      });
+
+      test('denies a port mismatch on the same host', () async {
+        _expectRevealRefused(
+          await _reveal(
+            entry: _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: 'test-only-secret',
+              url: 'https://example.test:8443/login',
+            ),
+            origin: 'https://example.test',
+          ),
+        );
+      });
+
+      test('allows a domain-only entry on an https page', () async {
+        final response = await _reveal(
+          entry: _entry(
+            id: 'entry-1',
+            username: 'alice',
+            password: 'test-only-secret',
+            url: '',
+            customFields: const [
+              VaultCustomField(key: 'domain', value: 'example.test'),
+            ],
+          ),
+          origin: 'https://example.test',
+        );
+
+        expect(response.statusCode, HttpStatus.ok);
+        final data = response.json['data']! as Map<String, Object?>;
+        expect(data['password'], 'test-only-secret');
+      });
+
+      test('denies a domain-only entry on an http page', () async {
+        _expectRevealRefused(
+          await _reveal(
+            entry: _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: 'test-only-secret',
+              url: '',
+              customFields: const [
+                VaultCustomField(key: 'domain', value: 'example.test'),
+              ],
+            ),
+            origin: 'http://example.test',
+          ),
+        );
+      });
+
+      test('allows the http entry / https page upgrade', () async {
+        final response = await _reveal(
+          entry: _entry(
+            id: 'entry-1',
+            username: 'alice',
+            password: 'test-only-secret',
+            url: 'http://example.test/login',
+          ),
+          origin: 'https://example.test',
+        );
+
+        expect(response.statusCode, HttpStatus.ok);
+        final data = response.json['data']! as Map<String, Object?>;
+        expect(data['password'], 'test-only-secret');
+      });
+    });
+
     test('stop removes descriptor and closes bridge', () async {
       final directory = await Directory.systemTemp.createTemp(
         'kv-reveal-bridge-',
@@ -253,11 +352,51 @@ class _RevealHttpResponse {
   final Map<String, Object?> json;
 }
 
+Future<_RevealHttpResponse> _reveal({
+  required VaultEntry entry,
+  required String origin,
+}) async {
+  final directory = await Directory.systemTemp.createTemp('kv-reveal-bridge-');
+  final store = DesktopBrowserAutofillCacheStore(directory: directory);
+  final service = DesktopBrowserAutofillRevealBridgeService(
+    store: store,
+    mapper: const DesktopBrowserAutofillMetadataMapper(),
+  );
+  addTearDown(service.stop);
+
+  await service.start(databasePath: '/vaults/example.kdbx', entries: [entry]);
+  final descriptor = (await store.readBridgeDescriptor())!;
+
+  return _postBridge(
+    descriptor: descriptor,
+    body: {
+      'databaseId': descriptor.databaseId,
+      'entryId': entry.id,
+      'origin': origin,
+    },
+  );
+}
+
+void _expectRevealRefused(_RevealHttpResponse response) {
+  expect(response.statusCode, HttpStatus.forbidden);
+  final error = response.json['error']! as Map<String, Object?>;
+  expect(error['code'], 'strong_match_required');
+  final encoded = jsonEncode(response.json);
+  expect(encoded, isNot(contains('test-only-secret')));
+  expect(encoded, isNot(contains('alice')));
+  // The refusal must not tell the caller which rule rejected it.
+  final message = (error['message']! as String).toLowerCase();
+  expect(message, isNot(contains('scheme')));
+  expect(message, isNot(contains('http')));
+  expect(message, isNot(contains('port')));
+}
+
 VaultEntry _entry({
   required String id,
   required String username,
   required String password,
   required String url,
+  List<VaultCustomField> customFields = const [],
 }) {
   return VaultEntry(
     id: id,
@@ -267,5 +406,6 @@ VaultEntry _entry({
     password: password,
     url: url,
     notes: 'hidden',
+    customFields: customFields,
   );
 }
