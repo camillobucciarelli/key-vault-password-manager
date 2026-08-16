@@ -2,7 +2,7 @@
 
 **Report task**: T008
 **Current status**: Gate 0 **OPEN**. The 2026-08-15 close was **reverted** on
-independent review 2026-08-16. B1 remains measured and `failed`, and it is
+independent review 2026-08-15. B1 remains measured and `failed`, and it is
 correctly no longer a blocker — but the mechanism that replaced it, the FR-7
 write-verify-converge cycle, is itself `not-run`, and the close was declared in
 the same commit that rewrote the exit criterion. Gate 0 now closes on **T009**,
@@ -34,7 +34,7 @@ Second run — the B1 live-network re-spike:
 | Date | 2026-08-15 |
 | Detail | see "B1 live-network re-spike (2026-08-15)" |
 
-Third pass — the 2026-08-16 independent review of the amendment:
+Third pass — the 2026-08-15 independent review of the amendment:
 
 | Item | Value |
 | --- | --- |
@@ -42,17 +42,17 @@ Third pass — the 2026-08-16 independent review of the amendment:
 | Reviewed commits | `434d0d3` (FR-7 rewrite), `281a1f0` (spec 010 draft) |
 | Verdict | **not validated, rework**. Two blocking design defects in the convergence cycle, five further correctness/safety defects, Gate 0 close reverted |
 | Outcome | spec 008 FR-3/FR-7/FR-10 corrected, Gate 0 reopened with new item **T009**, spec 010 Drive row demoted |
-| Date | 2026-08-16 |
-| Detail | see "Convergence-cycle review (2026-08-16)" |
+| Date | 2026-08-15 |
+| Detail | see "Convergence-cycle review (2026-08-15)" |
 
 > **Read "Post-review corrections" and "Convergence-cycle review" at the end of
 > this file before any row above.** Two independent reviews have now rewritten
 > parts of this record: the 2026-08-14 one found a fabricated evidence citation
-> and `passed` cells with no executed test, and the 2026-08-16 one reverted the
+> and `passed` cells with no executed test, and the 2026-08-15 one reverted the
 > Gate 0 close and found the replacement convergence cycle non-convergent as
 > written. Every row below is the corrected version.
 
-**Toolchain caveat — resolved 2026-08-16.** The 2026-08-13/14 runs recorded that
+**Toolchain caveat — resolved 2026-08-15.** The 2026-08-13/14 runs recorded that
 `flutter pub get` could not resolve on this checkout (`pubspec.yaml` pinned
 `analyzer: ^14.1.0` needing `meta ^1.18.3`, while Flutter 3.44.8 pins
 `meta 1.18.0`), so every command ran with `--no-pub`. **That is no longer true.**
@@ -62,7 +62,7 @@ no flags and CI can reproduce this report. The `--no-pub` flag in the commands
 below is retained verbatim as the historical record of how those runs were
 executed; it is not required today.
 
-Re-verified 2026-08-16 on `feat/008-drive-conditional-spike`:
+Re-verified 2026-08-15 on `feat/008-drive-conditional-spike`:
 
 ```text
 $ flutter analyze
@@ -131,7 +131,7 @@ the package must be declared rather than used transitively.
 
 **OPEN. The 2026-08-15 close is reverted.** T001–T008 have executed evidence, and
 T005 was genuinely closed by the live-network re-spike recorded below. Gate 0
-nonetheless does not close, for three reasons established by the 2026-08-16
+nonetheless does not close, for three reasons established by the 2026-08-15
 review:
 
 1. **The exit bar was rewritten in the commit that declared it met.** Item 7 of
@@ -166,7 +166,7 @@ below. Every other Gate 0 item already has its evidence.
 
 | # | Finding | Status | Gates the feature? |
 | --- | --- | --- | --- |
-| **B1** | Drive v3 does not enforce any HTTP precondition on `files.update`. Confirmed live, with byte-level counter-proof. | **`failed`** (measured) | **No.** Spec 008 FR-7 (rewritten 2026-08-15) requires only `get` + `put`. Drive lands in the **Bare** guarantee tier: no CAS, and `versionHistory` **absent** — not measured, therefore not declared (demoted 2026-08-16, see the rows below). Spec 010 category **Ricostruibile**, pending the revisions spike. See "Guarantee by backend category" in `spec.md`. |
+| **B1** | Drive v3 does not enforce any HTTP precondition on `files.update`. Confirmed live, with byte-level counter-proof. | **`failed`** (measured) | **No.** Spec 008 FR-7 (rewritten 2026-08-15) requires only `get` + `put`. Drive lands in the **Bare** guarantee tier: no CAS, and `versionHistory` **absent** — not measured, therefore not declared (demoted 2026-08-15, see the rows below). Spec 010 category **Ricostruibile**, pending the revisions spike. See "Guarantee by backend category" in `spec.md`. |
 
 The transport was never the obstacle, and the re-spike proved that positively
 rather than by assumption: `GoogleDriveApiService.updateFile` calls Drive through
@@ -196,11 +196,11 @@ explicitly before T301:
 | UUID integrity validation | `passed` | `T004 pre-diff UUID validation…` (5 tests) | duplicate entry/group, group-entry collision, nil, cross-side kind |
 | Entry colors + entry AutoType (constructs the library does not model) | `passed` | `T001 entry colors round-trip…`, `T001 entry AutoType survives…` | read/written through the exported `KdbxNode.node` |
 | Drive server-enforced conditional update | **`failed`** | live-network spike 2026-08-15, `tool/drive_conditional_spike.dart` | **B1**, measured. No CAS on Drive v3. **Not blocking** — FR-7 no longer requires it |
-| Drive `versionHistory` | **`not-run`** | none — documentation only | **Demoted 2026-08-16.** Previously `passed` on the strength of Drive's documented revisions API. Spec 010's own rules forbid that: *"Documentation alone is not a declaration"* and *"when a behaviour is uncertain, the capability is absent"*. Retention, `keepRevisionForever`, the pinned-revision ceiling and quota impact are all unmeasured. Drive therefore declares `versionHistory` **absent** |
+| Drive `versionHistory` | **`not-run`** | none — documentation only | **Demoted 2026-08-15.** Previously `passed` on the strength of Drive's documented revisions API. Spec 010's own rules forbid that: *"Documentation alone is not a declaration"* and *"when a behaviour is uncertain, the capability is absent"*. Retention, `keepRevisionForever`, the pinned-revision ceiling and quota impact are all unmeasured. Drive therefore declares `versionHistory` **absent** |
 | Drive backend guarantee tier | **`not-run`** | derived from the two rows above | **Bare**, pending the revisions spike: no `conditionalWrite`, no declared `versionHistory`. Spec 010 category **Ricostruibile**, down from Recuperabile. Restored to Versioned/Recuperabile only when a live revisions spike passes |
 | Storage-agnostic write-verify-converge cycle — model validation | **`not-run`** | **T009**, `sync_merge_convergence_model_test.dart` | **This is the Gate 0 blocker.** The FR-7 rewrite of 2026-08-15 was accepted as a direction and corrected on review; it is validated by nothing. Gate 0 closes when this row passes. **Scope: additions only** — no tombstone, no `fieldDeletionConflict`, no attachment; see §"What T009 does not cover" |
 | Deletion convergence — model validation | **`not-run`** | **T009b**, not started | **Separate gate, not a Gate 0 condition.** T009's grow-only union is no evidence about removal, and is the wrong structure for it. Must pass before deletion, tombstone or attachment behaviour enters the implementation |
-| Storage-agnostic write-verify-converge cycle — production implementation | `not-run` | FR-7 as corrected 2026-08-16 | implementation + integration tests are T4xx, after Gate 0 |
+| Storage-agnostic write-verify-converge cycle — production implementation | `not-run` | FR-7 as corrected 2026-08-15 | implementation + integration tests are T4xx, after Gate 0 |
 | Ambiguous transport outcome classification | `passed` | `conditional update` (10 tests) | client-side rules only, fake transport |
 | Writer/path inventory reconciled | `passed` | `inventory baseline` (12 tests) | 14 writer files; 6 gaps vs FR-8 |
 | Path identity/alias design reviewed | `not-run` | design drafted below | executed in Gate 1 T103/T107 |
@@ -478,7 +478,7 @@ founding invariant — locally merged state is never discarded until the remote 
 proven to contain it — makes a lost update **detected and non-destructive**
 without any server precondition.
 
-**Corrected 2026-08-16.** This section originally placed Drive in the
+**Corrected 2026-08-15.** This section originally placed Drive in the
 **Versioned** tier on the strength of a documented revisions API. That was a
 declaration from documentation, which spec 010 forbids in the same breath it
 defines the taxonomy: *"A capability is declared only when a spike has observed
@@ -739,7 +739,7 @@ Listed so no reader mistakes them for results:
    revisions and quota impact are all unmeasured, and so is the basic claim that
    an overwritten revision is retrievable at all. `versionHistory` was briefly
    recorded as present for Drive from its documented API; that was a declaration
-   from documentation and is withdrawn (2026-08-16). Drive declares
+   from documentation and is withdrawn (2026-08-15). Drive declares
    `versionHistory` **absent** until a live spike per 010 FR-5 measures it.
    `not-run`.
 1c. **The FR-7 write-verify-converge cycle converges.** Argued in prose,
@@ -761,7 +761,7 @@ Listed so no reader mistakes them for results:
 6. Whether the `<AutoType>` node survives a round-trip performed by **another**
    KeePass implementation. Proven here for `kdbx 2.4.2` only.
 
-## Convergence-cycle review (2026-08-16)
+## Convergence-cycle review (2026-08-15)
 
 An independent review of commits `434d0d3` (FR-7 rewrite) and `281a1f0` (spec 010
 draft) returned **not validated, rework**. It accepted the direction — a
@@ -871,7 +871,7 @@ implementation, and it requires: a model that expresses deletion evidence, a
 demonstration that the chosen structure is a semilattice over both add and
 remove, and a mutation check of the same standard applied to T009.
 
-### Second-pass review (2026-08-17)
+### Second-pass review (2026-08-15)
 
 A second independent review confirmed C1, C2, C3, C5, C6 and C7 as corrected,
 confirmed C4b, and rejected the amendment on one blocking defect and three
@@ -897,7 +897,7 @@ what allowed N1 to pass unnoticed:
   finite hand-written set of scenarios. It is not exhaustive and does not claim
   to be.
 
-### Third-pass review (2026-08-18)
+### Third-pass review (2026-08-15)
 
 A third independent review reproduced the mutation table 7/7, confirmed N1 closed
 by execution, confirmed the two strengthened guards, and validated the
@@ -967,7 +967,7 @@ the notes order respectively and therefore die under those mutations too.
 The C4b/N1 row also **corrects a stale count**: this table read `7`, but the
 mutation kills 9 on the pre-R1 file. The two extra kills are Q1's own tests —
 `the sentinel separator leaves ordinary user text intact` and `the sentinel does
-not weaken the union property` — which were added on 2026-08-18 without the C4b
+not weaken the union property` — which were added on 2026-08-15 without the C4b
 row being re-measured. The guard had been stronger than recorded since then; the
 number was wrong, not the guard.
 
@@ -986,7 +986,7 @@ strengthened rather than accepted:
   of our writes, so without the arbiter the session exhausts the budget and ends
   `unresolved`. The **outcome** now depends on the short-circuit.
 
-The two mutations added on 2026-08-18 (Q1, Q2) each kill exactly **one** test,
+The two mutations added on 2026-08-15 (Q1, Q2) each kill exactly **one** test,
 and that is accepted here rather than strengthened, for a reason that does not
 apply to the C2 and C4 cases above. Both kills assert an **outcome** — text
 present or lost, `needsReview` or an operand silently taken — not a counter,
@@ -1044,9 +1044,9 @@ closing them is Gate 1 work, outside the Phase 0 scope.
 | Gate 0 T001–T008 | `failed` | — | 2026-08-13 | T001–T004, T006–T008 pass; T005 partial. **One blocker open: B1. Domain freeze forbidden.** (B2 was also listed on this date; withdrawn on review — see C2 and the row below.) |
 | Gate 0 T001–T008 (post-review) | `failed` | independent review | 2026-08-14 | Verdict unchanged: **NO-GO**. B2 declassed (not a blocker), R2 closed. **One blocker remains: B1.** Domain freeze still forbidden. |
 | Gate 0 T005 live re-spike (B1) | `failed` | — | 2026-08-15 | B1 **measured**: Drive v3 enforces no precondition. 6 decisive probes `200` with remote bytes overwritten; 6 counter-probes exclude every alternative explanation. **Not a blocker**: spec 008 FR-7 rewritten to require only `get` + `put`. |
-| ~~Gate 0 close~~ | ~~`passed`~~ | — | 2026-08-15 | **REVERTED 2026-08-16.** Declared T001–T008 complete and T201 startable. The exit criterion it measured itself against had been rewritten in the same commit, and the mechanism replacing B1 was `not-run`. Struck, not deleted: the reversal is part of the record. |
-| Gate 0 amendment review | `failed` | independent review | 2026-08-16 | **Not validated, rework.** Convergence cycle non-convergent as written: no re-anchor on retry, no semantic arbiter, perspective-dependent tie-break. Five further defects. Gate 0 **reopened**; **T009 added**; T201 and domain freeze **blocked**. Drive `versionHistory` demoted to absent. |
-| Gate 0 amendment review (2nd pass) | `failed` | independent review | 2026-08-17 | C1, C2, C3, C5, C6, C7 and C4b confirmed corrected; 010 validated. **One blocking defect: N1**, the notes concatenation is not associative, found by running the model at three devices. Three specification gaps N2–N4. The T009 enumeration was 2 devices while the report claimed adversarial multi-device coverage — the overclaim that hid N1. |
-| Gate 0 amendment review (3rd pass) | `validated with risk` | independent review | 2026-08-18 | N1 confirmed closed by execution, the mutation table reproduced 7/7 independently, both strengthened guards confirmed strong, the semilattice claim held over 20 000 randomized trials. Three closures required, all applied here: **Q1** the `\n\n---\n\n` disclosure under-declared a second, data-loss damage and the separator is now a sentinel; **Q2** the ledger Case Q is now guarded by an asserted invariant instead of being merely unreachable; **Q3** T009's silence on deletions is declared and gated as T009b. |
+| ~~Gate 0 close~~ | ~~`passed`~~ | — | 2026-08-15 | **REVERTED 2026-08-15.** Declared T001–T008 complete and T201 startable. The exit criterion it measured itself against had been rewritten in the same commit, and the mechanism replacing B1 was `not-run`. Struck, not deleted: the reversal is part of the record. |
+| Gate 0 amendment review | `failed` | independent review | 2026-08-15 | **Not validated, rework.** Convergence cycle non-convergent as written: no re-anchor on retry, no semantic arbiter, perspective-dependent tie-break. Five further defects. Gate 0 **reopened**; **T009 added**; T201 and domain freeze **blocked**. Drive `versionHistory` demoted to absent. |
+| Gate 0 amendment review (2nd pass) | `failed` | independent review | 2026-08-15 | C1, C2, C3, C5, C6, C7 and C4b confirmed corrected; 010 validated. **One blocking defect: N1**, the notes concatenation is not associative, found by running the model at three devices. Three specification gaps N2–N4. The T009 enumeration was 2 devices while the report claimed adversarial multi-device coverage — the overclaim that hid N1. |
+| Gate 0 amendment review (3rd pass) | `validated with risk` | independent review | 2026-08-15 | N1 confirmed closed by execution, the mutation table reproduced 7/7 independently, both strengthened guards confirmed strong, the semilattice claim held over 20 000 randomized trials. Three closures required, all applied here: **Q1** the `\n\n---\n\n` disclosure under-declared a second, data-loss damage and the separator is now a sentinel; **Q2** the ledger Case Q is now guarded by an asserted invariant instead of being merely unreachable; **Q3** T009's silence on deletions is declared and gated as T009b. |
 | Gate 0 T009 convergence model | `not-run` | — | — | **The remaining Gate 0 blocker.** 33 model assertions pass and every correction is mutation-guarded, but the status stays `not-run` until the PM accepts the gate: a suite declaring itself green is the failure mode this row exists to prevent. Gate 0 closes when this is accepted and on no other condition. **Scope: additions only** — deletions are T009b and are not covered. |
 | Gate 1 writer/mutex/platform evidence | `not-run` | — | — | All platforms disabled |
