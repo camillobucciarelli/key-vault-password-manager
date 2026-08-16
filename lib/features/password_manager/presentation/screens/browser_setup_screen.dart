@@ -15,7 +15,7 @@ import '../../data/services/browser_setup_service.dart';
 import '../widgets/styled_info_container.dart';
 
 /// A step-by-step wizard that guides the user through connecting the
-/// KeyVault browser extension to the desktop app.
+/// KDBX Vault Manager browser extension to the desktop app.
 ///
 /// Should only be shown on desktop platforms.
 class BrowserSetupScreen extends StatefulWidget {
@@ -187,13 +187,13 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
       case NativeHostInstallResult.success:
         return 'Chrome configurato. Riavvia Chrome e verifica la connessione.';
       case NativeHostInstallResult.invalidExtensionId:
-        return 'Configurazione Chrome non valida. Aggiorna KeyVault e riprova.';
+        return 'Configurazione Chrome non valida. Aggiorna KDBX Vault Manager e riprova.';
       case NativeHostInstallResult.scriptNotFound:
-        return 'Installer Chrome non disponibile in questa versione di KeyVault.';
+        return 'Installer Chrome non disponibile in questa versione di KDBX Vault Manager.';
       case NativeHostInstallResult.unsupportedPlatform:
         return 'Configurazione automatica di Chrome non supportata su questa piattaforma.';
       case NativeHostInstallResult.failed:
-        return 'Configurazione Chrome non riuscita. Riprova o reinstalla KeyVault.';
+        return 'Configurazione Chrome non riuscita. Riprova o reinstalla KDBX Vault Manager.';
     }
   }
 
@@ -216,12 +216,12 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
         case BridgeCheckResult.noConfig:
           _appBridgeConnected = false;
           _connectionStatus = _StepStatus.error;
-          _errorMessage = 'Sblocca il vault in KeyVault e riprova.';
+          _errorMessage = 'Sblocca il vault in KDBX Vault Manager e riprova.';
         case BridgeCheckResult.notRunning:
           _appBridgeConnected = false;
           _connectionStatus = _StepStatus.error;
           _errorMessage =
-              'Bridge non raggiungibile. Riavvia KeyVault, sblocca il vault e riprova.';
+              'Bridge non raggiungibile. Riavvia KDBX Vault Manager, sblocca il vault e riprova.';
         case BridgeCheckResult.v2AppBridgeUnavailable:
           _appBridgeConnected = false;
           _connectionStatus = _StepStatus.error;
@@ -301,7 +301,7 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
-                                      'Installa l\'estensione e collegala a KeyVault',
+                                      'Installa l\'estensione e collegala a KDBX Vault Manager',
                                       style: Theme.of(
                                         context,
                                       ).textTheme.bodySmall,
@@ -320,7 +320,7 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                             number: 1,
                             title: 'Installa l\'estensione',
                             description:
-                                'Apri Chrome Web Store e installa l\'estensione KeyVault.',
+                                'Apri Chrome Web Store e installa l\'estensione KDBX Vault Manager.',
                             status: _extensionStatus,
                             actionLabel: _extensionStatus == _StepStatus.loading
                                 ? 'Apertura in corso…'
@@ -335,12 +335,12 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                           // Step 2 — Native Host
                           _SetupStep(
                             number: 2,
-                            title: 'Collega Chrome a KeyVault',
+                            title: 'Collega Chrome a KDBX Vault Manager',
                             description: _usesMacOSCompanionInstaller
                                 ? 'Scarica e installa il componente Chrome Support firmato per macOS.'
                                 : _hasNativeHostInstaller
                                 ? 'Configura automaticamente il collegamento sicuro con Chrome.'
-                                : 'Installer Chrome non disponibile in questa versione di KeyVault.',
+                                : 'Installer Chrome non disponibile in questa versione di KDBX Vault Manager.',
                             status: _nativeHostStatus,
                             actionLabel:
                                 _nativeHostStatus == _StepStatus.loading
@@ -386,7 +386,7 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                             number: 3,
                             title: 'Verifica la connessione',
                             description:
-                                'Sblocca il vault e tieni KeyVault aperto, poi verifica che il bridge app sia pronto.',
+                                'Sblocca il vault e tieni KDBX Vault Manager aperto, poi verifica che il bridge app sia pronto.',
                             status: _connectionStatus,
                             actionLabel: _isCheckingConnection
                                 ? 'Verifica in corso…'
@@ -468,7 +468,7 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                           if (_appBridgeConnected) ...[
                             const SizedBox(height: 16),
                             Text(
-                              'Ultimo controllo: riavvia Chrome e apri il popup KeyVault. La voce Host deve risultare Available.',
+                              'Ultimo controllo: riavvia Chrome e apri il popup KDBX Vault Manager. La voce Host deve risultare Available.',
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                           ],
@@ -851,7 +851,7 @@ class HostNotFoundDiagnosticScreen extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               Text(
-                'Il resto di KeyVault continua a funzionare: senza host '
+                'Il resto di KDBX Vault Manager continua a funzionare: senza host '
                 'manca solo il riempimento automatico nel browser.',
                 style: AppTextStyles.meta.copyWith(
                   color: colors.textSecondary,
@@ -916,7 +916,7 @@ class _AppBridgeStatusBanner extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'KeyVault è pronto per collegarsi all\'estensione Chrome.',
+              'KDBX Vault Manager è pronto per collegarsi all\'estensione Chrome.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),

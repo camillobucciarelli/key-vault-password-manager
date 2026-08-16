@@ -1293,7 +1293,7 @@ class _CameraDeniedScreen extends StatelessWidget {
               ),
               const SizedBox(height: 18),
               Text(
-                'Camera is off for KeyVault',
+                'Camera is off for KDBX Vault Manager',
                 style: AppTextStyles.sheetTitleLarge.copyWith(
                   color: colors.textPrimary,
                 ),
@@ -1326,7 +1326,7 @@ class _CameraDeniedScreen extends StatelessWidget {
                 onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text(
-                      'Enable the camera for KeyVault in your system '
+                      'Enable the camera for KDBX Vault Manager in your system '
                       'settings, then come back.',
                     ),
                   ),

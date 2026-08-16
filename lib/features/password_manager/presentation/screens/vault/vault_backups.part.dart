@@ -75,7 +75,7 @@ class _VaultBackupsDestination extends StatelessWidget {
                     Expanded(
                       child: Text(
                         'On mobile the database lives in app storage: if you '
-                        'delete KeyVault without a backup, the file goes '
+                        'delete KDBX Vault Manager without a backup, the file goes '
                         'with it.',
                         style: AppTextStyles.secondary.copyWith(
                           color: colors.attentionText,
