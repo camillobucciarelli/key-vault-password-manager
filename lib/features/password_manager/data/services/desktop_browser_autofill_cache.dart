@@ -7,7 +7,19 @@ import 'package:path/path.dart' as p;
 
 import '../../domain/models/vault_entry.dart';
 
-const desktopBrowserAutofillCacheVersion = 2;
+/// Bumped 2 -> 3 with the reveal-authorization fix.
+///
+/// The bump is not what closes the vulnerability: the authorization predicate
+/// is new code applied at match time, and the `url` identifiers a version 2
+/// cache carries are a restriction, never a permission. What the bump buys is
+/// convergence: a version 2 cache still pins a synthetic `https://` origin on
+/// every entry whose URL was stored as a bare host, which would keep those
+/// entries unusable on their own `http` origin until the cache happened to be
+/// rewritten. Rejecting the old version forces the regeneration deterministically.
+///
+/// Accepted cost: browser autofill is unavailable until the next vault unlock,
+/// which is an event the user causes anyway.
+const desktopBrowserAutofillCacheVersion = 3;
 const desktopBrowserAutofillBridgeDescriptorVersion = 1;
 const desktopBrowserAutofillPlatform = 'desktop/browser';
 const desktopBrowserAutofillMaxPendingAssociations = 100;
@@ -708,13 +720,24 @@ class DesktopBrowserAutofillMetadataMapper {
   /// Rules:
   /// - a `url` identifier authorizes its exact origin only (scheme, host and
   ///   port), plus the `http` -> `https` upgrade of that same host and port;
-  /// - a `domain` identifier authorizes the bare host, but only on an `https`
-  ///   page and only when the entry does not also pin a `url` identifier for
-  ///   that host. An entry that stored a full URL already declared its origin,
-  ///   so the host-only path must not silently widen it back.
+  /// - a `domain` identifier authorizes the bare host when the entry does not
+  ///   also pin a `url` identifier for that host, on an `https` page always and
+  ///   on an `http` page only when the host cannot obtain a public WebPKI
+  ///   certificate (see [_cannotObtainWebPkiCertificate]).
+  ///
+  /// The pin is only ever set by an entry that *declared* a scheme: a URL field
+  /// holding a bare host emits no `url` identifier at all, because inferring
+  /// `https://` there would invent an origin the user never wrote. See
+  /// [_serviceIdentifiersForEntry].
+  ///
+  /// The `http` allowance for non-WebPKI hosts is not a comfort/security
+  /// trade-off. On those hosts `https` is *not obtainable*, so requiring it
+  /// would be requiring the impossible; on a publicly resolvable host it is
+  /// obtainable, so requiring it is legitimate.
   ///
   /// Consequence: a page served over `http` can never obtain the secrets of an
-  /// entry stored as `https`, and a port mismatch is never authorized.
+  /// entry stored as `https`, a bare public host is never authorized over
+  /// `http`, and a port mismatch is never authorized.
   static bool isRevealAuthorizedOrigin({
     required List<DesktopBrowserAutofillServiceIdentifier> serviceIdentifiers,
     required String origin,
@@ -749,9 +772,13 @@ class DesktopBrowserAutofillMetadataMapper {
         }
         continue;
       }
-      if (identifier.type == 'domain' &&
-          target.scheme == 'https' &&
-          !pinnedHosts.contains(targetHost)) {
+      if (identifier.type == 'domain' && !pinnedHosts.contains(targetHost)) {
+        final schemeAllowed =
+            target.scheme == 'https' ||
+            _cannotObtainWebPkiCertificate(targetHost);
+        if (!schemeAllowed) {
+          continue;
+        }
         final host = normalizedHost(identifier.value);
         if (host != null && host == targetHost) {
           return true;
@@ -763,8 +790,17 @@ class DesktopBrowserAutofillMetadataMapper {
 
   /// Same host and port, `http` stored but the page is served over `https`.
   ///
-  /// Safe to allow: it is the opposite of a downgrade, and an attacker able to
-  /// serve a trusted `https` origin for that host already controls the origin.
+  /// Safe to allow for one narrow reason: the clause only ever widens towards
+  /// `https` pages, and a browser only renders such a page after validating a
+  /// certificate for that exact host. It is the opposite of a downgrade.
+  ///
+  /// The reason is deliberately not "whoever serves valid https already
+  /// controls the origin": [_cleanHost] still strips `www.`/`m.`/`mobile.`
+  /// prefixes, so identifier and target hosts are compared after collapsing
+  /// distinct hosts onto one another, and a certificate valid for
+  /// `m.bank.example` would not by itself say anything about
+  /// `https://mobile.bank.example`. The clause survives that strip because it
+  /// grants `https` pages only; it would not survive being generalized.
   static bool _isHttpsUpgrade(Uri identifier, Uri target) {
     return identifier.scheme == 'http' &&
         target.scheme == 'https' &&
@@ -772,6 +808,79 @@ class DesktopBrowserAutofillMetadataMapper {
         (identifier.hasPort ? identifier.port : null) ==
             (target.hasPort ? target.port : null);
   }
+
+  /// Names for which no publicly trusted CA can issue a certificate, so `https`
+  /// is not obtainable and cannot be demanded.
+  ///
+  /// This is not an arbitrary convenience list. It is the same distinction the
+  /// W3C Secure Contexts spec draws when it treats `localhost` / `127.0.0.1` as
+  /// potentially trustworthy, and every suffix below is reserved by an RFC or
+  /// by the CA/Browser Forum baseline requirements, which forbid issuance for
+  /// non-public names:
+  /// - `.local` — RFC 6762 (mDNS)
+  /// - `.home.arpa` — RFC 8375 (the standardized home network name)
+  /// - `.localhost` — RFC 6761
+  /// - `.internal` — ICANN-reserved for private use (2024)
+  /// - `.lan`, `.home`, `.intranet`, `.corp`, `.private` — never delegated,
+  ///   permanently withheld by ICANN over name-collision risk
+  /// plus RFC 1918 / RFC 4193 / RFC 3927 / RFC 4291 address literals and
+  /// single-label hosts, which have no public parent zone to be issued under.
+  ///
+  /// Deliberately absent:
+  /// - a bare public IP literal. `1.1.1.1` proves a public address *can* hold a
+  ///   WebPKI certificate, so the "not obtainable" criterion does not apply —
+  ///   and a public IP over cleartext `http` is exactly the hostile-path case.
+  /// - `.test`, `.example`, `.invalid` (RFC 2606). They do satisfy the
+  ///   criterion, but they are documentation and testing placeholders rather
+  ///   than names anything is deployed under, and `example.test` is this
+  ///   repository's own stand-in for a public host in the downgrade tests.
+  ///   Admitting them would make every future test written against
+  ///   `example.test` silently lenient over `http`.
+  static bool _cannotObtainWebPkiCertificate(String host) {
+    final address = InternetAddress.tryParse(host);
+    if (address != null) {
+      final bytes = address.rawAddress;
+      if (address.type == InternetAddressType.IPv4) {
+        return bytes[0] == 10 || // 10/8
+            (bytes[0] == 172 &&
+                bytes[1] >= 16 &&
+                bytes[1] <= 31) || // 172.16/12
+            (bytes[0] == 192 && bytes[1] == 168) || // 192.168/16
+            bytes[0] == 127 || // 127/8
+            (bytes[0] == 169 && bytes[1] == 254); // 169.254/16
+      }
+      // Unreachable today: _cleanHost rejects any host containing ':', so an
+      // IPv6 literal never gets this far. Kept so that fixing that separately
+      // does not silently drop loopback and private IPv6 out of the set.
+      final isLoopback =
+          bytes.take(15).every((byte) => byte == 0) && bytes[15] == 1; // ::1
+      return isLoopback ||
+          (bytes[0] & 0xfe) == 0xfc || // fc00::/7
+          (bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80); // fe80::/10
+    }
+
+    // Single-label host (`nas`, `router`, `localhost`): no public parent zone.
+    if (!host.contains('.')) {
+      return true;
+    }
+
+    // Exact match matters for the multi-label entries: `home.arpa` is reserved,
+    // while `.arpa` itself is a delegated zone.
+    return _nonPublicSuffixes.contains(host) ||
+        _nonPublicSuffixes.any((suffix) => host.endsWith('.$suffix'));
+  }
+
+  static const _nonPublicSuffixes = <String>{
+    'local',
+    'home.arpa',
+    'localhost',
+    'internal',
+    'intranet',
+    'private',
+    'corp',
+    'home',
+    'lan',
+  };
 
   static DesktopBrowserAutofillAssociationTarget? targetFromUrl(
     String? rawUrl,
@@ -820,7 +929,18 @@ class DesktopBrowserAutofillMetadataMapper {
       }
     }
 
-    final origin = normalizedOrigin(entry.url);
+    // Only a URL that *declared* a scheme pins an origin. `normalizedOrigin`
+    // infers `https://` for a bare host, and pinning that inferred value would
+    // attribute to the user an origin they never wrote — which is what locked
+    // `http`-only hosts (a NAS, a router, a LAN service) out of reveal.
+    //
+    // Note the silent declassing this leaves in place: a URL field carrying a
+    // scheme that is neither `http` nor `https` (`ftp://`, `ssh://`, a custom
+    // one) yields no origin either, so the entry keeps only its `domain`
+    // identifier and is authorized host-wise, not origin-wise.
+    final origin = _hasExplicitScheme(entry.url)
+        ? normalizedOrigin(entry.url)
+        : null;
     final host = normalizedHost(entry.url);
     if (origin != null) {
       add(DesktopBrowserAutofillServiceIdentifier(type: 'url', value: origin));
@@ -847,7 +967,9 @@ class DesktopBrowserAutofillMetadataMapper {
       }
       if (_isUrlField(key)) {
         for (final value in _splitCustomFieldValues(field.value)) {
-          final urlOrigin = normalizedOrigin(value);
+          final urlOrigin = _hasExplicitScheme(value)
+              ? normalizedOrigin(value)
+              : null;
           final urlHost = normalizedHost(value);
           if (urlOrigin != null) {
             add(
@@ -912,6 +1034,14 @@ class DesktopBrowserAutofillMetadataMapper {
         yield trimmed;
       }
     }
+  }
+
+  /// Whether the stored value carries a scheme the user actually typed, as
+  /// opposed to the `https://` [_valueWithDefaultScheme] supplies. A
+  /// protocol-relative `//host` counts as inferred: it names no scheme.
+  static bool _hasExplicitScheme(String? rawValue) {
+    final value = rawValue?.trim() ?? '';
+    return RegExp(r'^[a-zA-Z][a-zA-Z0-9+.-]*://').hasMatch(value);
   }
 
   static String _valueWithDefaultScheme(String value) {
