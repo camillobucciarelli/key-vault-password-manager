@@ -23,6 +23,8 @@
 //   7. the merge is a join-semilattice: associative,
 //      commutative and idempotent, at 3 and 4 devices (guards N1, N3)
 
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 
 // ---------------------------------------------------------------------------
@@ -60,14 +62,30 @@ typedef Doc = Map<String, Field>;
 
 /// FR-3's globally deterministic total order.
 ///
-/// Unsigned lexicographic comparison of the candidate values, shortest-is-
-/// smaller on a common prefix. The winner is the **greater** sequence. The
-/// direction is arbitrary by design; what matters is that it is total and
-/// computed from the data alone, so two devices comparing the same unordered
-/// pair select the same winner and the merge function is commutative.
+/// Unsigned lexicographic comparison of the candidate values **as UTF-8 bytes**,
+/// shortest-is-smaller on a common prefix. The winner is the **greater** byte
+/// sequence. The direction is arbitrary by design; what matters is that it is
+/// total and computed from the data alone, so two devices comparing the same
+/// unordered pair select the same winner and the merge function is commutative.
+///
+/// The encoding is **not** an implementation detail, and `String.codeUnits` —
+/// which this used to compare — is the wrong one. `codeUnits` are UTF-16 units,
+/// and UTF-16 order is not UTF-8 order: UTF-16 encodes an astral character as a
+/// surrogate pair in `U+D800..DFFF`, which sorts *below* the BMP range
+/// `U+E000..FFFF`, whereas the same character's UTF-8 bytes — and its code
+/// point — sort *above* it. The two orders therefore elect different winners on
+/// a real pair of values, so a model built on `codeUnits` would prove its
+/// properties about a total order the spec does not prescribe, and the
+/// commutativity T009 demonstrates would not be the commutativity of the
+/// implemented rule. That is the "the model validates itself instead of the
+/// specification" failure, in the one place the spec is most explicit.
+///
+/// UTF-8 is also what makes the order agree with the code-point order, since
+/// UTF-8 is order-preserving over code points. Both facts are asserted in
+/// "the tie-break orders by UTF-8 bytes, not by UTF-16 code units".
 int compareValues(String a, String b) {
-  final ua = a.codeUnits;
-  final ub = b.codeUnits;
+  final ua = utf8.encode(a);
+  final ub = utf8.encode(b);
   for (var i = 0; i < ua.length && i < ub.length; i++) {
     if (ua[i] != ub[i]) return ua[i] < ub[i] ? -1 : 1;
   }
@@ -840,6 +858,98 @@ void main() {
       expect(compareValues('x', 'x'), 0);
     });
 
+    test('the tie-break orders by UTF-8 bytes, not by UTF-16 code units', () {
+      // FR-3 prescribes a comparison of **byte** sequences, and `spec.md` now
+      // names the encoding: UTF-8. Dart's `String.codeUnits` are UTF-16 units,
+      // and the two orders are genuinely different relations — not two spellings
+      // of one. This test exists so that restoring `codeUnits` fails loudly
+      // instead of quietly re-proving the properties about the wrong order.
+      //
+      // The discriminating pair:
+      //   * `astral`  U+1F600 GRINNING FACE — UTF-8 `F0 9F 98 80`,
+      //               UTF-16 surrogate pair `D83D DE00`;
+      //   * `bmpHigh` U+FFFD REPLACEMENT CHARACTER — UTF-8 `EF BF BD`,
+      //               UTF-16 `FFFD`.
+      //
+      // First unit: UTF-16 has `D83D < FFFD`, UTF-8 has `F0 > EF`. The orders
+      // are opposite, so "the greater sequence wins" elects a different winner
+      // on the same unordered pair. An emoji in a notes or title field against
+      // any character in `U+E000..FFFF` — private use area, specials,
+      // presentation forms — reaches this.
+      const astral = '\u{1F600}';
+      const bmpHigh = '\uFFFD';
+
+      int byCodeUnits(String a, String b) {
+        final ua = a.codeUnits;
+        final ub = b.codeUnits;
+        for (var i = 0; i < ua.length && i < ub.length; i++) {
+          if (ua[i] != ub[i]) return ua[i] < ub[i] ? -1 : 1;
+        }
+        return ua.length.compareTo(ub.length);
+      }
+
+      // Premise: the pair really does discriminate. Without this the assertions
+      // below would hold under either implementation and guard nothing.
+      expect(
+        byCodeUnits(astral, bmpHigh),
+        lessThan(0),
+        reason: 'premise: UTF-16 sorts the surrogate D83D below FFFD',
+      );
+      expect(
+        compareValues(astral, bmpHigh),
+        greaterThan(0),
+        reason: 'UTF-8 sorts F0 above EF — the opposite verdict',
+      );
+
+      // Stated as the outcome that matters: who wins the tie-break.
+      String winner(int Function(String, String) cmp) =>
+          cmp(astral, bmpHigh) >= 0 ? astral : bmpHigh;
+      expect(winner(byCodeUnits), bmpHigh);
+      expect(winner(compareValues), astral);
+      expect(winner(byCodeUnits), isNot(winner(compareValues)));
+
+      // And the winner the model actually elects on a timestamp tie is the
+      // UTF-8 one, so the divergence is not confined to the pure comparator.
+      final l = doc({'f': const Field(astral, 100)});
+      final r = doc({'f': const Field(bmpHigh, 100)});
+      expect(mergeDocs(l, r).doc['f']!.value, astral);
+      expect(mergeDocs(r, l).doc['f']!.value, astral);
+
+      // The notes union sorts its segments with the same comparator, so it
+      // inherits the same order rather than defining a second one.
+      expect(
+        mergeNotes(astral, bmpHigh).split(notesSeparator),
+        [bmpHigh, astral],
+        reason: 'ascending UTF-8 byte order: EF BF BD before F0 9F 98 80',
+      );
+
+      // UTF-8 is order-preserving over code points, so the byte order and the
+      // code-point order are the same relation. UTF-16 is not.
+      int byCodePoint(String a, String b) {
+        final ra = a.runes.toList();
+        final rb = b.runes.toList();
+        for (var i = 0; i < ra.length && i < rb.length; i++) {
+          if (ra[i] != rb[i]) return ra[i] < rb[i] ? -1 : 1;
+        }
+        return ra.length.compareTo(rb.length);
+      }
+
+      for (final pair in [
+        [astral, bmpHigh],
+        [bmpHigh, astral],
+        ['\uE000', astral],
+        ['a', astral],
+        ['\u00E9', '\u0100'],
+        ['\u07FF', '\u0800'],
+      ]) {
+        expect(
+          compareValues(pair[0], pair[1]).sign,
+          byCodePoint(pair[0], pair[1]).sign,
+          reason: 'UTF-8 byte order must equal code-point order for $pair',
+        );
+      }
+    });
+
     test('the deterministic notes merge is perspective-independent', () {
       const l = Field('note-local', 42);
       const r = Field('note-remote', 42);
@@ -1338,6 +1448,59 @@ void main() {
       expect(manifest(mergeOf(joined, a)), manifest(joined));
       expect(manifest(mergeOf(joined, b)), manifest(joined));
       expect(manifest(mergeOf(joined, joined)), manifest(joined));
+    });
+
+    test('the semilattice still holds on the values where the byte order and '
+        'the UTF-16 order disagree', () {
+      // The tie-break comparator moved from UTF-16 code units to UTF-8 bytes.
+      // The three properties are claims about the relation being a total order,
+      // not about *which* total order it is, so they are expected to survive the
+      // change — and "expected to" is exactly the assumption this suite exists
+      // to refuse. Every other property test here runs on ASCII, where the two
+      // encodings agree and the change is invisible. They are re-measured here
+      // on the values that actually moved.
+      const astral = '\u{1F600}';
+      const bmpHigh = '\uFFFD';
+      const pua = '\uE000';
+      const ascii = 'a';
+
+      Doc device(String s) => doc({
+        'Notes': Field(s, 100),
+        'f': Field(s, 100),
+        'shared': const Field('s', 5),
+      });
+      final devices = [astral, bmpHigh, pua, ascii].map(device).toList();
+
+      // Associativity: every ordering and every association reach one state.
+      expect(allAssociations(devices.sublist(0, 3)), hasLength(1));
+      expect(allAssociations(devices), hasLength(1));
+
+      // Commutativity, pairwise over the whole set.
+      for (final a in devices) {
+        for (final b in devices) {
+          expect(manifest(mergeOf(a, b)), manifest(mergeOf(b, a)));
+        }
+      }
+
+      // Idempotence, on each operand and on the join.
+      final joined = devices.reduce(mergeOf);
+      for (final d in devices) {
+        expect(manifest(mergeOf(d, d)), manifest(d));
+        expect(manifest(mergeOf(joined, d)), manifest(joined));
+      }
+      expect(manifest(mergeOf(joined, joined)), manifest(joined));
+
+      // And the join really did select under the new order: the greatest UTF-8
+      // byte sequence wins the tie-break, which is the astral character. Under
+      // UTF-16 code units this would be U+FFFD and the segments would be in a
+      // different order — so these two assertions also pin the encoding.
+      expect(joined['f']!.value, astral);
+      expect(joined['Notes']!.value.split(notesSeparator), [
+        ascii, // 61
+        pua, // EE 80 80
+        bmpHigh, // EF BF BD
+        astral, // F0 9F 98 80
+      ]);
     });
   });
 
