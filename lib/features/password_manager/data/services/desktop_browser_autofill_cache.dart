@@ -672,7 +672,12 @@ class DesktopBrowserAutofillMetadataMapper {
     return 'sha256:${sha256.convert(utf8.encode(databasePath.trim()))}';
   }
 
-  static String? normalizedHost(String? rawValue) {
+  /// The host of [rawValue], lowercased and collapsed onto its bare form.
+  ///
+  /// Set [stripPrefixes] to `false` to get the host *as served*, keeping the
+  /// `www.`/`m.`/`mobile.` label. Only security predicates need that form; see
+  /// [_cannotObtainWebPkiCertificate].
+  static String? normalizedHost(String? rawValue, {bool stripPrefixes = true}) {
     final value = rawValue?.trim() ?? '';
     if (value.isEmpty) {
       return null;
@@ -684,7 +689,7 @@ class DesktopBrowserAutofillMetadataMapper {
     final rawHost = (uri != null && uri.host.isNotEmpty)
         ? uri.host
         : value.split('/').first.split(':').first;
-    return _cleanHost(rawHost);
+    return _cleanHost(rawHost, stripPrefixes: stripPrefixes);
   }
 
   static String? normalizedOrigin(String? rawValue) {
@@ -744,7 +749,13 @@ class DesktopBrowserAutofillMetadataMapper {
   }) {
     final targetOrigin = normalizedOrigin(origin);
     final targetHost = normalizedHost(origin);
-    if (targetOrigin == null || targetHost == null) {
+    // The WebPKI question is about the name the browser actually resolved and
+    // would validate a certificate against, so it is asked of the un-collapsed
+    // host. See [_cannotObtainWebPkiCertificate].
+    final targetHostAsServed = normalizedHost(origin, stripPrefixes: false);
+    if (targetOrigin == null ||
+        targetHost == null ||
+        targetHostAsServed == null) {
       return false;
     }
     final target = Uri.parse(targetOrigin);
@@ -775,7 +786,7 @@ class DesktopBrowserAutofillMetadataMapper {
       if (identifier.type == 'domain' && !pinnedHosts.contains(targetHost)) {
         final schemeAllowed =
             target.scheme == 'https' ||
-            _cannotObtainWebPkiCertificate(targetHost);
+            _cannotObtainWebPkiCertificate(targetHostAsServed);
         if (!schemeAllowed) {
           continue;
         }
@@ -811,6 +822,13 @@ class DesktopBrowserAutofillMetadataMapper {
 
   /// Names for which no publicly trusted CA can issue a certificate, so `https`
   /// is not obtainable and cannot be demanded.
+  ///
+  /// Must be asked of the host *as served*, never of the [_cleanHost] output.
+  /// That strip is a matching affordance that collapses distinct DNS names onto
+  /// one identity; feeding it here lets the collapse manufacture a property the
+  /// real name does not have — `m.me` would become the single-label `me` and a
+  /// cleartext `http://m.me` page would be authorized, even though `m.me`
+  /// resolves publicly and holds a WebPKI certificate.
   ///
   /// This is not an arbitrary convenience list. It is the same distinction the
   /// W3C Secure Contexts spec draws when it treats `localhost` / `127.0.0.1` as
@@ -1054,7 +1072,7 @@ class DesktopBrowserAutofillMetadataMapper {
     return 'https://$value';
   }
 
-  static String? _cleanHost(String? rawHost) {
+  static String? _cleanHost(String? rawHost, {bool stripPrefixes = true}) {
     var host = rawHost?.trim().toLowerCase() ?? '';
     if (host.startsWith('[') && host.endsWith(']')) {
       host = host.substring(1, host.length - 1);
@@ -1062,10 +1080,12 @@ class DesktopBrowserAutofillMetadataMapper {
     while (host.endsWith('.')) {
       host = host.substring(0, host.length - 1);
     }
-    for (final prefix in const ['www.', 'm.', 'mobile.']) {
-      if (host.startsWith(prefix)) {
-        host = host.substring(prefix.length);
-        break;
+    if (stripPrefixes) {
+      for (final prefix in const ['www.', 'm.', 'mobile.']) {
+        if (host.startsWith(prefix)) {
+          host = host.substring(prefix.length);
+          break;
+        }
       }
     }
     if (host.isEmpty ||

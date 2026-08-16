@@ -726,7 +726,14 @@ String? _browserOriginFromPayload(Map<String, Object?> payload) {
       (uri.scheme != 'http' && uri.scheme != 'https')) {
     return null;
   }
-  final host = DesktopBrowserAutofillMetadataMapper.normalizedHost(uri.host);
+  // Keep the host as the browser served it: the reveal policy re-normalizes it
+  // for matching, but it also has to ask whether *this* name can obtain a
+  // WebPKI certificate, and collapsing `m.`/`www.`/`mobile.` here would hand it
+  // a single-label name (`m.me` -> `me`) that would pass as non-public.
+  final host = DesktopBrowserAutofillMetadataMapper.normalizedHost(
+    uri.host,
+    stripPrefixes: false,
+  );
   if (host == null) {
     return null;
   }

@@ -398,6 +398,78 @@ void main() {
       });
     });
 
+    group('the host collapse must not widen the non-WebPKI set', () {
+      // `_cleanHost` strips `www.`/`m.`/`mobile.` for *matching*. Asking the
+      // WebPKI question of the stripped host turned every `www.X`/`m.X` into a
+      // single-label name, which is the one shape the set admits — `m.me` is a
+      // real Meta host with a public certificate.
+      for (final host in const ['m.me', 'www.com', 'mobile.io']) {
+        test('denies $host over http when stored without a scheme', () async {
+          _expectRevealRefused(
+            await _reveal(
+              entry: _entry(
+                id: 'entry-1',
+                username: 'alice',
+                password: 'test-only-secret',
+                url: host,
+              ),
+              origin: 'http://$host',
+            ),
+          );
+        });
+
+        test('still allows $host over https', () async {
+          final response = await _reveal(
+            entry: _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: 'test-only-secret',
+              url: host,
+            ),
+            origin: 'https://$host',
+          );
+
+          expect(response.statusCode, HttpStatus.ok);
+          final data = response.json['data']! as Map<String, Object?>;
+          expect(data['password'], 'test-only-secret');
+        });
+      }
+
+      // The genuinely single-label hosts must keep their http allowance: they
+      // have no public parent zone, so `https` really is unobtainable there.
+      for (final host in const ['router', 'nas']) {
+        test('still allows $host over http', () async {
+          final response = await _reveal(
+            entry: _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: 'test-only-secret',
+              url: host,
+            ),
+            origin: 'http://$host',
+          );
+
+          expect(response.statusCode, HttpStatus.ok);
+          final data = response.json['data']! as Map<String, Object?>;
+          expect(data['password'], 'test-only-secret');
+        });
+      }
+
+      test('denies a bare www. public host over http', () async {
+        _expectRevealRefused(
+          await _reveal(
+            entry: _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: 'test-only-secret',
+              url: 'www.bank.example',
+            ),
+            origin: 'http://www.bank.example',
+          ),
+        );
+      });
+    });
+
     test('denies a www-stripped https entry on an http page', () async {
       // `_cleanHost` still collapses `www.`/`m.`/`mobile.` onto the bare host,
       // so `https://www.bank.example` and `http://bank.example` compare on the
