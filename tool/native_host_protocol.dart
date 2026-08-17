@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:password_manager/features/password_manager/data/services/browser_exact_origin.dart';
 import 'package:password_manager/features/password_manager/data/services/desktop_browser_autofill_cache.dart';
 
 const nativeHostName = 'dev.camillobucciarelli.keyvault_native_host';
@@ -20,7 +21,24 @@ const supportedNativeMessageTypes = <String>[
   'searchCredentials',
   'createPendingAssociation',
   'revealForFill',
+  // 009 / A008. Deliberately new request types rather than new fields on the
+  // existing ones. A native host predating this slice ignores an unknown
+  // *field*: it would answer `queryCredentials` with host-only `strongMatches`
+  // and `revealForFill` under the lenient popup policy, both of which are
+  // exactly the fallback SR-2 forbids, and the extension could only detect the
+  // downgrade by noticing an absent echo. It cannot ignore an unknown *type*:
+  // it answers `unsupported_type` and there is no path to a secret at all. The
+  // fail-closed behaviour is therefore structural instead of contingent.
+  'overlayQueryCredentials',
+  'overlayRevealForFill',
 ];
+
+/// Capabilities advertised by `hello`, so the extension can gate the overlay on
+/// the host actually implementing this contract instead of probing for it.
+const nativeHostCapabilities = <String>[overlayExactOriginCapability];
+
+/// Overlay metadata items returned by one `overlayQueryCredentials` response.
+const _maxOverlayItems = 10;
 
 const _sensitiveRequestKeys = <String>{
   'credential',
@@ -300,6 +318,18 @@ Future<Map<String, Object?>> handleNativeHostRequest(
       payload: payload,
       store: effectiveStore,
     ),
+    'overlayQueryCredentials' => await _overlayQueryCredentialsResponse(
+      id: id,
+      type: type,
+      payload: payload,
+      store: effectiveStore,
+    ),
+    'overlayRevealForFill' => await _overlayRevealForFillResponse(
+      id: id,
+      type: type,
+      payload: payload,
+      store: effectiveStore,
+    ),
     _ => nativeHostErrorResponse(
       id: id,
       type: type,
@@ -338,6 +368,7 @@ Future<Map<String, Object?>> _helloResponse({
     data: {
       ...await _statusData(store),
       'supportedMessages': supportedNativeMessageTypes,
+      'capabilities': nativeHostCapabilities,
     },
   );
 }
@@ -376,6 +407,7 @@ Future<Map<String, Object?>> _queryCredentialsResponse({
     );
   }
 
+  final pageOrigin = _browserOriginFromPayload(payload);
   final cache = await store.readMetadataCache();
   if (cache == null) {
     return _cacheUnavailableResponse(id: id, type: type);
@@ -408,9 +440,31 @@ Future<Map<String, Object?>> _queryCredentialsResponse({
       'databaseId': cache.databaseId,
       'generatedAtEpochMs': cache.generatedAtEpochMs,
       'target': pageTarget.toJson(),
+      // 009 / A014. `strongMatches` is a *host* match, but the popup reveal
+      // policy is an origin policy, so a strong match is not necessarily
+      // revealable — an entry stored as `https://…` on an `http://` page, for
+      // one. The popup used to offer Fill on every strong row and discover the
+      // refusal only after the click. The eligibility is now computed with the
+      // same predicate the reveal path will apply.
+      //
+      // The predicate here is deliberately the popup one
+      // (`isRevealAuthorizedOrigin`), not the overlay one: this response feeds
+      // the popup, whose policy is unchanged by this slice.
       'strongMatches': strongMatches
           .take(limit is int ? limit : 5)
-          .map((entry) => _metadataResult(entry, 'strong'))
+          .map(
+            (entry) => _metadataResult(
+              entry,
+              'strong',
+              fillEligible:
+                  bridgeAvailable &&
+                  pageOrigin != null &&
+                  DesktopBrowserAutofillMetadataMapper.isRevealAuthorizedOrigin(
+                    serviceIdentifiers: entry.serviceIdentifiers,
+                    origin: pageOrigin,
+                  ),
+            ),
+          )
           .toList(growable: false),
       'possibleMatches': possibleMatches
           .map((entry) => _metadataResult(entry, 'possible'))
@@ -628,6 +682,393 @@ Future<Map<String, Object?>> _revealForFillResponse({
   );
 }
 
+/// 009 / A010 — bounded metadata for the in-page overlay.
+///
+/// Returns strictly less than `queryCredentials`: no username, no password, no
+/// free-text ranking against the page title, and a hard cap of
+/// [_maxOverlayItems]. Every item carries its classification and whether it may
+/// actually be filled, so the extension never has to infer eligibility from the
+/// shape of the response.
+Future<Map<String, Object?>> _overlayQueryCredentialsResponse({
+  required String? id,
+  required String type,
+  required Map<String, Object?> payload,
+  required DesktopBrowserAutofillCacheStore store,
+}) async {
+  if (payload['matchPolicy'] != overlayMatchPolicy) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'invalid_request',
+      message: 'Overlay requests must declare the exact-origin match policy.',
+    );
+  }
+  final rawUrl = payload['url'];
+  final target = rawUrl is String && rawUrl.length <= 4096
+      ? browserExactOriginOrNull(rawUrl)
+      : null;
+  if (target == null) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'invalid_request',
+      message: 'Overlay queries require an exact http(s) page origin.',
+    );
+  }
+  final limit = payload['limit'];
+  if (limit != null &&
+      (limit is! int || limit < 1 || limit > _maxOverlayItems)) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'invalid_request',
+      message: 'Overlay query limit must be an integer between 1 and 10.',
+    );
+  }
+  final effectiveLimit = limit is int ? limit : _maxOverlayItems;
+
+  final cache = await store.readMetadataCache();
+  if (cache == null) {
+    return _cacheUnavailableResponse(id: id, type: type);
+  }
+  final descriptor = await store.readBridgeDescriptor();
+  final binding = _overlaySessionBinding(cache, descriptor);
+  final fillAvailable = binding != null;
+
+  final targetHost = DesktopBrowserAutofillMetadataMapper.normalizedHost(
+    target,
+  );
+  final exact = <DesktopBrowserAutofillCredentialMetadata>[];
+  final possible = <DesktopBrowserAutofillCredentialMetadata>[];
+  for (final entry in cache.entries) {
+    if (isExactOriginAuthorized(
+      serviceIdentifiers: entry.serviceIdentifiers,
+      origin: target,
+    )) {
+      exact.add(entry);
+      continue;
+    }
+    if (targetHost != null && _isPossibleHostMatch(entry, targetHost)) {
+      possible.add(entry);
+    }
+  }
+  exact.sort(_compareMetadataByDisplay);
+  possible.sort(_compareMetadataByDisplay);
+
+  final items = <Map<String, Object?>>[
+    for (final entry in exact)
+      _overlayItem(
+        entry,
+        matchType: 'exact-origin',
+        fillEligible: fillAvailable,
+      ),
+    for (final entry in possible)
+      // SR-2: a host/domain-only entry may be shown so the user understands why
+      // nothing is fillable, but it can never be filled.
+      _overlayItem(entry, matchType: 'possible', fillEligible: false),
+  ].take(effectiveLimit).toList(growable: false);
+
+  // SR-4: the binding captured above must still be the current one at the
+  // moment of answering, otherwise a republish that landed mid-query would be
+  // answered with a tuple that is already dead.
+  if (!await _overlayBindingIsStillCurrent(store, binding)) {
+    return _staleSessionResponse(id: id, type: type);
+  }
+
+  return _successResponse(
+    id: id,
+    type: type,
+    data: {
+      'metadataOnly': true,
+      'matchPolicy': overlayMatchPolicy,
+      'target': target,
+      'fillAvailable': fillAvailable,
+      'databaseId': cache.databaseId,
+      'sessionBinding': binding == null
+          ? null
+          : {
+              'databaseId': binding.databaseId,
+              'cacheGeneration': binding.cacheGeneration,
+              'bridgeGeneration': binding.bridgeGeneration,
+            },
+      'items': items,
+    },
+  );
+}
+
+/// 009 / A011 — the origin-bound reveal.
+///
+/// Differs from [_revealForFillResponse] on purpose and the difference is the
+/// whole point of the slice. That one applies the popup policy
+/// ([DesktopBrowserAutofillMetadataMapper.isRevealAuthorizedOrigin]), which
+/// admits a `domain` identifier on an https page and on hosts that cannot hold
+/// a WebPKI certificate. This one admits nothing but an exact normalized origin
+/// the user actually wrote, and additionally requires the full SR-4 binding to
+/// still be current — checked before the app is contacted, and re-checked after
+/// it answers.
+Future<Map<String, Object?>> _overlayRevealForFillResponse({
+  required String? id,
+  required String type,
+  required Map<String, Object?> payload,
+  required DesktopBrowserAutofillCacheStore store,
+}) async {
+  final entryId = payload['entryId'];
+  final rawOrigin = payload['origin'];
+  final origin = rawOrigin is String && rawOrigin.length <= 4096
+      ? browserExactOriginOrNull(rawOrigin)
+      : null;
+  final expectedDatabaseId = _safeOptionalString(
+    payload['expectedDatabaseId'],
+    maxLength: 128,
+  );
+  final expectedCacheGeneration = _safeOptionalString(
+    payload['expectedCacheGeneration'],
+    maxLength: 128,
+  );
+  final expectedBridgeGeneration = _safeOptionalString(
+    payload['expectedBridgeGeneration'],
+    maxLength: 128,
+  );
+  if (payload['matchPolicy'] != overlayMatchPolicy ||
+      entryId is! String ||
+      entryId.trim().isEmpty ||
+      entryId.length > 256 ||
+      origin == null ||
+      expectedDatabaseId == null ||
+      expectedCacheGeneration == null ||
+      expectedBridgeGeneration == null) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'invalid_request',
+      message: 'Overlay reveal request is invalid.',
+    );
+  }
+
+  final cache = await store.readMetadataCache();
+  if (cache == null) {
+    return _cacheUnavailableResponse(id: id, type: type);
+  }
+  final descriptor = await store.readBridgeDescriptor();
+  if (descriptor == null) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'app_bridge_unavailable',
+      message:
+          'KeyVault reveal bridge is unavailable. Open and unlock the desktop app first.',
+    );
+  }
+
+  final binding = _overlaySessionBinding(cache, descriptor);
+  if (binding == null ||
+      binding.databaseId != expectedDatabaseId ||
+      binding.cacheGeneration != expectedCacheGeneration ||
+      binding.bridgeGeneration != expectedBridgeGeneration) {
+    // Every binding mismatch answers identically and before the app is ever
+    // contacted, so a stale grant cannot even reach the credential store.
+    return _staleSessionResponse(id: id, type: type);
+  }
+
+  final entry = cache.entries
+      .where((candidate) => candidate.id == entryId.trim())
+      .firstOrNull;
+  if (entry == null ||
+      !isExactOriginAuthorized(
+        serviceIdentifiers: entry.serviceIdentifiers,
+        origin: origin,
+      )) {
+    // Uniform refusal: it must not disclose whether the entry exists in this
+    // vault, nor which component of the origin failed to match.
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'forbidden',
+      message: 'Overlay fill is not authorized for this site.',
+    );
+  }
+
+  final call = await _postToAppBridge(
+    descriptor: descriptor,
+    path: '/overlay-reveal',
+    body: {
+      'version': desktopBrowserAutofillBridgeDescriptorVersion,
+      'matchPolicy': overlayMatchPolicy,
+      'entryId': entryId.trim(),
+      'origin': origin,
+      'databaseId': binding.databaseId,
+      'cacheGeneration': binding.cacheGeneration,
+      'bridgeGeneration': binding.bridgeGeneration,
+    },
+  );
+  if (call.errorCode != null) {
+    // An app that predates this slice has no `/overlay-reveal` and answers
+    // `not_found`; that surfaces as a plain refusal, never as a retry on the
+    // lenient `/reveal` endpoint.
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: call.errorCode!,
+      message: _publicRevealErrorMessage(call.errorCode!),
+    );
+  }
+
+  final data = call.data;
+  final username = data?['username'];
+  final password = data?['password'];
+  if (data?['entryId'] != entryId.trim() ||
+      data?['matchPolicy'] != overlayMatchPolicy ||
+      data?['origin'] != origin ||
+      data?['databaseId'] != binding.databaseId ||
+      data?['cacheGeneration'] != binding.cacheGeneration ||
+      data?['bridgeGeneration'] != binding.bridgeGeneration ||
+      username is! String ||
+      password is! String ||
+      utf8.encode(username).length > _maxRevealUsernameBytes ||
+      utf8.encode(password).length > _maxRevealPasswordBytes) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'app_bridge_invalid_response',
+      message: _publicRevealErrorMessage('app_bridge_invalid_response'),
+    );
+  }
+
+  // SR-4: re-read cache and descriptor *after* the app answered. A vault switch
+  // that landed while the request was in flight makes this response stale even
+  // though every earlier check passed, and the secret is dropped here.
+  if (!await _overlayBindingIsStillCurrent(store, binding)) {
+    return _staleSessionResponse(id: id, type: type);
+  }
+
+  return _successResponse(
+    id: id,
+    type: type,
+    data: {
+      'entryId': entryId.trim(),
+      'matchPolicy': overlayMatchPolicy,
+      'origin': origin,
+      'sessionBinding': {
+        'databaseId': binding.databaseId,
+        'cacheGeneration': binding.cacheGeneration,
+        'bridgeGeneration': binding.bridgeGeneration,
+      },
+      'username': username,
+      'password': password,
+    },
+  );
+}
+
+Map<String, Object?> _overlayItem(
+  DesktopBrowserAutofillCredentialMetadata entry, {
+  required String matchType,
+  required bool fillEligible,
+}) {
+  return {
+    'entryId': entry.id,
+    'title': entry.title,
+    'displayService': entry.displayService,
+    'matchType': matchType,
+    'fillEligible': fillEligible,
+  };
+}
+
+/// Host-level match, used only to classify an entry as *possible* metadata.
+///
+/// This is the lenient rule on purpose — it is the same `_cleanHost`-based
+/// comparison the popup uses for ranking — and it is confined to display. It
+/// never sets `fillEligible`.
+bool _isPossibleHostMatch(
+  DesktopBrowserAutofillCredentialMetadata entry,
+  String targetHost,
+) {
+  for (final identifier in entry.serviceIdentifiers) {
+    if (identifier.type != 'domain' && identifier.type != 'url') {
+      continue;
+    }
+    final host = DesktopBrowserAutofillMetadataMapper.normalizedHost(
+      identifier.value,
+    );
+    if (host != null && host == targetHost) {
+      return true;
+    }
+  }
+  return false;
+}
+
+class _OverlaySessionBinding {
+  const _OverlaySessionBinding({
+    required this.databaseId,
+    required this.cacheGeneration,
+    required this.bridgeGeneration,
+  });
+
+  final String databaseId;
+  final String cacheGeneration;
+  final String bridgeGeneration;
+
+  bool matches(_OverlaySessionBinding? other) {
+    return other != null &&
+        other.databaseId == databaseId &&
+        other.cacheGeneration == cacheGeneration &&
+        other.bridgeGeneration == bridgeGeneration;
+  }
+}
+
+/// The SR-4 tuple, or `null` when cache and descriptor do not describe one and
+/// the same live session.
+_OverlaySessionBinding? _overlaySessionBinding(
+  DesktopBrowserAutofillMetadataCache cache,
+  DesktopBrowserAutofillBridgeDescriptor? descriptor,
+) {
+  if (descriptor == null ||
+      cache.databaseId.isEmpty ||
+      cache.cacheGeneration.isEmpty ||
+      descriptor.databaseId != cache.databaseId ||
+      descriptor.cacheGeneration != cache.cacheGeneration ||
+      descriptor.bridgeGeneration.isEmpty) {
+    return null;
+  }
+  return _OverlaySessionBinding(
+    databaseId: cache.databaseId,
+    cacheGeneration: cache.cacheGeneration,
+    bridgeGeneration: descriptor.bridgeGeneration,
+  );
+}
+
+Future<bool> _overlayBindingIsStillCurrent(
+  DesktopBrowserAutofillCacheStore store,
+  _OverlaySessionBinding? expected,
+) async {
+  final cache = await store.readMetadataCache();
+  if (cache == null) {
+    // A cache that vanished mid-request means the vault locked or switched.
+    // Only the "no fillable item" case may legitimately carry a null binding,
+    // and that case still requires a readable cache.
+    return false;
+  }
+  final current = _overlaySessionBinding(
+    cache,
+    await store.readBridgeDescriptor(),
+  );
+  if (expected == null) {
+    return current == null;
+  }
+  return expected.matches(current);
+}
+
+Map<String, Object?> _staleSessionResponse({
+  required String? id,
+  required String type,
+}) {
+  return nativeHostErrorResponse(
+    id: id,
+    type: type,
+    code: 'stale_session',
+    message: 'KeyVault session changed. Query the current site again.',
+  );
+}
+
 Map<String, Object?> _successResponse({
   required String? id,
   required String type,
@@ -750,6 +1191,48 @@ Future<_RevealBridgeResult> _requestRevealFromAppBridge({
   required String entryId,
   required String origin,
 }) async {
+  final call = await _postToAppBridge(
+    descriptor: descriptor,
+    path: '/reveal',
+    body: {
+      'version': desktopBrowserAutofillBridgeDescriptorVersion,
+      'databaseId': databaseId,
+      'entryId': entryId,
+      'origin': origin,
+    },
+  );
+  if (call.errorCode != null) {
+    return _RevealBridgeResult.error(call.errorCode!);
+  }
+
+  final data = call.data;
+  final returnedEntryId = data?['entryId'];
+  final username = data?['username'];
+  final password = data?['password'];
+  if (returnedEntryId != entryId ||
+      username is! String ||
+      password is! String ||
+      utf8.encode(username).length > _maxRevealUsernameBytes ||
+      utf8.encode(password).length > _maxRevealPasswordBytes) {
+    return const _RevealBridgeResult.error('app_bridge_invalid_response');
+  }
+
+  return _RevealBridgeResult.success(
+    entryId: returnedEntryId as String,
+    username: username,
+    password: password,
+  );
+}
+
+/// Direct loopback POST to the app bridge with bearer auth and the 2-second
+/// timeout budget. Shared by the popup and overlay reveal paths; the two differ
+/// in what they send and in how strictly they validate what comes back, never
+/// in transport.
+Future<({Map<String, Object?>? data, String? errorCode})> _postToAppBridge({
+  required DesktopBrowserAutofillBridgeDescriptor descriptor,
+  required String path,
+  required Map<String, Object?> body,
+}) async {
   final client = HttpClient()
     ..connectionTimeout = _revealBridgeTimeout
     ..findProxy = (_) => 'DIRECT';
@@ -758,7 +1241,7 @@ Future<_RevealBridgeResult> _requestRevealFromAppBridge({
       scheme: 'http',
       host: InternetAddress.loopbackIPv4.address,
       port: descriptor.port,
-      path: '/reveal',
+      path: path,
     );
     final request = await client.postUrl(uri).timeout(_revealBridgeTimeout);
     request.headers.contentType = ContentType.json;
@@ -766,14 +1249,7 @@ Future<_RevealBridgeResult> _requestRevealFromAppBridge({
       HttpHeaders.authorizationHeader,
       'Bearer ${descriptor.token}',
     );
-    request.write(
-      jsonEncode({
-        'version': desktopBrowserAutofillBridgeDescriptorVersion,
-        'databaseId': databaseId,
-        'entryId': entryId,
-        'origin': origin,
-      }),
-    );
+    request.write(jsonEncode(body));
 
     final response = await request.close().timeout(_revealBridgeTimeout);
     final bytes = await _readHttpResponseBytes(
@@ -782,39 +1258,23 @@ Future<_RevealBridgeResult> _requestRevealFromAppBridge({
     ).timeout(_revealBridgeTimeout);
     final decoded = _decodeBridgeResponse(bytes);
     if (decoded == null) {
-      return const _RevealBridgeResult.error('app_bridge_invalid_response');
+      return (data: null, errorCode: 'app_bridge_invalid_response');
     }
-
     if (response.statusCode != HttpStatus.ok) {
-      final code = _safeBridgeErrorCode(decoded);
-      return _RevealBridgeResult.error(code ?? 'app_bridge_error');
+      return (
+        data: null,
+        errorCode: _safeBridgeErrorCode(decoded) ?? 'app_bridge_error',
+      );
     }
-
-    final data = _asStringObjectMap(decoded['data']);
-    final returnedEntryId = data?['entryId'];
-    final username = data?['username'];
-    final password = data?['password'];
-    if (returnedEntryId != entryId ||
-        username is! String ||
-        password is! String ||
-        utf8.encode(username).length > _maxRevealUsernameBytes ||
-        utf8.encode(password).length > _maxRevealPasswordBytes) {
-      return const _RevealBridgeResult.error('app_bridge_invalid_response');
-    }
-
-    return _RevealBridgeResult.success(
-      entryId: returnedEntryId as String,
-      username: username,
-      password: password,
-    );
+    return (data: _asStringObjectMap(decoded['data']), errorCode: null);
   } on TimeoutException {
-    return const _RevealBridgeResult.error('app_bridge_timeout');
+    return (data: null, errorCode: 'app_bridge_timeout');
   } on SocketException {
-    return const _RevealBridgeResult.error('app_bridge_unavailable');
+    return (data: null, errorCode: 'app_bridge_unavailable');
   } on HttpException {
-    return const _RevealBridgeResult.error('app_bridge_error');
+    return (data: null, errorCode: 'app_bridge_error');
   } catch (_) {
-    return const _RevealBridgeResult.error('app_bridge_error');
+    return (data: null, errorCode: 'app_bridge_error');
   } finally {
     client.close(force: true);
   }
@@ -1033,13 +1493,15 @@ int _scoreMetadataEntry({
 
 Map<String, Object?> _metadataResult(
   DesktopBrowserAutofillCredentialMetadata entry,
-  String matchType,
-) {
+  String matchType, {
+  bool fillEligible = false,
+}) {
   return {
     'entryId': entry.id,
     'title': entry.title,
     'displayService': entry.displayService,
     'matchType': matchType,
+    'fillEligible': fillEligible,
   };
 }
 
@@ -1160,6 +1622,9 @@ String _publicRevealErrorMessage(String code) {
     'app_bridge_invalid_response' =>
       'KeyVault reveal bridge returned an invalid response.',
     'database_mismatch' => 'KeyVault database changed. Query the site again.',
+    'stale_session' => 'KeyVault session changed. Query the site again.',
+    'forbidden' => 'Overlay fill is not authorized for this site.',
+    'not_found' => 'KeyVault reveal bridge does not support this request.',
     'credential_unavailable' => 'Requested credential is unavailable.',
     'strong_match_required' =>
       'Credential reveal requires an exact strong match for the current site.',
