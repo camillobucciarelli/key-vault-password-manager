@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../../domain/models/vault_entry.dart';
+import 'browser_exact_origin.dart';
 
 /// Bumped 2 -> 3 with the reveal-authorization fix.
 ///
@@ -26,8 +27,20 @@ import '../../domain/models/vault_entry.dart';
 /// data and cannot constrain the match. Any port of that host would stay
 /// authorized until the cache happened to be rewritten — which is exactly the
 /// LAN / shared-host case the scheme de-pin exists to serve.
-const desktopBrowserAutofillCacheVersion = 4;
-const desktopBrowserAutofillBridgeDescriptorVersion = 1;
+///
+/// Bumped 4 -> 5 for spec 009 Slice A1. Two reasons, both load-bearing:
+/// a version 4 cache carries no `cacheGeneration`, so the overlay session
+/// binding of SR-4 simply does not exist in the data and could only be faked;
+/// and it carries no `exactOrigin` identifier, so every entry would look
+/// domain-only to the overlay policy. Rejecting the old version regenerates
+/// both deterministically at the next unlock.
+const desktopBrowserAutofillCacheVersion = 5;
+
+/// Bumped 1 -> 2 for spec 009 Slice A1: the descriptor now carries the
+/// `bridgeGeneration` minted per bridge start and the `cacheGeneration` of the
+/// metadata cache it was started for. A version 1 descriptor cannot satisfy the
+/// SR-4 binding, so it is rejected rather than treated as unbound.
+const desktopBrowserAutofillBridgeDescriptorVersion = 2;
 const desktopBrowserAutofillPlatform = 'desktop/browser';
 const desktopBrowserAutofillMaxPendingAssociations = 100;
 
@@ -142,6 +155,7 @@ class DesktopBrowserAutofillMetadataCache {
   const DesktopBrowserAutofillMetadataCache({
     required this.version,
     required this.databaseId,
+    required this.cacheGeneration,
     required this.generatedAtEpochMs,
     required this.entries,
   });
@@ -152,6 +166,7 @@ class DesktopBrowserAutofillMetadataCache {
     return DesktopBrowserAutofillMetadataCache(
       version: _readInt(json, 'version'),
       databaseId: _readString(json, 'databaseId'),
+      cacheGeneration: _readString(json, 'cacheGeneration'),
       generatedAtEpochMs: _readInt(json, 'generatedAtEpochMs'),
       entries: _readList(json, 'entries')
           .whereType<Map>()
@@ -165,12 +180,20 @@ class DesktopBrowserAutofillMetadataCache {
 
   final int version;
   final String databaseId;
+
+  /// SR-4 — opaque non-secret 128-bit generation, new on every publish.
+  ///
+  /// It is not a capability: knowing it grants nothing. It exists so that a
+  /// republish of the *same* vault invalidates every older overlay grant by
+  /// comparison, without the extension having to observe the event.
+  final String cacheGeneration;
   final int generatedAtEpochMs;
   final List<DesktopBrowserAutofillCredentialMetadata> entries;
 
   Map<String, Object?> toJson() => {
     'version': version,
     'databaseId': databaseId,
+    'cacheGeneration': cacheGeneration,
     'generatedAtEpochMs': generatedAtEpochMs,
     'entries': entries.map((entry) => entry.toJson()).toList(growable: false),
   };
@@ -182,6 +205,8 @@ class DesktopBrowserAutofillBridgeDescriptor {
     required this.port,
     required this.token,
     required this.databaseId,
+    required this.cacheGeneration,
+    required this.bridgeGeneration,
     required this.createdAtEpochMs,
   });
 
@@ -193,6 +218,8 @@ class DesktopBrowserAutofillBridgeDescriptor {
       port: _readInt(json, 'port'),
       token: _readString(json, 'token'),
       databaseId: _readString(json, 'databaseId'),
+      cacheGeneration: _readString(json, 'cacheGeneration'),
+      bridgeGeneration: _readString(json, 'bridgeGeneration'),
       createdAtEpochMs: _readInt(json, 'createdAtEpochMs'),
     );
   }
@@ -201,6 +228,14 @@ class DesktopBrowserAutofillBridgeDescriptor {
   final int port;
   final String token;
   final String databaseId;
+
+  /// The `cacheGeneration` of the metadata cache this bridge was started for.
+  /// The bridge does not mint it: it reads it from the published cache, so the
+  /// two can never disagree by construction.
+  final String cacheGeneration;
+
+  /// SR-4 — opaque non-secret 128-bit generation, new on every bridge start.
+  final String bridgeGeneration;
   final int createdAtEpochMs;
 
   Map<String, Object?> toJson() => {
@@ -208,6 +243,8 @@ class DesktopBrowserAutofillBridgeDescriptor {
     'port': port,
     'token': token,
     'databaseId': databaseId,
+    'cacheGeneration': cacheGeneration,
+    'bridgeGeneration': bridgeGeneration,
     'createdAtEpochMs': createdAtEpochMs,
   };
 }
@@ -416,7 +453,8 @@ class DesktopBrowserAutofillCacheStore {
       }
       final cache = DesktopBrowserAutofillMetadataCache.fromJson(map);
       if (cache.version != desktopBrowserAutofillCacheVersion ||
-          cache.databaseId.isEmpty) {
+          cache.databaseId.isEmpty ||
+          cache.cacheGeneration.isEmpty) {
         return null;
       }
       return cache;
@@ -457,7 +495,13 @@ class DesktopBrowserAutofillCacheStore {
           descriptor.port < 1 ||
           descriptor.port > 65535 ||
           descriptor.token.length < 32 ||
-          descriptor.databaseId.isEmpty) {
+          descriptor.databaseId.isEmpty ||
+          // `cacheGeneration` is deliberately allowed to be empty: the bridge
+          // copies it from the published metadata cache, and a bridge running
+          // without one is still perfectly valid for the popup reveal path. It
+          // just cannot satisfy the overlay binding, which requires the value
+          // to be non-empty *and* equal to the current cache's.
+          descriptor.bridgeGeneration.isEmpty) {
         return null;
       }
       return descriptor;
@@ -643,6 +687,9 @@ class DesktopBrowserAutofillMetadataMapper {
     return DesktopBrowserAutofillMetadataCache(
       version: desktopBrowserAutofillCacheVersion,
       databaseId: databaseIdForPath(databasePath),
+      // SR-4: a brand new generation on every publish, including a republish of
+      // the same vault.
+      cacheGeneration: newDesktopBrowserAutofillGeneration(),
       generatedAtEpochMs: generatedAt,
       entries: entries
           .map((entry) => mapEntry(entry, updatedAtEpochMs: generatedAt))
@@ -985,6 +1032,7 @@ class DesktopBrowserAutofillMetadataMapper {
     if (host != null) {
       add(DesktopBrowserAutofillServiceIdentifier(type: 'domain', value: host));
     }
+    add(_exactOriginIdentifier(entry.url));
 
     for (final field in entry.customFields) {
       final key = _normalizeFieldKey(field.key);
@@ -1024,10 +1072,40 @@ class DesktopBrowserAutofillMetadataMapper {
               ),
             );
           }
+          add(_exactOriginIdentifier(value));
         }
       }
     }
     return identifiers;
+  }
+
+  /// The 009 overlay identifier for a stored URL, or `null` when the stored
+  /// value is not an absolute http(s) URL.
+  ///
+  /// Deliberately *not* derived from [normalizedOrigin]: that helper routes
+  /// through `_cleanHost`, so by the time it returns, `https://www.example.com`
+  /// has already become `https://example.com` and the label the user wrote is
+  /// gone. An identifier that has lost a hostname label cannot authorize an
+  /// exact-origin fill, which is why the overlay policy reads this type and
+  /// never the `url` type.
+  ///
+  /// The same de-pin rule as the `url` identifier applies: a URL field holding
+  /// a bare host declares no scheme, so it yields no exact origin and the entry
+  /// stays domain-only — visible as possible metadata, never fillable.
+  static DesktopBrowserAutofillServiceIdentifier? _exactOriginIdentifier(
+    String? rawValue,
+  ) {
+    if (!_hasExplicitScheme(rawValue)) {
+      return null;
+    }
+    final exactOrigin = browserExactOriginOrNull(rawValue?.trim());
+    if (exactOrigin == null) {
+      return null;
+    }
+    return DesktopBrowserAutofillServiceIdentifier(
+      type: exactOriginServiceIdentifierType,
+      value: exactOrigin,
+    );
   }
 
   String _trimForMetadata(String value, {String fallback = ''}) {
@@ -1246,6 +1324,19 @@ String? _firstNonEmpty(Iterable<String?> values) {
     }
   }
   return null;
+}
+
+/// A fresh opaque non-secret 128-bit generation id (SR-4).
+///
+/// Random rather than a counter so that two independent app runs, or a vault
+/// republished after a crash, cannot reproduce an older value and silently
+/// revalidate a stale overlay grant.
+String newDesktopBrowserAutofillGeneration() {
+  final random = Random.secure();
+  return List<int>.generate(
+    16,
+    (_) => random.nextInt(256),
+  ).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
 }
 
 String _newPendingId() {

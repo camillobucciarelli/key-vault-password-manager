@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:password_manager/features/password_manager/data/services/browser_exact_origin.dart';
 import 'package:password_manager/features/password_manager/data/services/desktop_browser_autofill_cache.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
@@ -79,6 +80,7 @@ void main() {
           const DesktopBrowserAutofillMetadataCache(
             version: desktopBrowserAutofillCacheVersion,
             databaseId: 'db-1',
+            cacheGeneration: 'cache-gen-1',
             generatedAtEpochMs: 1,
             entries: [
               DesktopBrowserAutofillCredentialMetadata(
@@ -111,6 +113,8 @@ void main() {
             port: 49152,
             token: 'test-token-test-token-test-token-test-token',
             databaseId: 'db-1',
+            cacheGeneration: 'cache-gen-1',
+            bridgeGeneration: 'bridge-gen-1',
             createdAtEpochMs: 1,
           ),
         );
@@ -139,6 +143,8 @@ void main() {
           port: 49152,
           token: 'test-token-test-token-test-token-test-token',
           databaseId: 'db-1',
+          cacheGeneration: 'cache-gen-1',
+          bridgeGeneration: 'bridge-gen-1',
           createdAtEpochMs: 1,
         ),
       );
@@ -165,6 +171,7 @@ void main() {
           const DesktopBrowserAutofillMetadataCache(
             version: desktopBrowserAutofillCacheVersion,
             databaseId: 'db-1',
+            cacheGeneration: 'cache-gen-1',
             generatedAtEpochMs: 1,
             entries: [
               DesktopBrowserAutofillCredentialMetadata(
@@ -254,7 +261,39 @@ void main() {
           type: 'domain',
           value: 'bank.example',
         ),
+        // 009 / A011. The `url` value above has already been through
+        // `_cleanHost`, so it cannot authorize an exact-origin fill; the
+        // overlay policy reads this third identifier instead.
+        DesktopBrowserAutofillServiceIdentifier(
+          type: exactOriginServiceIdentifierType,
+          value: 'https://bank.example',
+        ),
       ]);
+    });
+
+    test('the exact-origin identifier keeps every hostname label', () {
+      // The `url` and `domain` values below have been through `_cleanHost` and
+      // no longer say `www.`; the exact-origin one must.
+      final identifiers = identifiersFor('https://www.bank.example/login');
+      expect(
+        identifiers.singleWhere(
+          (i) => i.type == exactOriginServiceIdentifierType,
+        ),
+        const DesktopBrowserAutofillServiceIdentifier(
+          type: exactOriginServiceIdentifierType,
+          value: 'https://www.bank.example',
+        ),
+      );
+      expect(
+        identifiers.where((i) => i.type != exactOriginServiceIdentifierType),
+        everyElement(
+          isA<DesktopBrowserAutofillServiceIdentifier>().having(
+            (i) => i.value,
+            'value',
+            isNot(contains('www.')),
+          ),
+        ),
+      );
     });
 
     test('a non-http scheme silently declasses the entry to domain-only', () {

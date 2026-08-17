@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:password_manager/features/password_manager/data/services/browser_exact_origin.dart';
 import 'package:password_manager/features/password_manager/data/services/desktop_browser_autofill_cache.dart';
 import 'package:password_manager/features/password_manager/data/services/desktop_browser_autofill_reveal_bridge_service.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
@@ -602,6 +603,296 @@ void main() {
       );
     });
   });
+
+  group('009 A012 — origin-bound overlay reveal', () {
+    test('reveals for an exact origin and echoes the binding', () async {
+      final bridge = await _startOverlayBridge();
+
+      final response = await _postBridge(
+        descriptor: bridge.descriptor,
+        path: '/overlay-reveal',
+        body: _overlayBody(bridge.descriptor),
+      );
+
+      expect(response.statusCode, HttpStatus.ok);
+      final data = response.json['data']! as Map<String, Object?>;
+      expect(data['password'], 'test-only-secret');
+      expect(data['matchPolicy'], overlayMatchPolicy);
+      expect(data['origin'], 'https://example.com');
+      expect(data['databaseId'], bridge.descriptor.databaseId);
+      expect(data['cacheGeneration'], bridge.descriptor.cacheGeneration);
+      expect(data['bridgeGeneration'], bridge.descriptor.bridgeGeneration);
+      expect(bridge.descriptor.cacheGeneration, isNotEmpty);
+      expect(bridge.descriptor.bridgeGeneration, isNotEmpty);
+    });
+
+    test(
+      'a domain-only entry is refused where the popup would allow it',
+      () async {
+        final entry = _entry(
+          id: 'entry-1',
+          username: 'alice',
+          password: 'test-only-secret',
+          // No scheme: the entry stays domain-only, which the popup policy
+          // authorizes on an https page and the overlay policy never does.
+          url: 'example.com',
+        );
+        final bridge = await _startOverlayBridge(entries: [entry]);
+
+        final popup = await _postBridge(
+          descriptor: bridge.descriptor,
+          body: {
+            'databaseId': bridge.descriptor.databaseId,
+            'entryId': 'entry-1',
+            'origin': 'https://example.com',
+          },
+        );
+        expect(
+          popup.statusCode,
+          HttpStatus.ok,
+          reason: 'popup policy unchanged',
+        );
+
+        final overlay = await _postBridge(
+          descriptor: bridge.descriptor,
+          path: '/overlay-reveal',
+          body: _overlayBody(bridge.descriptor),
+        );
+        expect(overlay.statusCode, HttpStatus.forbidden);
+        expect(
+          (overlay.json['error']! as Map<String, Object?>)['code'],
+          'forbidden',
+        );
+        expect(jsonEncode(overlay.json), isNot(contains('test-only-secret')));
+      },
+    );
+
+    test('a www. entry does not authorize the bare host, end to end', () async {
+      final bridge = await _startOverlayBridge(
+        entries: [
+          _entry(
+            id: 'entry-1',
+            username: 'alice',
+            password: 'test-only-secret',
+            url: 'https://www.example.com/login',
+          ),
+        ],
+      );
+
+      final onOwnOrigin = await _postBridge(
+        descriptor: bridge.descriptor,
+        path: '/overlay-reveal',
+        body: _overlayBody(
+          bridge.descriptor,
+          origin: 'https://www.example.com',
+        ),
+      );
+      expect(onOwnOrigin.statusCode, HttpStatus.ok);
+
+      // `_cleanHost` collapses these two names for possible-match ranking. That
+      // collapse must never reach the overlay authorization path.
+      final onBareHost = await _postBridge(
+        descriptor: bridge.descriptor,
+        path: '/overlay-reveal',
+        body: _overlayBody(bridge.descriptor, origin: 'https://example.com'),
+      );
+      expect(onBareHost.statusCode, HttpStatus.forbidden);
+      expect(jsonEncode(onBareHost.json), isNot(contains('test-only-secret')));
+    });
+
+    test('an unknown entry and an unauthorized origin look alike', () async {
+      final bridge = await _startOverlayBridge();
+
+      final unknown = await _postBridge(
+        descriptor: bridge.descriptor,
+        path: '/overlay-reveal',
+        body: _overlayBody(bridge.descriptor, entryId: 'no-such-entry'),
+      );
+      final unauthorized = await _postBridge(
+        descriptor: bridge.descriptor,
+        path: '/overlay-reveal',
+        body: _overlayBody(
+          bridge.descriptor,
+          origin: 'https://www.example.com',
+        ),
+      );
+
+      expect(unknown.statusCode, unauthorized.statusCode);
+      expect(unknown.json, unauthorized.json);
+    });
+
+    for (final mismatch in const [
+      'databaseId',
+      'cacheGeneration',
+      'bridgeGeneration',
+    ]) {
+      test('$mismatch mismatch is stale_session, not a secret', () async {
+        final bridge = await _startOverlayBridge();
+        // The hook runs after the credential lookup, so a stale request that
+        // never reaches it proves the *first* check refused it before the
+        // credential map was ever consulted (SR-4: before lookup, and again
+        // before response).
+        var reachedLookup = 0;
+        bridge.service.debugBeforeOverlayRevealResponse = () async {
+          reachedLookup += 1;
+        };
+
+        final response = await _postBridge(
+          descriptor: bridge.descriptor,
+          path: '/overlay-reveal',
+          body: _overlayBody(
+            bridge.descriptor,
+            databaseId: mismatch == 'databaseId' ? 'db-other' : null,
+            cacheGeneration: mismatch == 'cacheGeneration' ? 'other' : null,
+            bridgeGeneration: mismatch == 'bridgeGeneration' ? 'other' : null,
+          ),
+        );
+
+        expect(response.statusCode, HttpStatus.conflict);
+        expect(
+          (response.json['error']! as Map<String, Object?>)['code'],
+          'stale_session',
+        );
+        expect(reachedLookup, 0);
+        expect(jsonEncode(response.json), isNot(contains('test-only-secret')));
+      });
+    }
+
+    test('a request without the strict policy is refused', () async {
+      final bridge = await _startOverlayBridge();
+
+      final response = await _postBridge(
+        descriptor: bridge.descriptor,
+        path: '/overlay-reveal',
+        body: _overlayBody(bridge.descriptor, matchPolicy: 'host'),
+      );
+
+      expect(response.statusCode, HttpStatus.badRequest);
+      expect(
+        (response.json['error']! as Map<String, Object?>)['code'],
+        'invalid_request',
+      );
+    });
+
+    test('the overlay endpoint still requires the bearer token', () async {
+      final bridge = await _startOverlayBridge();
+
+      final response = await _postBridge(
+        descriptor: bridge.descriptor,
+        path: '/overlay-reveal',
+        body: _overlayBody(bridge.descriptor),
+        authorizationToken: 'wrong-token-wrong-token-wrong-token',
+      );
+
+      expect(response.statusCode, HttpStatus.unauthorized);
+      expect(jsonEncode(response.json), isNot(contains('test-only-secret')));
+    });
+
+    test(
+      'a vault switch between the lookup and the response is stale_session',
+      () async {
+        final bridge = await _startOverlayBridge();
+        // The second check exists exactly for this window: everything was
+        // current when the credential was found, and is not current any more
+        // when the answer would be written.
+        bridge.service.debugBeforeOverlayRevealResponse = () async {
+          await bridge.store.writeBridgeDescriptor(
+            DesktopBrowserAutofillBridgeDescriptor(
+              version: desktopBrowserAutofillBridgeDescriptorVersion,
+              port: bridge.descriptor.port,
+              token: bridge.descriptor.token,
+              databaseId: 'sha256:other-vault',
+              cacheGeneration: 'other-cache-generation',
+              bridgeGeneration: 'other-bridge-generation',
+              createdAtEpochMs: 2,
+            ),
+          );
+        };
+
+        final response = await _postBridge(
+          descriptor: bridge.descriptor,
+          path: '/overlay-reveal',
+          body: _overlayBody(bridge.descriptor),
+        );
+
+        expect(response.statusCode, HttpStatus.conflict);
+        expect(
+          (response.json['error']! as Map<String, Object?>)['code'],
+          'stale_session',
+        );
+        final encoded = jsonEncode(response.json);
+        expect(encoded, isNot(contains('test-only-secret')));
+        expect(encoded, isNot(contains('other-vault-secret')));
+      },
+    );
+  });
+}
+
+/// 009 / A012 — the origin-bound overlay endpoint on the app bridge.
+///
+/// Publishes a metadata cache first, exactly like the coordinator does, because
+/// the bridge copies its `cacheGeneration` from the published cache.
+Future<
+  ({
+    DesktopBrowserAutofillBridgeDescriptor descriptor,
+    DesktopBrowserAutofillRevealBridgeService service,
+    DesktopBrowserAutofillCacheStore store,
+  })
+>
+_startOverlayBridge({List<VaultEntry>? entries}) async {
+  final store = DesktopBrowserAutofillCacheStore(
+    directory: await Directory.systemTemp.createTemp('kv-overlay-bridge-'),
+  );
+  const mapper = DesktopBrowserAutofillMetadataMapper();
+  final vaultEntries =
+      entries ??
+      [
+        _entry(
+          id: 'entry-1',
+          username: 'alice',
+          password: 'test-only-secret',
+          url: 'https://example.com/login',
+        ),
+      ];
+  await store.writeMetadataCache(
+    mapper.mapVault(
+      databasePath: '/vaults/example.kdbx',
+      entries: vaultEntries,
+    ),
+  );
+  final service = DesktopBrowserAutofillRevealBridgeService(
+    store: store,
+    mapper: mapper,
+  );
+  addTearDown(service.stop);
+  await service.start(
+    databasePath: '/vaults/example.kdbx',
+    entries: vaultEntries,
+  );
+  return (
+    descriptor: (await store.readBridgeDescriptor())!,
+    service: service,
+    store: store,
+  );
+}
+
+Map<String, Object?> _overlayBody(
+  DesktopBrowserAutofillBridgeDescriptor descriptor, {
+  String entryId = 'entry-1',
+  String origin = 'https://example.com',
+  String? databaseId,
+  String? cacheGeneration,
+  String? bridgeGeneration,
+  String matchPolicy = overlayMatchPolicy,
+}) {
+  return {
+    'entryId': entryId,
+    'origin': origin,
+    'matchPolicy': matchPolicy,
+    'databaseId': databaseId ?? descriptor.databaseId,
+    'cacheGeneration': cacheGeneration ?? descriptor.cacheGeneration,
+    'bridgeGeneration': bridgeGeneration ?? descriptor.bridgeGeneration,
+  };
 }
 
 Future<_RevealHttpResponse> _postBridge({
