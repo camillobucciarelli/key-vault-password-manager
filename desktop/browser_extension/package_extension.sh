@@ -14,11 +14,19 @@ cp "${SCRIPT_DIR}/../../LICENSE-EXCEPTIONS.txt" "${SCRIPT_DIR}/LICENSE-EXCEPTION
 trap 'rm -f "${SCRIPT_DIR}/LICENSE" "${SCRIPT_DIR}/LICENSE-EXCEPTIONS.txt"' EXIT
 
 cd "${SCRIPT_DIR}"
+# Explicit allowlist, not a glob. A runtime file missing from this list is left
+# out of the ZIP silently: zip exits 0, the build is green, and the extension
+# breaks only once installed. Every task that adds a runtime file adds it here
+# in the same commit (spec 009 A042). `test/overlay_lifecycle.test.js` asserts
+# the list stays complete, so the omission fails a test instead of a user.
 zip -X "${OUT_FILE}" \
   LICENSE \
   LICENSE-EXCEPTIONS.txt \
   manifest.json \
   background.js \
+  overlay_security.js \
+  overlay_lifecycle.js \
+  content_overlay.js \
   popup.html \
   popup.js \
   popup.css \

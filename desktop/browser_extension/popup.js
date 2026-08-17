@@ -604,9 +604,136 @@ async function renderMatchesState(tab, origin, response) {
   void reportMatchCountForBadge(tab.id, strong.length, possible.length);
 }
 
+// ---------- 009 A017 — "Show the overlay on this site" ----------
+
+const overlaySecurity = globalThis.KeyVaultOverlaySecurity;
+
+// Transient, popup-lifetime only: a declined permission prompt is not durable
+// state and must never be persisted.
+let overlayRequestDenied = false;
+
+function overlayControlCopy(state) {
+  switch (state) {
+    case "unsupported":
+      return {
+        title: "Overlay unavailable here",
+        meta: "The in-page overlay works only on http(s) pages.",
+        action: null,
+      };
+    case "reconciling":
+      return { title: "Show the overlay on this site", meta: "Checking\u2026", action: null };
+    case "enabled":
+      return {
+        title: "Show the overlay on this site",
+        meta: "On for this exact site, scheme and port.",
+        action: "Turn off",
+      };
+    case "denied":
+      return {
+        title: "Show the overlay on this site",
+        meta: "Site access was declined. Nothing was saved.",
+        action: "Try again",
+      };
+    default:
+      return {
+        title: "Show the overlay on this site",
+        meta: "Off. KeyVault asks for access to this site first.",
+        action: "Turn on",
+      };
+  }
+}
+
+function renderOverlayControl(state, onToggle) {
+  const copy = overlayControlCopy(state);
+  const row = el("div", "tab-row");
+  const info = el("div", "tab-info");
+  info.appendChild(el("div", "tab-title", copy.title));
+  info.appendChild(el("div", "tab-meta", copy.meta));
+  row.appendChild(info);
+  if (copy.action) {
+    const button = el("button", "tab-action", copy.action);
+    button.type = "button";
+    button.id = "overlayToggle";
+    button.addEventListener("click", onToggle);
+    row.appendChild(button);
+  }
+  return row;
+}
+
+async function sendOverlayMessage(type, fields) {
+  return sendExtensionMessage({
+    channel: overlaySecurity.CHANNEL,
+    version: overlaySecurity.MESSAGE_VERSION,
+    type,
+    ...fields,
+  });
+}
+
+/**
+ * The permission request lives here and nowhere else: it needs the popup's user
+ * gesture, so it is issued synchronously from the click handler before any
+ * await. Only after the browser reports a grant does the background worker get
+ * asked to persist the opt-in — and it re-verifies the grant before writing.
+ */
+function requestOverlayPermission(origin) {
+  const pattern = overlaySecurity.permissionPatternForOrigin(origin);
+  if (pattern === null) return Promise.resolve(false);
+  return chrome.permissions.request({ origins: [pattern] }).catch(() => false);
+}
+
+async function appendOverlayControl() {
+  const tab = await getActiveTab();
+  const origin = overlaySecurity.canonicalOriginOrNull(tab?.url || "");
+  if (origin === null || typeof tab?.id !== "number") {
+    bodyElement.appendChild(renderOverlayControl("unsupported", null));
+    return;
+  }
+
+  const response = await sendOverlayMessage("getSiteState", {
+    tabId: tab.id,
+    origin,
+  });
+  const state =
+    response?.ok === true
+      ? response.state
+      : overlayRequestDenied
+        ? "denied"
+        : "disabled";
+
+  bodyElement.appendChild(
+    renderOverlayControl(state, () => {
+      void toggleOverlayForSite(state, tab.id, origin);
+    })
+  );
+}
+
+async function toggleOverlayForSite(state, tabId, origin) {
+  if (state === "enabled") {
+    overlayRequestDenied = false;
+    await sendOverlayMessage("setSiteState", { tabId, origin, enabled: false });
+    void initializePopup();
+    return;
+  }
+
+  const granted = await requestOverlayPermission(origin);
+  if (granted !== true) {
+    overlayRequestDenied = true;
+    void initializePopup();
+    return;
+  }
+  overlayRequestDenied = false;
+  await sendOverlayMessage("setSiteState", { tabId, origin, enabled: true });
+  void initializePopup();
+}
+
 // ---------- entry point ----------
 
 async function initializePopup() {
+  await renderPopupState();
+  await appendOverlayControl();
+}
+
+async function renderPopupState() {
   setMarkDim(true);
   clearBody();
   bodyElement.appendChild(renderStatusMessage("Checking native host\u2026"));
@@ -686,7 +813,7 @@ async function initializePopup() {
     return;
   }
 
-  void renderMatchesState(tab, origin, queryResponse);
+  await renderMatchesState(tab, origin, queryResponse);
 }
 
 if (document.readyState === "loading") {
