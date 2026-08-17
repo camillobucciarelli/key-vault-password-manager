@@ -36,6 +36,42 @@ jobs:
       # Goldens remain a local pre-push check per AGENTS.md.
       - run: flutter test $(find test -name '*_test.dart' ! -path 'test/goldens/*')
 
+  # Separate from the Flutter jobs on purpose: these checks share no toolchain
+  # with them, so a failure here names the extension directly instead of hiding
+  # inside a red `test` job, and it does not wait on `flutter pub get`.
+  extension-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      # Pinned, not `latest`: Node 24 is the current Active LTS (maintained to
+      # 2026-04) and matches the local dev version, so CI and local runs of the
+      # built-in runner agree. Node 20 is already EOL. `node --test` needs >= 18.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # Gate A0 of spec 009. `shopt -s failglob` is load-bearing: with bash's
+      # default behaviour an unmatched glob is passed through *literally*, and
+      # `node --test` then reports "tests 0" and exits 0 — a green check that
+      # verified nothing. failglob aborts the step instead. (`nullglob` would be
+      # just as wrong: the pattern vanishes and the run still exits 0.)
+      - name: Gate A0 - browser extension security harness
+        shell: bash
+        run: |
+          shopt -s failglob
+          node --test desktop/browser_extension/test/*.test.js
+
+      # Syntax gate from A045, restricted to the files that exist today.
+      # content_overlay.js is deliberately omitted: it arrives in Slice A4 and
+      # naming it now would fail CI on every PR until then.
+      - name: Syntax check extension sources
+        shell: bash
+        run: |
+          node --check desktop/browser_extension/overlay_security.js
+          node --check desktop/browser_extension/background.js
+          node --check desktop/browser_extension/popup.js
+
   dependency-audit:
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@v2.5.0
     with:
