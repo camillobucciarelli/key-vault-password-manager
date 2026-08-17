@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../../../core/utils/portable_path.dart';
 import '../../domain/models/database_sync_mapping.dart';
 
 abstract class SyncMetadataDataSource {
@@ -104,18 +105,44 @@ class SyncMetadataDataSourceImpl implements SyncMetadataDataSource {
       return const [];
     }
 
+    final documentsRoot = await PortablePath.documentsRoot();
     return decoded
         .whereType<Map>()
-        .map(
-          (item) => DatabaseSyncMapping.fromMap(
+        .map((item) {
+          final mapping = DatabaseSyncMapping.fromMap(
             item.map((key, value) => MapEntry(key.toString(), value)),
-          ),
-        )
+          );
+          // `databasePath` doubles as the mapping key, so it is restored to an
+          // absolute path here and re-encoded on save.
+          return mapping.copyWith(
+            databasePath: PortablePath.decode(
+              mapping.databasePath,
+              documentsRoot,
+            ),
+          );
+        })
         .toList(growable: false);
   }
 
   Future<void> _saveMappings(List<DatabaseSyncMapping> mappings) async {
-    final encoded = jsonEncode(mappings.map((m) => m.toMap()).toList());
+    // Resolved once, outside the loop: symlink resolution is filesystem I/O.
+    final resolvedRoot = PortablePath.resolveForComparison(
+      await PortablePath.documentsRoot(),
+    );
+    final encoded = jsonEncode(
+      mappings
+          .map(
+            (m) => m
+                .copyWith(
+                  databasePath: PortablePath.encodeWithResolvedRoot(
+                    m.databasePath,
+                    resolvedRoot,
+                  ),
+                )
+                .toMap(),
+          )
+          .toList(),
+    );
     final file = await _syncMappingsFile();
     await file.writeAsString(encoded, flush: true);
   }
