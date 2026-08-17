@@ -352,7 +352,7 @@ function renderHostMissingState() {
     el(
       "p",
       "host-missing-text",
-      "The messaging host isn\u2019t registered for this browser. The KDBX Vault Manager desktop app can walk you through it in Desktop browser extension."
+      "The messaging host isn\u2019t registered for this browser. Open Settings \u2192 Autofill \u0026 browsers in the KDBX Vault Manager desktop app to set it up."
     )
   );
   const actions = el("div", "action-row");

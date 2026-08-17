@@ -7,8 +7,9 @@ fill pages silently.
 
 Production setup:
 
-1. Install KDBX Vault Manager from Chrome Web Store.
-2. Open **Desktop browser extension** in KDBX Vault Manager.
+1. Install the KDBX Vault Manager extension from the Chrome Web Store.
+2. In the KDBX Vault Manager desktop app, open **Settings → Autofill &
+   browsers**.
 3. On Windows/Linux, click **Configure Chrome**. On macOS, download and run the
    signed **KeyVault Chrome Support** package offered by the app.
 4. Restart Chrome, unlock the vault, then open the extension popup.
