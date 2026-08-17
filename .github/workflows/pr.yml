@@ -78,6 +78,27 @@ jobs:
           node --check desktop/browser_extension/background.js
           node --check desktop/browser_extension/popup.js
 
+      # Keeps the mutation definitions honest without running them.
+      #
+      # `--dry-run` applies every mutation to the real sources, restores each
+      # one, and verifies the restore byte-for-byte. It runs NO tests, so it
+      # costs well under a second and needs no Flutter toolchain. What it
+      # catches is the failure mode that silently rots a mutation table: a
+      # refactor moves the code a definition targets, the literal `find` stops
+      # matching, and the mutation quietly tests nothing while still printing a
+      # kill count. That is a hard error here, and it is the same class of bug
+      # as the `failglob` trap above — a check that passes by doing nothing.
+      #
+      # The FULL run (`--check`, ~20s) is deliberately NOT wired in yet. It is
+      # green today, but a brand-new gate that blocks every PR the first time it
+      # produces a false positive is a gate that gets switched off. It earns its
+      # place in CI after it has run for a few cycles and we know its stability,
+      # and it should land as its own change so the failure is legible when it
+      # first fires.
+      - name: Mutation definitions still match the sources
+        shell: bash
+        run: node tool/mutation_runner.mjs --dry-run
+
   dependency-audit:
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@v2.5.0
     with:

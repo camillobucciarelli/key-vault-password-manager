@@ -1,0 +1,601 @@
+{
+  "$comment": [
+    "Mutation definitions for spec 009 (in-page autofill overlay).",
+    "",
+    "This file is the mutation table. It used to live in PR bodies, where it",
+    "drifted twice: a stale kill count in #37, and a Slice A2 row (A2-M4,",
+    "registration-id injectivity) that survived with ZERO kills for a full slice",
+    "because the property was asserted only in a code comment.",
+    "",
+    "Each mutation names a security property, the literal edits that break it,",
+    "and the number of tests that must die. `expectedKills` is measured, never",
+    "guessed: run the runner, read the number, pin it here. A drifted number is",
+    "reported as a failure, which is the whole point of committing this file.",
+    "",
+    "`find` is matched as a LITERAL string, never a regex, and must match exactly",
+    "`expect` times (default 1). A definition that matches nothing is a hard",
+    "error, not a silent pass.",
+    "",
+    "WHY THESE NUMBERS DIFFER FROM THE PR BODIES",
+    "-------------------------------------------",
+    "If you are comparing this file against the tables in PR #40, #47 or #50 and",
+    "the numbers disagree: THIS FILE IS THE REFERENCE. The tables are snapshots",
+    "of a suite that no longer exists. Three known, deliberate divergences:",
+    "",
+    "  * EVERY A0 ROW. PR #40 measured against a 100-test Node suite. Slice A2",
+    "    grew it to 179 (content_overlay behavioural tests via fake_page.js, and",
+    "    the crash-injection cases), and closing the A2-M7 survivor made it 180.",
+    "    The A0 mutations were not weakened and the A0 policy did not change —",
+    "    there are simply more tests in the blast radius. A0 counts going UP",
+    "    against #40 is expected; going DOWN is a regression worth chasing.",
+    "  * A2-M4. PR #50 recorded '4 kills'. That was a UNIT ERROR: 4 assertions",
+    "    inside ONE test case. This runner counts test cases, so 1 is correct.",
+    "    See the row's own comment.",
+    "  * A1-M2. PR #47 recorded 14, this file measures 10, because the mutation",
+    "    here is a tighter reconstruction and the Flutter suite is targeted at",
+    "    four files. See the row's own comment.",
+    "",
+    "The general rule: a number in a PR body was true once and is now unowned;",
+    "a number in this file is re-measured on every run and fails the build when",
+    "it drifts. Do not 'correct' this file to match a PR — re-run the runner."
+  ],
+  "version": 1,
+  "slices": {
+    "A0": "security harness for the overlay (overlay_security.js) — PR #40",
+    "A1": "native exact-origin contract for the reveal path — PR #47",
+    "A2": "per-origin opt-in with crash-consistent revocation — PR #50"
+  },
+  "suites": {
+    "node-extension": {
+      "parser": "tap",
+      "timeoutMs": 120000,
+      "$comment": "The glob is one argument: node expands it internally, so a new test file is picked up without editing this file.",
+      "command": [
+        "node",
+        "--test",
+        "--test-reporter=tap",
+        "desktop/browser_extension/test/*.test.js"
+      ]
+    },
+    "flutter-overlay-contract": {
+      "parser": "flutter-json",
+      "timeoutMs": 600000,
+      "$comment": "Targeted, not the full 774-test suite: these four files are the Dart half of the overlay contract. Flutter is pinned through fvm (.fvmrc).",
+      "command": [
+        "fvm",
+        "flutter",
+        "test",
+        "--reporter",
+        "json",
+        "test/features/password_manager/data/services/browser_exact_origin_test.dart",
+        "test/features/password_manager/data/services/desktop_browser_autofill_reveal_bridge_service_test.dart",
+        "test/features/password_manager/data/services/desktop_browser_autofill_cache_test.dart",
+        "test/tool/native_host_test.dart"
+      ]
+    }
+  },
+  "mutations": [
+    {
+      "id": "A0-M1",
+      "expectedKills": 45,
+      "slice": "A0",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_security.js",
+      "title": "canonical origin drops the port",
+      "property": "origin equality is the full (scheme, host, effective port) tuple",
+      "edits": [
+        {
+          "find": "  const serialized =\n    effectivePort === defaultPort\n      ? `${scheme}://${asciiHost}`\n      : `${scheme}://${asciiHost}:${effectivePort}`;",
+          "replace": "  const serialized = `${scheme}://${asciiHost}`;"
+        }
+      ]
+    },
+    {
+      "id": "A0-M2",
+      "expectedKills": 92,
+      "slice": "A0",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_security.js",
+      "title": "canonical origin drops the scheme",
+      "property": "http and https are never the same origin",
+      "$comment": "91 -> 92 when the A2-M7 closure test landed: dropping the scheme breaks origin canonicalization, so the new A020 grant test dies with the rest. The policy did not change, the blast radius grew by one test.",
+
+      "edits": [
+        {
+          "find": "  const serialized =\n    effectivePort === defaultPort\n      ? `${scheme}://${asciiHost}`\n      : `${scheme}://${asciiHost}:${effectivePort}`;",
+          "replace": "  const serialized =\n    effectivePort === defaultPort\n      ? `${asciiHost}`\n      : `${asciiHost}:${effectivePort}`;"
+        }
+      ]
+    },
+    {
+      "id": "A0-M3",
+      "expectedKills": 4,
+      "slice": "A0",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_security.js",
+      "title": "host canonicalization strips www./m./mobile.",
+      "property": "every hostname label is significant for authorization",
+      "edits": [
+        {
+          "find": "  const asciiHost = normalizedParsedHost;\n",
+          "replace": "  const asciiHost = normalizedParsedHost.replace(/^(www|m|mobile)\\./, \"\");\n"
+        }
+      ]
+    },
+    {
+      "id": "A0-M4",
+      "expectedKills": 1,
+      "slice": "A0",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_security.js",
+      "title": "sender-path route check deleted",
+      "property": "an extension-page sender is never classified as a content script",
+      "edits": [
+        {
+          "find": "  return sender.tab === undefined || sender.tab === null\n    ? EXTENSION_PAGE_ROUTE\n    : CONTENT_SCRIPT_ROUTE;",
+          "replace": "  return CONTENT_SCRIPT_ROUTE;"
+        }
+      ]
+    },
+    {
+      "id": "A0-M5",
+      "expectedKills": 3,
+      "slice": "A0",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_security.js",
+      "title": "focus-grant expiry not enforced",
+      "property": "a fill grant expires at its TTL ceiling and is never extended",
+      "edits": [
+        {
+          "find": "    if (!Number.isInteger(nowMs) || nowMs >= grant.expiresAtEpochMs) {",
+          "replace": "    if (!Number.isInteger(nowMs) || false) {"
+        }
+      ]
+    },
+    {
+      "id": "A0-M6",
+      "expectedKills": 2,
+      "slice": "A0",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_security.js",
+      "title": "body origin trusted over sender.url",
+      "property": "the message body origin is a mismatch detector, never the authority",
+      "edits": [
+        {
+          "find": "  if (message.origin !== senderResult.origin) {\n    return requestReject(\"origin_mismatch\", \"origin\");\n  }",
+          "replace": "  // mutation: the body origin claim is no longer cross-checked"
+        },
+        {
+          "find": "  if (!enabledOrigins.includes(senderResult.origin)) {\n    return requestReject(\"disabled\");\n  }",
+          "replace": "  if (!enabledOrigins.includes(message.origin)) {\n    return requestReject(\"disabled\");\n  }"
+        }
+      ]
+    },
+    {
+      "id": "A0-M7",
+      "expectedKills": 2,
+      "slice": "A0",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_security.js",
+      "title": "focus grant is no longer one-shot",
+      "property": "a grant is removed before any result is returned, so a replay cannot succeed",
+      "edits": [
+        {
+          "find": "    const grant = this._grants.get(token);\n    if (!grant) return { ok: false, error: \"stale_session\" };\n    this._grants.delete(token);",
+          "replace": "    const grant = this._grants.get(token);\n    if (!grant) return { ok: false, error: \"stale_session\" };"
+        }
+      ]
+    },
+    {
+      "id": "A0-M8",
+      "expectedKills": 2,
+      "slice": "A0",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_security.js",
+      "title": "raw-authority userinfo check removed",
+      "property": "https://@example.com is rejected — the WHATWG parser reports username and password as EMPTY while the raw authority still carries '@', so a parser-only guard canonicalizes the userinfo away",
+      "edits": [
+        {
+          "find": "  if (rawAuthority.includes(\"@\")) {\n    return canonicalizationError(\"userinfo_forbidden\");\n  }",
+          "replace": "  // mutation: raw-authority userinfo inspection removed"
+        }
+      ]
+    },
+    {
+      "id": "A0-M9",
+      "expectedKills": 2,
+      "slice": "A0",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_security.js",
+      "title": "extension-page validator accepts tab senders",
+      "property": "if sender.tab exists at all, this is not an extension page",
+      "edits": [
+        {
+          "find": "  if (sender.tab !== undefined && sender.tab !== null) {\n    return senderReject(\"unexpected_tab\");\n  }",
+          "replace": "  // mutation: a tab-bearing sender is admitted as an extension page"
+        }
+      ]
+    },
+    {
+      "id": "A0-M10",
+      "expectedKills": 2,
+      "slice": "A0",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_security.js",
+      "title": "top/frame URL disagreement tolerated",
+      "property": "for frameId 0 the tab URL must equal the frame URL, or the sender record is rejected",
+      "edits": [
+        {
+          "find": "    if (topOrigin !== frame.origin.serialized) {\n      return senderReject(\"top_frame_origin_mismatch\");\n    }",
+          "replace": "    // mutation: an inconsistent top/frame sender record is reconciled, not rejected"
+        }
+      ]
+    },
+
+    {
+      "id": "A1-M1",
+      "expectedKills": 6,
+      "slice": "A1",
+      "suite": "flutter-overlay-contract",
+      "file": "lib/features/password_manager/data/services/browser_exact_origin.dart",
+      "title": "exact-origin equality ignores the port",
+      "property": "the Dart half of the overlay contract compares the same tuple as overlay_security.js",
+      "edits": [
+        {
+          "find": "  final serialized = effectivePort == defaultPort\n      ? '$scheme://$asciiHost'\n      : '$scheme://$asciiHost:$effectivePort';",
+          "replace": "  final serialized = '$scheme://$asciiHost';"
+        }
+      ]
+    },
+    {
+      "id": "A1-M2",
+      "expectedKills": 10,
+      "slice": "A1",
+      "suite": "flutter-overlay-contract",
+      "file": "lib/features/password_manager/data/services/browser_exact_origin.dart",
+      "title": "domain fallback reintroduced on the overlay path",
+      "property": "a domain-only identifier may appear as metadata but can never authorize a fill",
+      "$comment": [
+        "DIVERGES FROM PR #47, WHICH SAID 14. Ten is correct here; the PR body is",
+        "not wrong so much as measuring something else, for two reasons:",
+        "",
+        "1. This mutation is a TIGHTER reconstruction of 'put the domain branch",
+        "   back'. It re-admits a domain identifier only when the value equals the",
+        "   parsed host of the origin. PR #47's prose ('removing the domain branch",
+        "   kills 14 tests') described deleting the exact-origin guard wholesale,",
+        "   which also admits looser matches and so takes more tests with it.",
+        "2. The suite is TARGETED at the four files of the overlay contract, not",
+        "   the full 774-test Flutter suite. Tests that observe the domain branch",
+        "   from outside those four files are not run and therefore not counted.",
+        "",
+        "If you are reading this against PR #47 six months from now: the runner is",
+        "not miscounting, the two numbers answer different questions. This one is",
+        "reproducible — re-run it."
+      ],
+      "edits": [
+        {
+          "find": "    if (identifier.type != exactOriginServiceIdentifierType) {\n      continue;\n    }",
+          "replace": "    if (identifier.type != exactOriginServiceIdentifierType) {\n      if (identifier.value == Uri.tryParse(origin)?.host) {\n        return true;\n      }\n      continue;\n    }"
+        }
+      ]
+    },
+    {
+      "id": "A1-M3",
+      "expectedKills": 1,
+      "slice": "A1",
+      "suite": "flutter-overlay-contract",
+      "file": "lib/features/password_manager/data/services/desktop_browser_autofill_reveal_bridge_service.dart",
+      "title": "post-response session binding re-check removed",
+      "property": "vault A -> B with the same entry UUID and origin returns stale_session; only the re-read after the bridge responds catches it",
+      "edits": [
+        {
+          "find": "    final durable = await store.readBridgeDescriptor();\n    if (!_matchesCurrentBinding(\n          epoch: epochAtEntry,\n          databaseId: databaseId,\n          cacheGeneration: cacheGeneration,\n          bridgeGeneration: bridgeGeneration,\n        ) ||\n        durable == null ||\n        durable.databaseId != databaseId ||\n        durable.cacheGeneration != cacheGeneration ||\n        durable.bridgeGeneration != bridgeGeneration) {\n      await _writeError(request, HttpStatus.conflict, 'stale_session');\n      return;\n    }",
+          "replace": "    // mutation: the post-response session binding re-check is gone"
+        }
+      ]
+    },
+
+    {
+      "id": "A2-M1",
+      "expectedKills": 7,
+      "slice": "A2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "durable commit moved after the in-memory grant clear",
+      "property": "SR-8: the durable commit (D1) precedes every fallible cleanup, so a crash can never leave the browser cleaned up while the origin is still durably authorized",
+      "$comment": "Leaves the phase-ORDER assertion green — grants are not a browser call, so storage.set is still the first browser call. Only crash injection catches it. This is one half of the disjoint-kill-set finding in PR #50.",
+      "disjointFrom": ["A2-M5"],
+      "edits": [
+        {
+          "find": "      const committed = await this._commitConfig(\n        this._nextConfig(\n          config,\n          config.enabledOrigins.filter((entry) => entry !== canonical)\n        )\n      );\n      await this._fault(\"D1\");\n\n      // D2 — worker grants for the old revision are worthless now.\n      this._grants.clear();\n      await this._fault(\"D2\");",
+          "replace": "      // D2 — worker grants for the old revision are worthless now.\n      this._grants.clear();\n      await this._fault(\"D2\");\n\n      const committed = await this._commitConfig(\n        this._nextConfig(\n          config,\n          config.enabledOrigins.filter((entry) => entry !== canonical)\n        )\n      );\n      await this._fault(\"D1\");"
+        }
+      ]
+    },
+    {
+      "id": "A2-M2",
+      "expectedKills": 2,
+      "slice": "A2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "teardown broadcast names the disabled origin",
+      "property": "teardown carries only the revision; naming the origin tells a document on unrelated enabled origin A which origin B the user just turned off",
+      "edits": [
+        {
+          "find": "  async _broadcastTeardown(revision) {",
+          "replace": "  async _broadcastTeardown(revision, disabledOrigin = null) {"
+        },
+        {
+          "find": "      type: \"teardown\",\n      revision,\n    };",
+          "replace": "      type: \"teardown\",\n      revision,\n      origin: disabledOrigin,\n    };"
+        },
+        {
+          "find": "      await this._broadcastTeardown(committed.revision);",
+          "replace": "      await this._broadcastTeardown(committed.revision, canonical);"
+        }
+      ]
+    },
+    {
+      "id": "A2-M3",
+      "expectedKills": 1,
+      "slice": "A2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "enableOrigin skips the permissions.contains re-verify",
+      "property": "an opt-in is never persisted unless the browser confirms the derived pattern is actually held",
+      "edits": [
+        {
+          "find": "      const pattern = securityModule.permissionPatternForOrigin(canonical);\n      if (!(await this._hasPattern(pattern))) {\n        return { ok: false, error: \"permission_missing\" };\n      }",
+          "replace": "      // mutation: the permission grant is taken on trust"
+        }
+      ]
+    },
+    {
+      "id": "A2-M4",
+      "slice": "A2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "registration id encoding is lossy (not injective)",
+      "property": "two distinct permission patterns can never collide onto one registration id, which would silently unregister a still-authorized site",
+      "$comment": [
+        "THIS IS THE ROW THAT SURVIVED A FULL SLICE WITH ZERO KILLS. The property",
+        "was claimed only in the comment above registrationIdForPattern. A",
+        "modulo-16 encoding merges same-length hosts whose code points differ by",
+        "exactly 16 (a/q, b/r). If this ever returns to 0, the guard is gone.",
+        "",
+        "UNIT CORRECTION: the hand-written table recorded '4 kills' for this row.",
+        "That was never 4 TEST CASES — only one test asserts injectivity",
+        "('A018: the registration id is injective, including on lossy-encoding",
+        "twins'), and no lossy variant tried (modulo-16, last-digit truncation,",
+        "sum-hash) kills more than that one test. The 4 counted assertions or twin",
+        "pairs inside that single test. This runner counts test cases, so the",
+        "measured value is 1. The property is held; the unit was wrong."
+      ],
+      "expectedKills": 1,
+      "edits": [
+        {
+          "find": "    hex += pattern.charCodeAt(index).toString(16).padStart(4, \"0\");",
+          "replace": "    hex += (pattern.charCodeAt(index) % 16).toString(16);"
+        }
+      ]
+    },
+    {
+      "id": "A2-M5",
+      "expectedKills": 1,
+      "slice": "A2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "the last two cleanup phases are swapped (D4/D5)",
+      "property": "the registration is dropped before the host permission it depends on",
+      "$comment": "The exact reverse of A2-M1: only the phase-order assertion fires, crash injection stays green. Neither test family alone is sufficient.",
+      "disjointFrom": ["A2-M1"],
+      "edits": [
+        {
+          "find": "      // D4 — drop the registration only if no committed origin still needs the\n      // pattern (two ports of one host share it).\n      await this._reconcileRegistrations(committed);\n      await this._fault(\"D4\");\n\n      // D5 — same sharing rule for the optional host permission.\n      await this._reconcilePermissions(committed);\n      await this._fault(\"D5\");",
+          "replace": "      await this._reconcilePermissions(committed);\n      await this._fault(\"D4\");\n\n      await this._reconcileRegistrations(committed);\n      await this._fault(\"D5\");"
+        }
+      ]
+    },
+    {
+      "id": "A2-M6",
+      "expectedKills": 4,
+      "slice": "A2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "durable commit skips the readback verification",
+      "property": "a divergent readback aborts the transaction and performs no side effect at all",
+      "edits": [
+        {
+          "find": "    const stored = await this._browser.storage.local.get(key);\n    const readback = stored?.[key];\n    if (JSON.stringify(readback) !== JSON.stringify(next)) {\n      throw new Error(\"overlay_config_readback_mismatch\");\n    }",
+          "replace": "    // mutation: the write is trusted without reading it back"
+        }
+      ]
+    },
+    {
+      "id": "A2-M7",
+      "slice": "A2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "reconcile no longer clears in-memory grants",
+      "property": "a reconciliation triggered by a permission change drops every focus grant",
+      "$comment": [
+        "CLOSED. Found as a SURVIVOR by this runner on its first full execution,",
+        "and closed by the test it demanded.",
+        "",
+        "Third instance of the same failure mode as A2-M4 and the content_overlay",
+        "gap: the property is stated in spec.md:296 ('first load/validate durable",
+        "config, clear all in-memory grants, then reconcile...') and repeated in a",
+        "comment above the call, and NO test asserted it.",
+        "",
+        "Never a live vulnerability: an external revocation also bumps the config",
+        "revision, and FocusGrantStore.consume() rejects a grant whose",
+        "configRevision is stale. The grant clear is defence in depth — but it was",
+        "defence in depth that nothing held, which is how it silently rots.",
+        "",
+        "THE TEST ASSERTS THE EFFECT, NOT THE STATE. The obvious closure — mint a",
+        "grant, reconcile, assert `worker.grants.size === 0` — was NOT written.",
+        "Inspecting the data structure is the same class of weakness as the three",
+        "gaps above: it re-states the implementation instead of the guarantee, and",
+        "would go green against any refactor that keeps the Map tidy while leaving",
+        "a token redeemable. The test redeems the token through the real",
+        "FocusGrantStore.consume() path and requires it to fail.",
+        "",
+        "The setup is what makes the number mean anything: the permission is still",
+        "granted and the config is valid, so this reconcile commits nothing and the",
+        "revision does not move. That deliberately disarms the downstream",
+        "configRevision check — the very thing that made this survivor harmless —",
+        "so the ONLY remaining explanation for a rejected consume is the grant",
+        "clear. The test pins that with an explicit assertion on the revision, and",
+        "redeems a second grant BEFORE the reconcile as a control so it cannot pass",
+        "vacuously on a consume that was always going to fail."
+      ],
+      "expectedKills": 1,
+      "edits": [
+        {
+          "find": "      this._grants.clear();\n\n      // A permission revoked outside the popup (chrome://extensions) durably",
+          "replace": "      // mutation: cold-start grant clearing removed\n\n      // A permission revoked outside the popup (chrome://extensions) durably"
+        }
+      ]
+    },
+    {
+      "id": "A2-M8",
+      "expectedKills": 2,
+      "slice": "A2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "a permission revoked outside the popup does not durably disable the origin",
+      "property": "revoking from chrome://extensions durably disables the affected origins in one revisioned write",
+      "edits": [
+        {
+          "find": "      if (survivors.length !== config.enabledOrigins.length) {\n        config = await this._commitConfig(this._nextConfig(config, survivors));",
+          "replace": "      if (false && survivors.length !== config.enabledOrigins.length) {\n        config = await this._commitConfig(this._nextConfig(config, survivors));"
+        }
+      ]
+    },
+    {
+      "id": "A2-M9",
+      "expectedKills": 14,
+      "slice": "A2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "permission cleanup ignores patterns a sibling origin still needs",
+      "property": "two ports of one host share a permission pattern; disabling one must not remove the permission the other still needs",
+      "$comment": "13 -> 14 when the A2-M7 closure test landed. Indirect but real: this mutation removes the still-needed host permission during the first reconcile, so the new A020 test's SECOND reconcile then sees the permission gone, durably disables the origin, and bumps the revision - which trips that test's 'this reconcile must not commit' assertion. The policy did not change, the blast radius grew by one test.",
+
+      "edits": [
+        {
+          "find": "    const orphans = granted.filter((pattern) => !desired.has(pattern));",
+          "replace": "    const orphans = [...granted];"
+        }
+      ]
+    },
+    {
+      "id": "A2-M10",
+      "expectedKills": 12,
+      "slice": "A2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "orphan content-script registrations are never unregistered",
+      "property": "a registration not justified by committed config is cleaned up on every reconcile",
+      "edits": [
+        {
+          "find": "    if (orphans.length > 0) {\n      await this._browser.scripting.unregisterContentScripts({ ids: orphans });\n    }",
+          "replace": "    // mutation: orphan registrations are left in place"
+        }
+      ]
+    },
+    {
+      "id": "A2-M11",
+      "slice": "A2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "a corrupt config still yields enabled origins",
+      "property": "invalid or missing durable config reads as ZERO enabled origins",
+      "expectedKills": 0,
+      "equivalent": true,
+      "equivalentReason": "Unreachable, and the runner proves it rather than assuming it. Every caller of readCommittedConfig() either replaces an __invalid result with emptyOverlayConfig() outright (reconcile, enableOrigin, disableOrigin) or runs after ready(), which has already committed a valid config to storage (siteState, authorizeBootstrap). No reachable path reads enabledOrigins off the invalid branch. If A023 changes that — it owns the revision-floor KNOWN GAP on this exact branch — this mutation starts killing and is reported as drift.",
+      "edits": [
+        {
+          "find": "      return { ...securityModule.emptyOverlayConfig(salvaged), __invalid: true };",
+          "replace": "      return {\n        ...securityModule.emptyOverlayConfig(salvaged),\n        enabledOrigins: Array.isArray(raw?.enabledOrigins) ? [...raw.enabledOrigins] : [],\n        __invalid: true,\n      };"
+        }
+      ]
+    },
+    {
+      "id": "A2-M12",
+      "expectedKills": 1,
+      "slice": "A2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "authorizeBootstrap skips the reconciliation gate",
+      "property": "A020: a cold worker never serves a request against unreconciled browser state",
+      "edits": [
+        {
+          "find": "  async authorizeBootstrap({ message, sender, runtimeId } = {}) {\n    await this.ready();",
+          "replace": "  async authorizeBootstrap({ message, sender, runtimeId } = {}) {"
+        }
+      ]
+    },
+    {
+      "id": "A2-M13",
+      "expectedKills": 4,
+      "slice": "A2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "the config revision never advances",
+      "property": "every commit bumps the revision, so a stale grant cannot compare as current",
+      "edits": [
+        {
+          "find": "      revision: config.revision + 1,",
+          "replace": "      revision: config.revision,"
+        }
+      ]
+    },
+    {
+      "id": "A2-M14",
+      "slice": "A2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "registration id hex is unpadded (variable width)",
+      "property": "the fixed 4-hex-digit width is what makes the encoding injective for an arbitrary code point",
+      "$comment": [
+        "Found BY the runner while probing A2-M4 variants, not by reading the code.",
+        "Unpadded hex survives the A018 injectivity test because every host in that",
+        "test is ASCII, and every ASCII code point is exactly 2 hex digits — so the",
+        "variable-width encoding is still injective over the tested alphabet.",
+        "It is injective over the REACHABLE alphabet too: permission patterns are",
+        "built from canonicalized ASCII hosts (IDNA is refused fail-closed in Slice",
+        "A1), so a code point above 0xff cannot reach this function.",
+        "",
+        "Recorded as equivalent rather than as a gap: the padding is defence in",
+        "depth against an input canonicalization already forbids. If IDNA support",
+        "ever lands, that argument dies and this mutation starts killing.",
+        "",
+        "WHERE THE REACHABILITY ARGUMENT IS ENFORCED — check these before",
+        "believing this row is still equivalent:",
+        "  * overlay_security.js, canonicalizeOrigin(): a non-ASCII host is",
+        "    refused fail-closed, never folded through a mapping table.",
+        "  * browser_exact_origin.dart: the Dart half refuses the same input, so",
+        "    neither side can hand a non-ASCII pattern to the other.",
+        "  * permissionPatternForOrigin() builds the pattern only from an already",
+        "    canonicalized origin, so this function has no other input path.",
+        "",
+        "This equivalence is therefore CONDITIONAL, and the condition is machine-",
+        "checked rather than trusted: `equivalent: true` with `expectedKills: 0`",
+        "makes the runner treat ANY kill as drift and fail --check. The day IDNA",
+        "lands, this row goes red on its own instead of quietly staying true-by-",
+        "accident. Do not delete the row to make that noise stop — the noise is",
+        "the feature."
+      ],
+      "expectedKills": 0,
+      "equivalent": true,
+      "equivalentReason": "Patterns are derived only from canonicalized ASCII hosts, so every code point is 2 hex digits and unpadded hex stays injective. Killing this requires a non-ASCII pattern, which canonicalizeOrigin() (JS) and browser_exact_origin.dart (Dart) both refuse fail-closed. If IDNA support lands, this argument dies and the mutation starts killing, which the runner reports as drift.",
+      "edits": [
+        {
+          "find": "    hex += pattern.charCodeAt(index).toString(16).padStart(4, \"0\");",
+          "replace": "    hex += pattern.charCodeAt(index).toString(16);"
+        }
+      ]
+    }
+  ]
+}

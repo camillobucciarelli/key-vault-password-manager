@@ -12,6 +12,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { FakeBrowser } = require("./fake_browser.js");
+const { bindingA } = require("./helpers.js");
 const security = require("../overlay_security.js");
 const lifecycleModule = require("../overlay_lifecycle.js");
 
@@ -627,6 +628,101 @@ test("A020: a permission revoked outside the popup durably disables the origin",
     assert.equal(message.revision, 9);
     assert.equal(Object.prototype.hasOwnProperty.call(message, "origin"), false);
   }
+});
+
+test("A020: reconciliation makes an outstanding fill token unusable, at an unchanged revision", async () => {
+  // spec.md:296 requires reconcile() to clear every in-memory focus grant.
+  //
+  // This asserts the EFFECT, not the bookkeeping: it never reads
+  // `worker.grants.size`. A grant that is merely missing from a Map proves
+  // nothing — the property that matters is that the token can no longer
+  // authorize a fill. So the token is redeemed through the real
+  // `FocusGrantStore.consume()` path, which is what the fill handler calls.
+  //
+  // The setup is chosen so that NOTHING ELSE can explain the rejection. The
+  // permission is still granted and the config is valid, so this reconcile
+  // commits nothing and the revision does not move. The grant therefore stays
+  // valid against every downstream check — TTL, tab, frame, document, origin,
+  // nonce, entry id, session binding, and above all the `configRevision`
+  // comparison that is the reason this survivor was not exploitable. With the
+  // revision pinned, the only remaining reason a consume can fail after this
+  // reconcile is that reconcile dropped the grant.
+  //
+  // `reconcile()` is invoked directly because that is the production path:
+  // background.js wires `permissions.onAdded` / `onRemoved` straight to it.
+  const browser = new FakeBrowser({
+    storage: {
+      [CONFIG_KEY]: { version: 1, revision: 8, enabledOrigins: [HTTPS_EXAMPLE] },
+    },
+    granted: [PATTERN_HTTPS],
+    tabs: [{ id: 1 }],
+  });
+  const worker = newWorker(browser);
+  await worker.ready();
+
+  const revision = browser.config().revision;
+  const nowMs = 1720000000000;
+
+  const mint = (frameId) =>
+    worker.grants.issue({
+      tabId: 42,
+      frameId,
+      documentId: "doc-1",
+      origin: HTTPS_EXAMPLE,
+      focusNonce: "nonce-1",
+      entryIds: ["entry-1"],
+      sessionBinding: bindingA(),
+      configRevision: revision,
+      nowMs,
+    });
+
+  const redeem = (frameId, token) =>
+    worker.grants.consume({
+      token,
+      tabId: 42,
+      frameId,
+      documentId: "doc-1",
+      origin: HTTPS_EXAMPLE,
+      focusNonce: "nonce-1",
+      entryId: "entry-1",
+      sessionBinding: bindingA(),
+      configRevision: revision,
+      currentBinding: bindingA(),
+      nowMs: nowMs + 1000,
+    });
+
+  // Two grants on different frames: `issue` replaces a grant on the same
+  // (tab, frame, document), and `consume` is one-shot, so a single grant cannot
+  // be both the control and the subject.
+  const control = mint(3);
+  const subject = mint(4);
+  assert.ok(control);
+  assert.ok(subject);
+
+  // CONTROL — redeemed before the reconcile. Without this the test could pass
+  // vacuously: a consume that was always going to fail (wrong field, expired
+  // clock, bad binding) would look exactly like a cleared grant.
+  assert.deepEqual(
+    { ok: redeem(3, control.token).ok },
+    { ok: true },
+    "the token must be genuinely redeemable before the reconcile"
+  );
+
+  await worker.reconcile();
+
+  // Load-bearing: if the revision moved, the assertion below would be
+  // satisfied by the stale-revision check instead of by the grant clear, and
+  // the test would go green with the clear deleted.
+  assert.equal(
+    browser.config().revision,
+    revision,
+    "this reconcile must not commit; otherwise the revision check, not the " +
+      "grant clear, is what rejects the token"
+  );
+
+  const afterReconcile = redeem(4, subject.token);
+  assert.equal(afterReconcile.ok, false, "reconcile must invalidate the fill token");
+  assert.equal(afterReconcile.error, "stale_session");
 });
 
 test("A020: a registration no config justifies is removed on cold start", async () => {
