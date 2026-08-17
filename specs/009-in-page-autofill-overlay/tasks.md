@@ -42,6 +42,14 @@ land.
 **Gate A0**: `node --test desktop/browser_extension/test/*.test.js` passes before
 overlay markup/CSS begins.
 
+Enforced by CI, not by memory: the `extension-tests` job in
+`.github/workflows/pr.yml` runs this command on every pull request to `main`, so
+the gate holds across all later slices without anyone re-running it by hand. The
+same job carries the `node --check` syntax gate for the extension sources that
+exist today (`overlay_security.js`, `background.js`, `popup.js`). Any new runtime
+JS file must be added to that job when it is created — the task that creates it
+owns that obligation (see A028).
+
 ## Slice A1 — native exact-origin contract
 
 - [ ] **A008** In `tool/native_host_protocol.dart`, define/advertise
@@ -161,6 +169,15 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
       enabled, writable password input; username/email autocomplete input only
       with associated eligible password field. New focus tears down old session
       and creates cryptographic nonce.
+      Because this task creates the file, it must also register it in the two
+      places that enumerate runtime files explicitly, in the same commit:
+      1. add `node --check desktop/browser_extension/content_overlay.js` to the
+         `Syntax check extension sources` step of the `extension-tests` job in
+         `.github/workflows/pr.yml`, where it is currently omitted on purpose
+         because the file does not exist yet;
+      2. add it to the `zip` allowlist in
+         `desktop/browser_extension/package_extension.sh` (see A042).
+      Neither is a glob, so neither fails on its own if this is forgotten.
 - [ ] **A029** Render closed-shadow metadata overlay only after successful
       bootstrap/matches response for current nonce. Rows expose title + display
       service only. No username/password in text, attributes, dataset, comments,
@@ -233,6 +250,15 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
       actual runtime file). Keep `test/`, origin fixture, screenshots, debug hooks,
       visual environment/hash manifests, source maps, and secrets out of ZIP.
       Package listing test rejects them.
+      The script lists every packaged file by name in the `zip` invocation; it is
+      an allowlist, not a glob. A runtime file that is never added is silently
+      left out of the ZIP — `zip` exits 0, the build is green, and the omission
+      surfaces only at runtime in the installed extension as a missing script.
+      Standing rule for the rest of this feature and after it: any task that adds
+      a runtime file to `desktop/browser_extension/` updates this allowlist in the
+      same commit. The packaging assertion below must therefore also assert that
+      each expected runtime file is *present*, not only that excluded paths are
+      absent.
 - [ ] **A043** Update `desktop/browser_extension/README.md`: permissions and store
       justification; exact-origin opt-in/revoke; port-granularity caveat; dynamic
       injection/teardown; frame/restricted-page limits; worker cold-start recovery;
@@ -243,23 +269,38 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
       `chrome-extension://<id>/` in `allowed_origins`. Protocol capability does not
       require broader native host registration. Reinstall/restart only when host
       binary/extension id changed.
-- [ ] **A045** Run targeted checks:
+- [ ] **A045** Run the targeted checks that CI does **not** already run. The
+      `extension-tests` job in `.github/workflows/pr.yml` runs Gate A0
+      (`node --test desktop/browser_extension/test/*.test.js`) and `node --check`
+      on every extension source — including `content_overlay.js` once A028 adds it
+      — on each pull request, so repeating them here would add noise, not
+      coverage. They are omitted below for that reason only.
+
+      Not covered by any CI job:
 
       ```bash
       python3 -m json.tool desktop/browser_extension/manifest.json >/dev/null
-      node --test desktop/browser_extension/test/*.test.js
-      node --check desktop/browser_extension/overlay_security.js
-      node --check desktop/browser_extension/content_overlay.js
-      node --check desktop/browser_extension/background.js
-      node --check desktop/browser_extension/popup.js
+      ./desktop/browser_extension/test/run_visual_baselines.sh --verify
+      ./desktop/browser_extension/package_extension.sh
+      unzip -l desktop/browser_extension/dist/keyvault-browser-extension.zip
+      ```
+
+      Covered only partially, so kept:
+
+      ```bash
+      # The `analyze` job runs `flutter analyze` across the whole project, which
+      # includes `tool/`. Kept as the fast local form: CI reports it only after
+      # a PR exists, and this narrows the output to the native host code.
       dart analyze tool
+
+      # The `test` job runs the full suite minus goldens, so these files do
+      # execute in CI. Kept because this is the targeted local form and because
+      # it names the exact set a reviewer must see pass for this feature; the
+      # whole-suite run does not make that set visible.
       flutter test test/tool/native_host_test.dart \
         test/features/password_manager/data/services/desktop_browser_autofill_cache_test.dart \
         test/features/password_manager/data/services/desktop_browser_autofill_reveal_bridge_service_test.dart \
         test/features/password_manager/presentation/coordinators/desktop_browser_autofill_coordinator_test.dart
-      ./desktop/browser_extension/test/run_visual_baselines.sh --verify
-      ./desktop/browser_extension/package_extension.sh
-      unzip -l desktop/browser_extension/dist/keyvault-browser-extension.zip
       ```
 
 - [ ] **A046** Manual Chrome/Edge matrix: fresh install, grant/deny, scheme/port
