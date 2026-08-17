@@ -4,7 +4,10 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
+
 import '../../domain/models/vault_entry.dart';
+import 'browser_exact_origin.dart';
 import 'desktop_browser_autofill_cache.dart';
 
 const _maxRevealRequestBytes = 4096;
@@ -20,8 +23,25 @@ class DesktopBrowserAutofillRevealBridgeService {
 
   HttpServer? _server;
   String? _databaseId;
+  String? _cacheGeneration;
+  String? _bridgeGeneration;
   String? _token;
   Map<String, _DesktopBrowserRevealCredential> _credentials = const {};
+
+  /// SR-4 — one monotonic session epoch per running bridge.
+  ///
+  /// The overlay reveal path reads it once before the credential lookup and
+  /// compares it again immediately before writing the response, so a vault
+  /// switch that lands mid-request cannot have its secret answered under the
+  /// previous session's binding.
+  int _sessionEpoch = 0;
+
+  /// Test seam for the SR-4 "check again before response" requirement.
+  ///
+  /// Awaited between the credential lookup and the response write, which is the
+  /// exact window the second check exists to close. Production never sets it.
+  @visibleForTesting
+  Future<void> Function()? debugBeforeOverlayRevealResponse;
 
   Future<void> start({
     required String databasePath,
@@ -36,14 +56,27 @@ class DesktopBrowserAutofillRevealBridgeService {
     final databaseId = DesktopBrowserAutofillMetadataMapper.databaseIdForPath(
       databasePath,
     );
+    // The cache generation is read from the cache the coordinator has just
+    // published rather than minted here, so the descriptor and the metadata can
+    // never disagree. A missing/stale cache leaves it empty, which makes every
+    // overlay request fail closed while the popup path keeps working.
+    final publishedCache = await store.readMetadataCache();
+    final cacheGeneration =
+        publishedCache != null && publishedCache.databaseId == databaseId
+        ? publishedCache.cacheGeneration
+        : '';
+    final bridgeGeneration = newDesktopBrowserAutofillGeneration();
     final credentials = _credentialsFromEntries(entries);
     final token = _newBridgeToken();
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
 
     _server = server;
     _databaseId = databaseId;
+    _cacheGeneration = cacheGeneration;
+    _bridgeGeneration = bridgeGeneration;
     _token = token;
     _credentials = credentials;
+    _sessionEpoch += 1;
 
     try {
       await store.writeBridgeDescriptor(
@@ -52,6 +85,8 @@ class DesktopBrowserAutofillRevealBridgeService {
           port: server.port,
           token: token,
           databaseId: databaseId,
+          cacheGeneration: cacheGeneration,
+          bridgeGeneration: bridgeGeneration,
           createdAtEpochMs: DateTime.now().millisecondsSinceEpoch,
         ),
       );
@@ -67,8 +102,11 @@ class DesktopBrowserAutofillRevealBridgeService {
     final server = _server;
     _server = null;
     _databaseId = null;
+    _cacheGeneration = null;
+    _bridgeGeneration = null;
     _token = null;
     _credentials = const {};
+    _sessionEpoch += 1;
 
     if (server != null) {
       try {
@@ -110,7 +148,9 @@ class DesktopBrowserAutofillRevealBridgeService {
 
     try {
       if (request.method != 'POST' ||
-          (request.uri.path != '/reveal' && request.uri.path != '/status')) {
+          (request.uri.path != '/reveal' &&
+              request.uri.path != '/overlay-reveal' &&
+              request.uri.path != '/status')) {
         await _writeError(request, HttpStatus.notFound, 'not_found');
         return;
       }
@@ -139,6 +179,11 @@ class DesktopBrowserAutofillRevealBridgeService {
       final payload = await _readJsonPayload(request);
       if (payload == null) {
         await _writeError(request, HttpStatus.badRequest, 'invalid_request');
+        return;
+      }
+
+      if (request.uri.path == '/overlay-reveal') {
+        await _handleOverlayReveal(request, payload);
         return;
       }
 
@@ -189,6 +234,122 @@ class DesktopBrowserAutofillRevealBridgeService {
         'bridge_error',
       );
     }
+  }
+
+  /// 009 / A012 — the origin-bound overlay reveal.
+  ///
+  /// A separate endpoint from `/reveal` on purpose, and the separation is a
+  /// security property, not tidiness. The native host and this app are
+  /// installed and updated independently, so a new host can meet an old app.
+  /// Had the strict policy been a new *field* on `/reveal`, an old app would
+  /// have ignored the field and answered under the lenient popup rule — a
+  /// fail-open downgrade. An old app has no `/overlay-reveal`, so it answers
+  /// `not_found` and the overlay path fails closed.
+  ///
+  /// `/reveal` keeps the popup policy from the reveal-authorization fix
+  /// unchanged: domain identifiers, the `http` -> `https` upgrade and the
+  /// non-WebPKI allowance all still apply *there*. They apply nowhere here.
+  Future<void> _handleOverlayReveal(
+    HttpRequest request,
+    Map<String, Object?> payload,
+  ) async {
+    // Read the whole session under one epoch, before anything is looked up.
+    final epochAtEntry = _sessionEpoch;
+    final databaseId = _safeString(payload['databaseId'], maxLength: 128);
+    final cacheGeneration = _safeString(
+      payload['cacheGeneration'],
+      maxLength: 128,
+    );
+    final bridgeGeneration = _safeString(
+      payload['bridgeGeneration'],
+      maxLength: 128,
+    );
+    final entryId = _safeString(payload['entryId'], maxLength: 256);
+    final origin = browserExactOriginOrNull(payload['origin']);
+    final matchPolicy = _safeString(payload['matchPolicy'], maxLength: 32);
+
+    if (entryId == null ||
+        origin == null ||
+        matchPolicy != overlayMatchPolicy) {
+      await _writeError(request, HttpStatus.badRequest, 'invalid_request');
+      return;
+    }
+    if (!_matchesCurrentBinding(
+      epoch: epochAtEntry,
+      databaseId: databaseId,
+      cacheGeneration: cacheGeneration,
+      bridgeGeneration: bridgeGeneration,
+    )) {
+      await _writeError(request, HttpStatus.conflict, 'stale_session');
+      return;
+    }
+
+    final credential = _credentials[entryId];
+    // An unknown entry and an unauthorized origin answer identically: the
+    // refusal must not disclose which rule rejected it, nor whether the entry
+    // exists in this vault at all.
+    if (credential == null ||
+        !isExactOriginAuthorized(
+          serviceIdentifiers: credential.serviceIdentifiers,
+          origin: origin,
+        )) {
+      await _writeError(request, HttpStatus.forbidden, 'forbidden');
+      return;
+    }
+
+    final beforeResponse = debugBeforeOverlayRevealResponse;
+    if (beforeResponse != null) {
+      await beforeResponse();
+    }
+
+    // SR-4: check again immediately before the secret is written, this time
+    // against the durable descriptor as well as the in-memory session. A vault
+    // switch or a coordinator teardown that landed while this request was in
+    // flight invalidates it here, after every earlier check had passed.
+    final durable = await store.readBridgeDescriptor();
+    if (!_matchesCurrentBinding(
+          epoch: epochAtEntry,
+          databaseId: databaseId,
+          cacheGeneration: cacheGeneration,
+          bridgeGeneration: bridgeGeneration,
+        ) ||
+        durable == null ||
+        durable.databaseId != databaseId ||
+        durable.cacheGeneration != cacheGeneration ||
+        durable.bridgeGeneration != bridgeGeneration) {
+      await _writeError(request, HttpStatus.conflict, 'stale_session');
+      return;
+    }
+
+    await _writeJson(request, HttpStatus.ok, {
+      'ok': true,
+      'data': {
+        'entryId': credential.id,
+        'matchPolicy': overlayMatchPolicy,
+        'origin': origin,
+        'databaseId': databaseId,
+        'cacheGeneration': cacheGeneration,
+        'bridgeGeneration': bridgeGeneration,
+        'username': credential.username,
+        'password': credential.password,
+      },
+    });
+  }
+
+  bool _matchesCurrentBinding({
+    required int epoch,
+    required String? databaseId,
+    required String? cacheGeneration,
+    required String? bridgeGeneration,
+  }) {
+    return epoch == _sessionEpoch &&
+        _server != null &&
+        databaseId != null &&
+        cacheGeneration != null &&
+        bridgeGeneration != null &&
+        databaseId == _databaseId &&
+        cacheGeneration == _cacheGeneration &&
+        bridgeGeneration == _bridgeGeneration;
   }
 
   bool _isAuthorized(String? header) {
@@ -364,6 +525,9 @@ String _publicErrorMessage(String code) {
     'strong_match_required' =>
       'Credential is not an exact match for this site.',
     'invalid_request' => 'Reveal bridge request is invalid.',
+    // Overlay refusals are deliberately uniform: neither message says whether
+    // the entry exists, nor which part of the origin failed to match.
+    'stale_session' => 'Reveal bridge session is no longer current.',
     'forbidden' => 'Reveal bridge rejected the request.',
     _ => 'Reveal bridge request failed.',
   };

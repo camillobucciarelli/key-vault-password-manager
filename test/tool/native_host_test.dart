@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:password_manager/features/password_manager/data/services/browser_exact_origin.dart';
 import 'package:password_manager/features/password_manager/data/services/desktop_browser_autofill_cache.dart';
 
 import '../../tool/native_host_protocol.dart';
@@ -137,6 +138,7 @@ void main() {
           const DesktopBrowserAutofillMetadataCache(
             version: desktopBrowserAutofillCacheVersion,
             databaseId: 'db-1',
+            cacheGeneration: 'cache-gen-1',
             generatedAtEpochMs: 1,
             entries: [
               DesktopBrowserAutofillCredentialMetadata(
@@ -195,6 +197,7 @@ void main() {
         const DesktopBrowserAutofillMetadataCache(
           version: desktopBrowserAutofillCacheVersion,
           databaseId: 'db-1',
+          cacheGeneration: 'cache-gen-1',
           generatedAtEpochMs: 1,
           entries: [
             DesktopBrowserAutofillCredentialMetadata(
@@ -248,6 +251,7 @@ void main() {
           const DesktopBrowserAutofillMetadataCache(
             version: desktopBrowserAutofillCacheVersion,
             databaseId: 'db-1',
+            cacheGeneration: 'cache-gen-1',
             generatedAtEpochMs: 1,
             entries: [
               DesktopBrowserAutofillCredentialMetadata(
@@ -563,6 +567,7 @@ void main() {
         const DesktopBrowserAutofillMetadataCache(
           version: desktopBrowserAutofillCacheVersion,
           databaseId: 'db-1',
+          cacheGeneration: 'cache-gen-1',
           generatedAtEpochMs: 1,
           entries: [
             DesktopBrowserAutofillCredentialMetadata(
@@ -639,6 +644,7 @@ void main() {
         const DesktopBrowserAutofillMetadataCache(
           version: desktopBrowserAutofillCacheVersion,
           databaseId: 'db-1',
+          cacheGeneration: 'cache-gen-1',
           generatedAtEpochMs: 1,
           entries: [
             DesktopBrowserAutofillCredentialMetadata(
@@ -699,6 +705,7 @@ void main() {
         const DesktopBrowserAutofillMetadataCache(
           version: desktopBrowserAutofillCacheVersion,
           databaseId: 'db-1',
+          cacheGeneration: 'cache-gen-1',
           generatedAtEpochMs: 1,
           entries: [
             DesktopBrowserAutofillCredentialMetadata(
@@ -750,6 +757,7 @@ void main() {
           const DesktopBrowserAutofillMetadataCache(
             version: desktopBrowserAutofillCacheVersion,
             databaseId: 'db-1',
+            cacheGeneration: 'cache-gen-1',
             generatedAtEpochMs: 1,
             entries: [
               DesktopBrowserAutofillCredentialMetadata(
@@ -796,6 +804,797 @@ void main() {
       },
     );
   });
+
+  group('009 A014 — popup fill eligibility', () {
+    test('a host-level strong match the reveal policy would refuse is not '
+        'presented as fillable', () async {
+      final store = await _overlayStore(
+        databaseId: 'db-a',
+        cacheGeneration: 'cache-a',
+        entries: [
+          // Stored as https, so the popup policy refuses it on an http page
+          // even though the host matches.
+          _overlayEntry(id: 'https-only', exactOrigin: 'https://example.com'),
+        ],
+      );
+      final bridge = await _FakeOverlayBridge.start();
+      addTearDown(bridge.close);
+      await store.writeBridgeDescriptor(
+        bridge.descriptor(
+          databaseId: 'db-a',
+          cacheGeneration: 'cache-a',
+          bridgeGeneration: 'bridge-a',
+        ),
+      );
+
+      Future<Map<String, Object?>> queryAt(String url) async {
+        final response = await handleNativeHostRequest({
+          'version': nativeProtocolVersion,
+          'id': 'popup-query',
+          'type': 'queryCredentials',
+          'payload': {'url': url, 'limit': 10},
+        }, store: store);
+        final data = response['data']! as Map<String, Object?>;
+        return (data['strongMatches']! as List<Object?>)
+            .cast<Map<String, Object?>>()
+            .single;
+      }
+
+      expect((await queryAt('https://example.com'))['fillEligible'], isTrue);
+      expect((await queryAt('http://example.com'))['fillEligible'], isFalse);
+    });
+
+    test('nothing is fillable while the reveal bridge is absent', () async {
+      final store = await _overlayStore(
+        databaseId: 'db-a',
+        cacheGeneration: 'cache-a',
+        entries: [_overlayEntry()],
+      );
+
+      final response = await handleNativeHostRequest({
+        'version': nativeProtocolVersion,
+        'id': 'popup-query-2',
+        'type': 'queryCredentials',
+        'payload': {'url': 'https://example.com'},
+      }, store: store);
+
+      final data = response['data']! as Map<String, Object?>;
+      expect(data['fillAvailable'], isFalse);
+      final strong = (data['strongMatches']! as List<Object?>)
+          .cast<Map<String, Object?>>();
+      expect(strong.single['fillEligible'], isFalse);
+    });
+  });
+
+  group('009 A008 — overlay capability negotiation', () {
+    test('hello advertises the exact-origin capability and types', () async {
+      final store = DesktopBrowserAutofillCacheStore(
+        directory: await Directory.systemTemp.createTemp('kv-overlay-host-'),
+      );
+      final response = await handleNativeHostRequest({
+        'version': nativeProtocolVersion,
+        'id': 'hello-cap',
+        'type': 'hello',
+      }, store: store);
+
+      final data = response['data']! as Map<String, Object?>;
+      expect(data['capabilities'], contains('overlayExactOriginV1'));
+      expect(data['supportedMessages'], contains('overlayQueryCredentials'));
+      expect(data['supportedMessages'], contains('overlayRevealForFill'));
+    });
+
+    test('an old host cannot serve overlay requests at all', () async {
+      // The overlay request types did not exist before this slice, so an old
+      // host classifies them as unknown and refuses. Had the strict policy been
+      // a new field on `revealForFill`, that same old host would have ignored
+      // the field and revealed under the lenient rule.
+      expect(
+        _preSlice009MessageTypes,
+        isNot(contains('overlayQueryCredentials')),
+      );
+      expect(_preSlice009MessageTypes, isNot(contains('overlayRevealForFill')));
+
+      final response = await handleNativeHostRequest({
+        'version': nativeProtocolVersion,
+        'id': 'old-host',
+        'type': 'overlayRevealForFill',
+        'payload': {'entryId': 'entry-1', 'origin': 'https://example.com'},
+      }, store: DesktopBrowserAutofillCacheStore(directory: Directory.current));
+      // Sanity: this host does support it, so the refusal above comes from the
+      // frozen list, not from the current binary.
+      expect(response['ok'], isFalse);
+      expect(
+        (response['error']! as Map<String, Object?>)['code'],
+        isNot('unsupported_type'),
+      );
+    });
+  });
+
+  group('009 A010 — overlayQueryCredentials', () {
+    test('returns bounded metadata with no username or password', () async {
+      final store = await _overlayStore(
+        databaseId: 'db-a',
+        cacheGeneration: 'cache-a',
+        entries: [
+          _overlayEntry(),
+          _overlayEntry(
+            id: 'domain-only',
+            domain: 'example.com',
+            withExactOrigin: false,
+          ),
+          _overlayEntry(
+            id: 'elsewhere',
+            domain: 'other.example',
+            exactOrigin: 'https://other.example',
+          ),
+        ],
+      );
+      final bridge = await _FakeOverlayBridge.start();
+      addTearDown(bridge.close);
+      await store.writeBridgeDescriptor(
+        bridge.descriptor(
+          databaseId: 'db-a',
+          cacheGeneration: 'cache-a',
+          bridgeGeneration: 'bridge-a',
+        ),
+      );
+
+      final response = await handleNativeHostRequest({
+        'version': nativeProtocolVersion,
+        'id': 'overlay-query-1',
+        'type': 'overlayQueryCredentials',
+        'payload': {
+          'url': 'https://example.com/login?token=x#frag',
+          'matchPolicy': overlayMatchPolicy,
+          'limit': 10,
+        },
+      }, store: store);
+
+      expect(response['ok'], isTrue);
+      final data = response['data']! as Map<String, Object?>;
+      expect(data['matchPolicy'], overlayMatchPolicy);
+      expect(data['target'], 'https://example.com');
+      expect(data['sessionBinding'], {
+        'databaseId': 'db-a',
+        'cacheGeneration': 'cache-a',
+        'bridgeGeneration': 'bridge-a',
+      });
+
+      final items = (data['items']! as List<Object?>)
+          .cast<Map<String, Object?>>();
+      expect(items, hasLength(2));
+      final exact = items.firstWhere((i) => i['entryId'] == 'entry-1');
+      expect(exact['matchType'], 'exact-origin');
+      expect(exact['fillEligible'], isTrue);
+      expect(exact.keys, [
+        'entryId',
+        'title',
+        'displayService',
+        'matchType',
+        'fillEligible',
+      ]);
+
+      final possible = items.firstWhere((i) => i['entryId'] == 'domain-only');
+      expect(possible['matchType'], 'possible');
+      expect(possible['fillEligible'], isFalse);
+
+      final encoded = jsonEncode(response);
+      expect(encoded, isNot(contains('alice')));
+      expect(encoded, isNot(contains('username')));
+      expect(encoded, isNot(contains('password')));
+      expect(encoded, isNot(contains('elsewhere')));
+    });
+
+    test('rejects a request that does not declare the strict policy', () async {
+      final store = await _overlayStore(
+        databaseId: 'db-a',
+        cacheGeneration: 'cache-a',
+        entries: [_overlayEntry()],
+      );
+
+      final response = await handleNativeHostRequest({
+        'version': nativeProtocolVersion,
+        'id': 'overlay-query-2',
+        'type': 'overlayQueryCredentials',
+        'payload': {'url': 'https://example.com'},
+      }, store: store);
+
+      expect(response['ok'], isFalse);
+      expect(
+        (response['error']! as Map<String, Object?>)['code'],
+        'invalid_request',
+      );
+    });
+
+    test('nothing is fillable while the bridge is not current', () async {
+      final store = await _overlayStore(
+        databaseId: 'db-a',
+        cacheGeneration: 'cache-a',
+        entries: [_overlayEntry()],
+      );
+
+      final response = await handleNativeHostRequest({
+        'version': nativeProtocolVersion,
+        'id': 'overlay-query-3',
+        'type': 'overlayQueryCredentials',
+        'payload': {
+          'url': 'https://example.com',
+          'matchPolicy': overlayMatchPolicy,
+        },
+      }, store: store);
+
+      final data = response['data']! as Map<String, Object?>;
+      expect(data['fillAvailable'], isFalse);
+      expect(data['sessionBinding'], isNull);
+      final items = (data['items']! as List<Object?>)
+          .cast<Map<String, Object?>>();
+      expect(items.single['fillEligible'], isFalse);
+    });
+
+    test('a republish during the query returns stale_session', () async {
+      final store = await _overlayStore(
+        databaseId: 'db-a',
+        cacheGeneration: 'cache-a',
+        entries: [_overlayEntry()],
+      );
+      final bridge = await _FakeOverlayBridge.start();
+      addTearDown(bridge.close);
+      await store.writeBridgeDescriptor(
+        bridge.descriptor(
+          databaseId: 'db-a',
+          cacheGeneration: 'cache-a',
+          bridgeGeneration: 'bridge-a',
+        ),
+      );
+
+      // The re-read before responding is what catches this: the vault is
+      // republished after the snapshot was taken but before the answer is
+      // written. `_RepublishingStore` fires that republish deterministically on
+      // the re-read.
+      final response = await handleNativeHostRequest({
+        'version': nativeProtocolVersion,
+        'id': 'overlay-query-4',
+        'type': 'overlayQueryCredentials',
+        'payload': {
+          'url': 'https://example.com',
+          'matchPolicy': overlayMatchPolicy,
+        },
+      }, store: _RepublishingStore(store));
+      expect(response['ok'], isFalse);
+      expect(
+        (response['error']! as Map<String, Object?>)['code'],
+        'stale_session',
+      );
+    });
+  });
+
+  group('009 A011 — overlayRevealForFill', () {
+    late DesktopBrowserAutofillCacheStore store;
+    late _FakeOverlayBridge bridge;
+
+    Future<void> publish({
+      String databaseId = 'db-a',
+      String cacheGeneration = 'cache-a',
+      String bridgeGeneration = 'bridge-a',
+      List<DesktopBrowserAutofillCredentialMetadata>? entries,
+    }) async {
+      await store.writeMetadataCache(
+        DesktopBrowserAutofillMetadataCache(
+          version: desktopBrowserAutofillCacheVersion,
+          databaseId: databaseId,
+          cacheGeneration: cacheGeneration,
+          generatedAtEpochMs: 1,
+          entries: entries ?? [_overlayEntry()],
+        ),
+      );
+      await store.writeBridgeDescriptor(
+        bridge.descriptor(
+          databaseId: databaseId,
+          cacheGeneration: cacheGeneration,
+          bridgeGeneration: bridgeGeneration,
+        ),
+      );
+    }
+
+    setUp(() async {
+      store = DesktopBrowserAutofillCacheStore(
+        directory: await Directory.systemTemp.createTemp('kv-overlay-host-'),
+      );
+      bridge = await _FakeOverlayBridge.start();
+      addTearDown(bridge.close);
+      await publish();
+    });
+
+    test('reveals for an exact origin and echoes the binding', () async {
+      final response = await _overlayReveal(
+        store: store,
+        origin: 'https://example.com',
+      );
+
+      expect(response['ok'], isTrue);
+      final data = response['data']! as Map<String, Object?>;
+      expect(data['password'], _overlaySecret);
+      expect(data['matchPolicy'], overlayMatchPolicy);
+      expect(data['sessionBinding'], {
+        'databaseId': 'db-a',
+        'cacheGeneration': 'cache-a',
+        'bridgeGeneration': 'bridge-a',
+      });
+      expect(bridge.lastPayload?['matchPolicy'], overlayMatchPolicy);
+      expect(bridge.lastPayload?['origin'], 'https://example.com');
+    });
+
+    test('an implicit default port matches an explicit one', () async {
+      final response = await _overlayReveal(
+        store: store,
+        origin: 'https://example.com:443',
+      );
+      expect(response['ok'], isTrue);
+    });
+
+    test('a domain-only entry can never reveal', () async {
+      await publish(entries: [_overlayEntry(withExactOrigin: false)]);
+
+      final response = await _overlayReveal(
+        store: store,
+        origin: 'https://example.com',
+      );
+
+      expect(response['ok'], isFalse);
+      expect((response['error']! as Map<String, Object?>)['code'], 'forbidden');
+      expect(bridge.requestCount, 0);
+      _expectNoSecret(response);
+    });
+
+    for (final entry in const {
+      'scheme': 'http://example.com',
+      'non-default port': 'https://example.com:8443',
+      'phishing suffix': 'https://example.com.evil.test',
+      'www label': 'https://www.example.com',
+      'm label': 'https://m.example.com',
+      'mobile label': 'https://mobile.example.com',
+    }.entries) {
+      test('${entry.key} differs and is refused', () async {
+        final response = await _overlayReveal(
+          store: store,
+          origin: entry.value,
+        );
+
+        expect(response['ok'], isFalse);
+        final error = response['error']! as Map<String, Object?>;
+        expect(error['code'], 'forbidden');
+        expect(bridge.requestCount, 0, reason: 'the app is never contacted');
+        _expectNoSecret(response);
+        // The refusal must not disclose which rule rejected it.
+        final message = (error['message']! as String).toLowerCase();
+        for (final leak in const ['scheme', 'port', 'host', 'label', 'http']) {
+          expect(message, isNot(contains(leak)));
+        }
+      });
+    }
+
+    for (final mismatch in const [
+      ('databaseId', 'db-b', 'cache-a', 'bridge-a'),
+      ('cacheGeneration', 'db-a', 'cache-b', 'bridge-a'),
+      ('bridgeGeneration', 'db-a', 'cache-a', 'bridge-b'),
+    ]) {
+      test('${mismatch.$1} mismatch is stale_session before the app', () async {
+        final response = await _overlayReveal(
+          store: store,
+          origin: 'https://example.com',
+          databaseId: mismatch.$2,
+          cacheGeneration: mismatch.$3,
+          bridgeGeneration: mismatch.$4,
+        );
+
+        expect(response['ok'], isFalse);
+        expect(
+          (response['error']! as Map<String, Object?>)['code'],
+          'stale_session',
+        );
+        expect(bridge.requestCount, 0);
+        _expectNoSecret(response);
+      });
+    }
+
+    test('a republish of the same vault invalidates an older grant', () async {
+      // Same database, same entry, same origin — only the cache generation
+      // moved. The grant minted before the republish must be dead anyway.
+      await publish(cacheGeneration: 'cache-a2');
+
+      final response = await _overlayReveal(
+        store: store,
+        origin: 'https://example.com',
+        cacheGeneration: 'cache-a',
+      );
+
+      expect(
+        (response['error']! as Map<String, Object?>)['code'],
+        'stale_session',
+      );
+      expect(bridge.requestCount, 0);
+      _expectNoSecret(response);
+    });
+
+    test('a bridge restart invalidates an older grant', () async {
+      await publish(bridgeGeneration: 'bridge-a2');
+
+      final response = await _overlayReveal(
+        store: store,
+        origin: 'https://example.com',
+        bridgeGeneration: 'bridge-a',
+      );
+
+      expect(
+        (response['error']! as Map<String, Object?>)['code'],
+        'stale_session',
+      );
+      expect(bridge.requestCount, 0);
+      _expectNoSecret(response);
+    });
+
+    test(
+      'a delayed response is stale after a same-vault republish too',
+      () async {
+        // Weaker signal than a vault switch — the database id never changes —
+        // so the post-response re-read has to compare the generations, not just
+        // the database.
+        bridge.onRequest = () async {
+          await publish(cacheGeneration: 'cache-a2');
+        };
+
+        final response = await _overlayReveal(
+          store: store,
+          origin: 'https://example.com',
+        );
+
+        expect(
+          (response['error']! as Map<String, Object?>)['code'],
+          'stale_session',
+        );
+        _expectNoSecret(response);
+      },
+    );
+
+    test('a request without the strict policy is refused', () async {
+      final response = await _overlayReveal(
+        store: store,
+        origin: 'https://example.com',
+        matchPolicy: 'host',
+      );
+
+      expect(response['ok'], isFalse);
+      expect(
+        (response['error']! as Map<String, Object?>)['code'],
+        'invalid_request',
+      );
+      expect(bridge.requestCount, 0);
+    });
+
+    test('an app response that does not echo the binding is dropped', () async {
+      bridge.overrideData = {
+        'entryId': 'entry-1',
+        'matchPolicy': overlayMatchPolicy,
+        'origin': 'https://example.com',
+        'databaseId': 'db-a',
+        'cacheGeneration': 'cache-b',
+        'bridgeGeneration': 'bridge-a',
+        'username': 'alice',
+        'password': _overlaySecret,
+      };
+
+      final response = await _overlayReveal(
+        store: store,
+        origin: 'https://example.com',
+      );
+
+      expect(response['ok'], isFalse);
+      expect(
+        (response['error']! as Map<String, Object?>)['code'],
+        'app_bridge_invalid_response',
+      );
+      _expectNoSecret(response);
+    });
+
+    test('A013 — a delayed vault A response after a switch to vault B with the '
+        'same entry UUID and origin is stale_session', () async {
+      // The app answers under vault A's binding, but by the time it answers,
+      // vault B — same entry UUID, same origin, different secret — is the
+      // published one. Only the post-response re-read catches this.
+      bridge.onRequest = () async {
+        await publish(
+          databaseId: 'db-b',
+          cacheGeneration: 'cache-b',
+          bridgeGeneration: 'bridge-b',
+          entries: [_overlayEntry()],
+        );
+      };
+
+      final response = await _overlayReveal(
+        store: store,
+        origin: 'https://example.com',
+      );
+
+      expect(response['ok'], isFalse);
+      expect(
+        (response['error']! as Map<String, Object?>)['code'],
+        'stale_session',
+      );
+      _expectNoSecret(response);
+
+      // And the old grant cannot be replayed against vault B either.
+      final replay = await _overlayReveal(
+        store: store,
+        origin: 'https://example.com',
+      );
+      expect(
+        (replay['error']! as Map<String, Object?>)['code'],
+        'stale_session',
+      );
+    });
+
+    test('an app without the overlay endpoint fails closed', () async {
+      // A pre-009 app bridge has no `/overlay-reveal`; it answers `not_found`
+      // and the host must not retry on the lenient `/reveal`.
+      await bridge.close();
+      final legacy = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => legacy.close(force: true));
+      var revealCalls = 0;
+      legacy.listen((request) async {
+        if (request.uri.path == '/reveal') {
+          revealCalls += 1;
+        }
+        request.response.statusCode = HttpStatus.notFound;
+        request.response.write(
+          jsonEncode({
+            'ok': false,
+            'error': {'code': 'not_found'},
+          }),
+        );
+        await request.response.close();
+      });
+      await store.writeBridgeDescriptor(
+        DesktopBrowserAutofillBridgeDescriptor(
+          version: desktopBrowserAutofillBridgeDescriptorVersion,
+          port: legacy.port,
+          token: bridge.token,
+          databaseId: 'db-a',
+          cacheGeneration: 'cache-a',
+          bridgeGeneration: 'bridge-a',
+          createdAtEpochMs: 1,
+        ),
+      );
+
+      final response = await _overlayReveal(
+        store: store,
+        origin: 'https://example.com',
+      );
+
+      expect(response['ok'], isFalse);
+      expect(revealCalls, 0);
+      _expectNoSecret(response);
+    });
+  });
+}
+
+/// The v2 request types that existed before spec 009 Slice A1.
+///
+/// Frozen on purpose: it is the shape of a native host the user may still have
+/// installed. The overlay types must be absent from it, because that absence is
+/// what makes an old host answer `unsupported_type` instead of silently
+/// applying the lenient host-only policy to an overlay request.
+const _preSlice009MessageTypes = <String>[
+  'hello',
+  'status',
+  'queryCredentials',
+  'searchCredentials',
+  'createPendingAssociation',
+  'revealForFill',
+];
+
+const _overlaySecret = 'overlay-only-secret';
+
+/// Republishes the vault the second time the metadata cache is read, i.e.
+/// exactly on the "re-read immediately before responding" step of SR-4.
+///
+/// A subclass rather than a mock so that the production handler, the production
+/// store and the production comparison all run unmodified.
+class _RepublishingStore extends DesktopBrowserAutofillCacheStore {
+  _RepublishingStore(this.delegate) : super(directory: delegate.directory);
+
+  final DesktopBrowserAutofillCacheStore delegate;
+  int reads = 0;
+
+  @override
+  Future<DesktopBrowserAutofillMetadataCache?> readMetadataCache() async {
+    reads += 1;
+    if (reads == 2) {
+      await delegate.writeMetadataCache(
+        DesktopBrowserAutofillMetadataCache(
+          version: desktopBrowserAutofillCacheVersion,
+          databaseId: 'db-a',
+          cacheGeneration: 'cache-a2',
+          generatedAtEpochMs: 2,
+          entries: [_overlayEntry()],
+        ),
+      );
+    }
+    return super.readMetadataCache();
+  }
+}
+
+Future<DesktopBrowserAutofillCacheStore> _overlayStore({
+  required String databaseId,
+  required String cacheGeneration,
+  required List<DesktopBrowserAutofillCredentialMetadata> entries,
+}) async {
+  final store = DesktopBrowserAutofillCacheStore(
+    directory: await Directory.systemTemp.createTemp('kv-overlay-host-'),
+  );
+  await store.writeMetadataCache(
+    DesktopBrowserAutofillMetadataCache(
+      version: desktopBrowserAutofillCacheVersion,
+      databaseId: databaseId,
+      cacheGeneration: cacheGeneration,
+      generatedAtEpochMs: 1,
+      entries: entries,
+    ),
+  );
+  return store;
+}
+
+DesktopBrowserAutofillCredentialMetadata _overlayEntry({
+  String id = 'entry-1',
+  String exactOrigin = 'https://example.com',
+  String domain = 'example.com',
+  bool withExactOrigin = true,
+}) {
+  return DesktopBrowserAutofillCredentialMetadata(
+    id: id,
+    title: 'Example',
+    username: 'alice',
+    displayService: domain,
+    serviceIdentifiers: [
+      DesktopBrowserAutofillServiceIdentifier(type: 'domain', value: domain),
+      if (withExactOrigin)
+        DesktopBrowserAutofillServiceIdentifier(
+          type: exactOriginServiceIdentifierType,
+          value: exactOrigin,
+        ),
+    ],
+    updatedAtEpochMs: 1,
+  );
+}
+
+Future<Map<String, Object?>> _overlayReveal({
+  required DesktopBrowserAutofillCacheStore store,
+  required String origin,
+  String entryId = 'entry-1',
+  String databaseId = 'db-a',
+  String cacheGeneration = 'cache-a',
+  String bridgeGeneration = 'bridge-a',
+  String matchPolicy = overlayMatchPolicy,
+}) {
+  return handleNativeHostRequest({
+    'version': nativeProtocolVersion,
+    'id': 'overlay-reveal-1',
+    'type': 'overlayRevealForFill',
+    'payload': {
+      'entryId': entryId,
+      'origin': origin,
+      'matchPolicy': matchPolicy,
+      'expectedDatabaseId': databaseId,
+      'expectedCacheGeneration': cacheGeneration,
+      'expectedBridgeGeneration': bridgeGeneration,
+    },
+  }, store: store);
+}
+
+void _expectNoSecret(Map<String, Object?> response) {
+  final encoded = jsonEncode(response);
+  expect(encoded, isNot(contains(_overlaySecret)));
+  expect(encoded, isNot(contains('alice')));
+}
+
+/// Fake app bridge implementing `/overlay-reveal`.
+///
+/// Echoes the SR-4 binding exactly as the real app does, so the native host's
+/// own echo validation is exercised rather than bypassed. [onRequest] runs
+/// before the response is written and is how the delayed vault A -> B
+/// regression swaps the published vault mid-flight.
+class _FakeOverlayBridge {
+  _FakeOverlayBridge._({required this.server, required this.token}) {
+    server.listen(_handleRequest);
+  }
+
+  static Future<_FakeOverlayBridge> start() async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    return _FakeOverlayBridge._(
+      server: server,
+      token: 'fake-token-fake-token-fake-token-fake-token',
+    );
+  }
+
+  final HttpServer server;
+  final String token;
+  int requestCount = 0;
+  Map<String, Object?>? lastPayload;
+  Future<void> Function()? onRequest;
+  Map<String, Object?>? overrideData;
+
+  DesktopBrowserAutofillBridgeDescriptor descriptor({
+    required String databaseId,
+    required String cacheGeneration,
+    required String bridgeGeneration,
+  }) {
+    return DesktopBrowserAutofillBridgeDescriptor(
+      version: desktopBrowserAutofillBridgeDescriptorVersion,
+      port: server.port,
+      token: token,
+      databaseId: databaseId,
+      cacheGeneration: cacheGeneration,
+      bridgeGeneration: bridgeGeneration,
+      createdAtEpochMs: 1,
+    );
+  }
+
+  Future<void> close() async {
+    await server.close(force: true);
+  }
+
+  Future<void> _handleRequest(HttpRequest request) async {
+    requestCount += 1;
+    request.response.headers.contentType = ContentType.json;
+    if (request.method != 'POST' || request.uri.path != '/overlay-reveal') {
+      request.response.statusCode = HttpStatus.notFound;
+      request.response.write(
+        jsonEncode({
+          'ok': false,
+          'error': {'code': 'not_found'},
+        }),
+      );
+      await request.response.close();
+      return;
+    }
+    if (request.headers.value(HttpHeaders.authorizationHeader) !=
+        'Bearer $token') {
+      request.response.statusCode = HttpStatus.unauthorized;
+      request.response.write(
+        jsonEncode({
+          'ok': false,
+          'error': {'code': 'unauthorized'},
+        }),
+      );
+      await request.response.close();
+      return;
+    }
+
+    final payload =
+        jsonDecode(await utf8.decoder.bind(request).join())
+            as Map<String, Object?>;
+    lastPayload = payload;
+    await onRequest?.call();
+
+    request.response.statusCode = HttpStatus.ok;
+    request.response.write(
+      jsonEncode({
+        'ok': true,
+        'data':
+            overrideData ??
+            {
+              'entryId': payload['entryId'],
+              'matchPolicy': payload['matchPolicy'],
+              'origin': payload['origin'],
+              'databaseId': payload['databaseId'],
+              'cacheGeneration': payload['cacheGeneration'],
+              'bridgeGeneration': payload['bridgeGeneration'],
+              'username': 'alice',
+              'password': _overlaySecret,
+            },
+      }),
+    );
+    await request.response.close();
+  }
 }
 
 typedef _RevealAttempt = ({Map<String, Object?> response, int bridgeCalls});
@@ -810,6 +1609,7 @@ Future<_RevealAttempt> _revealForFill({
     DesktopBrowserAutofillMetadataCache(
       version: desktopBrowserAutofillCacheVersion,
       databaseId: 'db-1',
+      cacheGeneration: 'cache-gen-1',
       generatedAtEpochMs: 1,
       entries: [
         DesktopBrowserAutofillCredentialMetadata(
@@ -894,6 +1694,8 @@ class _FakeRevealBridge {
       port: server.port,
       token: token,
       databaseId: databaseId,
+      cacheGeneration: 'cache-gen-1',
+      bridgeGeneration: 'bridge-gen-1',
       createdAtEpochMs: 1,
     );
   }

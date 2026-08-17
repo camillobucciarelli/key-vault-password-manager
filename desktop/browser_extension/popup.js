@@ -288,10 +288,16 @@ function renderMatchRow(result, kind, { onFill, onAsk } = {}) {
   row.appendChild(tag);
 
   // __fillable is set by callers from the background/native-host response
-  // (fillAvailable). Only an explicit `false` disables the button — undefined
-  // (e.g. no signal attached) defaults to available, matching prior behavior
-  // for callers that don't yet compute it.
-  if (kind === "strong" && onFill && result.__fillable !== false) {
+  // (fillAvailable AND the per-entry fillEligible). Only an explicit `false`
+  // disables the button — undefined (e.g. no signal attached) defaults to
+  // available, matching prior behavior for callers that don't yet compute it.
+  if (kind === "strong" && result.__fillable === false) {
+    // 009 / A014: a strong match is a *host* match, so it may still fail the
+    // origin-bound reveal policy (scheme, port, or a domain-only entry on a
+    // page the policy does not admit). Say so up front instead of offering a
+    // Fill button that will be refused.
+    row.appendChild(el("span", "match-note", "Open KeyVault"));
+  } else if (kind === "strong" && onFill) {
     const button = el("button", "fill-btn", "Fill");
     button.type = "button";
     button.addEventListener("click", () => onFill(result));
@@ -576,7 +582,10 @@ async function renderMatchesState(tab, origin, response) {
   matchAreaElement = el("div");
   bodyElement.appendChild(matchAreaElement);
   renderResultsIntoMatchArea(
-    strong.map((r) => ({ ...r, __fillable: fillAvailable })),
+    strong.map((r) => ({
+      ...r,
+      __fillable: fillAvailable && r.fillEligible !== false,
+    })),
     possible
   );
 

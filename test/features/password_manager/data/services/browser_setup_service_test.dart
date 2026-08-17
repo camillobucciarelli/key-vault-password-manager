@@ -327,6 +327,8 @@ void main() {
           port: descriptor.port,
           token: 'wrong-token-wrong-token-wrong-token-wrong-token',
           databaseId: descriptor.databaseId,
+          cacheGeneration: 'cache-gen-1',
+          bridgeGeneration: 'bridge-gen-1',
           createdAtEpochMs: descriptor.createdAtEpochMs,
         ),
       );
@@ -346,6 +348,7 @@ Future<void> _writeCache(
     DesktopBrowserAutofillMetadataCache(
       version: desktopBrowserAutofillCacheVersion,
       databaseId: databaseId,
+      cacheGeneration: 'cache-gen-1',
       generatedAtEpochMs: 1,
       entries: const [],
     ),
@@ -362,6 +365,8 @@ Future<void> _writeDescriptor(
       port: port,
       token: 'test-token-test-token-test-token-test-token',
       databaseId: 'db-1',
+      cacheGeneration: 'cache-gen-1',
+      bridgeGeneration: 'bridge-gen-1',
       createdAtEpochMs: 1,
     ),
   );

@@ -304,6 +304,14 @@ body {
   color: var(--pop-tag-possible-text);
 }
 
+/* 009 / A014 — shown instead of Fill when a host-level strong match is not
+   authorized by the origin-bound reveal policy. Text carries the meaning. */
+.match-note {
+  flex: none;
+  font-size: 11px;
+  opacity: 0.75;
+}
+
 /* Fill button — padding 7/12 radius 999 accent-300, unchanged in dark. */
 .fill-btn {
   flex: none;
