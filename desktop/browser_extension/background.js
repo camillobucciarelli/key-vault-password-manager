@@ -1,3 +1,12 @@
+// Classic (non-module) MV3 worker: order matters, overlay_lifecycle.js reads
+// the security API off globalThis at load time.
+importScripts("overlay_security.js", "overlay_lifecycle.js");
+
+const overlaySecurity = globalThis.KeyVaultOverlaySecurity;
+const overlayLifecycle = new globalThis.KeyVaultOverlayLifecycle.OverlayLifecycle({
+  browser: chrome,
+});
+
 const HOST_NAME = "dev.camillobucciarelli.keyvault_native_host";
 const PROTOCOL_VERSION = 2;
 const NATIVE_TIMEOUT_MS = 3000;
@@ -300,8 +309,87 @@ chrome.runtime.onInstalled.addListener(() =>
 );
 
 // ---------------------------------------------------------------------------
+// 009 Slice A2 — overlay opt-in lifecycle.
+//
+// A020: reconciliation runs before any overlay message is served. Every entry
+// point below goes through `overlayLifecycle.ready()`, which reconciles once
+// per worker instance; `reconcile()` is called directly for the events that
+// must re-derive state within a live worker (permission add/remove).
+// ---------------------------------------------------------------------------
+
+chrome.runtime.onStartup.addListener(() => {
+  void overlayLifecycle.ready().catch(() => {});
+});
+chrome.runtime.onInstalled.addListener(() => {
+  void overlayLifecycle.ready().catch(() => {});
+});
+chrome.permissions.onAdded.addListener(() => {
+  void overlayLifecycle.reconcile().catch(() => {});
+});
+chrome.permissions.onRemoved.addListener(() => {
+  void overlayLifecycle.reconcile().catch(() => {});
+});
+
+function overlayReject(code) {
+  return { ok: false, error: { code, message: "Overlay request rejected." } };
+}
+
+/**
+ * Overlay messages are a separate, channel-tagged namespace. The existing
+ * popup routes below are untouched: Slice A3 (A022) owns folding both into one
+ * explicit route table. What this dispatcher must already respect is SR-1 —
+ * a content-script sender is never handled by the extension-page validator.
+ */
+async function handleOverlayMessage(request, sender) {
+  const route = overlaySecurity.classifySenderRoute(sender);
+
+  if (route === overlaySecurity.CONTENT_SCRIPT_ROUTE) {
+    if (request.type !== "bootstrap") return overlayReject("forbidden");
+    return overlayLifecycle.authorizeBootstrap({
+      message: request,
+      sender,
+      runtimeId: chrome.runtime.id,
+    });
+  }
+
+  const admitted = overlaySecurity.validateExtensionPageRequest(
+    request,
+    sender,
+    chrome.runtime.id
+  );
+  if (!admitted.ok) return overlayReject(admitted.error);
+
+  if (request.type === "getSiteState") {
+    const state = await overlayLifecycle.siteState({ tabUrl: request.origin });
+    return { ok: true, type: "siteState", ...state };
+  }
+
+  if (request.type === "setSiteState") {
+    // The permission grant itself happens in the popup, under the user
+    // gesture. Enable refuses to persist unless the browser confirms the
+    // derived pattern is actually held.
+    const result = request.enabled
+      ? await overlayLifecycle.enableOrigin({
+          origin: request.origin,
+          tabId: request.tabId,
+        })
+      : await overlayLifecycle.disableOrigin({ origin: request.origin });
+    if (!result.ok) return overlayReject(result.error);
+    const state = await overlayLifecycle.siteState({ tabUrl: request.origin });
+    return { ok: true, type: "siteState", ...state };
+  }
+
+  return overlayReject("forbidden");
+}
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request?.channel === overlaySecurity.CHANNEL) {
+    handleOverlayMessage(request, sender)
+      .then(sendResponse)
+      .catch(() => sendResponse(overlayReject("internal_error")));
+    return true;
+  }
+
   if (!requireExtensionSender(sender)) {
     sendResponse({
       ok: false,
