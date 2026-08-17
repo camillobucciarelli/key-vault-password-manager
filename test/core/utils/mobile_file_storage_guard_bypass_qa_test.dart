@@ -34,8 +34,18 @@ void main() {
   const sub = 'keys';
 
   setUp(() async {
-    root = await Directory.systemTemp.createTemp('guard_v2_');
-    docs = await Directory(p.join(root.path, 'Documents')).create();
+    // See mobile_file_storage_guard_qa_test.dart: the documents directory is
+    // reached through a symlink so the `/var` vs `/private/var` divergence is
+    // reproduced on Linux as well as macOS.
+    final rawRoot = await Directory.systemTemp.createTemp('guard_bypass_');
+    root = Directory(rawRoot.resolveSymbolicLinksSync());
+    final realDocs = await Directory(
+      p.join(root.path, 'Documents.real'),
+    ).create();
+    final docsLink = Link(p.join(root.path, 'Documents'));
+    await docsLink.create(realDocs.path);
+
+    docs = Directory(docsLink.path);
     outside = await Directory(p.join(root.path, 'outside')).create();
     PathProviderPlatform.instance = _FixedPathProvider(docs.path);
   });

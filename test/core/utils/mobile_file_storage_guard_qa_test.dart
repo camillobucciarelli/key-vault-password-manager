@@ -31,8 +31,20 @@ void main() {
   const sub = 'databases';
 
   setUp(() async {
-    root = await Directory.systemTemp.createTemp('guard_qa_');
-    docs = await Directory(p.join(root.path, 'Documents')).create();
+    // The documents directory is reached through a symlink so that the
+    // `/var` vs `/private/var` divergence iOS exhibits is reproduced on every
+    // host. macOS temp is a symlink and Linux `/tmp` is not, so relying on the
+    // host to supply it left CI unable to exercise the resolved-spelling path.
+    final rawRoot = await Directory.systemTemp.createTemp('guard_qa_');
+    root = Directory(rawRoot.resolveSymbolicLinksSync());
+    final realDocs = await Directory(
+      p.join(root.path, 'Documents.real'),
+    ).create();
+    final docsLink = Link(p.join(root.path, 'Documents'));
+    await docsLink.create(realDocs.path);
+
+    // path_provider sees the symlink spelling; realpath yields Documents.real.
+    docs = Directory(docsLink.path);
     outside = await Directory(p.join(root.path, 'outside')).create();
     PathProviderPlatform.instance = _FixedPathProvider(docs.path);
   });

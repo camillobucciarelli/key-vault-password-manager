@@ -36,8 +36,23 @@ void main() {
 
   setUp(() async {
     containerRoot = await Directory.systemTemp.createTemp('portable_symlink_');
-    unresolvedRoot = containerRoot.path;
-    resolvedRoot = containerRoot.resolveSymbolicLinksSync();
+    // Build the two spellings explicitly rather than relying on the host temp
+    // directory to supply them: macOS `/var/folders/...` is a symlink to
+    // `/private/var/folders/...`, but Linux `/tmp/...` is not, so on CI the
+    // divergence simply did not exist and these tests either failed on the
+    // precondition or passed without exercising anything.
+    //
+    // `base` is resolved first so `real` and `link` are the only difference.
+    final base = Directory(containerRoot.resolveSymbolicLinksSync());
+    final realRoot = await Directory(p.join(base.path, 'real')).create();
+    final linkRoot = Link(p.join(base.path, 'link'));
+    await linkRoot.create(realRoot.path);
+
+    // Stands in for what path_provider returns (`/var/...`).
+    unresolvedRoot = linkRoot.path;
+    // Stands in for what UIDocumentPickerViewController returns
+    // (`/private/var/...`): the same directory, spelled through the target.
+    resolvedRoot = realRoot.path;
     SharedPreferences.setMockInitialValues(<String, Object>{});
   });
 
@@ -45,18 +60,24 @@ void main() {
     await containerRoot.delete(recursive: true);
   });
 
-  /// On macOS `Directory.systemTemp` is `/var/folders/...`, a symlink to
-  /// `/private/var/folders/...` -- structurally identical to iOS, where
-  /// `NSSearchPathForDirectoriesInDomains` yields `/var/mobile/Containers/...`
-  /// while `UIDocumentPickerViewController` hands back
-  /// `/private/var/mobile/Containers/...` for the very same file.
-  test('PRECONDITION: temp root is a symlink (/var vs /private/var)', () {
+  /// The setUp builds a symlinked spelling of one directory -- structurally
+  /// identical to iOS, where `NSSearchPathForDirectoriesInDomains` yields
+  /// `/var/mobile/Containers/...` while `UIDocumentPickerViewController` hands
+  /// back `/private/var/mobile/Containers/...` for the very same file.
+  test('PRECONDITION: the two spellings diverge but name one directory', () {
     expect(
       resolvedRoot,
       isNot(unresolvedRoot),
       reason:
-          'Host filesystem does not reproduce the iOS symlink shape; the '
-          'symlink findings below cannot be exercised here.',
+          'The test did not construct the two-spelling divergence, so the '
+          'symlink findings below cannot be exercised.',
+    );
+    expect(
+      Directory(unresolvedRoot).resolveSymbolicLinksSync(),
+      resolvedRoot,
+      reason:
+          'Both spellings must name the same directory, otherwise the findings '
+          'below would be testing two unrelated paths.',
     );
     expect(p.isWithin(unresolvedRoot, p.join(resolvedRoot, 'x')), isFalse);
   });
