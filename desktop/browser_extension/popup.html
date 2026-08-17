@@ -18,6 +18,10 @@
            search field and footer note all change shape per state
            (matches / app locked / host not found / possible-only). -->
     </main>
+    <!-- Loaded first: popup.js reads the shipped SR-2 canonical-origin and
+         permission-pattern helpers off globalThis rather than carrying a
+         second copy of those rules. -->
+    <script src="overlay_security.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

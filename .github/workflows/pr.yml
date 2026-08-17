@@ -62,13 +62,19 @@ jobs:
           shopt -s failglob
           node --test desktop/browser_extension/test/*.test.js
 
-      # Syntax gate from A045, restricted to the files that exist today.
-      # content_overlay.js is deliberately omitted: it arrives in Slice A4 and
-      # naming it now would fail CI on every PR until then.
+      # Syntax gate from A045. This is an explicit allowlist, not a glob: a
+      # runtime file that is never named here is simply never checked, and
+      # nothing fails to say so. Every task that adds a runtime JS file to
+      # desktop/browser_extension/ adds it to this list in the same commit
+      # (Slice A2 added overlay_lifecycle.js and content_overlay.js; the latter
+      # is a bootstrap-only stub until Slice A4 fills it in).
+      # `overlay_lifecycle.test.js` asserts this list stays complete.
       - name: Syntax check extension sources
         shell: bash
         run: |
           node --check desktop/browser_extension/overlay_security.js
+          node --check desktop/browser_extension/overlay_lifecycle.js
+          node --check desktop/browser_extension/content_overlay.js
           node --check desktop/browser_extension/background.js
           node --check desktop/browser_extension/popup.js
 

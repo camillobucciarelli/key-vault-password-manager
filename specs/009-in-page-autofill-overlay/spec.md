@@ -14,9 +14,10 @@ pending new-entry secret.
 
 ## Current baseline
 
-- `desktop/browser_extension/manifest.json` is MV3 and currently grants only
-  `activeTab`, `nativeMessaging`, and `scripting`. It has no storage, host
-  permissions, or content scripts.
+- `desktop/browser_extension/manifest.json` is MV3 and currently grants
+  `activeTab`, `nativeMessaging`, `scripting`, and `storage` — `storage` has
+  been granted since spec 006, so A015 does not need to add it. It has no host
+  permissions, no optional host permissions, and no content scripts.
 - `desktop/browser_extension/background.js` accepts extension-page senders only
   (`sender.id === chrome.runtime.id && !sender.tab`) and forwards protocol v2
   requests with a 3-second timeout.
