@@ -333,7 +333,13 @@ chrome.runtime.onInstalled.addListener(() => {
   void overlayLifecycle.ready().catch(() => {});
 });
 chrome.permissions.onAdded.addListener(() => {
-  void overlayLifecycle.reconcile().catch(() => {});
+  // `prunePermissions: false` — Chrome fires onAdded before the popup's
+  // setSiteState arrives, so the just-granted pattern is not yet in committed
+  // config; a full reconcile would revoke it as an orphan and the enable would
+  // fail. Safe to defer: a permission without config is inert (config is the
+  // authorization truth), and the orphan sweep still runs on cold start,
+  // popup open, onRemoved and disable (D5). See reconcile()'s doc comment.
+  void overlayLifecycle.reconcile({ prunePermissions: false }).catch(() => {});
 });
 chrome.permissions.onRemoved.addListener(() => {
   void overlayLifecycle.reconcile().catch(() => {});

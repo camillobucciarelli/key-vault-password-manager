@@ -20,6 +20,13 @@
 
 "use strict";
 
+// MV3 `importScripts` shares one global scope across worker files: every
+// top-level binding lives inside this IIFE so it cannot collide with
+// `overlay_security.js` / `overlay_lifecycle.js` (`require()` in the Node
+// harness would never show the collision). See
+// `test/worker_global_scope.test.js`.
+(() => {
+
 const securityModule =
   typeof require === "function" &&
   typeof module !== "undefined" &&
@@ -757,3 +764,5 @@ if (typeof module !== "undefined" && typeof module.exports === "object") {
 } else {
   globalThis.KeyVaultOverlayRoutes = API;
 }
+
+})();
