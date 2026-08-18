@@ -1,4 +1,3 @@
-import '../../../../core/utils/portable_path.dart';
 import '../../domain/entities/database_security_profile.dart';
 import '../../domain/repositories/database_security_repository.dart';
 import '../datasources/database_security_local_data_source.dart';
@@ -18,14 +17,14 @@ class DatabaseSecurityRepositoryImpl implements DatabaseSecurityRepository {
     if (raw == null) {
       return null;
     }
-    return _profileFromMap(raw, await PortablePath.documentsRoot());
+    return _profileFromMap(raw);
   }
 
   @override
   Future<void> saveProfile(DatabaseSecurityProfile profile) async {
     await localDataSource.saveProfile(
       profile.databaseId,
-      _profileToMap(profile, await PortablePath.documentsRoot()),
+      _profileToMap(profile),
     );
   }
 
@@ -38,32 +37,21 @@ class DatabaseSecurityRepositoryImpl implements DatabaseSecurityRepository {
   }
 }
 
-DatabaseSecurityProfile _profileFromMap(
-  Map<String, dynamic> map,
-  String documentsRoot,
-) => DatabaseSecurityProfile(
-  databaseId: map['databaseId'] as String,
-  keyFilePath: PortablePath.decodeNullable(
-    map['keyFilePath'] as String?,
-    documentsRoot,
-  ),
-  biometricProtectionEnabled:
-      map['biometricProtectionEnabled'] as bool? ?? true,
-  inactivityLockTimeoutSeconds: map['inactivityLockTimeoutSeconds'] as int?,
-  updatedAt: map['updatedAt'] == null
-      ? null
-      : DateTime.parse(map['updatedAt'] as String).toLocal(),
-);
+DatabaseSecurityProfile _profileFromMap(Map<String, dynamic> map) =>
+    DatabaseSecurityProfile(
+      databaseId: map['databaseId'] as String,
+      keyFilePath: map['keyFilePath'] as String?,
+      biometricProtectionEnabled:
+          map['biometricProtectionEnabled'] as bool? ?? true,
+      inactivityLockTimeoutSeconds: map['inactivityLockTimeoutSeconds'] as int?,
+      updatedAt: map['updatedAt'] == null
+          ? null
+          : DateTime.parse(map['updatedAt'] as String).toLocal(),
+    );
 
-Map<String, dynamic> _profileToMap(
-  DatabaseSecurityProfile profile,
-  String documentsRoot,
-) => {
+Map<String, dynamic> _profileToMap(DatabaseSecurityProfile profile) => {
   'databaseId': profile.databaseId,
-  'keyFilePath': PortablePath.encodeNullable(
-    profile.keyFilePath,
-    documentsRoot,
-  ),
+  'keyFilePath': profile.keyFilePath,
   'biometricProtectionEnabled': profile.biometricProtectionEnabled,
   'inactivityLockTimeoutSeconds': profile.inactivityLockTimeoutSeconds,
   'updatedAt': profile.updatedAt?.toUtc().toIso8601String(),

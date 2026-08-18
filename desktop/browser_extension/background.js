@@ -1,8 +1,7 @@
-// Classic (non-module) MV3 worker: order matters, overlay_lifecycle.js reads
-// the security API off globalThis at load time.
-importScripts("overlay_security.js", "overlay_lifecycle.js");
+// Classic (non-module) MV3 worker: order matters, overlay_lifecycle.js and
+// overlay_routes.js read the security API off globalThis at load time.
+importScripts("overlay_security.js", "overlay_lifecycle.js", "overlay_routes.js");
 
-const overlaySecurity = globalThis.KeyVaultOverlaySecurity;
 const overlayLifecycle = new globalThis.KeyVaultOverlayLifecycle.OverlayLifecycle({
   browser: chrome,
 });
@@ -22,24 +21,22 @@ function createRequestId() {
   );
 }
 
-function normalizeError(error) {
-  if (!error) {
-    return { code: "unknown_error", message: "Unknown native host error." };
-  }
-  if (typeof error === "string") {
-    return { code: "native_error", message: error };
-  }
-  return {
-    code: error.code || "native_error",
-    message: error.message || "Native host request failed.",
-  };
+/**
+ * A026 needs `timeout` and `no_host` to be distinguishable, and a bare `Error`
+ * is not. The tag rides on `transportCode`, NOT on `code`, so the legacy popup
+ * error envelope built in `overlay_routes.js` is unchanged.
+ */
+function transportError(message, transportCode) {
+  const error = new Error(message);
+  error.transportCode = transportCode;
+  return error;
 }
 
 function withTimeout(promise, timeoutMs) {
   let timeoutId;
   const timeout = new Promise((_, reject) => {
     timeoutId = setTimeout(() => {
-      reject(new Error("Native host response timed out."));
+      reject(transportError("Native host response timed out.", "timeout"));
     }, timeoutMs);
   });
 
@@ -58,11 +55,11 @@ async function sendNativeV2(type, payload = {}) {
     chrome.runtime.sendNativeMessage(HOST_NAME, request, (response) => {
       const lastError = chrome.runtime.lastError;
       if (lastError) {
-        reject(new Error(lastError.message));
+        reject(transportError(lastError.message, "no_host"));
         return;
       }
       if (!response) {
-        reject(new Error("Native host returned an empty response."));
+        reject(transportError("Native host returned an empty response.", "no_host"));
         return;
       }
       resolve(response);
@@ -95,8 +92,20 @@ async function sendNativeV2(type, payload = {}) {
   return response;
 }
 
-function requireExtensionSender(sender) {
-  return sender?.id === chrome.runtime.id && !sender.tab;
+/**
+ * A026 — the overlay's view of native I/O never throws and never carries a
+ * native message. Transport failures become the two stable transport codes the
+ * router maps; anything else is already a protocol response.
+ */
+async function sendOverlayNative(type, payload) {
+  try {
+    return await sendNativeV2(type, payload);
+  } catch (error) {
+    return {
+      ok: false,
+      error: { code: error?.transportCode === "timeout" ? "timeout" : "no_host" },
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -330,170 +339,40 @@ chrome.permissions.onRemoved.addListener(() => {
   void overlayLifecycle.reconcile().catch(() => {});
 });
 
-function overlayReject(code) {
-  return { ok: false, error: { code, message: "Overlay request rejected." } };
-}
+// ---------------------------------------------------------------------------
+// 009 Slice A3 — one explicit route table for every message the worker serves.
+//
+// A022: `background.js` no longer decides anything. It owns wiring only —
+// which browser APIs, which native transport, which clock — while every
+// admission rule lives in `overlay_routes.js`, where the Node harness can
+// execute the same code the extension runs. The Slice A2 popup routes moved
+// into that table unchanged in behaviour and are now gated by the SR-1
+// extension-page sender validator instead of the looser inline check that used
+// to guard them.
+// ---------------------------------------------------------------------------
 
-/**
- * Overlay messages are a separate, channel-tagged namespace. The existing
- * popup routes below are untouched: Slice A3 (A022) owns folding both into one
- * explicit route table. What this dispatcher must already respect is SR-1 —
- * a content-script sender is never handled by the extension-page validator.
- */
-async function handleOverlayMessage(request, sender) {
-  const route = overlaySecurity.classifySenderRoute(sender);
-
-  if (route === overlaySecurity.CONTENT_SCRIPT_ROUTE) {
-    if (request.type !== "bootstrap") return overlayReject("forbidden");
-    return overlayLifecycle.authorizeBootstrap({
-      message: request,
-      sender,
-      runtimeId: chrome.runtime.id,
-    });
-  }
-
-  const admitted = overlaySecurity.validateExtensionPageRequest(
-    request,
-    sender,
-    chrome.runtime.id
-  );
-  if (!admitted.ok) return overlayReject(admitted.error);
-
-  if (request.type === "getSiteState") {
-    const state = await overlayLifecycle.siteState({ tabUrl: request.origin });
-    return { ok: true, type: "siteState", ...state };
-  }
-
-  if (request.type === "setSiteState") {
-    // The permission grant itself happens in the popup, under the user
-    // gesture. Enable refuses to persist unless the browser confirms the
-    // derived pattern is actually held.
-    const result = request.enabled
-      ? await overlayLifecycle.enableOrigin({
-          origin: request.origin,
-          tabId: request.tabId,
-        })
-      : await overlayLifecycle.disableOrigin({ origin: request.origin });
-    if (!result.ok) return overlayReject(result.error);
-    const state = await overlayLifecycle.siteState({ tabUrl: request.origin });
-    return { ok: true, type: "siteState", ...state };
-  }
-
-  return overlayReject("forbidden");
-}
+const overlayRouter = new globalThis.KeyVaultOverlayRoutes.OverlayRouter({
+  lifecycle: overlayLifecycle,
+  runtimeId: chrome.runtime.id,
+  native: sendOverlayNative,
+  legacyNative: sendNativeV2,
+  reportMatchCount: setTabMatchCount,
+});
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request?.channel === overlaySecurity.CHANNEL) {
-    handleOverlayMessage(request, sender)
-      .then(sendResponse)
-      .catch(() => sendResponse(overlayReject("internal_error")));
-    return true;
-  }
-
-  if (!requireExtensionSender(sender)) {
-    sendResponse({
-      ok: false,
-      error: { code: "forbidden", message: "Unsupported message sender." },
-    });
-    return false;
-  }
-
-  if (request?.type === "KEYVAULT_V2_STATUS") {
-    sendNativeV2("status")
-      .then(sendResponse)
-      .catch((error) => {
-        sendResponse({
-          version: PROTOCOL_VERSION,
-          type: "status",
-          ok: false,
-          error: normalizeError(error),
-        });
-      });
-    return true;
-  }
-
-  if (request?.type === "KEYVAULT_V2_QUERY_CREDENTIALS") {
-    sendNativeV2("queryCredentials", {
-      url: request.url,
-      title: request.title,
-      limit: Number.isInteger(request.limit) ? request.limit : 5,
-    })
-      .then(sendResponse)
-      .catch((error) => {
-        sendResponse({
-          version: PROTOCOL_VERSION,
-          type: "queryCredentials",
-          ok: false,
-          error: normalizeError(error),
-        });
-      });
-    return true;
-  }
-
-  if (request?.type === "KEYVAULT_V2_SEARCH_CREDENTIALS") {
-    sendNativeV2("searchCredentials", {
-      query: typeof request.query === "string" ? request.query : "",
-      url: request.url,
-      limit: Number.isInteger(request.limit) ? request.limit : 25,
-    })
-      .then(sendResponse)
-      .catch((error) => {
-        sendResponse({
-          version: PROTOCOL_VERSION,
-          type: "searchCredentials",
-          ok: false,
-          error: normalizeError(error),
-        });
-      });
-    return true;
-  }
-
-  if (request?.type === "KEYVAULT_V2_CREATE_PENDING_ASSOCIATION") {
-    sendNativeV2("createPendingAssociation", {
-      entryId: request.entryId,
-      url: request.url,
-    })
-      .then(sendResponse)
-      .catch((error) => {
-        sendResponse({
-          version: PROTOCOL_VERSION,
-          type: "createPendingAssociation",
-          ok: false,
-          error: normalizeError(error),
-        });
-      });
-    return true;
-  }
-
-  if (request?.type === "KEYVAULT_V2_REVEAL_FOR_FILL") {
-    sendNativeV2("revealForFill", {
-      entryId: request.entryId,
-      origin: request.origin,
-    })
-      .then(sendResponse)
-      .catch((error) => {
-        sendResponse({
-          version: PROTOCOL_VERSION,
-          type: "revealForFill",
-          ok: false,
-          error: normalizeError(error),
-        });
-      });
-    return true;
-  }
-
-  // Internal extension message (not part of the native-messaging
-  // protocol): the popup reports how many matches it rendered for a tab
-  // so the badge can be re-derived and persisted (T14). Fire-and-forget
-  // from the popup's perspective; still acknowledged so sendMessage
-  // never logs an unchecked lastError.
-  if (request?.type === "KEYVAULT_V2_REPORT_MATCH_COUNT") {
-    const count = Number.isInteger(request.count) ? request.count : 0;
-    setTabMatchCount(request.tabId, count)
-      .then(() => sendResponse({ ok: true }))
-      .catch(() => sendResponse({ ok: false }));
-    return true;
-  }
-
-  return false;
+  // Every message is answered. An unknown sender, type or shape resolves with
+  // a stable refusal instead of falling through to an unanswered port, so the
+  // failure is deterministic rather than a hang the caller has to time out.
+  //
+  // A026: nothing here logs the request or the native response.
+  overlayRouter
+    .dispatch(request, sender)
+    .then(sendResponse)
+    .catch(() =>
+      sendResponse({
+        ok: false,
+        error: { code: "internal_error", message: "Overlay request failed." },
+      })
+    );
+  return true;
 });

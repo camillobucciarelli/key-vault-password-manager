@@ -24,7 +24,7 @@ void main() {
       final result = await useCase(
         const CreateDatabaseRequest(
           databaseFileName: 'vault',
-          password: 'correct-horse',
+          password: 'kv-test-only-not-a-real-password',
         ),
       );
 
@@ -40,7 +40,7 @@ void main() {
       final result = await useCase(
         const CreateDatabaseRequest(
           databaseFileName: 'vault',
-          password: 'correct-horse',
+          password: 'kv-test-only-not-a-real-password',
         ),
       );
 
@@ -61,7 +61,7 @@ void main() {
           useCase(
             const CreateDatabaseRequest(
               databaseFileName: 'vault',
-              password: 'correct-horse',
+              password: 'kv-test-only-not-a-real-password',
             ),
           ),
           throwsException,
