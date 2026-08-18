@@ -35,6 +35,11 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # On-demand only: drives integration_test/ios_portable_paths_qa_test.dart on a
+  # real iOS runtime. No CI job runs it (see AGENTS.md > Testing Guidelines);
+  # `flutter test` never collects integration_test/.
+  integration_test:
+    sdk: flutter
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.4
   path_provider_platform_interface: ^2.1.3

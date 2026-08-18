@@ -4,8 +4,9 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../../../core/utils/portable_path.dart';
+
 abstract class LocalDataSource {
-  Future<void> cacheDatabasePath(String path);
   Future<String?> getCachedKeyFilePath();
   Future<void> cacheKeyFilePath(String? path);
   Future<bool> getAutofillPromptSeen();
@@ -13,7 +14,6 @@ abstract class LocalDataSource {
 }
 
 class LocalDataSourceImpl implements LocalDataSource {
-  static const dbPathKey = 'cachedDatabasePath';
   static const keyFilePathKey = 'cachedKeyFilePath';
   static const autofillPromptSeenKey = 'autofillPromptSeen';
   static const _localStateSubdirectory = 'metadata';
@@ -22,20 +22,15 @@ class LocalDataSourceImpl implements LocalDataSource {
   LocalDataSourceImpl();
 
   @override
-  Future<void> cacheDatabasePath(String path) async {
-    final data = await _readState();
-    data[dbPathKey] = path;
-    await _writeState(data);
-  }
-
-  @override
   Future<String?> getCachedKeyFilePath() async {
     final data = await _readState();
     final value = data[keyFilePathKey] as String?;
     if (value == null || value.trim().isEmpty) {
       return null;
     }
-    return value;
+    // Unlock-time fallback when no security profile exists, so it has to
+    // survive an app-container relocation just like the profile's keyFilePath.
+    return PortablePath.decode(value, await PortablePath.documentsRoot());
   }
 
   @override
@@ -46,7 +41,10 @@ class LocalDataSourceImpl implements LocalDataSource {
       await _writeState(data);
       return;
     }
-    data[keyFilePathKey] = path;
+    data[keyFilePathKey] = PortablePath.encode(
+      path,
+      await PortablePath.documentsRoot(),
+    );
     await _writeState(data);
   }
 

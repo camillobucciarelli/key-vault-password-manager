@@ -3,7 +3,6 @@
 /// composes the existing local/secure data sources; the coordinator depends
 /// only on this interface.
 abstract class DatabaseSessionRepository {
-  Future<void> cacheDatabasePath(String path);
   Future<String?> getCachedKeyFilePath();
   Future<void> cacheKeyFilePath(String? path);
   Future<void> saveMasterPassword(String password);

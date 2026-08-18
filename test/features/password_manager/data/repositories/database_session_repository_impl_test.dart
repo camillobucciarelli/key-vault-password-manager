@@ -18,10 +18,7 @@ void main() {
       );
     });
 
-    test('composes local data source for path/key-file caching', () async {
-      await repository.cacheDatabasePath('/tmp/vault.kdbx');
-      expect(localDataSource.databasePath, '/tmp/vault.kdbx');
-
+    test('composes local data source for key-file caching', () async {
       await repository.cacheKeyFilePath('/tmp/key.key');
       expect(await repository.getCachedKeyFilePath(), '/tmp/key.key');
 
@@ -45,14 +42,8 @@ void main() {
 }
 
 class _FakeLocalDataSource implements LocalDataSource {
-  String? databasePath;
   String? keyFilePath;
   bool autofillPromptSeen = false;
-
-  @override
-  Future<void> cacheDatabasePath(String path) async {
-    databasePath = path;
-  }
 
   @override
   Future<String?> getCachedKeyFilePath() async => keyFilePath;
