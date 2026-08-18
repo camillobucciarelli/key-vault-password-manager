@@ -26,6 +26,7 @@ zip -X "${OUT_FILE}" \
   background.js \
   overlay_security.js \
   overlay_lifecycle.js \
+  overlay_routes.js \
   content_overlay.js \
   popup.html \
   popup.js \

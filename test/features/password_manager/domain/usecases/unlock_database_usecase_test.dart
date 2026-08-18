@@ -43,11 +43,11 @@ void main() {
     });
 
     test('absent key file maps to KeyFileMissingFailure', () async {
-      final path = await writeValidDatabase('correct-horse');
+      final path = await writeValidDatabase('kv-test-only-not-a-real-password');
       await expectLater(
         useCase(
           databasePath: path,
-          password: 'correct-horse',
+          password: 'kv-test-only-not-a-real-password',
           keyFilePath: '${tempDir.path}/missing.key',
         ),
         throwsA(isA<KeyFileMissingFailure>()),
@@ -58,7 +58,7 @@ void main() {
       'wrong password on a structurally valid KDBX maps to '
       'InvalidCredentialsFailure, never CorruptDatabaseFailure',
       () async {
-        final path = await writeValidDatabase('correct-horse');
+        final path = await writeValidDatabase('kv-test-only-not-a-real-password');
         await expectLater(
           useCase(databasePath: path, password: 'wrong-password'),
           throwsA(isA<InvalidCredentialsFailure>()),
@@ -69,7 +69,7 @@ void main() {
     test(
       'a KDBX-magic file with corrupted body maps to CorruptDatabaseFailure',
       () async {
-        final validPath = await writeValidDatabase('correct-horse');
+        final validPath = await writeValidDatabase('kv-test-only-not-a-real-password');
         final validBytes = await File(validPath).readAsBytes();
         // Keep the KDBX magic header (first 12 bytes cover signature +
         // version) but corrupt everything after it so the package fails
@@ -82,15 +82,15 @@ void main() {
         await File(corruptPath).writeAsBytes(corrupted, flush: true);
 
         await expectLater(
-          useCase(databasePath: corruptPath, password: 'correct-horse'),
+          useCase(databasePath: corruptPath, password: 'kv-test-only-not-a-real-password'),
           throwsA(isA<CorruptDatabaseFailure>()),
         );
       },
     );
 
     test('correct credentials succeed without throwing', () async {
-      final path = await writeValidDatabase('correct-horse');
-      await useCase(databasePath: path, password: 'correct-horse');
+      final path = await writeValidDatabase('kv-test-only-not-a-real-password');
+      await useCase(databasePath: path, password: 'kv-test-only-not-a-real-password');
     });
   });
 }

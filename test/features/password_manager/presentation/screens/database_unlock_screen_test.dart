@@ -69,7 +69,7 @@ void main() {
       await tester.pumpWidget(result.widget);
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextFormField), 'correct-horse');
+      await tester.enterText(find.byType(TextFormField), 'kv-test-only-not-a-real-password');
       await tester.pumpAndSettle();
       await tester.tap(find.text('Unlock vault'));
       await tester.pump();
@@ -77,7 +77,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(result.harness.unlockUseCase.callCount, 1);
-      expect(result.harness.unlockUseCase.lastPassword, 'correct-horse');
+      expect(result.harness.unlockUseCase.lastPassword, 'kv-test-only-not-a-real-password');
       expect(result.harness.unlockUseCase.lastDatabasePath, path);
     });
 

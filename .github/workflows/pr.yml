@@ -67,13 +67,17 @@ jobs:
       # nothing fails to say so. Every task that adds a runtime JS file to
       # desktop/browser_extension/ adds it to this list in the same commit
       # (Slice A2 added overlay_lifecycle.js and content_overlay.js; the latter
-      # is a bootstrap-only stub until Slice A4 fills it in).
-      # `overlay_lifecycle.test.js` asserts this list stays complete.
+      # is a bootstrap-only stub until Slice A4 fills it in. Slice A3 added
+      # overlay_routes.js).
+      # `overlay_lifecycle.test.js` asserts this list stays complete, and does
+      # so by reading the directory rather than by naming files, so a new
+      # runtime file fails that test instead of being silently skipped here.
       - name: Syntax check extension sources
         shell: bash
         run: |
           node --check desktop/browser_extension/overlay_security.js
           node --check desktop/browser_extension/overlay_lifecycle.js
+          node --check desktop/browser_extension/overlay_routes.js
           node --check desktop/browser_extension/content_overlay.js
           node --check desktop/browser_extension/background.js
           node --check desktop/browser_extension/popup.js

@@ -85,14 +85,21 @@ test("A015: every runtime file the extension loads is packaged and syntax-gated"
 
   // Both lists are explicit allowlists that fail silently when a file is
   // missing from them: the ZIP builds green without the script, and CI
-  // syntax-checks a file that is never named. Assert membership instead.
-  for (const file of [
-    "overlay_security.js",
-    "overlay_lifecycle.js",
-    "content_overlay.js",
-    "background.js",
-    "popup.js",
-  ]) {
+  // syntax-checks a file that is never named.
+  //
+  // The set is READ FROM DISK, not written here. A hardcoded list has the very
+  // same failure mode as the two allowlists it is supposed to guard — Slice A3
+  // added `overlay_routes.js` and a hardcoded list would have stayed green
+  // while the file was missing from both. Every top-level `.js` in the
+  // extension directory is a runtime file; tests live in `test/`.
+  const runtimeFiles = fs
+    .readdirSync(EXT_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".js"))
+    .map((entry) => entry.name)
+    .sort();
+  assert.ok(runtimeFiles.length >= 5, "expected the runtime JS files to be found");
+
+  for (const file of runtimeFiles) {
     // `replaceAll`, not `replace`: `replace` with a string pattern escapes only
     // the FIRST dot, so a name like `a.b.js` would build a regex whose second
     // dot still matches any character.
@@ -163,7 +170,7 @@ test("A016: invalid or missing durable state migrates to disabled", async () => 
     { version: 1, revision: 1, enabledOrigins: ["https://example.com", "https://a.com"] },
     { version: 1, revision: 1, enabledOrigins: ["https://example.com", "https://example.com"] },
     { version: 1, revision: 1, enabledOrigins: ["HTTPS://EXAMPLE.COM"] },
-    { version: 1, revision: 1, enabledOrigins: [], password: "hunter2" },
+    { version: 1, revision: 1, enabledOrigins: [], password: "kv-test-only-not-a-real-password" },
     { version: 1, revision: -1, enabledOrigins: [] },
   ]) {
     const browser = new FakeBrowser({
@@ -687,7 +694,6 @@ test("A020: reconciliation makes an outstanding fill token unusable, at an uncha
       entryId: "entry-1",
       sessionBinding: bindingA(),
       configRevision: revision,
-      currentBinding: bindingA(),
       nowMs: nowMs + 1000,
     });
 
