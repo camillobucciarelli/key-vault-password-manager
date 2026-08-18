@@ -105,13 +105,13 @@
     },
     {
       "id": "A0-M2",
-      "expectedKills": 142,
+      "expectedKills": 144,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
       "title": "canonical origin drops the scheme",
       "property": "http and https are never the same origin",
-      "$comment": "91 -> 92 when the A2-M7 closure test landed: dropping the scheme breaks origin canonicalization, so the new A020 grant test dies with the rest. The policy did not change, the blast radius grew by one test.",
+      "$comment": "91 -> 92 when the A2-M7 closure test landed: dropping the scheme breaks origin canonicalization, so the new A020 grant test dies with the rest. The policy did not change, the blast radius grew by one test. 142 -> 143 when the A2-M15 onAdded-race tests landed, for the same reason: broken canonicalization also kills the race repro's enable. 143 -> 144 when the A2-M16 alphabetical-readback tests landed: broken canonicalization also kills the new end-to-end enable ('Gate A2: enable commits despite Chrome's alphabetical readback key order').",
       "edits": [
         {
           "find": "  const serialized =\n    effectivePort === defaultPort\n      ? `${scheme}://${asciiHost}`\n      : `${scheme}://${asciiHost}:${effectivePort}`;",
@@ -136,11 +136,12 @@
     },
     {
       "id": "A0-M4",
-      "expectedKills": 8,
+      "expectedKills": 9,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
       "title": "sender-path route check deleted",
+      "$comment": "8 -> 9 when the A2-M15 onAdded-race tests landed: the race repro drives setSiteState from an extension-page sender, which this mutation misclassifies as a content script and refuses. Blast radius only.",
       "property": "an extension-page sender is never classified as a content script",
       "edits": [
         {
@@ -420,7 +421,7 @@
       "property": "a divergent readback aborts the transaction and performs no side effect at all",
       "edits": [
         {
-          "find": "    const stored = await this._browser.storage.local.get([key, floorKey]);\n    const readback = stored?.[key];\n    if (JSON.stringify(readback) !== JSON.stringify(next)) {\n      throw new Error(\"overlay_config_readback_mismatch\");\n    }\n    if (securityModule.revisionFloorOrZero(stored?.[floorKey]) < floor) {\n      throw new Error(\"overlay_revision_floor_readback_mismatch\");\n    }",
+          "find": "    const stored = await this._browser.storage.local.get([key, floorKey]);\n    const readback = stored?.[key];\n    // Key-order-insensitive on purpose: Chrome's `get` returns keys sorted\n    // alphabetically (see `canonicalJson`). Any truncated, altered, extra or\n    // reordered-array value still throws.\n    if (canonicalJson(readback) !== canonicalJson(next)) {\n      throw new Error(\"overlay_config_readback_mismatch\");\n    }\n    if (securityModule.revisionFloorOrZero(stored?.[floorKey]) < floor) {\n      throw new Error(\"overlay_revision_floor_readback_mismatch\");\n    }",
           "replace": "    // mutation: the write is trusted without reading it back"
         }
       ],
@@ -509,7 +510,8 @@
     },
     {
       "id": "A2-M10",
-      "expectedKills": 12,
+      "expectedKills": 13,
+      "$comment": "12 -> 13 when the A2-M15 onAdded-race tests landed: the trigger-completeness test plants a stale registration and asserts the onAdded reconcile removes it, which this mutation forbids. Blast radius only.",
       "slice": "A2",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_lifecycle.js",
@@ -624,7 +626,7 @@
     },
     {
       "id": "A3-M1",
-      "expectedKills": 47,
+      "expectedKills": 48,
       "slice": "A3",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_routes.js",
@@ -636,7 +638,9 @@
         "check background.js carried before this slice (sender.id === runtime id,",
         "which a content script also satisfies). The effect is that a page can",
         "invoke KEYVAULT_V2_REVEAL_FOR_FILL, which applies the LENIENT popup match",
-        "policy, i.e. exactly the domain-only fallback SR-2 forbids."
+        "policy, i.e. exactly the domain-only fallback SR-2 forbids.",
+        "47 -> 48 when the A2-M15 onAdded-race tests landed: the race repro's",
+        "content bootstrap dies with the rest. Blast radius only."
       ],
       "edits": [
         {
@@ -957,6 +961,61 @@
         {
           "find": "    const floor = Math.max(priorFloor, next.revision);",
           "replace": "    const floor = next.revision; // mutation: the floor is set, not raised"
+        }
+      ]
+    },
+    {
+      "id": "A2-M15",
+      "expectedKills": 2,
+      "slice": "A2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "the onAdded-triggered reconcile sweeps orphan permissions again",
+      "property": "the reconcile fired by permissions.onAdded must not revoke the just-granted pattern before the popup's setSiteState commits the config that justifies it",
+      "$comment": [
+        "Found in a real-Chrome manual smoke (Gate A2), not by the Node suite:",
+        "the fake browser never fired onAdded during the enable flow. Chrome",
+        "dispatches onAdded the instant the user accepts permissions.request,",
+        "BEFORE the popup's setSiteState reaches the worker; a full reconcile in",
+        "that window sees the fresh pattern as unjustified by committed config,",
+        "revokes it as an orphan, and enableOrigin's permissions.contains",
+        "re-check (pinned by A2-M3 — keep both) then fails the enable silently.",
+        "",
+        "Deferring the sweep on this one trigger is safe because the durable",
+        "config, never the browser permission alone, is the authorization source",
+        "of truth: a permission without config is inert. The sweep still runs on",
+        "cold start / ready(), popup open, onRemoved and disable (D5) — see the",
+        "cold-start regression test in overlay_permission_race.test.js and the",
+        "A2-M9 kills, which are unchanged."
+      ],
+      "edits": [
+        {
+          "find": "      if (prunePermissions) await this._reconcilePermissions(config);",
+          "replace": "      await this._reconcilePermissions(config); // mutation: onAdded path sweeps again"
+        }
+      ]
+    },
+    {
+      "id": "A2-M16",
+      "expectedKills": 69,
+      "slice": "A2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "commit readback compared through key-order-sensitive JSON.stringify",
+      "property": "the D1 readback guard proves value identity, not byte identity of one serialization: real Chrome's storage.local.get returns keys alphabetically (measured on 151), so an order-sensitive compare throws overlay_config_readback_mismatch on EVERY commit in production and no enable/disable can ever succeed",
+      "$comment": [
+        "Found in a real-Chrome manual smoke (Gate A2), like A2-M15: the fake",
+        "browser's JSON round-trip preserved insertion order, so the entire",
+        "suite was blind to Chrome reordering the readback keys. The class fix",
+        "is in the FAKE (storage.local.get now sorts keys alphabetically,",
+        "recursively, as Chrome does); this row pins the production compare.",
+        "Reintroducing the plain JSON.stringify compare must be killed by the",
+        "realistic fake across every test that performs a commit."
+      ],
+      "edits": [
+        {
+          "find": "    // Key-order-insensitive on purpose: Chrome's `get` returns keys sorted\n    // alphabetically (see `canonicalJson`). Any truncated, altered, extra or\n    // reordered-array value still throws.\n    if (canonicalJson(readback) !== canonicalJson(next)) {",
+          "replace": "    if (JSON.stringify(readback) !== JSON.stringify(next)) { // mutation: order-sensitive readback compare"
         }
       ]
     }

@@ -11,6 +11,26 @@
 
 "use strict";
 
+/**
+ * Real Chrome (measured on 151) returns `chrome.storage.local.get` objects
+ * with keys in ALPHABETICAL order, recursively — not insertion order:
+ * `set {version, revision, enabledOrigins}` reads back as
+ * `{enabledOrigins, revision, version}`. Reproducing that here keeps the
+ * WHOLE suite sensitive to any key-order assumption on values that cross
+ * storage. Array order is untouched, exactly as in Chrome.
+ */
+function sortKeysDeep(value) {
+  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (value !== null && typeof value === "object") {
+    const sorted = {};
+    for (const key of Object.keys(value).sort()) {
+      sorted[key] = sortKeysDeep(value[key]);
+    }
+    return sorted;
+  }
+  return value;
+}
+
 class FakeBrowser {
   constructor({ storage = {}, granted = [], tabs = [] } = {}) {
     this.store = { ...storage };
@@ -50,7 +70,9 @@ class FakeBrowser {
           const result = {};
           for (const entry of keys) {
             if (Object.prototype.hasOwnProperty.call(self.store, entry)) {
-              result[entry] = JSON.parse(JSON.stringify(self.store[entry]));
+              result[entry] = sortKeysDeep(
+                JSON.parse(JSON.stringify(self.store[entry]))
+              );
             }
           }
           if (self.corruptNextReadback !== null && self._lastOpWasSet) {
@@ -74,7 +96,23 @@ class FakeBrowser {
       },
     };
 
+    /**
+     * Listeners for `permissions.onAdded`, dispatched by `request()` exactly
+     * as Chrome does: after the grant lands, before the granting page's next
+     * message can reach the worker. Dispatch results are collected in
+     * `permissionEvents` so a test can await the listener-triggered work at
+     * the point Chrome would have completed it. Pure browser behaviour — the
+     * fake decides nothing about what a listener does.
+     */
+    this._onAddedListeners = [];
+    this.permissionEvents = [];
+
     this.permissions = {
+      onAdded: {
+        addListener(listener) {
+          self._onAddedListeners.push(listener);
+        },
+      },
       async getAll() {
         return { origins: [...self.granted], permissions: [] };
       },
@@ -84,6 +122,11 @@ class FakeBrowser {
       async request({ origins = [] } = {}) {
         self.calls.push("permissions.request");
         for (const pattern of origins) self.granted.add(pattern);
+        for (const listener of self._onAddedListeners) {
+          self.permissionEvents.push(
+            Promise.resolve().then(() => listener({ origins: [...origins] }))
+          );
+        }
         return true;
       },
       async remove({ origins = [] } = {}) {
