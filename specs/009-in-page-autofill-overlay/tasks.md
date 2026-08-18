@@ -165,7 +165,7 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
 
 ## Slice A4 — metadata overlay and explicit fill
 
-- [ ] **A028** Implement eligible field detection in `content_overlay.js`: visible,
+- [x] **A028** Implement eligible field detection in `content_overlay.js`: visible,
       enabled, writable password input; username/email autocomplete input only
       with associated eligible password field. New focus tears down old session
       and creates cryptographic nonce.
@@ -178,26 +178,26 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
       2. add it to the `zip` allowlist in
          `desktop/browser_extension/package_extension.sh` (see A042).
       Neither is a glob, so neither fails on its own if this is forgotten.
-- [ ] **A029** Render closed-shadow metadata overlay only after successful
+- [x] **A029** Render closed-shadow metadata overlay only after successful
       bootstrap/matches response for current nonce. Rows expose title + display
       service only. No username/password in text, attributes, dataset, comments,
       globals, style, accessible names, or state object.
-- [ ] **A030** Implement states: loading, exact matches, possible/no fillable
+- [x] **A030** Implement states: loading, exact matches, possible/no fillable
       matches, no matches, locked, native host unavailable/timeout, unsupported
       frame, stale/retry. Slice A Generate is absent/disabled with honest app text.
-- [ ] **A031** Implement explicit fill. Verify current focus/nonce/token/origin/
+- [x] **A031** Implement explicit fill. Verify current focus/nonce/token/origin/
       entry response; use local username/password only; best-effort blank mutable
       response fields; set native input values; dispatch bubbling `input` and
       `change`; never submit; clear references and teardown.
-- [ ] **A032** Add executable secret-lifetime tests: match shapes and overlay DOM/
+- [x] **A032** Add executable secret-lifetime tests: match shapes and overlay DOM/
       attributes/storage/log capture/globals contain no password; fill input does;
       no test claims GC, heap erasure, performance-timeline invisibility, or
       inaccessible page value.
-- [ ] **A033** Teardown on Escape, focus replacement/outside blur, pagehide,
+- [x] **A033** Teardown on Escape, focus replacement/outside blur, pagehide,
       visibility hidden, navigation/unload, anchor disconnect, timeout, disable,
       permission removal, and stale revision. Abort listeners/observers/timers/
       animation frames, remove host, restore ARIA, null local references.
-- [ ] **A034** Document/test Shadow DOM honestly: `host.shadowRoot === null` is
+- [x] **A034** Document/test Shadow DOM honestly: `host.shadowRoot === null` is
       style/collision isolation evidence only. Page observation of host layout,
       value, and events remains expected.
 

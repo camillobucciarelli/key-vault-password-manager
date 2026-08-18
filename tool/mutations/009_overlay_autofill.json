@@ -47,6 +47,13 @@
     "    rewritten because A023 made the branch explicitly refused rather than",
     "    incidentally unread.",
     "",
+    "  * A0-M2, A0-M7, A2-M9, A3-M1, A3-M3, A3-M6, IN SLICE A4. The Node suite",
+    "    went from 249 to 286 tests (overlay_session.test.js and",
+    "    secret_lifetime.test.js drive the shipped content overlay end to end).",
+    "    None of these mutations was weakened — broken canonicalization, grant",
+    "    replay, route collapse and binding trust now also kill the new",
+    "    content-side tests. Blast radius only.",
+    "",
     "The general rule: a number in a PR body was true once and is now unowned;",
     "a number in this file is re-measured on every run and fails the build when",
     "it drifts. Do not 'correct' this file to match a PR — re-run the runner."
@@ -56,7 +63,8 @@
     "A0": "security harness for the overlay (overlay_security.js) — PR #40",
     "A1": "native exact-origin contract for the reveal path — PR #47",
     "A2": "per-origin opt-in with crash-consistent revocation — PR #50",
-    "A3": "background trust paths and focus grants (A022-A027) — this PR"
+    "A3": "background trust paths and focus grants (A022-A027) — PR #55",
+    "A4": "metadata overlay and explicit fill in content_overlay.js (A028-A034) — this PR"
   },
   "suites": {
     "node-extension": {
@@ -105,7 +113,7 @@
     },
     {
       "id": "A0-M2",
-      "expectedKills": 144,
+      "expectedKills": 175,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -186,7 +194,7 @@
     },
     {
       "id": "A0-M7",
-      "expectedKills": 5,
+      "expectedKills": 6,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -494,7 +502,7 @@
     },
     {
       "id": "A2-M9",
-      "expectedKills": 55,
+      "expectedKills": 59,
       "slice": "A2",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_lifecycle.js",
@@ -626,7 +634,7 @@
     },
     {
       "id": "A3-M1",
-      "expectedKills": 48,
+      "expectedKills": 52,
       "slice": "A3",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_routes.js",
@@ -689,7 +697,7 @@
     },
     {
       "id": "A3-M3",
-      "expectedKills": 8,
+      "expectedKills": 9,
       "slice": "A3",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_routes.js",
@@ -751,7 +759,7 @@
     },
     {
       "id": "A3-M6",
-      "expectedKills": 2,
+      "expectedKills": 3,
       "slice": "A3",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_routes.js",
@@ -1016,6 +1024,203 @@
         {
           "find": "    // Key-order-insensitive on purpose: Chrome's `get` returns keys sorted\n    // alphabetically (see `canonicalJson`). Any truncated, altered, extra or\n    // reordered-array value still throws.\n    if (canonicalJson(readback) !== canonicalJson(next)) {",
           "replace": "    if (JSON.stringify(readback) !== JSON.stringify(next)) { // mutation: order-sensitive readback compare"
+        }
+      ]
+    },
+    {
+      "id": "A4-M1",
+      "expectedKills": 1,
+      "slice": "A4",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "the filled secret is also copied into a dataset attribute",
+      "property": "SR-5/A032: after a fill the password exists in the input VALUES only — never in an attribute, dataset, text, style, global, log or message",
+      "$comment": [
+        "Killed by the A032 end-to-end fill test, which redeems the REAL secret",
+        "through the production dispatcher and scans every observable surface",
+        "(DOM incl. detached shadow trees, attributes, dataset, style, text,",
+        "globals, console, sent messages, worker storage) for the real bytes.",
+        "A dataset write is the archetypal 'convenient state stash' bug."
+      ],
+      "edits": [
+        {
+          "find": "    dispatchFieldValue(session.passwordEl, password);\n    // A031: never submit — no submit() call, no submit event, ever.",
+          "replace": "    dispatchFieldValue(session.passwordEl, password);\n    session.passwordEl.dataset.kvLastFill = password;\n    // A031: never submit — no submit() call, no submit event, ever."
+        }
+      ]
+    },
+    {
+      "id": "A4-M2",
+      "expectedKills": 1,
+      "slice": "A4",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "the fill callback accepts a response whose nonce is no longer current",
+      "property": "SR-3: a fill response is honoured only for the CURRENT focus nonce; 'a session exists' is not enough, because a NEW session may exist when the old response lands",
+      "$comment": [
+        "The dangerous variant is precisely the one this keeps: session !== null",
+        "but the nonce belongs to a torn-down session. The kill comes from the",
+        "test that replaces the session while a fill is in flight and requires",
+        "the stale response to fill NOTHING."
+      ],
+      "edits": [
+        {
+          "find": "      if (session === null || session.focusNonce !== nonce) return;\n      handleFill(response, entryId);",
+          "replace": "      if (session === null) return;\n      handleFill(response, entryId);"
+        }
+      ]
+    },
+    {
+      "id": "A4-M3",
+      "expectedKills": 1,
+      "slice": "A4",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "instance teardown leaves the focus listeners attached",
+      "property": "A033/SR-8: after a refused revalidation the document listeners are aborted; a later eligible focus on a revoked instance must create nothing",
+      "edits": [
+        {
+          "find": "    if (instanceAbort !== null) {\n      instanceAbort.abort();\n      instanceAbort = null;\n    }",
+          "replace": "    instanceAbort = null; // mutation: the focus listeners stay attached"
+        }
+      ]
+    },
+    {
+      "id": "A4-M4",
+      "expectedKills": 2,
+      "slice": "A4",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "a successful fill submits the form",
+      "property": "A031: the overlay never submits — no submit() call and no submit event, from any code path",
+      "edits": [
+        {
+          "find": "    dispatchFieldValue(session.passwordEl, password);\n    // A031: never submit — no submit() call, no submit event, ever.",
+          "replace": "    dispatchFieldValue(session.passwordEl, password);\n    const kvForm = session.passwordEl.form;\n    if (kvForm) kvForm.submit();\n    // A031: never submit — no submit() call, no submit event, ever."
+        }
+      ]
+    },
+    {
+      "id": "A4-M5",
+      "expectedKills": 1,
+      "slice": "A4",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "the content side renders a matches success without re-validating it",
+      "property": "A029: the content script re-checks every matches success with the SHIPPED validator (shape, metadata-only, no forbidden key) and its own origin before anything renders",
+      "$comment": [
+        "A worker bug or forged response that smuggles a username into an item",
+        "must be refused by the content world itself, not only by the worker's",
+        "outbound check — the two run in different trust domains. Note the",
+        "related asymmetry: a row can never expose a username through the",
+        "HONEST path because validateMatchesResult (pinned by the A0 family)",
+        "rejects the key before this code sees it; this mutation attacks the",
+        "content-side half of that defence."
+      ],
+      "edits": [
+        {
+          "find": "    if (\n      !security.validateMatchesResult(response).ok ||\n      response.origin !== session.origin\n    ) {",
+          "replace": "    if (false) {"
+        }
+      ]
+    },
+    {
+      "id": "A4-M6",
+      "expectedKills": 1,
+      "slice": "A4",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "a row exposes the entry id in the DOM",
+      "property": "A029: rows expose title + display service ONLY; every other item field (the entry id above all) lives in closures, never in text, attributes or dataset",
+      "edits": [
+        {
+          "find": "      row.appendChild(titleEl);\n      row.appendChild(serviceEl);",
+          "replace": "      row.appendChild(titleEl);\n      row.appendChild(serviceEl);\n      row.dataset.entryId = entry.entryId;"
+        }
+      ]
+    },
+    {
+      "id": "A4-M7",
+      "expectedKills": 3,
+      "slice": "A4",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "every focus session reuses one static nonce",
+      "property": "SR-3/A028: each eligible focus mints a fresh cryptographically random nonce; with a constant nonce every stale-response defence downstream is void",
+      "edits": [
+        {
+          "find": "      focusNonce: security.randomToken(),",
+          "replace": "      focusNonce: \"kv-static-nonce\","
+        }
+      ]
+    },
+    {
+      "id": "A4-M8",
+      "expectedKills": 8,
+      "slice": "A4",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "teardown leaves the watchdog timer running",
+      "property": "A033: teardown clears the session's timer, not only its DOM — an orphaned interval is exactly the 'listener that was not removed' class",
+      "edits": [
+        {
+          "find": "    clearInterval(s.watchdogId);",
+          "replace": "    void s.watchdogId; // mutation: the timer keeps running"
+        }
+      ]
+    },
+    {
+      "id": "A4-M9",
+      "expectedKills": 18,
+      "slice": "A4",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "teardown does not remove the overlay host",
+      "property": "A033: teardown removes the overlay host from the page immediately, on every trigger",
+      "edits": [
+        {
+          "find": "    if (s.overlayHost != null) s.overlayHost.remove();",
+          "replace": "    // mutation: the host stays in the page"
+        }
+      ]
+    },
+    {
+      "id": "A4-M10",
+      "expectedKills": 10,
+      "slice": "A4",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "the overlay mousedown no longer preserves the anchor focus",
+      "property": "click-vs-blur: preventing the overlay's mousedown default is the ONLY thing that keeps the anchor focused through a pointer press, so without it every explicit click tears the session down before the click lands",
+      "edits": [
+        {
+          "find": "      (event) => {\n        event.preventDefault();\n      },",
+          "replace": "      (event) => {\n        void event;\n      },"
+        }
+      ]
+    },
+    {
+      "id": "A4-M11",
+      "expectedKills": 1,
+      "slice": "A4",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "the filled secret is written into document.title",
+      "property": "SR-5/A032: the secret never reaches shared DOM state outside the input values — document.title is shared between the isolated world and the page and further leaks into history and the OS task switcher",
+      "$comment": [
+        "Found by the A4 review as a SURVIVOR of the original 286-test suite:",
+        "captureObservableState skipped `document` entirely (cyclic",
+        "JSON.stringify in the globals loop) and the fake did not model",
+        "`title`, so a secret parked there was invisible to the scan. The",
+        "class fix is in the FAKE (document.title is now modelled as shared",
+        "DOM state and named explicitly in the capture); this row pins it.",
+        "Element expandos are NOT the same class — an isolated-world JS",
+        "property is invisible to page code — see the comment in fake_page.js."
+      ],
+      "edits": [
+        {
+          "find": "    dispatchFieldValue(session.passwordEl, password);\n    // A031: never submit — no submit() call, no submit event, ever.",
+          "replace": "    dispatchFieldValue(session.passwordEl, password);\n    document.title = password;\n    // A031: never submit — no submit() call, no submit event, ever."
         }
       ]
     }
