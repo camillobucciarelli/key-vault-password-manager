@@ -275,6 +275,10 @@ function assertNoForbiddenKeys(value, depth = 0) {
 }
 
 function checkField(spec, value) {
+  // `nullable` exists for the legacy popup routes only (A022): the popup really
+  // does send `url: null` when there is no active-tab origin. It is opt-in per
+  // field, so no overlay schema is loosened by its existence.
+  if (spec.nullable === true && value === null) return true;
   switch (spec.type) {
     case "int":
       return Number.isInteger(value) &&
@@ -285,7 +289,7 @@ function checkField(spec, value) {
     case "string":
       return (
         typeof value === "string" &&
-        value.length > 0 &&
+        (value.length > 0 || spec.allowEmpty === true) &&
         value.length <= (spec.maxLength ?? LIMITS.TEXT)
       );
     case "origin":
@@ -631,6 +635,20 @@ function computeFrameSupport({ frameId, frameOrigin, topOrigin, enabledOrigins }
 
 const OVERLAY_CONFIG_KEY = "overlayConfigV1";
 
+// A023 — durable monotonic revision floor.
+//
+// Deliberately a SEPARATE storage key from `overlayConfigV1`, because the
+// failure it defends against is corruption of `overlayConfigV1` itself: a
+// floor stored inside the value it protects is destroyed by the same event.
+// Both keys are written in one `storage.local.set`, so the crash-consistent
+// single-commit property of SR-8/D1 is unchanged.
+const OVERLAY_REVISION_FLOOR_KEY = "overlayRevisionFloorV1";
+
+/** A stored floor is trustworthy only as a non-negative integer. */
+function revisionFloorOrZero(value) {
+  return Number.isInteger(value) && value >= 0 ? value : 0;
+}
+
 function emptyOverlayConfig(revision = 1) {
   return { version: 1, revision, enabledOrigins: [] };
 }
@@ -818,6 +836,31 @@ class FocusGrantStore {
    * One-shot consumption. The grant is removed before any result is returned,
    * so a replay of the same token can never succeed — including when the first
    * attempt failed a later check.
+   *
+   * WHAT THIS DELIBERATELY DOES NOT CHECK: whether the grant still matches the
+   * live session binding — "the world as it is NOW". That check is owned by the
+   * native host, on purpose, and the worker must not pretend to duplicate it.
+   *
+   * The worker has no independent view of "now". The only two ways it could
+   * produce one are both worse than the host's:
+   *
+   *   - Re-query the host before every fill. That is an extra round trip whose
+   *     answer is already stale by the time `overlayRevealForFill` runs, so it
+   *     replaces an atomic check with a TOCTOU window.
+   *   - Reuse the binding observed by the last `requestMatches`. That is
+   *     tautological: `invalidateOtherBindings` already deleted every grant
+   *     that disagrees with it, so the comparison can never fail. A check that
+   *     provably cannot fire is not a defence, it is a decoration that the next
+   *     reader will mistakenly rely on.
+   *
+   * The host resolves the binding from the live cache and bridge descriptor and
+   * compares all three fields (`native_host_protocol.dart`) before the
+   * credential store is touched, which is both atomic and authoritative. A027
+   * accepts the consequence explicitly: a fill "still fails natively if the
+   * worker has not observed the republish".
+   *
+   * Two live worker-side mechanisms remain, and both are real: `configRevision`
+   * equality above, and eager `invalidateOtherBindings` on every query.
    */
   consume({
     token,
@@ -829,7 +872,6 @@ class FocusGrantStore {
     entryId,
     sessionBinding,
     configRevision,
-    currentBinding,
     nowMs,
   }) {
     if (typeof token !== "string" || token.length === 0) {
@@ -855,15 +897,6 @@ class FocusGrantStore {
     }
     if (!grant.entryIds.includes(entryId)) return { ok: false, error: "forbidden" };
     if (!sessionBindingsEqual(grant.sessionBinding, sessionBinding)) {
-      return { ok: false, error: "stale_session" };
-    }
-    // SR-4: the grant must also match what the world looks like *now*. Vault
-    // A -> B with the same entry UUID and the same exact origin fails here even
-    // though every field above agreed.
-    if (
-      currentBinding !== undefined &&
-      !sessionBindingsEqual(grant.sessionBinding, currentBinding)
-    ) {
       return { ok: false, error: "stale_session" };
     }
     return { ok: true, error: null, grant };
@@ -906,11 +939,19 @@ class FocusGrantStore {
  * SR-4 guard for a delayed native/app response: the binding echoed back must
  * still equal both the grant binding and the current one.
  */
-function validateResponseBinding({ echoed, expected, current }) {
+/**
+ * SR-4 — the binding a reveal response echoes must equal the binding the grant
+ * was issued against, checked BEFORE the secret is forwarded.
+ *
+ * Like `FocusGrantStore.consume`, this deliberately takes no "current" binding.
+ * The worker cannot observe the live session independently, and the native host
+ * has already compared the request's three `expected*` fields against the live
+ * cache and bridge descriptor before answering at all — so a response that
+ * reaches this function has been checked against "now" by the only component
+ * that can see "now" atomically. See the note on `consume`.
+ */
+function validateResponseBinding({ echoed, expected }) {
   if (!sessionBindingsEqual(echoed, expected)) return "stale_session";
-  if (current !== undefined && !sessionBindingsEqual(echoed, current)) {
-    return "stale_session";
-  }
   return null;
 }
 
@@ -922,6 +963,8 @@ const API = {
   MESSAGE_VERSION,
   FORBIDDEN_KEYS,
   OVERLAY_CONFIG_KEY,
+  OVERLAY_REVISION_FLOOR_KEY,
+  revisionFloorOrZero,
   EXTENSION_PAGE_ROUTE,
   CONTENT_SCRIPT_ROUTE,
   MATCH_TYPES,

@@ -35,6 +35,18 @@
     "    here is a tighter reconstruction and the Flutter suite is targeted at",
     "    four files. See the row's own comment.",
     "",
+    "  * EVERY A0 ROW AGAIN, PLUS A2-M9/M12/M13, IN SLICE A3. The Node suite went",
+    "    from 180 to 237 tests (overlay_routes.test.js). None of these mutations",
+    "    was weakened and no policy was relaxed — the blast radius simply grew,",
+    "    and several of them now die in the router tests as well as the unit ones.",
+    "    Two rows were RETARGETED because A3 rewrote the code under them, and both",
+    "    got wider rather than narrower: A2-M6 (the durable commit now reads back",
+    "    the revision floor too) and A2-M12 (the reconciliation gate moved from",
+    "    authorizeBootstrap to authorizeContentRequest, covering all three content",
+    "    routes instead of one). A2-M11 remains declared-equivalent; its reason was",
+    "    rewritten because A023 made the branch explicitly refused rather than",
+    "    incidentally unread.",
+    "",
     "The general rule: a number in a PR body was true once and is now unowned;",
     "a number in this file is re-measured on every run and fails the build when",
     "it drifts. Do not 'correct' this file to match a PR — re-run the runner."
@@ -43,7 +55,8 @@
   "slices": {
     "A0": "security harness for the overlay (overlay_security.js) — PR #40",
     "A1": "native exact-origin contract for the reveal path — PR #47",
-    "A2": "per-origin opt-in with crash-consistent revocation — PR #50"
+    "A2": "per-origin opt-in with crash-consistent revocation — PR #50",
+    "A3": "background trust paths and focus grants (A022-A027) — this PR"
   },
   "suites": {
     "node-extension": {
@@ -77,7 +90,7 @@
   "mutations": [
     {
       "id": "A0-M1",
-      "expectedKills": 45,
+      "expectedKills": 46,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -92,14 +105,13 @@
     },
     {
       "id": "A0-M2",
-      "expectedKills": 92,
+      "expectedKills": 142,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
       "title": "canonical origin drops the scheme",
       "property": "http and https are never the same origin",
       "$comment": "91 -> 92 when the A2-M7 closure test landed: dropping the scheme breaks origin canonicalization, so the new A020 grant test dies with the rest. The policy did not change, the blast radius grew by one test.",
-
       "edits": [
         {
           "find": "  const serialized =\n    effectivePort === defaultPort\n      ? `${scheme}://${asciiHost}`\n      : `${scheme}://${asciiHost}:${effectivePort}`;",
@@ -109,7 +121,7 @@
     },
     {
       "id": "A0-M3",
-      "expectedKills": 4,
+      "expectedKills": 5,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -124,7 +136,7 @@
     },
     {
       "id": "A0-M4",
-      "expectedKills": 1,
+      "expectedKills": 8,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -139,7 +151,7 @@
     },
     {
       "id": "A0-M5",
-      "expectedKills": 3,
+      "expectedKills": 4,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -154,7 +166,7 @@
     },
     {
       "id": "A0-M6",
-      "expectedKills": 2,
+      "expectedKills": 3,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -173,7 +185,7 @@
     },
     {
       "id": "A0-M7",
-      "expectedKills": 2,
+      "expectedKills": 5,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -218,7 +230,7 @@
     },
     {
       "id": "A0-M10",
-      "expectedKills": 2,
+      "expectedKills": 3,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -231,7 +243,6 @@
         }
       ]
     },
-
     {
       "id": "A1-M1",
       "expectedKills": 6,
@@ -294,7 +305,6 @@
         }
       ]
     },
-
     {
       "id": "A2-M1",
       "expectedKills": 7,
@@ -304,7 +314,9 @@
       "title": "durable commit moved after the in-memory grant clear",
       "property": "SR-8: the durable commit (D1) precedes every fallible cleanup, so a crash can never leave the browser cleaned up while the origin is still durably authorized",
       "$comment": "Leaves the phase-ORDER assertion green — grants are not a browser call, so storage.set is still the first browser call. Only crash injection catches it. This is one half of the disjoint-kill-set finding in PR #50.",
-      "disjointFrom": ["A2-M5"],
+      "disjointFrom": [
+        "A2-M5"
+      ],
       "edits": [
         {
           "find": "      const committed = await this._commitConfig(\n        this._nextConfig(\n          config,\n          config.enabledOrigins.filter((entry) => entry !== canonical)\n        )\n      );\n      await this._fault(\"D1\");\n\n      // D2 — worker grants for the old revision are worthless now.\n      this._grants.clear();\n      await this._fault(\"D2\");",
@@ -388,7 +400,9 @@
       "title": "the last two cleanup phases are swapped (D4/D5)",
       "property": "the registration is dropped before the host permission it depends on",
       "$comment": "The exact reverse of A2-M1: only the phase-order assertion fires, crash injection stays green. Neither test family alone is sufficient.",
-      "disjointFrom": ["A2-M1"],
+      "disjointFrom": [
+        "A2-M1"
+      ],
       "edits": [
         {
           "find": "      // D4 — drop the registration only if no committed origin still needs the\n      // pattern (two ports of one host share it).\n      await this._reconcileRegistrations(committed);\n      await this._fault(\"D4\");\n\n      // D5 — same sharing rule for the optional host permission.\n      await this._reconcilePermissions(committed);\n      await this._fault(\"D5\");",
@@ -406,9 +420,14 @@
       "property": "a divergent readback aborts the transaction and performs no side effect at all",
       "edits": [
         {
-          "find": "    const stored = await this._browser.storage.local.get(key);\n    const readback = stored?.[key];\n    if (JSON.stringify(readback) !== JSON.stringify(next)) {\n      throw new Error(\"overlay_config_readback_mismatch\");\n    }",
+          "find": "    const stored = await this._browser.storage.local.get([key, floorKey]);\n    const readback = stored?.[key];\n    if (JSON.stringify(readback) !== JSON.stringify(next)) {\n      throw new Error(\"overlay_config_readback_mismatch\");\n    }\n    if (securityModule.revisionFloorOrZero(stored?.[floorKey]) < floor) {\n      throw new Error(\"overlay_revision_floor_readback_mismatch\");\n    }",
           "replace": "    // mutation: the write is trusted without reading it back"
         }
+      ],
+      "$comment": [
+        "Rewritten in Slice A3, not weakened: `_commitConfig` now also commits the",
+        "durable revision floor, so the readback verifies two values instead of one.",
+        "The property is unchanged — a write that was not read back is not a commit."
       ]
     },
     {
@@ -474,14 +493,13 @@
     },
     {
       "id": "A2-M9",
-      "expectedKills": 14,
+      "expectedKills": 55,
       "slice": "A2",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_lifecycle.js",
       "title": "permission cleanup ignores patterns a sibling origin still needs",
       "property": "two ports of one host share a permission pattern; disabling one must not remove the permission the other still needs",
       "$comment": "13 -> 14 when the A2-M7 closure test landed. Indirect but real: this mutation removes the still-needed host permission during the first reconcile, so the new A020 test's SECOND reconcile then sees the permission gone, durably disables the origin, and bumps the revision - which trips that test's 'this reconcile must not commit' assertion. The policy did not change, the blast radius grew by one test.",
-
       "edits": [
         {
           "find": "    const orphans = granted.filter((pattern) => !desired.has(pattern));",
@@ -513,32 +531,39 @@
       "property": "invalid or missing durable config reads as ZERO enabled origins",
       "expectedKills": 0,
       "equivalent": true,
-      "equivalentReason": "Unreachable, and the runner proves it rather than assuming it. Every caller of readCommittedConfig() either replaces an __invalid result with emptyOverlayConfig() outright (reconcile, enableOrigin, disableOrigin) or runs after ready(), which has already committed a valid config to storage (siteState, authorizeBootstrap). No reachable path reads enabledOrigins off the invalid branch. If A023 changes that — it owns the revision-floor KNOWN GAP on this exact branch — this mutation starts killing and is reported as drift.",
+      "equivalentReason": "Still unreachable after A023, and for a stronger reason than before. Slice A2 relied on every caller happening to discard the __invalid result. A023 makes it explicit: authorizeContentRequest refuses outright when __invalid is set, so the mutated enabledOrigins are never consulted on any path, and reconcile/enableOrigin/disableOrigin still replace the value with emptyOverlayConfig(). A023 also closed the revision-floor KNOWN GAP this branch carried (see A3-M9 and A3-M10, which pin the floor and the grant containment respectively). If a future slice reads enabledOrigins off this branch, this mutation starts killing and is reported as drift.",
       "edits": [
         {
-          "find": "      return { ...securityModule.emptyOverlayConfig(salvaged), __invalid: true };",
-          "replace": "      return {\n        ...securityModule.emptyOverlayConfig(salvaged),\n        enabledOrigins: Array.isArray(raw?.enabledOrigins) ? [...raw.enabledOrigins] : [],\n        __invalid: true,\n      };"
+          "find": "      return {\n        ...securityModule.emptyOverlayConfig(Math.max(floor, plausible)),\n        __invalid: true,\n      };",
+          "replace": "      return {\n        ...securityModule.emptyOverlayConfig(Math.max(floor, plausible)),\n        enabledOrigins: Array.isArray(raw?.enabledOrigins) ? [...raw.enabledOrigins] : [],\n        __invalid: true,\n      };"
         }
       ]
     },
     {
       "id": "A2-M12",
-      "expectedKills": 1,
+      "expectedKills": 4,
       "slice": "A2",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_lifecycle.js",
-      "title": "authorizeBootstrap skips the reconciliation gate",
+      "title": "content authorization skips the reconciliation gate",
       "property": "A020: a cold worker never serves a request against unreconciled browser state",
       "edits": [
         {
-          "find": "  async authorizeBootstrap({ message, sender, runtimeId } = {}) {\n    await this.ready();",
-          "replace": "  async authorizeBootstrap({ message, sender, runtimeId } = {}) {"
+          "find": "  async authorizeContentRequest({ message, sender, runtimeId } = {}) {\n    await this.ready();",
+          "replace": "  async authorizeContentRequest({ message, sender, runtimeId } = {}) {"
         }
+      ],
+      "$comment": [
+        "Retargeted in Slice A3, and the property got WIDER, not narrower. In A2",
+        "the gate sat in authorizeBootstrap because bootstrap was the only content",
+        "route. A023 made authorizeContentRequest the single gate for bootstrap,",
+        "requestMatches and fill, so removing the await now leaves all three",
+        "servable against unreconciled browser state."
       ]
     },
     {
       "id": "A2-M13",
-      "expectedKills": 4,
+      "expectedKills": 5,
       "slice": "A2",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_lifecycle.js",
@@ -594,6 +619,344 @@
         {
           "find": "    hex += pattern.charCodeAt(index).toString(16).padStart(4, \"0\");",
           "replace": "    hex += pattern.charCodeAt(index).toString(16);"
+        }
+      ]
+    },
+    {
+      "id": "A3-M1",
+      "expectedKills": 47,
+      "slice": "A3",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_routes.js",
+      "title": "the two route allowlists collapse into one path",
+      "property": "a content-script sender can never reach an extension-page route",
+      "$comment": [
+        "This is the regression A022 exists to prevent, written out literally: an",
+        "author 'unifies' the two dispatchers into one and reuses the loose inline",
+        "check background.js carried before this slice (sender.id === runtime id,",
+        "which a content script also satisfies). The effect is that a page can",
+        "invoke KEYVAULT_V2_REVEAL_FOR_FILL, which applies the LENIENT popup match",
+        "policy, i.e. exactly the domain-only fallback SR-2 forbids."
+      ],
+      "edits": [
+        {
+          "find": "    const table = routeTableFor(route);\n    if (table === null) return overlayError(\"error\", \"forbidden\");",
+          "replace": "    const table = new Set([...CONTENT_ROUTES, ...EXTENSION_PAGE_ROUTES]);\n    if (route === null) return overlayError(\"error\", \"forbidden\");"
+        },
+        {
+          "find": "    if (route === securityModule.CONTENT_SCRIPT_ROUTE) {\n      return this._dispatchContent(type, message, sender);\n    }\n    return this._dispatchExtensionPage(type, message, sender);",
+          "replace": "    return this._dispatchExtensionPage(type, message, sender);"
+        },
+        {
+          "find": "    const senderResult = securityModule.validateExtensionPageSender(\n      sender,\n      this._runtimeId\n    );\n    if (!senderResult.ok) {\n      return overlayError(\"error\", validationErrorCode(senderResult.error));\n    }",
+          "replace": "    if (sender?.id !== this._runtimeId) {\n      return overlayError(\"error\", \"forbidden\");\n    }"
+        }
+      ]
+    },
+    {
+      "id": "A3-M2",
+      "expectedKills": 1,
+      "slice": "A3",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_routes.js",
+      "title": "the frame origin is taken from the top document",
+      "property": "query and fill bind to the sender frame's own origin, never to the top document's",
+      "$comment": [
+        "SR-1: 'sender.tab.url supplies top-level context; sender.url supplies",
+        "sender frame context.' SR-7 repeats it for frames: 'Query/fill binds to",
+        "frame origin, not top origin.' This mutation swaps the two, which is",
+        "invisible in the top frame and wrong in every child frame.",
+        "",
+        "The OTHER half of the same property — 'never trust the message body' — is",
+        "pinned by A0-M6, not here, and deliberately so. A routes-only swap of",
+        "`origin` for `message.origin` is not independently killable, because",
+        "validateContentScriptRequest proves the two equal before any handler runs;",
+        "a mutant that reads the body behaves identically. That is the guard",
+        "working, not a coverage hole. A0-M6 removes the guard, and its kill count",
+        "rose in this slice because the router tests now exercise it too."
+      ],
+      "edits": [
+        {
+          "find": "    const origin = auth.sender.origin;",
+          "replace": "    const origin = auth.sender.topOrigin ?? auth.sender.origin;",
+          "expect": 2
+        }
+      ]
+    },
+    {
+      "id": "A3-M3",
+      "expectedKills": 8,
+      "slice": "A3",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_routes.js",
+      "title": "the fill path checks the grant instead of consuming it",
+      "property": "the grant is consumed before the native reveal, so a replay cannot succeed",
+      "$comment": [
+        "'Just look it up, we can clean it up after the response' is the natural",
+        "shape of this bug. It destroys several properties at once (replay, expiry,",
+        "binding equality) because `peek` validates none of them, which is precisely",
+        "why consumption is the single choke point."
+      ],
+      "edits": [
+        {
+          "find": "    const consumed = this.grants.consume({\n      token: message.fillToken,",
+          "replace": "    const peeked = this.grants.peek(message.fillToken);\n    const consumed =\n      peeked === null\n        ? { ok: false, error: \"stale_session\" }\n        : { ok: true, grant: peeked };\n    void ({\n      token: message.fillToken,"
+        }
+      ]
+    },
+    {
+      "id": "A3-M4",
+      "expectedKills": 1,
+      "slice": "A3",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_routes.js",
+      "title": "the worker clock is not used, so a grant never expires",
+      "property": "a fill grant expires at its TTL ceiling, measured against real time",
+      "$comment": [
+        "A0-M5 pins the comparison inside the store. This pins the other half: the",
+        "store can only enforce a TTL if the caller actually hands it the time."
+      ],
+      "edits": [
+        {
+          "find": "      nowMs: this._now(),",
+          "replace": "      nowMs: 0,",
+          "expect": 2
+        }
+      ]
+    },
+    {
+      "id": "A3-M5",
+      "expectedKills": 5,
+      "slice": "A3",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_security.js",
+      "title": "session binding equality compares only the database id",
+      "property": "all three of databaseId, cacheGeneration and bridgeGeneration are compared exactly",
+      "$comment": [
+        "The vault A -> B case survives a databaseId-only comparison whenever the",
+        "database is unchanged: a metadata republish or a reveal-bridge restart mints",
+        "a new cacheGeneration/bridgeGeneration under the SAME databaseId, and that is",
+        "exactly when an old grant must stop working."
+      ],
+      "edits": [
+        {
+          "find": "  return (\n    a.databaseId === b.databaseId &&\n    a.cacheGeneration === b.cacheGeneration &&\n    a.bridgeGeneration === b.bridgeGeneration\n  );",
+          "replace": "  return a.databaseId === b.databaseId;"
+        }
+      ]
+    },
+    {
+      "id": "A3-M6",
+      "expectedKills": 2,
+      "slice": "A3",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_routes.js",
+      "title": "the echoed success binding is trusted instead of validated",
+      "property": "the binding echoed by a successful reveal is validated before the secret is forwarded",
+      "edits": [
+        {
+          "find": "    const bindingError = securityModule.validateResponseBinding({\n      echoed: data.sessionBinding,\n      expected: grant.sessionBinding,\n    });\n    if (bindingError !== null) {\n      return overlayError(\"fillResult\", bindingError, focusNonce);\n    }",
+          "replace": "    // mutation: the echoed binding is trusted"
+        }
+      ]
+    },
+    {
+      "id": "A3-M7",
+      "expectedKills": 1,
+      "slice": "A3",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_routes.js",
+      "title": "a newer binding does not eagerly clear older grants",
+      "property": "a status/query advertising a different binding removes every grant carrying an older one",
+      "edits": [
+        {
+          "find": "    this.grants.invalidateOtherBindings(binding);",
+          "replace": "    void binding;"
+        }
+      ]
+    },
+    {
+      "id": "A3-M8",
+      "expectedKills": 2,
+      "slice": "A3",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_routes.js",
+      "title": "the grant covers every item, not only the fill-eligible ones",
+      "property": "a domain-only/possible match is never covered by a fill grant",
+      "$comment": [
+        "SR-2: a possible match may be DISPLAYED so the user understands why nothing",
+        "is fillable; it may never be revealed. This is the extension-side half of",
+        "that rule (A1-M2 is the native-side half)."
+      ],
+      "edits": [
+        {
+          "find": "    const entryIds = safeItems\n      .filter((item) => item.fillEligible === true)\n      .map((item) => item.entryId);",
+          "replace": "    const entryIds = safeItems.map((item) => item.entryId);"
+        }
+      ]
+    },
+    {
+      "id": "A3-M9",
+      "expectedKills": 3,
+      "slice": "A3",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "the durable revision floor is not applied",
+      "property": "the committed revision is monotonic across corruption and rollback",
+      "$comment": [
+        "This is the Slice A2 'KNOWN GAP' that A023 owns. Without the floor, total",
+        "corruption of overlayConfigV1 restarts the counter, and a well-formed value",
+        "restored from an older revision is accepted as current."
+      ],
+      "edits": [
+        {
+          "find": "    if (!valid || raw.revision < floor) {",
+          "replace": "    if (!valid) {"
+        },
+        {
+          "find": "        ...securityModule.emptyOverlayConfig(Math.max(floor, plausible)),",
+          "replace": "        ...securityModule.emptyOverlayConfig(plausible),"
+        }
+      ]
+    },
+    {
+      "id": "A3-M10",
+      "expectedKills": 2,
+      "slice": "A3",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "an observed corruption neither clears grants nor refuses to serve",
+      "property": "observing an invalid durable config drops in-memory grants and fails the request closed",
+      "$comment": [
+        "The containment half of A023, kept separate from the floor (A3-M9) because",
+        "each covers the other's blind spot: the floor cannot help if the floor key",
+        "itself is unreadable, and containment cannot make revisions monotonic.",
+        "They overlap by design, which is why neither mutation alone produces a leaked",
+        "secret in the suite — defence in depth is the point, and each layer is pinned",
+        "on its own observable behaviour."
+      ],
+      "edits": [
+        {
+          "find": "      // Containment: no grant minted against the pre-corruption revision may\n      // outlive the moment corruption is observed.\n      this._grants.clear();",
+          "replace": "      // mutation: grants survive an observed corruption"
+        },
+        {
+          "find": "      this._reconciled = null;\n      return { ok: false, error: \"stale_session\" };",
+          "replace": "      void 0;"
+        }
+      ]
+    },
+    {
+      "id": "A3-M11",
+      "expectedKills": 7,
+      "slice": "A3",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_routes.js",
+      "title": "internal and native error codes are passed through verbatim",
+      "property": "every error leaving the worker is one of the published non-sensitive codes",
+      "edits": [
+        {
+          "find": "function publicCode(table, rawCode) {\n  const mapped =\n    typeof rawCode === \"string\" &&\n    Object.prototype.hasOwnProperty.call(table, rawCode)\n      ? table[rawCode]\n      : \"internal_error\";\n  return PUBLIC_ERROR_CODE_SET.has(mapped) ? mapped : \"internal_error\";\n}",
+          "replace": "function publicCode(table, rawCode) {\n  return typeof rawCode === \"string\" ? rawCode : \"internal_error\";\n}"
+        }
+      ]
+    },
+    {
+      "id": "A3-M12",
+      "expectedKills": 1,
+      "slice": "A3",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_routes.js",
+      "title": "an unsupported frame is queried anyway",
+      "property": "a frame the policy cannot support never reaches the native host",
+      "edits": [
+        {
+          "find": "    if (auth.frameSupport === \"unsupported\") {\n      return overlayError(responseType, \"unsupported_frame\", focusNonce);\n    }",
+          "replace": "    // mutation: an unsupported frame is queried anyway"
+        }
+      ]
+    },
+    {
+      "id": "A3-M13",
+      "expectedKills": 1,
+      "slice": "A3",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_routes.js",
+      "title": "the outbound metadata message is not validated before it leaves",
+      "property": "every matchesResult is checked by the shipped validator before it is sent",
+      "edits": [
+        {
+          "find": "    if (!securityModule.validateMatchesResult(result).ok) {\n      // The validator stays the SOLE gate — classifying the cause here rather\n      // than checking the bound earlier keeps it that way, so a mutation that\n      // deletes this call still lets an over-limit message escape and still\n      // dies. Only the reported code depends on the cause: a host that returned\n      // more items than the contract allows broke the contract, which is the\n      // same class as the policy and target echoes above, while\n      // `internal_error` means THIS worker built something invalid.\n      const hostBrokeContract = safeItems.length > securityModule.LIMITS.ITEMS;\n      return overlayError(\n        \"matchesResult\",\n        hostBrokeContract ? \"unsupported_capability\" : \"internal_error\",\n        focusNonce\n      );\n    }",
+          "replace": "    // mutation: the outbound metadata message is not validated"
+        }
+      ]
+    },
+    {
+      "id": "A3-M14",
+      "expectedKills": 1,
+      "slice": "A3",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_routes.js",
+      "title": "legacy popup messages are forwarded without a shape check",
+      "property": "an unknown or malformed key on a popup route is rejected, never forwarded to the native host",
+      "edits": [
+        {
+          "find": "    const shape = securityModule.validateExactShape(message, route.shape);",
+          "replace": "    const shape = { ok: true };"
+        }
+      ]
+    },
+    {
+      "id": "A3-M15",
+      "expectedKills": 2,
+      "slice": "A3",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "bootstrap approval ignores the frame support classification",
+      "property": "an injected script stays inert in a frame the policy cannot support",
+      "$comment": [
+        "SR-7 lists `unsupported` as a legitimate answer for an origin that IS opted",
+        "in — a child frame whose top document cannot be canonicalized, for example.",
+        "Approving on `enabled` alone attaches listeners in precisely the frame that",
+        "must fail closed."
+      ],
+      "edits": [
+        {
+          "find": "  const approved = (response) =>\n    response?.ok === true &&\n    response.enabled === true &&\n    SUPPORTED_FRAMES.includes(response.frameSupport);",
+          "replace": "  const approved = (response) =>\n    response?.ok === true && response.enabled === true;\n  void SUPPORTED_FRAMES;"
+        }
+      ]
+    },
+    {
+      "id": "A3-M16",
+      "expectedKills": 2,
+      "slice": "A3",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "a commit lowers the durable revision floor instead of raising it",
+      "property": "the revision floor is a high-water mark: a commit may raise it, never lower it",
+      "$comment": [
+        "Found reviewing A023. `_commitConfig` wrote `[floorKey]: next.revision`",
+        "UNCONDITIONALLY, and the readback only checked `floor < next.revision`, so it",
+        "could not notice that the floor had been HIGHER before the write.",
+        "",
+        "The trigger is not theoretical corruption, it is a TRANSIENT",
+        "storage.local.get failure. _readConfig's catch branch returns",
+        "emptyOverlayConfig(0) — the floor is not consultable when the read itself",
+        "failed — and reconcile then commits revision 1 and overwrites a floor of 9",
+        "with 1. Measured: 9 -> 1.",
+        "",
+        "No leak was reproducible: containment holds and reconcile() also calls",
+        "_grants.clear(). But PREVENTION is silently disarmed, leaving one of the two",
+        "defences A023 documents as independent, and it contradicts the invariant",
+        "written in _readConfig's own comment ('every commit raises it').",
+        "",
+        "Restoring the unconditional assignment must kill a test."
+      ],
+      "edits": [
+        {
+          "find": "    const floor = Math.max(priorFloor, next.revision);",
+          "replace": "    const floor = next.revision; // mutation: the floor is set, not raised"
         }
       ]
     }

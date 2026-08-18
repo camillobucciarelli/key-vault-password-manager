@@ -48,10 +48,20 @@
     origin,
   };
 
+  // SR-7: the three frame kinds the policy supports. `unsupported` is a real
+  // answer for an enabled origin — a child frame whose top document cannot be
+  // canonicalized, for instance — and it must leave this instance inert.
+  const SUPPORTED_FRAMES = ["top", "same-origin", "permitted-cross-origin"];
+
+  const approved = (response) =>
+    response?.ok === true &&
+    response.enabled === true &&
+    SUPPORTED_FRAMES.includes(response.frameSupport);
+
   chrome.runtime.sendMessage(bootstrap, (response) => {
     // Reading lastError is what suppresses the "unchecked runtime.lastError"
     // console noise when the worker is gone.
-    if (chrome.runtime.lastError || response?.ok !== true || response.enabled !== true) {
+    if (chrome.runtime.lastError || !approved(response)) {
       clearGuard();
       return;
     }
@@ -71,11 +81,7 @@
       // other than an explicit approval — including a dead worker — tears this
       // instance down.
       chrome.runtime.sendMessage(bootstrap, (response) => {
-        if (
-          chrome.runtime.lastError ||
-          response?.ok !== true ||
-          response.enabled !== true
-        ) {
+        if (chrome.runtime.lastError || !approved(response)) {
           chrome.runtime.onMessage.removeListener(onMessage);
           clearGuard();
         }

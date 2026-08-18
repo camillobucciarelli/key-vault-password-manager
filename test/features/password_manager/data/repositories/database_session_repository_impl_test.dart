@@ -29,8 +29,11 @@ void main() {
     test('composes secure data source for the master password', () async {
       expect(await repository.getMasterPassword(), isNull);
 
-      await repository.saveMasterPassword('correct-horse');
-      expect(await repository.getMasterPassword(), 'correct-horse');
+      await repository.saveMasterPassword('kv-test-only-not-a-real-password');
+      expect(
+        await repository.getMasterPassword(),
+        'kv-test-only-not-a-real-password',
+      );
 
       await repository.clearMasterPassword();
       expect(await repository.getMasterPassword(), isNull);
