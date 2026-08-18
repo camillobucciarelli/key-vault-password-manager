@@ -144,58 +144,120 @@ class OverlayLifecycle {
   // -------------------------------------------------------------------------
 
   /**
+   * A023 — the durable monotonic revision floor.
+   *
+   * CLOSES the "KNOWN GAP" Slice A2 left here. In A2 a total corruption of
+   * `overlayConfigV1` (an unreadable revision, `null`, a missing key, a
+   * negative revision) salvaged 0 and the next commit restarted the counter at
+   * revision 1. That was harmless while nothing was authorized. In A3 it is
+   * not: a focus grant carries `configRevision`, and `FocusGrantStore.consume`
+   * accepts a grant only when that number equals the committed one. A rewound
+   * counter that climbs back to an already-used revision would make a stale
+   * grant compare as current.
+   *
+   * Two independent mechanisms, because each covers the other's blind spot:
+   *
+   *   PREVENTION — this floor. Written in the SAME `storage.local.set` as the
+   *   config (one operation, so D1 stays a single atomic commit) but under its
+   *   own key, so corruption of `overlayConfigV1` does not destroy it. Every
+   *   commit raises it, every read raises the recovered revision to it, and a
+   *   config whose revision is BELOW it is treated as corrupt — that is what a
+   *   rollback to an older-but-well-formed value looks like.
+   *
+   *   CONTAINMENT — `_readConfig` clears every in-memory grant the moment it
+   *   observes an invalid config, and the authorization paths refuse to serve
+   *   until reconciliation has rebuilt a valid value. This holds even if the
+   *   floor key itself is unreadable, which prevention alone cannot cover.
+   */
+  async _readConfig() {
+    const key = securityModule.OVERLAY_CONFIG_KEY;
+    const floorKey = securityModule.OVERLAY_REVISION_FLOOR_KEY;
+    let stored;
+    try {
+      stored = await this._browser.storage.local.get([key, floorKey]);
+    } catch (_) {
+      // A failed read is not evidence that anything is authorized.
+      this._grants.clear();
+      return { ...securityModule.emptyOverlayConfig(0), __invalid: true };
+    }
+    const raw = stored?.[key];
+    const floor = securityModule.revisionFloorOrZero(stored?.[floorKey]);
+    const valid = securityModule.validateOverlayConfig(raw).ok;
+
+    // A well-formed value whose revision sits below the floor is a rollback,
+    // not a valid config: it would re-authorize origins from a revision that
+    // has already been superseded.
+    if (!valid || raw.revision < floor) {
+      const plausible =
+        Number.isInteger(raw?.revision) && raw.revision >= 0 ? raw.revision : 0;
+      // Containment: no grant minted against the pre-corruption revision may
+      // outlive the moment corruption is observed.
+      this._grants.clear();
+      return {
+        ...securityModule.emptyOverlayConfig(Math.max(floor, plausible)),
+        __invalid: true,
+      };
+    }
+    return {
+      version: 1,
+      revision: raw.revision,
+      enabledOrigins: [...raw.enabledOrigins],
+    };
+  }
+
+  /**
    * Committed authorization state. Anything invalid or missing reads as zero
    * enabled origins; this method never writes, so a read path can never grant.
    */
   async readCommittedConfig() {
-    const key = securityModule.OVERLAY_CONFIG_KEY;
-    let stored;
-    try {
-      stored = await this._browser.storage.local.get(key);
-    } catch (_) {
-      return securityModule.emptyOverlayConfig(0);
-    }
-    const raw = stored?.[key];
-    if (!securityModule.validateOverlayConfig(raw).ok) {
-      // Preserve a monotonic revision when the stored value at least carries a
-      // plausible one, so a corrupted write cannot rewind authorization and
-      // make an old, higher-revision grant look current again.
-      //
-      // KNOWN GAP — deliberately not closed in Slice A2, A023 owns it.
-      // The floor is preserved only when `raw.revision` is a readable
-      // non-negative integer. Total corruption (a non-integer, `null`, a
-      // missing key, or a negative revision) salvages 0, so the next commit
-      // restarts the counter at revision 1. That is harmless *today* and only
-      // today: the recovered config has an empty `enabledOrigins`, nothing is
-      // authorized against it, and `reconcile()` clears every in-memory focus
-      // grant on the same path. It stops being harmless in Slice A3, where
-      // grants themselves carry a revision: a rewound counter would let a
-      // stale high-revision grant compare as current again. A023 must either
-      // persist a separate monotonic floor or refuse to serve until an
-      // operator-visible reset happens.
-      const salvaged =
-        Number.isInteger(raw?.revision) && raw.revision >= 0 ? raw.revision : 0;
-      return { ...securityModule.emptyOverlayConfig(salvaged), __invalid: true };
-    }
-    return { version: 1, revision: raw.revision, enabledOrigins: [...raw.enabledOrigins] };
+    return this._readConfig();
   }
 
   /**
-   * D1. One `storage.local.set` of one key, then a readback that must match
-   * exactly. A rejected write or a mismatched readback throws, and the caller
-   * is contractually forbidden from running any later phase.
+   * D1. One `storage.local.set` carrying the config and the raised floor, then
+   * a readback that must match exactly. A rejected write or a mismatched
+   * readback throws, and the caller is contractually forbidden from running any
+   * later phase.
+   *
+   * Both keys travel in ONE `set` on purpose: SR-8 requires the durable
+   * authorization commit to be a single operation, and a floor written in a
+   * second call could be lost while the config it protects survives.
    */
   async _commitConfig(next) {
     const key = securityModule.OVERLAY_CONFIG_KEY;
+    const floorKey = securityModule.OVERLAY_REVISION_FLOOR_KEY;
     const shape = securityModule.validateOverlayConfig(next);
     if (!shape.ok) {
       throw new Error(`overlay_config_invalid:${shape.error}`);
     }
-    await this._browser.storage.local.set({ [key]: next });
-    const stored = await this._browser.storage.local.get(key);
+    // The floor is a HIGH-WATER MARK: a commit may raise it, nothing may lower
+    // it. `next.revision` alone is not that value. The revision being committed
+    // is derived from whatever `_readConfig` managed to see, and `_readConfig`
+    // reports revision 0 when the read itself FAILED — a transient
+    // `storage.local.get` error is not evidence that the floor is low, only
+    // that it is unknown. Writing `next.revision` unconditionally would take a
+    // floor of 9 down to 1 on the next commit, silently disarming the
+    // prevention half of A023 and leaving containment as the only surviving
+    // defence of two that are documented as independent.
+    //
+    // Read separately from `_readConfig` on purpose: that call may have failed,
+    // and its salvaged revision is not a floor. If THIS read throws the commit
+    // aborts, which is the correct answer when the floor cannot be established.
+    const priorFloor = securityModule.revisionFloorOrZero(
+      (await this._browser.storage.local.get([floorKey]))?.[floorKey]
+    );
+    const floor = Math.max(priorFloor, next.revision);
+
+    // Still ONE `set` carrying both keys: SR-8/D1 requires the durable
+    // authorization commit to be a single operation. The read above is a read.
+    await this._browser.storage.local.set({ [key]: next, [floorKey]: floor });
+    const stored = await this._browser.storage.local.get([key, floorKey]);
     const readback = stored?.[key];
     if (JSON.stringify(readback) !== JSON.stringify(next)) {
       throw new Error("overlay_config_readback_mismatch");
+    }
+    if (securityModule.revisionFloorOrZero(stored?.[floorKey]) < floor) {
+      throw new Error("overlay_revision_floor_readback_mismatch");
     }
     return next;
   }
@@ -518,14 +580,35 @@ class OverlayLifecycle {
   }
 
   /**
-   * A018/A020 — an already-injected content script stays inert until this
-   * approves it. Authorization is re-derived from committed config every time;
-   * the script's own claim about its origin is only ever a mismatch detector
-   * (`validateContentScriptRequest` enforces that).
+   * A023 — the single authorization gate for EVERY content-script request
+   * (bootstrap, requestMatches, fill). It runs before any native I/O and it is
+   * the only place the frame's authoritative origin is established.
+   *
+   * The authoritative origin comes from `sender.url` inside
+   * `validateContentScriptSender`; `message.origin` is compared against it and
+   * is never promoted to authority. Tab id, frame id, optional document id and
+   * the top-frame agreement rule are all enforced there too. What this method
+   * adds is the state only the worker owns: the committed config, the
+   * permission the browser still reports, the revision, and the frame support
+   * classification.
+   *
+   * @returns {{ok: true, sender: object, config: object, frameSupport: string}
+   *          |{ok: false, error: string}}
    */
-  async authorizeBootstrap({ message, sender, runtimeId } = {}) {
+  async authorizeContentRequest({ message, sender, runtimeId } = {}) {
     await this.ready();
     const config = await this.readCommittedConfig();
+    if (config.__invalid === true) {
+      // Refuse to serve until reconciliation has rebuilt a valid durable value.
+      // Grants were already dropped by the read itself.
+      //
+      // `ready()` resolves once per worker, so corruption appearing AFTER it
+      // resolved would otherwise wedge this worker into permanent refusal.
+      // Dropping the memo makes the NEXT request reconcile and rebuild, while
+      // this one still fails closed.
+      this._reconciled = null;
+      return { ok: false, error: "stale_session" };
+    }
     const grantedPatterns = await this._grantedPatterns();
     const result = securityModule.validateContentScriptRequest(
       message,
@@ -537,14 +620,40 @@ class OverlayLifecycle {
         grantedPatterns,
       }
     );
-    if (!result.ok) {
-      return { ok: false, error: { code: result.error } };
+    if (!result.ok) return { ok: false, error: result.error };
+
+    const frameSupport = securityModule.computeFrameSupport({
+      frameId: result.sender.frameId,
+      frameOrigin: result.sender.origin,
+      topOrigin: result.sender.topOrigin,
+      enabledOrigins: config.enabledOrigins,
+    });
+    return { ok: true, sender: result.sender, config, frameSupport };
+  }
+
+  /**
+   * A018/A020 — an already-injected content script stays inert until this
+   * approves it. Authorization is re-derived from committed config every time;
+   * the script's own claim about its origin is only ever a mismatch detector.
+   */
+  async authorizeBootstrap({ message, sender, runtimeId } = {}) {
+    const auth = await this.authorizeContentRequest({ message, sender, runtimeId });
+    if (!auth.ok) {
+      return { ok: false, error: { code: auth.error } };
     }
     return {
       ok: true,
       type: "bootstrapResult",
+      // SR-7: `enabled` is the durable opt-in for THIS frame's exact origin.
+      // An unsupported frame keeps `enabled: true` and is refused by
+      // `frameSupport`, so the content script can render the honest
+      // "unsupported frame" state instead of a misleading "disabled" one.
       enabled: true,
-      revision: config.revision,
+      origin: auth.sender.origin,
+      topOrigin: auth.sender.topOrigin,
+      frameId: auth.sender.frameId,
+      frameSupport: auth.frameSupport,
+      revision: auth.config.revision,
     };
   }
 }

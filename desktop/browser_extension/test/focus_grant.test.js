@@ -44,7 +44,6 @@ function consumeDefault(store, token, overrides = {}) {
     entryId: "entry-1",
     sessionBinding: bindingA(),
     configRevision: 17,
-    currentBinding: bindingA(),
     nowMs: NOW + 1000,
     ...overrides,
   });
@@ -264,11 +263,20 @@ test("all three binding fields are compared; changing any one is stale", () => {
   }
 });
 
+// These two assert the mechanism that actually runs in production. The worker
+// learns about a republish or a bridge restart when a query advertises the new
+// binding, and `invalidateOtherBindings` drops the stale grants at that moment.
+// Asserting it through a `currentBinding` argument to `consume()` would have
+// tested a parameter production never passed.
+
 test("a cache republish of the same vault invalidates the grant", () => {
   const store = newStore();
   const issued = issueDefault(store);
   const republished = { ...bindingA(), cacheGeneration: "cache-a2" };
-  const result = consumeDefault(store, issued.token, { currentBinding: republished });
+
+  store.invalidateOtherBindings(republished);
+
+  const result = consumeDefault(store, issued.token);
   assert.equal(result.ok, false);
   assert.equal(result.error, "stale_session");
 });
@@ -277,7 +285,10 @@ test("a bridge restart of the same vault invalidates the grant", () => {
   const store = newStore();
   const issued = issueDefault(store);
   const restarted = { ...bindingA(), bridgeGeneration: "bridge-a2" };
-  const result = consumeDefault(store, issued.token, { currentBinding: restarted });
+
+  store.invalidateOtherBindings(restarted);
+
+  const result = consumeDefault(store, issued.token);
   assert.equal(result.ok, false);
   assert.equal(result.error, "stale_session");
 });
@@ -300,9 +311,11 @@ test("REGRESSION vault A -> B: same entry UUID and same exact origin stay stale"
     nowMs: NOW,
   });
 
-  // The worker has not yet observed the vault switch: the grant is still in
-  // the map, and the content script echoes vault A's binding faithfully.
-  const usedAfterSwitch = store.consume({
+  // Once the worker HAS observed the switch, the grant is gone before consume
+  // is ever reached. This is the live mechanism, and it is what the router
+  // drives on every metadata query.
+  store.invalidateOtherBindings(bindingB());
+  const afterObservedSwitch = store.consume({
     token: issued.token,
     tabId: 42,
     frameId: 3,
@@ -312,44 +325,29 @@ test("REGRESSION vault A -> B: same entry UUID and same exact origin stay stale"
     entryId: ENTRY_UUID,
     sessionBinding: bindingA(),
     configRevision: 17,
-    currentBinding: bindingB(), // vault B is what is actually live now
     nowMs: NOW + 1000,
   });
-  assert.equal(usedAfterSwitch.ok, false);
-  assert.equal(usedAfterSwitch.error, "stale_session");
-  assert.equal(usedAfterSwitch.grant, undefined, "no grant is handed back");
+  assert.equal(afterObservedSwitch.ok, false);
+  assert.equal(afterObservedSwitch.error, "stale_session");
+  assert.equal(afterObservedSwitch.grant, undefined, "no grant is handed back");
 
-  // A delayed reveal response from vault A, arriving after the switch, is
-  // discarded at the comparison boundary.
+  // A response that echoes vault B against a vault A expectation — an attempt
+  // to deliver B's secret through A's grant — is refused before the secret is
+  // forwarded. This is the worker's half of SR-4 and it does run in production.
   assert.equal(
-    security.validateResponseBinding({
-      echoed: bindingA(),
-      expected: bindingA(),
-      current: bindingB(),
-    }),
+    security.validateResponseBinding({ echoed: bindingB(), expected: bindingA() }),
     "stale_session"
   );
 
-  // And a response that echoes vault B against a vault A expectation — i.e. an
-  // attempt to deliver B's secret through A's grant — is equally refused.
+  // The only accepted shape is agreement between the echo and the grant.
   assert.equal(
-    security.validateResponseBinding({
-      echoed: bindingB(),
-      expected: bindingA(),
-      current: bindingB(),
-    }),
-    "stale_session"
-  );
-
-  // The only accepted shape is full agreement.
-  assert.equal(
-    security.validateResponseBinding({
-      echoed: bindingA(),
-      expected: bindingA(),
-      current: bindingA(),
-    }),
+    security.validateResponseBinding({ echoed: bindingA(), expected: bindingA() }),
     null
   );
+
+  // NOTE: if the worker has NOT observed the switch, this layer cannot detect
+  // it and does not pretend to — see the A027 test in overlay_routes.test.js,
+  // which asserts the host is handed the grant's binding so it can refuse.
 });
 
 test("binding equality requires all three fields to be present and exact", () => {

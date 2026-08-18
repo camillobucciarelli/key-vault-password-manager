@@ -121,7 +121,7 @@ void main() {
         expect(error['code'], 'app_bridge_unavailable');
 
         final encoded = jsonEncode(response);
-        expect(encoded, isNot(contains('hunter2')));
+        expect(encoded, isNot(contains('kv-test-only-not-a-real-password')));
         expect(encoded, isNot(contains('passwordValue')));
         expect(encoded, isNot(contains('credentials":[')));
       },
@@ -614,14 +614,17 @@ void main() {
         'version': nativeProtocolVersion,
         'id': 'legacy-1',
         'type': 'queryCredentials',
-        'masterPassword': 'hunter2',
+        'masterPassword': 'kv-test-only-not-a-real-password',
         'payload': {'url': 'https://example.com'},
       });
 
       expect(response['ok'], isFalse);
       final error = response['error']! as Map<String, Object?>;
       expect(error['code'], 'legacy_fields_rejected');
-      expect(jsonEncode(response), isNot(contains('hunter2')));
+      expect(
+        jsonEncode(response),
+        isNot(contains('kv-test-only-not-a-real-password')),
+      );
     });
 
     test('rejects unsupported message types', () async {

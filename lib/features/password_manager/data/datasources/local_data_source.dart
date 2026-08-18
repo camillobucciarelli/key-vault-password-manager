@@ -4,8 +4,6 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-import '../../../../core/utils/portable_path.dart';
-
 abstract class LocalDataSource {
   Future<void> cacheDatabasePath(String path);
   Future<String?> getCachedKeyFilePath();
@@ -37,9 +35,7 @@ class LocalDataSourceImpl implements LocalDataSource {
     if (value == null || value.trim().isEmpty) {
       return null;
     }
-    // Unlock-time fallback when no security profile exists, so it has to
-    // survive an app-container relocation just like the profile's keyFilePath.
-    return PortablePath.decode(value, await PortablePath.documentsRoot());
+    return value;
   }
 
   @override
@@ -50,10 +46,7 @@ class LocalDataSourceImpl implements LocalDataSource {
       await _writeState(data);
       return;
     }
-    data[keyFilePathKey] = PortablePath.encode(
-      path,
-      await PortablePath.documentsRoot(),
-    );
+    data[keyFilePathKey] = path;
     await _writeState(data);
   }
 

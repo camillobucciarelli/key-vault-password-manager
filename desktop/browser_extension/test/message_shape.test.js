@@ -340,7 +340,7 @@ test("assertNoForbiddenKeys walks arrays and nested objects", () => {
 });
 
 test("error results never echo the offending value, only the key name", () => {
-  const leaked = "correct-horse-battery-staple";
+  const leaked = "kv-test-only-not-a-real-password";
   const result = security.validateContentScriptRequest(
     { ...bootstrapMessage(), password: leaked },
     contentScriptSender(),

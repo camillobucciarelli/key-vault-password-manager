@@ -22,6 +22,13 @@ class FakeBrowser {
     /** Set to a message to make the next `storage.local.set` reject. */
     this.failNextSet = null;
     /**
+     * Set to a message to make the next `storage.local.get` reject — a
+     * TRANSIENT read failure, not corruption. The distinction matters: a failed
+     * read tells the worker nothing about what is stored, so it must not be
+     * mistaken for evidence that the stored value is low or absent.
+     */
+    this.failNextGet = null;
+    /**
      * Set to a value to make the read that immediately follows the next write
      * return something else — i.e. a failed readback, not a failed read.
      */
@@ -34,6 +41,11 @@ class FakeBrowser {
     this.storage = {
       local: {
         async get(key) {
+          if (self.failNextGet !== null) {
+            const message = self.failNextGet;
+            self.failNextGet = null;
+            throw new Error(message);
+          }
           const keys = Array.isArray(key) ? key : [key];
           const result = {};
           for (const entry of keys) {

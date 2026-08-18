@@ -36,10 +36,14 @@ const HTTPS_EXAMPLE = "https://example.com";
 const HTTPS_EXAMPLE_8443 = "https://example.com:8443";
 const HTTP_EXAMPLE = "http://example.com";
 
+// Mirrors the real `bootstrapResult` the worker sends, including the SR-7
+// `frameSupport` field A023 added: an approval is not an approval unless the
+// frame is one the policy actually supports.
 const APPROVED = Object.freeze({
   ok: true,
   type: "bootstrapResult",
   enabled: true,
+  frameSupport: "top",
   revision: 3,
 });
 
@@ -158,6 +162,36 @@ test("content_overlay: the enabled port on the same host does attach", async () 
 
   assert.equal(page.listenerCount, 1);
   assert.equal(page.guarded, true);
+});
+
+test("content_overlay: an enabled origin in an unsupported frame stays inert", async () => {
+  // SR-7. The origin IS opted in, so `enabled` is true; the frame is one the
+  // policy cannot support. An approval that ignores `frameSupport` would attach
+  // listeners in exactly the frame the spec says must fail closed.
+  const page = new FakePage({
+    url: "https://example.com/login",
+    respond: async () => ({ ...APPROVED, frameSupport: "unsupported" }),
+  });
+
+  await page.inject();
+
+  assert.equal(page.sentOfType("bootstrap").length, 1);
+  assert.equal(page.listenerCount, 0);
+  assert.equal(page.guarded, false);
+});
+
+test("content_overlay: an approval missing frameSupport is not an approval", async () => {
+  // A worker that predates A023 — or a forged response — cannot approve by
+  // omission.
+  const page = new FakePage({
+    url: "https://example.com/login",
+    respond: async () => ({ ok: true, type: "bootstrapResult", enabled: true, revision: 3 }),
+  });
+
+  await page.inject();
+
+  assert.equal(page.listenerCount, 0);
+  assert.equal(page.guarded, false);
 });
 
 test("content_overlay: a sibling scheme and a suffix lookalike both stay inert", async () => {

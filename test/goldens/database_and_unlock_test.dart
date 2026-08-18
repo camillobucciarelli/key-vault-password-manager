@@ -195,11 +195,11 @@ void main() {
 
     await tester.enterText(
       find.byType(TextFormField).at(0),
-      'correct-horse-battery-staple',
+      'kv-test-only-not-a-real-password',
     );
     await tester.enterText(
       find.byType(TextFormField).at(1),
-      'correct-horse-battery-staple',
+      'kv-test-only-not-a-real-password',
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Continue'));
@@ -517,7 +517,7 @@ void main() {
     await tester.pumpWidget(result.widget);
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextFormField), 'correct-horse');
+    await tester.enterText(find.byType(TextFormField), 'kv-test-only-not-a-real-password');
     await tester.pumpAndSettle();
     await tester.tap(find.text('Unlock vault'));
     // Indeterminate progress animates forever: pump discrete frames instead
