@@ -4,14 +4,40 @@
 // page, and it is an IIFE with no exports: there is nothing to `require()`.
 // So this harness does what Chromium does — evaluate the shipped
 // `overlay_security.js` and the shipped `content_overlay.js`, in that order,
-// in one fresh isolated-world global — and then observes the two things the
-// bootstrap is allowed to touch: the messages it sends and the listeners it
-// attaches.
+// in one fresh isolated-world global — and then observes what the script is
+// allowed to touch: the messages it sends, the listeners it attaches, and
+// (since Slice A4) the DOM it renders.
 //
-// The context models the DOCUMENT only: `location`, `chrome.runtime`. It holds
-// no authorization logic, so a test can never pass against a policy the fake
-// invented. Answering a `bootstrap` is delegated to `respond`, which the
-// end-to-end tests wire straight into a real `OverlayLifecycle`.
+// The context models the DOCUMENT and nothing more. It holds no authorization
+// logic, so a test can never pass against a policy the fake invented.
+// Answering a `bootstrap` is delegated to `respond`, which the end-to-end
+// tests wire straight into a real `OverlayLifecycle` / `OverlayRouter`.
+//
+// FIDELITY RULES (the smoke lessons — model the REAL behaviour, not the
+// convenient one):
+//
+//   * Structured clone. The real `chrome.runtime.sendMessage` structured-
+//     clones BOTH directions across the isolated-world boundary. Requests are
+//     JSON round-tripped into the Node realm; responses (and delivered
+//     runtime messages) are JSON round-tripped INTO THE VM REALM, so the
+//     content script receives objects whose prototype is the vm realm's
+//     `Object.prototype` — exactly what its own `isPlainObject` requires.
+//     Handing it Node-realm objects would make the shipped validators reject
+//     everything and the tests would "fix" it by weakening production.
+//   * Focus. `mousedown` moves focus as its default action; `preventDefault`
+//     on the mousedown — and nothing else — keeps focus where it is. That is
+//     the real click-vs-blur hazard the overlay must survive. `focusout`
+//     fires at the old element before `focusin` fires at the new one.
+//   * Closed shadow root. `host.shadowRoot` reads `null`, exactly like the
+//     platform. The harness keeps its own registry of created roots — the
+//     same x-ray DevTools has — so the secret-lifetime tests can scan shadow
+//     content without pretending the page could.
+//   * Visibility of an element follows `display:none`/`[hidden]` up the
+//     ancestor chain, which is what `getClientRects().length` reflects in a
+//     real layout.
+//   * Events bubble target → ancestors → document → window, and stop at a
+//     shadow root boundary (this harness models non-composed propagation
+//     only; the overlay attaches its listeners directly on its own nodes).
 
 "use strict";
 
@@ -27,6 +53,322 @@ function extensionSource(file) {
 
 /** The guard `content_overlay.js` uses. Named here so tests can read it. */
 const BOOTSTRAP_GUARD = "__keyVaultOverlayBootstrapV1";
+
+// ---------------------------------------------------------------------------
+// Minimal-but-real DOM.
+// ---------------------------------------------------------------------------
+
+class FakeEvent {
+  constructor(type, init = {}) {
+    this.type = type;
+    this.bubbles = init.bubbles === true;
+    this.cancelable = init.cancelable === true;
+    this.key = init.key;
+    this.relatedTarget = init.relatedTarget ?? null;
+    this.target = null;
+    this.defaultPrevented = false;
+    this._propagationStopped = false;
+  }
+
+  preventDefault() {
+    if (this.cancelable) this.defaultPrevented = true;
+  }
+
+  stopPropagation() {
+    this._propagationStopped = true;
+  }
+}
+
+class FakeEventTarget {
+  constructor() {
+    this._listeners = [];
+  }
+
+  addEventListener(type, fn, options = {}) {
+    const signal = options && options.signal;
+    if (signal) {
+      if (signal.aborted) return;
+      signal.addEventListener("abort", () => this.removeEventListener(type, fn), {
+        once: true,
+      });
+    }
+    this._listeners.push({ type, fn });
+  }
+
+  removeEventListener(type, fn) {
+    const at = this._listeners.findIndex(
+      (entry) => entry.type === type && entry.fn === fn
+    );
+    if (at !== -1) this._listeners.splice(at, 1);
+  }
+
+  _invoke(event) {
+    for (const entry of [...this._listeners]) {
+      if (entry.type === event.type) entry.fn.call(this, event);
+    }
+  }
+
+  get listenerTypes() {
+    return this._listeners.map((entry) => entry.type);
+  }
+}
+
+class FakeShadowRoot extends FakeEventTarget {
+  constructor(host) {
+    super();
+    this.host = host;
+    this.childNodes = [];
+    this.parentNode = null; // A shadow root is a tree boundary.
+  }
+
+  appendChild(child) {
+    if (child.parentNode) child.remove();
+    child.parentNode = this;
+    this.childNodes.push(child);
+    return child;
+  }
+
+  get firstChild() {
+    return this.childNodes[0] ?? null;
+  }
+}
+
+const FOCUSABLE_TAGS = new Set(["INPUT", "BUTTON", "SELECT", "TEXTAREA"]);
+
+class FakeElement extends FakeEventTarget {
+  constructor(doc, tagName) {
+    super();
+    this._doc = doc;
+    this.tagName = String(tagName).toUpperCase();
+    this._attributes = new Map();
+    this.dataset = {};
+    this.style = {};
+    this.childNodes = [];
+    this.parentNode = null;
+    this._text = "";
+    this.id = "";
+    this.value = "";
+    this.type = this.tagName === "INPUT" ? "text" : "";
+    this.disabled = false;
+    this.readOnly = false;
+    this._shadow = null;
+    this._shadowMode = null;
+    this._rect = null;
+  }
+
+  // -- attributes -----------------------------------------------------------
+
+  setAttribute(name, value) {
+    this._attributes.set(String(name), String(value));
+    if (name === "id") this.id = String(value);
+    if (name === "type" && this.tagName === "INPUT") this.type = String(value);
+  }
+
+  getAttribute(name) {
+    return this._attributes.has(name) ? this._attributes.get(name) : null;
+  }
+
+  hasAttribute(name) {
+    return this._attributes.has(name);
+  }
+
+  removeAttribute(name) {
+    this._attributes.delete(name);
+  }
+
+  // -- tree -----------------------------------------------------------------
+
+  appendChild(child) {
+    if (child.parentNode) child.remove();
+    child.parentNode = this;
+    this.childNodes.push(child);
+    return child;
+  }
+
+  remove() {
+    if (this.parentNode) {
+      const siblings = this.parentNode.childNodes;
+      const at = siblings.indexOf(this);
+      if (at !== -1) siblings.splice(at, 1);
+    }
+    this.parentNode = null;
+  }
+
+  get firstChild() {
+    return this.childNodes[0] ?? null;
+  }
+
+  get isConnected() {
+    let node = this;
+    while (node) {
+      if (node === this._doc) return true;
+      node = node.parentNode ?? (node instanceof FakeShadowRoot ? node.host : null);
+    }
+    return false;
+  }
+
+  get textContent() {
+    return (
+      this._text + this.childNodes.map((child) => child.textContent ?? "").join("")
+    );
+  }
+
+  set textContent(value) {
+    for (const child of this.childNodes) child.parentNode = null;
+    this.childNodes = [];
+    this._text = String(value);
+  }
+
+  // -- forms ----------------------------------------------------------------
+
+  /** Real `HTMLInputElement.form`: the nearest FORM ancestor. */
+  get form() {
+    let node = this.parentNode;
+    while (node) {
+      if (node.tagName === "FORM") return node;
+      node = node.parentNode ?? null;
+    }
+    return null;
+  }
+
+  /** Real `HTMLFormElement.elements`, as an array of listed descendants. */
+  get elements() {
+    if (this.tagName !== "FORM") return undefined;
+    const found = [];
+    const walk = (node) => {
+      for (const child of node.childNodes ?? []) {
+        if (child instanceof FakeElement) {
+          if (FOCUSABLE_TAGS.has(child.tagName)) found.push(child);
+          walk(child);
+        }
+      }
+    };
+    walk(this);
+    return found;
+  }
+
+  /** The real method never fires a `submit` event; it still submits. */
+  submit() {
+    this._doc._page.submitCount += 1;
+  }
+
+  requestSubmit() {
+    this._doc._page.submitCount += 1;
+  }
+
+  // -- layout ---------------------------------------------------------------
+
+  _isRendered() {
+    let node = this;
+    while (node) {
+      if (node instanceof FakeElement) {
+        if (node.hasAttribute("hidden") || node.style.display === "none") {
+          return false;
+        }
+      }
+      node = node.parentNode ?? (node instanceof FakeShadowRoot ? node.host : null);
+    }
+    return true;
+  }
+
+  getClientRects() {
+    return this._isRendered() ? [this.getBoundingClientRect()] : [];
+  }
+
+  getBoundingClientRect() {
+    return (
+      this._rect ?? {
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        bottom: 0,
+        right: 0,
+        width: 0,
+        height: 0,
+      }
+    );
+  }
+
+  // -- shadow ---------------------------------------------------------------
+
+  attachShadow({ mode } = {}) {
+    if (this._shadow) throw new Error("Shadow root cannot be created twice");
+    this._shadow = new FakeShadowRoot(this);
+    this._shadowMode = mode;
+    this._doc._page._shadowRoots.push(this._shadow);
+    return this._shadow;
+  }
+
+  /** Closed mode reads null — exactly the platform behaviour (SR-6/A034). */
+  get shadowRoot() {
+    return this._shadowMode === "open" ? this._shadow : null;
+  }
+
+  // -- focus and events -----------------------------------------------------
+
+  get _focusable() {
+    return FOCUSABLE_TAGS.has(this.tagName) && this.disabled !== true;
+  }
+
+  focus() {
+    if (!this._focusable) return;
+    this._doc._page._moveFocus(this);
+  }
+
+  blur() {
+    if (this._doc.activeElement === this) {
+      this._doc._page._moveFocus(this._doc.body);
+    }
+  }
+
+  dispatchEvent(event) {
+    this._doc._page._propagate(this, event);
+    return !event.defaultPrevented;
+  }
+}
+
+class FakeDocument extends FakeEventTarget {
+  constructor(page) {
+    super();
+    this._page = page;
+    this.documentElement = new FakeElement(this, "html");
+    this.documentElement.parentNode = this;
+    this.body = new FakeElement(this, "body");
+    this.documentElement.appendChild(this.body);
+    this.activeElement = this.body;
+    this._visibilityState = "visible";
+    /**
+     * `document.title` is SHARED DOM state: the isolated world and the page
+     * write and read the very same value (Chrome shares the DOM between
+     * worlds, only the JS globals are isolated), and it further leaks into
+     * history and the OS task switcher. It is therefore an observable surface
+     * the secret scan must cover — see `captureObservableState`.
+     *
+     * Element EXPANDOS (`el.someProp = x`) are deliberately NOT such a
+     * surface: a plain JS property set in the isolated world lives on that
+     * world's wrapper object and is invisible to page code, so the fake does
+     * not model them as observable. Attributes/dataset ARE shared DOM and are
+     * scanned.
+     */
+    this.title = "";
+  }
+
+  createElement(tagName) {
+    return new FakeElement(this, tagName);
+  }
+
+  get visibilityState() {
+    return this._visibilityState;
+  }
+
+  dispatchEvent(event) {
+    this._page._propagate(this, event);
+    return !event.defaultPrevented;
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 class FakePage {
   /**
@@ -45,9 +387,21 @@ class FakePage {
     this.sent = [];
     /** Live `chrome.runtime.onMessage` listeners. */
     this.listeners = [];
+    /** Every shadow root ever attached — the harness x-ray (see header). */
+    this._shadowRoots = [];
+    /** `console.*` output from the content world, line per call. */
+    this.consoleLines = [];
+    /** Form submissions of any kind. The overlay contract keeps this at 0. */
+    this.submitCount = 0;
 
     this._pending = [];
     this._activeLastError = undefined;
+    this._intervals = new Map();
+    this._timerId = 0;
+    this._timeOffsetMs = 0;
+
+    this.document = new FakeDocument(this);
+    this.window = new FakeEventTarget();
 
     const self = this;
     const chrome = {
@@ -78,7 +432,10 @@ class FakePage {
                 ? { message: String(failure?.message ?? failure) }
                 : undefined;
               try {
-                if (typeof callback === "function") callback(response);
+                if (typeof callback === "function") {
+                  // Clone INTO the vm realm — see the fidelity rules above.
+                  callback(self._toRealm(response));
+                }
               } finally {
                 self._activeLastError = undefined;
               }
@@ -100,12 +457,33 @@ class FakePage {
       },
     };
 
+    const RealDate = Date;
+    /** `Date.now()` honours `advanceTime`, everything else is the real Date. */
+    class ControlledDate extends RealDate {
+      static now() {
+        return RealDate.now() + self._timeOffsetMs;
+      }
+    }
+
     this.context = vm.createContext({
       URL,
       crypto,
       Buffer,
-      console,
+      console: this._recordingConsole(),
       chrome,
+      AbortController,
+      Event: FakeEvent,
+      Date: ControlledDate,
+      document: this.document,
+      window: this.window,
+      setInterval: (fn, _ms) => {
+        this._timerId += 1;
+        this._intervals.set(this._timerId, fn);
+        return this._timerId;
+      },
+      clearInterval: (id) => {
+        this._intervals.delete(id);
+      },
       location: {
         get href() {
           return self.url;
@@ -113,7 +491,22 @@ class FakePage {
       },
     });
 
+    this._vmParse = vm.runInContext("(s) => JSON.parse(s)", this.context);
+
     if (loadSecurity) this.evaluate("overlay_security.js");
+  }
+
+  _recordingConsole() {
+    const record = (...args) => {
+      this.consoleLines.push(args.map(String).join(" "));
+    };
+    return { log: record, info: record, warn: record, error: record, debug: record };
+  }
+
+  /** JSON round trip into the vm realm; `undefined` stays `undefined`. */
+  _toRealm(value) {
+    if (value === undefined) return undefined;
+    return this._vmParse(JSON.stringify(value));
   }
 
   /** Evaluate a shipped extension file in this world, as the browser does. */
@@ -141,11 +534,105 @@ class FakePage {
 
   /** Deliver a runtime message to every live listener, then settle. */
   async deliver(message) {
+    const delivered = this._toRealm(
+      message === undefined ? undefined : JSON.parse(JSON.stringify(message ?? null))
+    );
     for (const listener of [...this.listeners]) {
-      listener(message, { id: "kv" }, () => {});
+      listener(delivered, { id: "kv" }, () => {});
     }
     await this.settle();
   }
+
+  // -- DOM driving ----------------------------------------------------------
+
+  /** `focusout` at the old element, then `focusin` at the new one. */
+  _moveFocus(next) {
+    const prev = this.document.activeElement;
+    if (prev === next) return;
+    this.document.activeElement = next;
+    if (prev && prev !== this.document.body) {
+      this._propagate(
+        prev,
+        new FakeEvent("focusout", { bubbles: true, relatedTarget: next })
+      );
+    }
+    if (next && next !== this.document.body) {
+      this._propagate(
+        next,
+        new FakeEvent("focusin", { bubbles: true, relatedTarget: prev })
+      );
+    }
+  }
+
+  /** target → ancestors → document → window; stops at a shadow boundary. */
+  _propagate(target, event) {
+    if (event.target === null) event.target = target;
+    if (event.type === "submit") this.submitCount += 1;
+    let node = target;
+    while (node) {
+      node._invoke(event);
+      if (!event.bubbles || event._propagationStopped) return;
+      if (node === this.window) return;
+      if (node === this.document) {
+        node = this.window;
+        continue;
+      }
+      node = node.parentNode ?? null;
+    }
+  }
+
+  /** Focus an element the way a user click/tab would, then settle. */
+  async focus(el) {
+    el.focus();
+    await this.settle();
+  }
+
+  /**
+   * A real pointer press: `mousedown` (whose DEFAULT ACTION moves focus,
+   * unless prevented), then `click`. This is what makes the click-vs-blur
+   * hazard reproducible instead of assumed away.
+   */
+  async click(el) {
+    const mousedown = new FakeEvent("mousedown", { bubbles: true, cancelable: true });
+    this._propagate(el, mousedown);
+    if (!mousedown.defaultPrevented) {
+      if (el._focusable) el.focus();
+      else this._moveFocus(this.document.body);
+    }
+    this._propagate(el, new FakeEvent("click", { bubbles: true, cancelable: true }));
+    await this.settle();
+  }
+
+  /** Key press delivered at the focused element, bubbling to the document. */
+  async pressKey(key) {
+    const target = this.document.activeElement ?? this.document.body;
+    this._propagate(target, new FakeEvent("keydown", { bubbles: true, key }));
+    await this.settle();
+  }
+
+  async setVisibility(state) {
+    this.document._visibilityState = state;
+    this._propagate(this.document, new FakeEvent("visibilitychange", { bubbles: false }));
+    await this.settle();
+  }
+
+  async firePagehide() {
+    this.window._invoke(new FakeEvent("pagehide", { bubbles: false }));
+    await this.settle();
+  }
+
+  /** Shift the content world's `Date.now()` without waiting. */
+  advanceTime(ms) {
+    this._timeOffsetMs += ms;
+  }
+
+  /** Run every live interval callback once (the overlay watchdog). */
+  async tick() {
+    for (const fn of [...this._intervals.values()]) fn();
+    await this.settle();
+  }
+
+  // -- observation ----------------------------------------------------------
 
   /** True while the idempotence guard is held. */
   get guarded() {
@@ -160,6 +647,84 @@ class FakePage {
   sentOfType(type) {
     return this.sent.filter((message) => message?.type === type);
   }
+
+  /** Every element in the page tree AND in every shadow root ever created. */
+  allElements() {
+    const found = new Set();
+    const walk = (node) => {
+      for (const child of node.childNodes ?? []) {
+        if (child instanceof FakeElement && !found.has(child)) {
+          found.add(child);
+          if (child._shadow) walk(child._shadow);
+          walk(child);
+        }
+      }
+    };
+    found.add(this.document.documentElement);
+    walk(this.document.documentElement);
+    // Detached hosts too: a removed overlay must still be scannable.
+    for (const root of this._shadowRoots) walk(root);
+    return [...found];
+  }
+
+  /** The overlay hosts currently attached to the page tree. */
+  overlayHosts() {
+    return this._shadowRoots
+      .map((root) => root.host)
+      .filter((host) => host.isConnected);
+  }
+
+  /**
+   * A032 — every observable surface EXCEPT input values, as one string:
+   * tag names, ids, attributes, dataset, inline style, text (page tree and
+   * all shadow roots, attached or not), the content world's globals, and its
+   * console output. Input values are excluded because the filled input is
+   * the single allowed secret sink; callers assert on it separately via
+   * `inputValues()`.
+   */
+  captureObservableState() {
+    const chunks = [];
+    // Shared-DOM document state that the generic walks below cannot reach:
+    // `document` itself is cyclic (its JSON.stringify in the globals loop
+    // throws and is skipped), so its scannable string leaves are named here
+    // explicitly. `title` is the one a content script can write.
+    chunks.push(this.document.title);
+    for (const el of this.allElements()) {
+      chunks.push(el.tagName, el.id, el._text);
+      for (const [name, value] of el._attributes) chunks.push(name, value);
+      for (const [name, value] of Object.entries(el.dataset)) {
+        chunks.push(name, String(value));
+      }
+      for (const [name, value] of Object.entries(el.style)) {
+        chunks.push(name, String(value));
+      }
+    }
+    for (const key of Object.keys(this.context)) {
+      chunks.push(key);
+      const value = this.context[key];
+      if (["string", "number", "boolean"].includes(typeof value)) {
+        chunks.push(String(value));
+      } else {
+        try {
+          const json = JSON.stringify(value);
+          if (typeof json === "string") chunks.push(json);
+        } catch (_) {
+          // Cyclic/exotic global (document, chrome): structure is not
+          // serializable, but its own enumerable string leaves are what a
+          // secret would live in, and those are covered by the DOM walk.
+        }
+      }
+    }
+    chunks.push(...this.consoleLines);
+    return chunks.join("\n");
+  }
+
+  /** Values of every input in the page tree. */
+  inputValues() {
+    return this.allElements()
+      .filter((el) => el.tagName === "INPUT")
+      .map((el) => el.value);
+  }
 }
 
-module.exports = { FakePage, BOOTSTRAP_GUARD };
+module.exports = { FakePage, FakeEvent, BOOTSTRAP_GUARD };
