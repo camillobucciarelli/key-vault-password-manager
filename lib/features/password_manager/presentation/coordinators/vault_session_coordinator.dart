@@ -96,7 +96,6 @@ class VaultSessionCoordinator {
 
   Future<void> changeDatabase({required String currentDatabasePath}) async {
     await appleAutofillV2Coordinator.clearCredentials();
-    await localDataSource.cacheDatabasePath('');
     await localDataSource.cacheKeyFilePath(null);
     await secureDataSource.clearMasterPassword();
     await databaseRegistryRepository.setActive(null);
@@ -104,7 +103,6 @@ class VaultSessionCoordinator {
 
   Future<void> lockVault({required String currentDatabasePath}) async {
     await appleAutofillV2Coordinator.clearCredentials();
-    await localDataSource.cacheDatabasePath(currentDatabasePath);
     await secureDataSource.clearMasterPassword();
   }
 
@@ -271,7 +269,6 @@ class VaultSessionCoordinator {
         ),
       );
       await databaseSecurityRepository.saveProfile(profile);
-      await localDataSource.cacheDatabasePath(effectivePath);
       await localDataSource.cacheKeyFilePath(persistedKeyFilePath);
 
       if (credentialChange != null) {
@@ -332,9 +329,6 @@ class VaultSessionCoordinator {
       } else {
         await databaseSecurityRepository.saveProfile(profile);
       }
-    } catch (_) {}
-    try {
-      await localDataSource.cacheDatabasePath(databasePath);
     } catch (_) {}
     try {
       await localDataSource.cacheKeyFilePath(keyFilePath);

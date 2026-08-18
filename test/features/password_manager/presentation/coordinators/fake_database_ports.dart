@@ -161,14 +161,8 @@ class FakeDatabaseFileRepository implements DatabaseFileRepository {
 }
 
 class FakeDatabaseSessionRepository implements DatabaseSessionRepository {
-  String? databasePath;
   String? keyFilePath;
   String? masterPassword;
-
-  @override
-  Future<void> cacheDatabasePath(String path) async {
-    databasePath = path;
-  }
 
   @override
   Future<String?> getCachedKeyFilePath() async => keyFilePath;

@@ -103,7 +103,6 @@ void main() {
 
         expect(result.status, DatabaseSessionStatus.success);
         expect(result.path, pathB);
-        expect(localDataSource.selectedDatabasePath, pathB);
         expect(registryRepository.activeId, 'db-b');
         expect(registryRepository.records, hasLength(2));
       },
@@ -127,7 +126,6 @@ void main() {
         (item) => item.canonicalPath == missingPath,
       );
       expect(missingItem.isMissing, isTrue);
-      expect(localDataSource.selectedDatabasePath, isNull);
       expect(registryRepository.activeId, 'db-b');
     });
 
@@ -168,7 +166,6 @@ void main() {
         );
 
         expect(registryRepository.activeId, 'db-old');
-        expect(localDataSource.selectedDatabasePath, isNull);
       },
     );
 
@@ -504,7 +501,6 @@ void main() {
         expect(result.path, currentPath);
         expect(result.duplicatePrompt, isNull);
         expect(registryRepository.activeId, 'db-current');
-        expect(localDataSource.selectedDatabasePath, currentPath);
         expect(localDataSource.selectedKeyFilePath, isNull);
         expect(secureDataSource.password, isNull);
         expect(appleAutofillV2Coordinator.clearCallCount, 1);
@@ -528,7 +524,6 @@ void main() {
         databaseId: 'db-current',
         keyFilePath: '/tmp/key.key',
       );
-      localDataSource.selectedDatabasePath = currentPath;
       localDataSource.selectedKeyFilePath = '/tmp/key.key';
       secureDataSource.password = 'secret';
 
@@ -540,7 +535,6 @@ void main() {
       expect(result.status, DatabaseSessionStatus.info);
       expect(registryRepository.records, isEmpty);
       expect(securityRepository.profiles, isEmpty);
-      expect(localDataSource.selectedDatabasePath, '');
       expect(localDataSource.selectedKeyFilePath, isNull);
       expect(secureDataSource.password, isNull);
       expect(appleAutofillV2Coordinator.clearCallCount, 1);
@@ -658,7 +652,6 @@ void main() {
         expect(updated.canonicalPath, foundPath);
         expect(updated.fileHash, foundHash);
         expect(registryRepository.activeId, 'db-1');
-        expect(localDataSource.selectedDatabasePath, foundPath);
 
         expect(
           securityRepository.profiles['db-1']?.keyFilePath,
@@ -692,7 +685,6 @@ void main() {
           keyFilePath: '/tmp/db-1.key',
         );
         registryRepository.activeId = 'db-previous-active';
-        localDataSource.selectedDatabasePath = '/tmp/previous-active.kdbx';
         localDataSource.selectedKeyFilePath = '/tmp/previous.key';
         secureDataSource.password = 'previous-secret';
 
@@ -709,7 +701,6 @@ void main() {
         final mappingsBefore = Map<String, DatabaseSyncMapping>.of(
           syncRepository.mappings,
         );
-        final selectedDbPathBefore = localDataSource.selectedDatabasePath;
         final selectedKeyPathBefore = localDataSource.selectedKeyFilePath;
         final passwordBefore = secureDataSource.password;
 
@@ -730,7 +721,6 @@ void main() {
         expect(registryRepository.activeId, activeIdBefore);
         expect(securityRepository.profiles, profilesBefore);
         expect(syncRepository.mappings, mappingsBefore);
-        expect(localDataSource.selectedDatabasePath, selectedDbPathBefore);
         expect(localDataSource.selectedKeyFilePath, selectedKeyPathBefore);
         expect(secureDataSource.password, passwordBefore);
       });
@@ -786,7 +776,6 @@ void main() {
           _record(id: 'db-active', path: activePath),
         ];
         registryRepository.activeId = 'db-active';
-        localDataSource.selectedDatabasePath = activePath;
         localDataSource.selectedKeyFilePath = activeKeyPath;
         secureDataSource.password = 'active-secret';
         securityRepository.profiles['db-active'] =
@@ -830,7 +819,6 @@ void main() {
         expect(registryRepository.records, hasLength(1));
         expect(registryRepository.records.single.databaseId, 'db-active');
         expect(registryRepository.activeId, 'db-active');
-        expect(localDataSource.selectedDatabasePath, activePath);
         expect(localDataSource.selectedKeyFilePath, activeKeyPath);
         expect(secureDataSource.password, 'active-secret');
         expect(
@@ -937,14 +925,8 @@ class _FakePathProvider extends PathProviderPlatform
 }
 
 class _FakeLocalDataSource implements LocalDataSource {
-  String? selectedDatabasePath;
   String? selectedKeyFilePath;
   bool autofillPromptSeen = false;
-
-  @override
-  Future<void> cacheDatabasePath(String path) async {
-    selectedDatabasePath = path;
-  }
 
   @override
   Future<String?> getCachedKeyFilePath() async => selectedKeyFilePath;

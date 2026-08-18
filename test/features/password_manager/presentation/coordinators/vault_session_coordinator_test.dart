@@ -91,7 +91,6 @@ void main() {
         expect(oldFile.existsSync(), isFalse);
         expect(syncRepository.movedFrom, oldFile.path);
         expect(syncRepository.movedTo, result.databasePath);
-        expect(localDataSource.selectedDatabasePath, result.databasePath);
         expect(localDataSource.selectedKeyFilePath, isNotNull);
 
         final profile = securityRepository.profiles['db-1'];
@@ -153,7 +152,6 @@ void main() {
           (oldFile.path, '${tempDir.path}/renamed.kdbx'),
           ('${tempDir.path}/renamed.kdbx', oldFile.path),
         ]);
-        expect(localDataSource.selectedDatabasePath, oldFile.path);
         expect(localDataSource.selectedKeyFilePath, isNull);
         expect(securityRepository.profiles['db-1'], isNull);
         expect(secureDataSource.password, isNull);
@@ -242,7 +240,6 @@ void main() {
           databaseId: 'db-1',
           keyFilePath: currentKey,
         );
-        localDataSource.selectedDatabasePath = databasePath;
         localDataSource.selectedKeyFilePath = currentKey;
         secureDataSource.password = 'old-secret';
         securityRepository.failNextSave = true;
@@ -274,7 +271,6 @@ void main() {
     test('secure storage failure rolls back credential transaction', () async {
       const databasePath = '/tmp/vault.kdbx';
       registryRepository.records = [_recordForTest('db-1', databasePath)];
-      localDataSource.selectedDatabasePath = databasePath;
       secureDataSource.password = 'old-secret';
       secureDataSource.failNextSave = true;
 
@@ -296,7 +292,6 @@ void main() {
 
       expect(vaultKdbxService.rollbackCount, 1);
       expect(secureDataSource.password, 'old-secret');
-      expect(localDataSource.selectedDatabasePath, databasePath);
     });
 
     test('profile failure reopens with old credentials, not new', () async {
@@ -307,7 +302,6 @@ void main() {
       final databasePath = '${tempDir.path}/vault.kdbx';
       await _createTestDatabase(databasePath, 'old-secret');
       registryRepository.records = [_recordForTest('db-1', databasePath)];
-      localDataSource.selectedDatabasePath = databasePath;
       secureDataSource.password = 'old-secret';
       securityRepository.failNextSave = true;
       final realService = VaultKdbxService();
@@ -358,119 +352,113 @@ void main() {
     // distinct from `beginCredentialChange`'s own transient rollback
     // `.bak`, which IS deleted on success (see the `finalizeCount`
     // assertion in the first test above).
-    test(
-      'updateDatabaseSettings writes a dated pre-rekey backup before '
-      'changing the master password',
-      () async {
-        final tempDir = await Directory.systemTemp.createTemp(
-          'vault_session_backup_test_',
-        );
-        addTearDown(() => tempDir.delete(recursive: true));
-        final databasePath = '${tempDir.path}/vault.kdbx';
-        final originalBytes = await _createTestDatabase(
-          databasePath,
-          'old-secret',
-        );
-        registryRepository.records = [_recordForTest('db-1', databasePath)];
-        secureDataSource.password = 'old-secret';
-        final realService = VaultKdbxService();
-        coordinator = VaultSessionCoordinator(
-          localDataSource: localDataSource,
-          databaseRegistryRepository: registryRepository,
-          databaseSecurityRepository: securityRepository,
-          secureDataSource: secureDataSource,
-          databaseSyncRepository: syncRepository,
-          vaultKdbxService: realService,
-          appleAutofillV2Coordinator: appleAutofillV2Coordinator,
-        );
+    test('updateDatabaseSettings writes a dated pre-rekey backup before '
+        'changing the master password', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'vault_session_backup_test_',
+      );
+      addTearDown(() => tempDir.delete(recursive: true));
+      final databasePath = '${tempDir.path}/vault.kdbx';
+      final originalBytes = await _createTestDatabase(
+        databasePath,
+        'old-secret',
+      );
+      registryRepository.records = [_recordForTest('db-1', databasePath)];
+      secureDataSource.password = 'old-secret';
+      final realService = VaultKdbxService();
+      coordinator = VaultSessionCoordinator(
+        localDataSource: localDataSource,
+        databaseRegistryRepository: registryRepository,
+        databaseSecurityRepository: securityRepository,
+        secureDataSource: secureDataSource,
+        databaseSyncRepository: syncRepository,
+        vaultKdbxService: realService,
+        appleAutofillV2Coordinator: appleAutofillV2Coordinator,
+      );
 
-        final result = await coordinator.updateDatabaseSettings(
-          DatabaseSettingsUpdateRequest(
-            currentDatabasePath: databasePath,
-            fileName: 'vault.kdbx',
-            keyFilePath: null,
-            biometricProtectionEnabled: false,
-            changePassword: true,
-            inactivityLockTimeoutSeconds: null,
-            currentPassword: 'old-secret',
-            newPassword: 'new-secret',
-          ),
-        );
-        expect(result.passwordChanged, isTrue);
+      final result = await coordinator.updateDatabaseSettings(
+        DatabaseSettingsUpdateRequest(
+          currentDatabasePath: databasePath,
+          fileName: 'vault.kdbx',
+          keyFilePath: null,
+          biometricProtectionEnabled: false,
+          changePassword: true,
+          inactivityLockTimeoutSeconds: null,
+          currentPassword: 'old-secret',
+          newPassword: 'new-secret',
+        ),
+      );
+      expect(result.passwordChanged, isTrue);
 
-        // Exactly one dated backup, named
-        // `vault.<yyyyMMdd-HHmmss-ffffff>.pre-rekey.kdbx`, sitting next to
-        // the (now re-keyed) database — and it still opens with the OLD
-        // password, proving it's the pre-change file, not a copy of the
-        // new one.
-        final backups = tempDir
-            .listSync()
-            .whereType<File>()
-            .where(
-              (file) =>
-                  file.path.contains('.pre-rekey.kdbx') &&
-                  file.path.contains('vault.'),
-            )
-            .toList();
-        expect(backups, hasLength(1));
-        expect(
-          RegExp(
-            r'vault\.\d{8}-\d{6}-\d{6}\.pre-rekey\.kdbx$',
-          ).hasMatch(backups.single.path),
-          isTrue,
-          reason: 'Backup file name: ${backups.single.path}',
-        );
-        expect(
-          await backups.single.readAsBytes(),
-          originalBytes,
-          reason: 'The backup must be a copy of the pre-rekey bytes.',
-        );
+      // Exactly one dated backup, named
+      // `vault.<yyyyMMdd-HHmmss-ffffff>.pre-rekey.kdbx`, sitting next to
+      // the (now re-keyed) database — and it still opens with the OLD
+      // password, proving it's the pre-change file, not a copy of the
+      // new one.
+      final backups = tempDir
+          .listSync()
+          .whereType<File>()
+          .where(
+            (file) =>
+                file.path.contains('.pre-rekey.kdbx') &&
+                file.path.contains('vault.'),
+          )
+          .toList();
+      expect(backups, hasLength(1));
+      expect(
+        RegExp(
+          r'vault\.\d{8}-\d{6}-\d{6}\.pre-rekey\.kdbx$',
+        ).hasMatch(backups.single.path),
+        isTrue,
+        reason: 'Backup file name: ${backups.single.path}',
+      );
+      expect(
+        await backups.single.readAsBytes(),
+        originalBytes,
+        reason: 'The backup must be a copy of the pre-rekey bytes.',
+      );
 
-        // The re-keyed database now opens with the NEW password (the
-        // backup is a separate, additional file — it does not replace the
-        // normal atomic-rekey behaviour already covered above).
-        await expectLater(
-          realService.loadVault(
-            databasePath: databasePath,
-            password: 'new-secret',
-          ),
-          completes,
-        );
-      },
-    );
+      // The re-keyed database now opens with the NEW password (the
+      // backup is a separate, additional file — it does not replace the
+      // normal atomic-rekey behaviour already covered above).
+      await expectLater(
+        realService.loadVault(
+          databasePath: databasePath,
+          password: 'new-secret',
+        ),
+        completes,
+      );
+    });
 
-    test(
-      'updateDatabaseSettings does not write a pre-rekey backup when '
-      'neither the password nor the key file changes',
-      () async {
-        final tempDir = await Directory.systemTemp.createTemp(
-          'vault_session_no_backup_test_',
-        );
-        addTearDown(() => tempDir.delete(recursive: true));
-        final databasePath = '${tempDir.path}/vault.kdbx';
-        await File(databasePath).writeAsBytes(const [1, 2, 3]);
-        registryRepository.records = [_recordForTest('db-1', databasePath)];
-        secureDataSource.password = 'secret';
+    test('updateDatabaseSettings does not write a pre-rekey backup when '
+        'neither the password nor the key file changes', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'vault_session_no_backup_test_',
+      );
+      addTearDown(() => tempDir.delete(recursive: true));
+      final databasePath = '${tempDir.path}/vault.kdbx';
+      await File(databasePath).writeAsBytes(const [1, 2, 3]);
+      registryRepository.records = [_recordForTest('db-1', databasePath)];
+      secureDataSource.password = 'secret';
 
-        await coordinator.updateDatabaseSettings(
-          DatabaseSettingsUpdateRequest(
-            currentDatabasePath: databasePath,
-            fileName: 'vault.kdbx',
-            keyFilePath: null,
-            biometricProtectionEnabled: true,
-            changePassword: false,
-            inactivityLockTimeoutSeconds: 120,
-          ),
-        );
+      await coordinator.updateDatabaseSettings(
+        DatabaseSettingsUpdateRequest(
+          currentDatabasePath: databasePath,
+          fileName: 'vault.kdbx',
+          keyFilePath: null,
+          biometricProtectionEnabled: true,
+          changePassword: false,
+          inactivityLockTimeoutSeconds: 120,
+        ),
+      );
 
-        final backups = tempDir
-            .listSync()
-            .whereType<File>()
-            .where((file) => file.path.contains('.pre-rekey.'))
-            .toList();
-        expect(backups, isEmpty);
-      },
-    );
+      final backups = tempDir
+          .listSync()
+          .whereType<File>()
+          .where((file) => file.path.contains('.pre-rekey.'))
+          .toList();
+      expect(backups, isEmpty);
+    });
 
     test('protected key paths cover current and shared profiles', () async {
       const shared = '/tmp/shared.key';
@@ -491,31 +479,25 @@ void main() {
       expect(await coordinator.getPersistedKeyFilePath('/tmp/a.kdbx'), shared);
     });
 
-    test(
-      'changeDatabase clears selected paths, active database, and master password',
-      () async {
-        localDataSource.selectedDatabasePath = '/tmp/a.kdbx';
-        localDataSource.selectedKeyFilePath = '/tmp/a.key';
-        secureDataSource.password = 'secret';
-        registryRepository.activeId = 'db-1';
+    test('changeDatabase clears the selected key file, active database, and '
+        'master password', () async {
+      localDataSource.selectedKeyFilePath = '/tmp/a.key';
+      secureDataSource.password = 'secret';
+      registryRepository.activeId = 'db-1';
 
-        await coordinator.changeDatabase(currentDatabasePath: '/tmp/a.kdbx');
+      await coordinator.changeDatabase(currentDatabasePath: '/tmp/a.kdbx');
 
-        expect(localDataSource.selectedDatabasePath, '');
-        expect(localDataSource.selectedKeyFilePath, isNull);
-        expect(secureDataSource.password, isNull);
-        expect(registryRepository.activeId, isNull);
-        expect(appleAutofillV2Coordinator.clearCallCount, 1);
-      },
-    );
+      expect(localDataSource.selectedKeyFilePath, isNull);
+      expect(secureDataSource.password, isNull);
+      expect(registryRepository.activeId, isNull);
+      expect(appleAutofillV2Coordinator.clearCallCount, 1);
+    });
 
     test('lockVault clears Apple autofill credentials', () async {
-      localDataSource.selectedDatabasePath = '/tmp/a.kdbx';
       secureDataSource.password = 'secret';
 
       await coordinator.lockVault(currentDatabasePath: '/tmp/a.kdbx');
 
-      expect(localDataSource.selectedDatabasePath, '/tmp/a.kdbx');
       expect(secureDataSource.password, isNull);
       expect(appleAutofillV2Coordinator.clearCallCount, 1);
     });
@@ -591,13 +573,7 @@ Future<Uint8List> _createTestDatabase(String path, String password) async {
 }
 
 class _FakeLocalDataSource implements LocalDataSource {
-  String? selectedDatabasePath;
   String? selectedKeyFilePath;
-
-  @override
-  Future<void> cacheDatabasePath(String path) async {
-    selectedDatabasePath = path;
-  }
 
   @override
   Future<String?> getCachedKeyFilePath() async => selectedKeyFilePath;

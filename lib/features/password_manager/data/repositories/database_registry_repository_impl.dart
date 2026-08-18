@@ -1,3 +1,4 @@
+import '../../../../core/utils/portable_path.dart';
 import '../../domain/entities/database_record.dart';
 import '../../domain/repositories/database_registry_repository.dart';
 import '../datasources/database_registry_local_data_source.dart';
@@ -10,7 +11,10 @@ class DatabaseRegistryRepositoryImpl implements DatabaseRegistryRepository {
   @override
   Future<List<DatabaseRecord>> list() async {
     final raw = await localDataSource.getRecords();
-    return raw.map(_recordFromMap).toList(growable: false);
+    final documentsRoot = await PortablePath.documentsRoot();
+    return raw
+        .map((map) => _recordFromMap(map, documentsRoot))
+        .toList(growable: false);
   }
 
   @override
@@ -81,8 +85,14 @@ class DatabaseRegistryRepositoryImpl implements DatabaseRegistryRepository {
       next.add(record);
     }
 
+    // Resolved once, outside the loop: symlink resolution is filesystem I/O.
+    final resolvedRoot = PortablePath.resolveForComparison(
+      await PortablePath.documentsRoot(),
+    );
     await localDataSource.saveRecords(
-      next.map(_recordToMap).toList(growable: false),
+      next
+          .map((entry) => _recordToMap(entry, resolvedRoot))
+          .toList(growable: false),
     );
   }
 
@@ -93,9 +103,12 @@ class DatabaseRegistryRepositoryImpl implements DatabaseRegistryRepository {
     }
 
     final existing = await list();
+    final resolvedRoot = PortablePath.resolveForComparison(
+      await PortablePath.documentsRoot(),
+    );
     final next = existing
         .where((entry) => entry.databaseId != databaseId)
-        .map(_recordToMap)
+        .map((entry) => _recordToMap(entry, resolvedRoot))
         .toList(growable: false);
     await localDataSource.saveRecords(next);
 
@@ -116,14 +129,17 @@ class DatabaseRegistryRepositoryImpl implements DatabaseRegistryRepository {
   }
 }
 
-DatabaseRecord _recordFromMap(Map<String, dynamic> map) {
+DatabaseRecord _recordFromMap(Map<String, dynamic> map, String documentsRoot) {
   final sourceType = DatabaseSourceType.values.firstWhere(
     (value) => value.name == map['sourceType'],
     orElse: () => DatabaseSourceType.local,
   );
   return DatabaseRecord(
     databaseId: map['databaseId'] as String,
-    canonicalPath: map['canonicalPath'] as String,
+    canonicalPath: PortablePath.decode(
+      map['canonicalPath'] as String,
+      documentsRoot,
+    ),
     displayName: map['displayName'] as String,
     sourceType: sourceType,
     sourceRef: map['sourceRef'] as String?,
@@ -137,15 +153,19 @@ DatabaseRecord _recordFromMap(Map<String, dynamic> map) {
   );
 }
 
-Map<String, dynamic> _recordToMap(DatabaseRecord record) => {
-  'databaseId': record.databaseId,
-  'canonicalPath': record.canonicalPath,
-  'displayName': record.displayName,
-  'sourceType': record.sourceType.name,
-  'sourceRef': record.sourceRef,
-  'fileHash': record.fileHash,
-  'createdAt': record.createdAt.toUtc().toIso8601String(),
-  'updatedAt': record.updatedAt.toUtc().toIso8601String(),
-  'lastOpenedAt': record.lastOpenedAt?.toUtc().toIso8601String(),
-  'isFavorite': record.isFavorite,
-};
+Map<String, dynamic> _recordToMap(DatabaseRecord record, String resolvedRoot) =>
+    {
+      'databaseId': record.databaseId,
+      'canonicalPath': PortablePath.encodeWithResolvedRoot(
+        record.canonicalPath,
+        resolvedRoot,
+      ),
+      'displayName': record.displayName,
+      'sourceType': record.sourceType.name,
+      'sourceRef': record.sourceRef,
+      'fileHash': record.fileHash,
+      'createdAt': record.createdAt.toUtc().toIso8601String(),
+      'updatedAt': record.updatedAt.toUtc().toIso8601String(),
+      'lastOpenedAt': record.lastOpenedAt?.toUtc().toIso8601String(),
+      'isFavorite': record.isFavorite,
+    };
