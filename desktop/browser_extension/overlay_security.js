@@ -12,6 +12,14 @@
 
 "use strict";
 
+// MV3 `importScripts` runs every worker file in ONE shared global scope, so a
+// top-level `const` here collides with an identically named one in any other
+// worker file (`require()` never shows this — each module gets its own scope).
+// The IIFE keeps every binding file-local; only the `KeyVaultOverlaySecurity`
+// global escapes. `test/worker_global_scope.test.js` loads the files the way
+// the worker does and fails on any regression.
+(() => {
+
 // ---------------------------------------------------------------------------
 // Bounds. Every string/array crossing a trust boundary is length-checked.
 // ---------------------------------------------------------------------------
@@ -1002,3 +1010,5 @@ if (typeof module !== "undefined" && typeof module.exports === "object") {
 } else {
   globalThis.KeyVaultOverlaySecurity = API;
 }
+
+})();

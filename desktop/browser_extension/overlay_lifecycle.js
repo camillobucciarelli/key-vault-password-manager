@@ -17,6 +17,12 @@
 
 "use strict";
 
+// MV3 `importScripts` shares one global scope across worker files: every
+// top-level binding lives inside this IIFE so it cannot collide with
+// `overlay_security.js` / `overlay_routes.js` (`require()` in the Node harness
+// would never show the collision). See `test/worker_global_scope.test.js`.
+(() => {
+
 const securityModule =
   typeof require === "function" &&
   typeof module !== "undefined" &&
@@ -115,6 +121,38 @@ function computeSiteControlState({
 // ---------------------------------------------------------------------------
 
 const DISABLE_PHASES = Object.freeze(["D1", "D2", "D3", "D4", "D5"]);
+
+/**
+ * Canonical JSON with object keys sorted recursively. Array order is
+ * preserved — `enabledOrigins` is sorted by contract, so a reordered array IS
+ * a different value and must still mismatch.
+ *
+ * Exists because real Chrome (measured on 151) returns
+ * `chrome.storage.local.get` objects with keys in ALPHABETICAL order, not
+ * insertion order: `set {version, revision, enabledOrigins}` reads back as
+ * `{enabledOrigins, revision, version}`. A readback compared through plain
+ * `JSON.stringify` therefore mismatches on EVERY commit in production while
+ * comparing equal in any harness that preserves insertion order. The readback
+ * guard's intent is value identity, not byte identity of one serialization.
+ */
+function canonicalJson(value) {
+  if (Array.isArray(value)) {
+    return "[" + value.map(canonicalJson).join(",") + "]";
+  }
+  if (value !== null && typeof value === "object") {
+    return (
+      "{" +
+      Object.keys(value)
+        .sort()
+        .map((key) => JSON.stringify(key) + ":" + canonicalJson(value[key]))
+        .join(",") +
+      "}"
+    );
+  }
+  // `undefined` serializes as undefined, which can never equal an object's
+  // canonical string — a missing readback still mismatches.
+  return JSON.stringify(value);
+}
 
 class OverlayLifecycle {
   /**
@@ -253,7 +291,10 @@ class OverlayLifecycle {
     await this._browser.storage.local.set({ [key]: next, [floorKey]: floor });
     const stored = await this._browser.storage.local.get([key, floorKey]);
     const readback = stored?.[key];
-    if (JSON.stringify(readback) !== JSON.stringify(next)) {
+    // Key-order-insensitive on purpose: Chrome's `get` returns keys sorted
+    // alphabetically (see `canonicalJson`). Any truncated, altered, extra or
+    // reordered-array value still throws.
+    if (canonicalJson(readback) !== canonicalJson(next)) {
       throw new Error("overlay_config_readback_mismatch");
     }
     if (securityModule.revisionFloorOrZero(stored?.[floorKey]) < floor) {
@@ -412,7 +453,37 @@ class OverlayLifecycle {
     return this._reconciled;
   }
 
-  async reconcile() {
+  /**
+   * @param {object} [options]
+   * @param {boolean} [options.prunePermissions=true]
+   *
+   * `prunePermissions: false` exists for exactly one caller: the
+   * `permissions.onAdded` listener in `background.js`. Chrome fires that event
+   * the instant the user accepts the popup's `permissions.request`, BEFORE the
+   * popup's `setSiteState` message reaches this worker — so at that moment the
+   * freshly granted pattern is not yet justified by committed config and a
+   * full reconcile would classify it as an orphan and revoke it, making the
+   * enable fail (`enableOrigin` re-checks `permissions.contains`).
+   *
+   * Deferring the orphan sweep on that one trigger is safe because the
+   * DURABLE CONFIG, never the browser permission alone, is the authorization
+   * source of truth: bootstrap and every content route verify config +
+   * revision, so a granted-but-unconfigured permission is inert. Removing
+   * orphan permissions is hygiene, not revocation of authorization, and the
+   * sweep still runs on every other trigger — cold start / `ready()`, popup
+   * open (`siteState`), `permissions.onRemoved`, and the disable flow (D5).
+   *
+   * TOCTOU variant (full reconcile computes orphans, `enableOrigin` commits,
+   * reconcile then removes): impossible by construction inside one worker.
+   * Both `reconcile()` and `enableOrigin()` run their ENTIRE body — config
+   * read, orphan computation, `permissions.remove` — inside `_withLock`, one
+   * FIFO promise queue per lifecycle instance, and `background.js` constructs
+   * exactly one instance per worker. So a full reconcile either finishes
+   * before the enable's commit (and never saw the new pattern as granted-and-
+   * unjustified past the commit) or starts after it (and sees the config that
+   * justifies the pattern).
+   */
+  async reconcile({ prunePermissions = true } = {}) {
     return this._withLock(async () => {
       let config = await this.readCommittedConfig();
 
@@ -444,7 +515,7 @@ class OverlayLifecycle {
       }
 
       await this._reconcileRegistrations(config);
-      await this._reconcilePermissions(config);
+      if (prunePermissions) await this._reconcilePermissions(config);
       return config;
     });
   }
@@ -675,3 +746,5 @@ if (typeof module !== "undefined" && typeof module.exports === "object") {
 } else {
   globalThis.KeyVaultOverlayLifecycle = API;
 }
+
+})();

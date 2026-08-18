@@ -532,6 +532,45 @@ test("A018: a partial readback aborts the enable before anything is registered",
   assert.deepEqual(browser.registrationIds(), []);
 });
 
+// ---------------------------------------------------------------------------
+// Gate A2 (real-Chrome smoke): `chrome.storage.local.get` returns objects with
+// keys in ALPHABETICAL order, not insertion order (measured on Chrome 151:
+// set {version, revision, enabledOrigins} reads back as
+// {enabledOrigins, revision, version}). The first test PINS that behaviour in
+// the fake — without it, every other test here runs against a storage layer
+// real Chrome does not ship. The second proves the commit readback survives it.
+// ---------------------------------------------------------------------------
+
+test("Gate A2: the fake's storage.local.get returns keys alphabetically, like real Chrome", async () => {
+  const browser = new FakeBrowser();
+  // Insertion order is deliberately NOT alphabetical, at both depths.
+  await browser.storage.local.set({
+    probe: { version: 1, revision: 7, enabledOrigins: ["https://example.com"] },
+  });
+  const readback = (await browser.storage.local.get(["probe"])).probe;
+  assert.deepEqual(Object.keys(readback), ["enabledOrigins", "revision", "version"]);
+  // The VALUE is still intact — only key order changed.
+  assert.deepEqual(readback, {
+    version: 1,
+    revision: 7,
+    enabledOrigins: ["https://example.com"],
+  });
+});
+
+test("Gate A2: enable commits despite Chrome's alphabetical readback key order", async () => {
+  const browser = new FakeBrowser({ tabs: [{ id: 42 }] });
+  const worker = newWorker(browser);
+  await worker.reconcile();
+
+  // Must not throw overlay_config_readback_mismatch on the reordered readback.
+  const result = await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 42);
+  assert.equal(result.ok, true);
+  assert.deepEqual(browser.config().enabledOrigins, [HTTPS_EXAMPLE]);
+  // The phases AFTER the commit actually ran: registration + explicit inject.
+  assert.deepEqual(browser.registrationIds(), [registrationIdForPattern(PATTERN_HTTPS)]);
+  assert.equal(browser.callsMatching("scripting.execute").length, 1);
+});
+
 test("A019: disabling one port keeps the pattern the other port still needs", async () => {
   const browser = new FakeBrowser({ tabs: [{ id: 42 }] });
   const worker = newWorker(browser);
