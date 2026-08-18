@@ -1,3 +1,9 @@
+// Platform prerequisite: this suite uses `Link.create` to build a
+// `/var`→`/private/var`-style path divergence. On Windows that requires
+// Developer Mode or an elevated shell; without it these tests fail for
+// environment reasons only. Deliberately not skipped — CI Flutter jobs run on
+// `ubuntu-latest`, and macOS is unaffected.
+
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -168,10 +174,34 @@ void main() {
       );
     });
 
-    test('case-different documents root defeats containment', () {
+    // Flipped by #43. This used to pin the giving-up behaviour: a
+    // case-different root made `p.isWithin` return false, so a file that
+    // physically lives in the documents directory was persisted absolute and
+    // went missing on the next container relocation -- the #41 bug, silently
+    // reintroduced. Containment now folds case on case-insensitive volumes.
+    test('case-different documents root no longer defeats containment', () {
+      PortablePath.debugFoldsCaseOverride = true;
+      addTearDown(() => PortablePath.debugFoldsCaseOverride = null);
+
       final docs = p.join(unresolvedRoot, 'Documents');
       final file = p.join(unresolvedRoot, 'documents', 'vault.kdbx');
-      expect(PortablePath.encode(file, docs), file);
+      expect(PortablePath.encode(file, docs), 'appdocs:vault.kdbx');
+    });
+
+    test('case-different documents root stays absolute on a case-sensitive '
+        'filesystem', () {
+      PortablePath.debugFoldsCaseOverride = false;
+      addTearDown(() => PortablePath.debugFoldsCaseOverride = null);
+
+      final docs = p.join(unresolvedRoot, 'Documents');
+      final file = p.join(unresolvedRoot, 'documents', 'vault.kdbx');
+      expect(
+        PortablePath.encode(file, docs),
+        file,
+        reason:
+            'On Linux/Android these are two different directories, so folding '
+            'case would invent a containment that does not exist.',
+      );
     });
 
     test('unnormalized ".." segments are handled', () {

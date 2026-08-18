@@ -31,6 +31,30 @@ Flutter version is pinned via fvm (`.fvmrc`, channel `stable`).
 
 `flutter_test`; tests live in `test/` mirroring `lib/`, plus `test/tool/native_host_test.dart` for the native host protocol. CI runs no tests — run `flutter test` and `flutter analyze` before pushing.
 
+**Windows prerequisite:** three QA suites build a `/var`→`/private/var`-style path divergence with `Link.create`, which on Windows requires Developer Mode or an elevated shell. Without it these files fail locally for environment reasons only — they are not skipped, since every CI Flutter job runs on `ubuntu-latest` and macOS is unaffected. Affected files: `test/features/password_manager/data/portable_path_symlink_qa_test.dart`, `test/core/utils/mobile_file_storage_guard_qa_test.dart`, `test/core/utils/mobile_file_storage_guard_bypass_qa_test.dart`.
+
+### iOS container-relocation harness (manual, on-demand)
+
+`integration_test/ios_portable_paths_qa_test.dart` is the only check that reproduces the iOS app-container relocation end to end: it runs the real `createNewDatabase` flow through the real DI graph and real `path_provider`, then re-drives `checkInitialDatabase()` after the container UUID has rotated. No CI job runs it, and `flutter test` never collects `integration_test/` — run it by hand when touching persisted-path code.
+
+Prerequisite: a booted iOS simulator. Run the two phases in order, from the repo root:
+
+```bash
+# Phase 1 — create the vault and stash Documents/ to /tmp/qa_docs_backup.
+flutter test integration_test/ios_portable_paths_qa_test.dart -d <simulator-id> \
+  --dart-define=QA_PHASE=create
+
+# Phase 2 — restores the stash into the new container and asserts the vault
+# still resolves and unlocks. The uninstall performed between the two
+# `flutter test` runs is what rotates the container UUID.
+flutter test integration_test/ios_portable_paths_qa_test.dart -d <simulator-id> \
+  --dart-define=QA_PHASE=verify
+```
+
+Phase 2 fails loudly (`container UUID did not change; the test proves nothing`) if the container did not actually rotate — if that happens, uninstall the app from the simulator and re-run phase 2. Progress is reported as `QA|KEY|value` lines; paths are only ever printed as a *shape*, never verbatim — assertion failures included, which is why the harness asserts on derived booleans and routes path diagnostics through `expectPortable`/`shape` instead of matching on the path itself.
+
+Known limitation: the simulator does **not** reproduce the `/var` vs `/private/var` symlink divergence, because its container lives under `~/Library/Developer/CoreSimulator/...` with no symlinked component. The harness therefore does not replace physical-device QA for the Locate flow; it covers everything else.
+
 ## Commit & Pull Request Guidelines
 
 Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `ci:`), scope optional (`fix(ci):`). Never hand-edit `version:` in `pubspec.yaml` — `.github/workflows/release.yml` bumps the build number on every push to `main`, commits `chore: bump build number to vX.Y.Z+N`, tags, and pushes.

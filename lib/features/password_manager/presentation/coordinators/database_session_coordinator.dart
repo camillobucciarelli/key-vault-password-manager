@@ -285,9 +285,6 @@ class DatabaseSessionCoordinator {
       }
     }
     await databaseRegistryRepository.setActive(updatedRecord.databaseId);
-    await databaseSessionRepository.cacheDatabasePath(
-      updatedRecord.canonicalPath,
-    );
 
     return DatabaseSelectionSessionResult(
       status: DatabaseSessionStatus.success,
@@ -325,9 +322,6 @@ class DatabaseSessionCoordinator {
 
     await databaseRegistryRepository.upsert(recordToSave);
     await databaseRegistryRepository.setActive(recordToSave.databaseId);
-    await databaseSessionRepository.cacheDatabasePath(
-      recordToSave.canonicalPath,
-    );
     if (clearCredentials) {
       await databaseSessionRepository.cacheKeyFilePath(null);
       await databaseSessionRepository.clearMasterPassword();
@@ -415,9 +409,6 @@ class DatabaseSessionCoordinator {
           duplicateRecord.copyWith(updatedAt: now, lastOpenedAt: now),
         );
         await databaseRegistryRepository.setActive(duplicateRecord.databaseId);
-        await databaseSessionRepository.cacheDatabasePath(
-          duplicateRecord.canonicalPath,
-        );
         await _clearSessionCredentials();
         final items = await _loadSelectionItems();
         if (staged.imported.sourceType == DatabaseSourceType.drive) {
@@ -504,9 +495,6 @@ class DatabaseSessionCoordinator {
         );
       }
       await databaseRegistryRepository.setActive(recordToSave.databaseId);
-      await databaseSessionRepository.cacheDatabasePath(
-        recordToSave.canonicalPath,
-      );
       await _clearSessionCredentials();
       final items = await _loadSelectionItems();
       if (staged.imported.sourceType == DatabaseSourceType.drive) {
@@ -556,9 +544,6 @@ class DatabaseSessionCoordinator {
         }
       } catch (_) {}
       try {
-        await databaseSessionRepository.cacheDatabasePath(
-          originalActive?.canonicalPath ?? '',
-        );
         await databaseSessionRepository.cacheKeyFilePath(originalKeyFilePath);
         if (originalPassword == null) {
           await databaseSessionRepository.clearMasterPassword();
@@ -666,7 +651,6 @@ class DatabaseSessionCoordinator {
     final activeRecord = await getActiveDatabaseUseCase();
     if (activeRecord != null &&
         _containsPath([activeRecord.canonicalPath], trimmed)) {
-      await databaseSessionRepository.cacheDatabasePath('');
       await databaseSessionRepository.cacheKeyFilePath(null);
       await databaseSessionRepository.clearMasterPassword();
       await databaseRegistryRepository.setActive(null);
@@ -941,9 +925,6 @@ class DatabaseSessionCoordinator {
 
     await databaseRegistryRepository.upsert(recordToSave);
     await databaseRegistryRepository.setActive(recordToSave.databaseId);
-    await databaseSessionRepository.cacheDatabasePath(
-      recordToSave.canonicalPath,
-    );
 
     if (clearCredentials) {
       await databaseSessionRepository.cacheKeyFilePath(null);

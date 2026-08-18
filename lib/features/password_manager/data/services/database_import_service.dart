@@ -61,15 +61,22 @@ class DatabaseImportService implements DatabaseFileRepository {
 
     final failure = await _validationFailure(resolvedPath);
     if (failure != null) {
-      if (_usesManagedStorage &&
-          await MobileFileStorage.isPathInAppDirectory(
-            filePath: resolvedPath,
-            subdirectory: 'databases',
-          )) {
-        await MobileFileStorage.deleteFileFromAppDirectory(
-          filePath: resolvedPath,
-          subdirectory: 'databases',
-        );
+      if (_usesManagedStorage) {
+        // Under managed storage `resolvedPath` is always a file this method
+        // just staged itself, via `copyFileToAppDirectory` or
+        // `saveBytesToAppDirectory` in `_resolveSelectedDatabasePath`. Gating
+        // the cleanup on `isPathInAppDirectory` could therefore only ever be
+        // false for a path we could not have produced -- and when it was, the
+        // staged file was left behind in `Documents/databases` forever (#46).
+        //
+        // Deleted directly rather than through `deleteFileFromAppDirectory`,
+        // whose own containment guard reintroduces exactly that failure mode.
+        try {
+          await deleteFile(resolvedPath);
+        } catch (_) {
+          // Best effort: a cleanup error must never mask the import failure
+          // the caller actually needs to see.
+        }
       }
       throw failure;
     }

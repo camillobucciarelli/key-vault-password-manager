@@ -7,7 +7,6 @@ import 'package:path_provider/path_provider.dart';
 import '../../../../core/utils/portable_path.dart';
 
 abstract class LocalDataSource {
-  Future<void> cacheDatabasePath(String path);
   Future<String?> getCachedKeyFilePath();
   Future<void> cacheKeyFilePath(String? path);
   Future<bool> getAutofillPromptSeen();
@@ -15,20 +14,12 @@ abstract class LocalDataSource {
 }
 
 class LocalDataSourceImpl implements LocalDataSource {
-  static const dbPathKey = 'cachedDatabasePath';
   static const keyFilePathKey = 'cachedKeyFilePath';
   static const autofillPromptSeenKey = 'autofillPromptSeen';
   static const _localStateSubdirectory = 'metadata';
   static const _localStateFileName = 'local_state.json';
 
   LocalDataSourceImpl();
-
-  @override
-  Future<void> cacheDatabasePath(String path) async {
-    final data = await _readState();
-    data[dbPathKey] = path;
-    await _writeState(data);
-  }
 
   @override
   Future<String?> getCachedKeyFilePath() async {

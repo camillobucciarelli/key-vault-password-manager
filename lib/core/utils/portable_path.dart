@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -24,6 +25,51 @@ class PortablePath {
   const PortablePath._();
 
   static const _prefix = 'appdocs:';
+
+  /// Overrides [_foldsCase] in tests; `null` restores platform detection.
+  ///
+  /// Both branches have to be exercised from one host, and the real answer is
+  /// baked into the platform the suite happens to run on (case-insensitive on
+  /// a macOS dev machine, case-sensitive on Linux CI).
+  @visibleForTesting
+  static bool? debugFoldsCaseOverride;
+
+  /// Whether the host filesystem treats two spellings of a name as one file.
+  ///
+  /// True on iOS, Windows, and macOS (whose default APFS volume is
+  /// case-insensitive); false on Linux and Android, where `Documents` and
+  /// `documents` are genuinely different directories and folding case would
+  /// invent containment that does not exist.
+  ///
+  /// Derived from the platform rather than probed: this only guards a string
+  /// comparison, and probing would mean a write to the filesystem on a path
+  /// that is often the very thing being encoded.
+  ///
+  /// Known limitation: the answer is per-platform, but case sensitivity is
+  /// really per-*volume*. macOS can format an APFS volume case-sensitive, and
+  /// NTFS has a per-directory case-sensitivity flag. On such a volume
+  /// `Documents` and `documents` are two distinct directories, and folding
+  /// case would claim a containment that does not exist: [encode] would emit
+  /// an `appdocs:` value that [decode] rebuilds against the *other* directory,
+  /// pointing at a file that is not there — the mirror image of the #43 bug
+  /// this fold exists to close.
+  ///
+  /// Accepted because the fold only ever runs on a root/path pair that already
+  /// diverges in case, and no source in this app produces one: the documents
+  /// root comes from `path_provider`, and on iOS/macOS that is the app
+  /// container on the default (case-insensitive) system volume. The fold is
+  /// therefore inert in practice and only fires for the divergence it was
+  /// written for.
+  ///
+  /// Upgrade path if a case-sensitive volume ever becomes reachable: probe the
+  /// real volume once per documents root — create a temp file in the root,
+  /// stat it through a case-flipped spelling, cache the result — and feed that
+  /// into this getter. Deliberately not done here: it costs filesystem I/O in
+  /// a pure string helper, and the root is the one path guaranteed to exist,
+  /// so the probe belongs next to [documentsRoot], not inside [encode].
+  static bool get _foldsCase =>
+      debugFoldsCaseOverride ??
+      (Platform.isIOS || Platform.isMacOS || Platform.isWindows);
 
   /// Resolves the current application documents root.
   ///
@@ -54,8 +100,10 @@ class PortablePath {
   /// re-append the untouched tail. If nothing resolves we fall back to the
   /// normalized input rather than throwing.
   ///
-  /// Note this does not normalize case: `resolveSymbolicLinksSync` preserves
-  /// it, and the tail we re-append never touches the filesystem at all.
+  /// Note this does not normalize case by itself. `resolveSymbolicLinksSync`
+  /// canonicalizes an existing segment to its on-disk spelling, but the tail we
+  /// re-append never touches the filesystem, so a not-yet-existing segment
+  /// keeps the caller's case. `_relativeWithin` absorbs that remainder.
   static String resolveForComparison(String path) {
     final normalized = p.normalize(path);
     final tail = <String>[];
@@ -129,13 +177,50 @@ class PortablePath {
     // rewrite a symlinked `canonicalPath` into its target on the next save,
     // changing the record identity that lookups key on.
     final resolvedPath = resolveParentForComparison(absolutePath);
-    if (!p.isWithin(resolvedRoot, resolvedPath)) {
+    final relative = _relativeWithin(resolvedPath, resolvedRoot);
+    if (relative == null) {
       return absolutePath;
     }
 
-    final relative = p.relative(resolvedPath, from: resolvedRoot);
     // Store with POSIX separators so the value survives a platform change.
     return '$_prefix${p.split(relative).join('/')}';
+  }
+
+  /// [path] expressed relative to [root], or `null` when it is not inside it.
+  ///
+  /// Case is the subtle part (#43). `resolveForComparison` canonicalizes the
+  /// spelling of segments that exist on disk, so on a case-insensitive volume
+  /// a divergent root normally collapses for free. It does *not* for segments
+  /// that do not exist yet: those are re-appended verbatim, keeping the
+  /// caller's spelling, so `Documents` vs `documents` still reaches here and
+  /// defeats [p.isWithin]. The file genuinely is inside the documents root,
+  /// and storing it absolute reintroduces the #41 bug silently.
+  ///
+  /// Only the *comparison* folds case. The returned segments are sliced off
+  /// the original [path], never off the lowercased copy, so the persisted
+  /// `appdocs:` value keeps the real filesystem spelling and [decode] rebuilds
+  /// a path that actually resolves.
+  static String? _relativeWithin(String path, String root) {
+    if (p.isWithin(root, path)) {
+      return p.relative(path, from: root);
+    }
+    if (!_foldsCase) {
+      return null;
+    }
+
+    final lowerRoot = root.toLowerCase();
+    final lowerPath = path.toLowerCase();
+    if (!p.isWithin(lowerRoot, lowerPath)) {
+      return null;
+    }
+
+    // Containment holds, so the relative part is a suffix of `path`'s
+    // segments. Take it by count rather than by string offset, which keeps
+    // this correct when `root` is the filesystem root and has no trailing
+    // separator to account for.
+    final depth = p.split(p.relative(lowerPath, from: lowerRoot)).length;
+    final segments = p.split(path);
+    return p.joinAll(segments.sublist(segments.length - depth));
   }
 
   /// Restores a persisted value to an absolute path against [documentsRoot].

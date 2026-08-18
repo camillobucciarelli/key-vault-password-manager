@@ -1,3 +1,9 @@
+// Platform prerequisite: this suite uses `Link.create` to build a
+// `/var`→`/private/var`-style path divergence. On Windows that requires
+// Developer Mode or an elevated shell; without it these tests fail for
+// environment reasons only. Deliberately not skipped — CI Flutter jobs run on
+// `ubuntu-latest`, and macOS is unaffected.
+
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
