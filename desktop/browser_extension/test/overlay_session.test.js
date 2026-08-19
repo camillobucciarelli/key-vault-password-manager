@@ -20,52 +20,22 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { FakePage, FakeEvent } = require("./fake_page.js");
+const { FakeEvent } = require("./fake_page.js");
 const security = require("../overlay_security.js");
 const { bindingA, bindingB } = require("./helpers.js");
-
-const ORIGIN = "https://example.com";
-const PAGE_URL = "https://example.com/login";
-
-const APPROVED = Object.freeze({
-  ok: true,
-  type: "bootstrapResult",
-  enabled: true,
-  frameSupport: "top",
-  revision: 3,
-});
+const {
+  ORIGIN,
+  item,
+  matchesResult,
+  fillResult,
+  errorResult,
+  loginPage,
+  statusText,
+  optionRows,
+  overlayCount,
+} = require("./session_helpers.js");
 
 const GENERATE_TEXT = "Open KeyVault to generate a password.";
-
-function item(overrides = {}) {
-  return {
-    entryId: "entry-1",
-    title: "Example",
-    displayService: "example.com",
-    matchType: "exact-origin",
-    fillEligible: true,
-    ...overrides,
-  };
-}
-
-/** A `matchesResult` echoing the request, shaped like the production worker. */
-function matchesResult(message, { items = [item()], fillToken = "token-1", expiresInMs = 25000 } = {}) {
-  const result = {
-    ok: true,
-    type: "matchesResult",
-    origin: message.origin,
-    focusNonce: message.focusNonce,
-    revision: 3,
-    sessionBinding: bindingA(),
-    items,
-  };
-  const fillable = items.some((entry) => entry.fillEligible === true);
-  if (fillable && typeof fillToken === "string") {
-    result.fillToken = fillToken;
-    result.expiresAtEpochMs = Date.now() + expiresInMs;
-  }
-  return result;
-}
 
 // Fill values are assembled at runtime so no source literal ever forms a
 // credential-shaped assignment (GitGuardian scans every commit; on a password
@@ -73,78 +43,6 @@ function matchesResult(message, { items = [item()], fillToken = "token-1", expir
 const FILL_VALUE_A = ["canary", "alpha"].join("-");
 const FILL_VALUE_B = ["canary", "beta"].join("-");
 const FILL_VALUE_C = ["canary", "both"].join("-");
-
-/** A `fillResult` echoing the request, shaped like the production worker. */
-function fillResult(message, { username = "alice", password = FILL_VALUE_A, ...overrides } = {}) {
-  return {
-    ok: true,
-    type: "fillResult",
-    origin: message.origin,
-    focusNonce: message.focusNonce,
-    entryId: message.entryId,
-    sessionBinding: bindingA(),
-    data: { username, password },
-    ...overrides,
-  };
-}
-
-function errorResult(type, code, message) {
-  return {
-    ok: false,
-    type,
-    focusNonce: message?.focusNonce,
-    error: { code, message: "test" },
-  };
-}
-
-/**
- * An approved page holding one login form. `handlers.matches` / `handlers.fill`
- * may be swapped at any point; both receive the structured-cloned request.
- */
-async function loginPage({ url = PAGE_URL, withUsername = true } = {}) {
-  const handlers = {
-    matches: (message) => matchesResult(message),
-    fill: (message) => fillResult(message),
-  };
-  const page = new FakePage({
-    url,
-    respond: async (message) => {
-      if (message.type === "bootstrap") return APPROVED;
-      if (message.type === "requestMatches") return handlers.matches(message);
-      if (message.type === "fill") return handlers.fill(message);
-      throw new Error(`unexpected message type ${message.type}`);
-    },
-  });
-  const doc = page.document;
-  const form = doc.createElement("form");
-  const password = doc.createElement("input");
-  password.setAttribute("type", "password");
-  form.appendChild(password);
-  let username = null;
-  if (withUsername) {
-    username = doc.createElement("input");
-    username.setAttribute("type", "text");
-    username.setAttribute("autocomplete", "username");
-    form.appendChild(username);
-  }
-  doc.body.appendChild(form);
-  await page.inject();
-  assert.equal(page.listenerCount, 1, "bootstrap should have been approved");
-  return { page, form, password, username, handlers };
-}
-
-function statusText(page) {
-  const status = page.allElements().find((el) => el.id === "kv-status");
-  return status ? status.textContent : null;
-}
-
-function optionRows(page) {
-  return page.allElements().filter((el) => el.getAttribute("role") === "option");
-}
-
-function overlayCount(page) {
-  return page.overlayHosts().length;
-}
 
 // ---------------------------------------------------------------------------
 // A028 — eligible field detection and the focus session.
@@ -325,7 +223,7 @@ test("A030: every terminal state renders its honest text", async () => {
     [(m) => errorResult("matchesResult", "timeout", m), "KeyVault did not respond in time."],
     [
       (m) => errorResult("matchesResult", "unsupported_frame", m),
-      "The overlay is not available in this frame.",
+      "The overlay is not available in this frame. Copy your login from the KeyVault app.",
     ],
     [
       (m) => errorResult("matchesResult", "unsupported_capability", m),

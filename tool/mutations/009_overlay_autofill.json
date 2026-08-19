@@ -56,7 +56,8 @@
     "",
     "The general rule: a number in a PR body was true once and is now unowned;",
     "a number in this file is re-measured on every run and fails the build when",
-    "it drifts. Do not 'correct' this file to match a PR — re-run the runner."
+    "it drifts. Do not 'correct' this file to match a PR — re-run the runner.",
+    "  * A0-M2, A4-M4, A4-M6, A4-M8, A4-M9, IN SLICE A5. The Node suite went from 286 to 306 tests (overlay_interaction.test.js and the five required A039 named DOM assertions in content_overlay.test.js). None of these mutations was weakened — broken canonicalization, submit-on-fill, DOM-visible entry ids, surviving watchdogs and surviving hosts now also kill the new interaction and geometry tests. Blast radius only. A4-M10 was RETARGETED: A038 replaced the anonymous mousedown preventDefault with the named markPendingAction handler, so the mutation now removes the preventDefault inside it; the property (pointer-down must not steal anchor focus) is unchanged and the kill set got wider, not narrower."
   ],
   "version": 1,
   "slices": {
@@ -64,7 +65,8 @@
     "A1": "native exact-origin contract for the reveal path — PR #47",
     "A2": "per-origin opt-in with crash-consistent revocation — PR #50",
     "A3": "background trust paths and focus grants (A022-A027) — PR #55",
-    "A4": "metadata overlay and explicit fill in content_overlay.js (A028-A034) — this PR"
+    "A4": "metadata overlay and explicit fill in content_overlay.js (A028-A034) — this PR",
+    "A5": "iframe policy surface, ARIA, keyboard, click-vs-blur, geometry (A035-A039) — this PR"
   },
   "suites": {
     "node-extension": {
@@ -113,7 +115,7 @@
     },
     {
       "id": "A0-M2",
-      "expectedKills": 175,
+      "expectedKills": 192,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -1087,7 +1089,7 @@
     },
     {
       "id": "A4-M4",
-      "expectedKills": 2,
+      "expectedKills": 6,
       "slice": "A4",
       "suite": "node-extension",
       "file": "desktop/browser_extension/content_overlay.js",
@@ -1126,7 +1128,7 @@
     },
     {
       "id": "A4-M6",
-      "expectedKills": 1,
+      "expectedKills": 2,
       "slice": "A4",
       "suite": "node-extension",
       "file": "desktop/browser_extension/content_overlay.js",
@@ -1156,7 +1158,7 @@
     },
     {
       "id": "A4-M8",
-      "expectedKills": 8,
+      "expectedKills": 9,
       "slice": "A4",
       "suite": "node-extension",
       "file": "desktop/browser_extension/content_overlay.js",
@@ -1171,7 +1173,7 @@
     },
     {
       "id": "A4-M9",
-      "expectedKills": 18,
+      "expectedKills": 29,
       "slice": "A4",
       "suite": "node-extension",
       "file": "desktop/browser_extension/content_overlay.js",
@@ -1186,7 +1188,7 @@
     },
     {
       "id": "A4-M10",
-      "expectedKills": 10,
+      "expectedKills": 12,
       "slice": "A4",
       "suite": "node-extension",
       "file": "desktop/browser_extension/content_overlay.js",
@@ -1194,8 +1196,8 @@
       "property": "click-vs-blur: preventing the overlay's mousedown default is the ONLY thing that keeps the anchor focused through a pointer press, so without it every explicit click tears the session down before the click lands",
       "edits": [
         {
-          "find": "      (event) => {\n        event.preventDefault();\n      },",
-          "replace": "      (event) => {\n        void event;\n      },"
+          "find": "  const markPendingAction = (event) => {\n    event.preventDefault();\n",
+          "replace": "  const markPendingAction = (event) => {\n"
         }
       ]
     },
@@ -1223,6 +1225,171 @@
           "replace": "    dispatchFieldValue(session.passwordEl, password);\n    document.title = password;\n    // A031: never submit — no submit() call, no submit event, ever."
         }
       ]
+    },
+    {
+      "id": "A5-M1",
+      "slice": "A5",
+      "title": "Enter fills (and swallows the key for) a non-eligible row",
+      "property": "A037: Enter fills only the CURRENT ELIGIBLE row and is prevented only when it actually activates a fill",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "suite": "node-extension",
+      "edits": [
+        {
+          "find": "      if (\n        entry == null ||\n        entry.fillEligible !== true ||\n        typeof session.fillToken !== \"string\"\n      ) {",
+          "replace": "      if (\n        entry == null ||\n        typeof session.fillToken !== \"string\"\n      ) {"
+        }
+      ],
+      "expectedKills": 1
+    },
+    {
+      "id": "A5-M2",
+      "slice": "A5",
+      "title": "Tab no longer tears the session down",
+      "property": "A037: Tab = teardown + pass-through",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "suite": "node-extension",
+      "edits": [
+        {
+          "find": "    if (event.key === \"Tab\") {\n      // Teardown AND pass-through: the browser keeps the focus move.\n      teardownSession();\n      return;\n    }",
+          "replace": "    if (event.key === \"Tab\") {\n      return;\n    }"
+        }
+      ],
+      "expectedKills": 1
+    },
+    {
+      "id": "A5-M3",
+      "slice": "A5",
+      "title": "the instance captures page keydown even with the overlay closed",
+      "property": "A037: a closed overlay captures no page keys — no keydown listener exists outside a live session",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "suite": "node-extension",
+      "edits": [
+        {
+          "find": "    document.addEventListener(\"focusin\", onFocusIn, { signal });",
+          "replace": "    document.addEventListener(\"focusin\", onFocusIn, { signal });\n    document.addEventListener(\n      \"keydown\",\n      (event) => {\n        event.preventDefault();\n        event.stopPropagation();\n      },\n      { signal }\n    );"
+        }
+      ],
+      "expectedKills": 7
+    },
+    {
+      "id": "A5-M4",
+      "slice": "A5",
+      "title": "a cross-origin frame is served on the strength of its TOP origin",
+      "property": "A035/SR-7: a cross-origin frame is supported only when the CHILD origin is separately enabled; the top origin never lends authorization",
+      "file": "desktop/browser_extension/overlay_security.js",
+      "suite": "node-extension",
+      "edits": [
+        {
+          "find": "  if (!enabled.includes(canonicalFrame)) return \"unsupported\";",
+          "replace": "  if (\n    !enabled.includes(canonicalFrame) &&\n    !enabled.includes(canonicalOriginOrNull(topOrigin))\n  ) return \"unsupported\";"
+        }
+      ],
+      "expectedKills": 2
+    },
+    {
+      "id": "A5-M5",
+      "slice": "A5",
+      "title": "aria-activedescendant points at an id that does not exist",
+      "property": "A036: aria-activedescendant always references the SELECTED row's real, stable option id",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "suite": "node-extension",
+      "edits": [
+        {
+          "find": "    session.listEl.setAttribute(\"aria-activedescendant\", `kv-option-${index}`);",
+          "replace": "    session.listEl.setAttribute(\"aria-activedescendant\", \"kv-option-999\");"
+        }
+      ],
+      "expectedKills": 2
+    },
+    {
+      "id": "A5-M6",
+      "slice": "A5",
+      "title": "the outside blur tears down immediately, killing the pending pointer action",
+      "property": "A038: an outside blur is deferred past the current pointer task and a pending overlay action survives it",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "suite": "node-extension",
+      "edits": [
+        {
+          "find": "    if (session.pendingAction === true) return;\n    if (session.blurTimerId !== 0) return;\n    const s = session;\n    s.blurTimerId = setTimeout(() => {\n      if (session === s) {\n        s.blurTimerId = 0;\n        teardownSession();\n      }\n    }, 0);",
+          "replace": "    teardownSession();"
+        }
+      ],
+      "expectedKills": 1
+    },
+    {
+      "id": "A5-M7",
+      "slice": "A5",
+      "title": "the reveal is written into a field that is no longer writable",
+      "property": "A039: no fill on hidden/read-only/disabled fields — eligibility is re-checked at fill time, not only at focus time",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "suite": "node-extension",
+      "edits": [
+        {
+          "find": "    // A039 — the page can have made the field read-only, disabled, or hidden\n    // between the query and the reveal. Never write into a field that would\n    // no longer be eligible; fail closed instead.\n    if (!isWritablePasswordInput(session.passwordEl)) {\n      teardownSession();\n      return;\n    }\n",
+          "replace": ""
+        }
+      ],
+      "expectedKills": 1
+    },
+    {
+      "id": "A5-M8",
+      "slice": "A5",
+      "title": "teardown leaves session-added ARIA attributes on the anchor",
+      "property": "A036: teardown restores EVERY touched anchor ARIA attribute — an attribute that was absent is removed, not left behind",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "suite": "node-extension",
+      "edits": [
+        {
+          "find": "        if (original === null) anchor.removeAttribute(name);\n        else anchor.setAttribute(name, original);",
+          "replace": "        if (original !== null) anchor.setAttribute(name, original);"
+        }
+      ],
+      "expectedKills": 1
+    },
+    {
+      "id": "A5-M9",
+      "slice": "A5",
+      "title": "the overlay never flips above a bottom-anchored input",
+      "property": "A039: geometry flips above the anchor when the space below is short and the space above fits",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "suite": "node-extension",
+      "edits": [
+        {
+          "find": "    if (rect.bottom + height > viewportHeight && rect.top - height >= 0) {\n      top = rect.top - height; // flip above\n    }",
+          "replace": ""
+        }
+      ],
+      "expectedKills": 1
+    },
+    {
+      "id": "A5-M10",
+      "slice": "A5",
+      "title": "a pending pointer action delays the teardown broadcast",
+      "property": "A033/A038: the teardown broadcast is a revocation signal and wins over a pending pointer action — rendering never outlives the revision that authorized it",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "suite": "node-extension",
+      "edits": [
+        {
+          "find": "      if (message?.channel !== security.CHANNEL || message.type !== \"teardown\") return;\n",
+          "replace": "      if (message?.channel !== security.CHANNEL || message.type !== \"teardown\") return;\n      if (session !== null && session.pendingAction === true) return;\n"
+        }
+      ],
+      "expectedKills": 1
+    },
+    {
+      "id": "A5-M11",
+      "slice": "A5",
+      "title": "the vertical viewport clamp is removed",
+      "property": "A039: the overlay's final box is clamped inside the viewport even when neither below nor above fits",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "suite": "node-extension",
+      "edits": [
+        {
+          "find": "    top = Math.min(Math.max(top, 0), Math.max(viewportHeight - height, 0));\n",
+          "replace": ""
+        }
+      ],
+      "expectedKills": 1
     }
   ]
 }
