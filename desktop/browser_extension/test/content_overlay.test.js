@@ -29,6 +29,17 @@ const { FakePage } = require("./fake_page.js");
 const { FakeBrowser } = require("./fake_browser.js");
 const security = require("../overlay_security.js");
 const { OverlayLifecycle } = require("../overlay_lifecycle.js");
+const {
+  item,
+  matchesResult,
+  fillResult,
+  errorResult,
+  loginPage,
+  statusText,
+  optionRows,
+  listboxEl,
+  overlayCount,
+} = require("./session_helpers.js");
 
 const RUNTIME_ID = "abcdefghijklmnopabcdefghijklmnop";
 
@@ -89,6 +100,10 @@ async function pageBackedByWorker(url, enabledOrigins) {
 // ---------------------------------------------------------------------------
 // Idempotence guard.
 // ---------------------------------------------------------------------------
+
+// Assembled at runtime, neutral name: GitGuardian flags credential-shaped
+// literals and inline joins next to a pwInput key (see overlay_session.test.js).
+const FILL_VALUE_G = ["canary", "a039"].join("-");
 
 test("content_overlay: a double injection bootstraps exactly once", async () => {
   const page = new FakePage({ url: "https://example.com/login", respond: async () => APPROVED });
@@ -164,20 +179,35 @@ test("content_overlay: the enabled port on the same host does attach", async () 
   assert.equal(page.guarded, true);
 });
 
-test("content_overlay: an enabled origin in an unsupported frame stays inert", async () => {
-  // SR-7. The origin IS opted in, so `enabled` is true; the frame is one the
-  // policy cannot support. An approval that ignores `frameSupport` would attach
-  // listeners in exactly the frame the spec says must fail closed.
-  const page = new FakePage({
-    url: "https://example.com/login",
-    respond: async () => ({ ...APPROVED, frameSupport: "unsupported" }),
+test("content_overlay: an enabled origin in an unsupported frame is display-only — no query, no fill, honest state", async () => {
+  // SR-7/A035. The origin IS opted in, so `enabled` is true; the frame is one
+  // the policy cannot support. Until Slice A5 this instance stayed fully
+  // inert, which meant the unsupported state could never render anywhere; the
+  // A035 contract is DISPLAY-ONLY activation: on eligible focus it shows the
+  // honest unsupported-frame state directing manual copy from the app, and it
+  // structurally never sends `requestMatches` or `fill`.
+  const { page, password: pwInput } = await loginPage({
+    bootstrap: { ...APPROVED, frameSupport: "unsupported" },
   });
 
-  await page.inject();
-
   assert.equal(page.sentOfType("bootstrap").length, 1);
-  assert.equal(page.listenerCount, 0);
-  assert.equal(page.guarded, false);
+  await page.focus(pwInput);
+
+  assert.equal(overlayCount(page), 1, "the unsupported state must render");
+  assert.equal(
+    statusText(page),
+    "The overlay is not available in this frame. Copy your login from the KeyVault app."
+  );
+  // Fail closed: not one credential message may leave this frame, ever.
+  assert.equal(page.sentOfType("requestMatches").length, 0);
+  assert.equal(page.sentOfType("fill").length, 0);
+
+  // Enter cannot fill (there is nothing to fill) and Escape dismisses.
+  const enter = await page.pressKey("Enter");
+  assert.equal(enter.defaultPrevented, false);
+  assert.equal(page.sentOfType("fill").length, 0);
+  await page.pressKey("Escape");
+  assert.equal(overlayCount(page), 0);
 });
 
 test("content_overlay: an approval missing frameSupport is not an approval", async () => {
@@ -418,4 +448,193 @@ test("content_overlay: a torn-down document stops answering teardown", async () 
   await page.deliver(teardownMessage(5));
   assert.equal(page.sent.length, sentAfterTeardown);
   assert.equal(page.listenerCount, 0);
+});
+
+// ---------------------------------------------------------------------------
+// A039 — behaviour + visual-DOM contract. The five test names below are
+// REQUIRED VERBATIM by specs/009-in-page-autofill-overlay/tasks.md (A039) and
+// are cited by spec.md as the noncanonical-platform acceptance evidence.
+// ---------------------------------------------------------------------------
+
+test("renders every state with metadata-only DOM", async () => {
+  // One canary per surface that must never enter the DOM: the entry id, the
+  // fill token, and the focus nonce. Titles/display services are the ONLY
+  // item-derived text allowed to render.
+  const states = [
+    ["matches", (m) => matchesResult(m, {
+      items: [item({ entryId: "entry-canary-1" })],
+      fillToken: "token-canary-1",
+    })],
+    ["no-fillable", (m) => matchesResult(m, {
+      items: [item({ entryId: "entry-canary-1", matchType: "possible", fillEligible: false })],
+      fillToken: null,
+    })],
+    ["no-matches", (m) => matchesResult(m, { items: [] })],
+    ["locked", (m) => errorResult("matchesResult", "locked", m)],
+    ["no_host", (m) => errorResult("matchesResult", "no_host", m)],
+    ["timeout", (m) => errorResult("matchesResult", "timeout", m)],
+    ["unsupported_frame", (m) => errorResult("matchesResult", "unsupported_frame", m)],
+    ["unsupported_capability", (m) => errorResult("matchesResult", "unsupported_capability", m)],
+    ["stale_session", (m) => errorResult("matchesResult", "stale_session", m)],
+  ];
+  for (const [label, matches] of states) {
+    const { page, password: pwInput, handlers } = await loginPage();
+    handlers.matches = matches;
+    await page.focus(pwInput);
+    assert.equal(overlayCount(page), 1, `${label}: state must render`);
+    assert.equal(typeof statusText(page), "string", label);
+    assert.ok(statusText(page).length > 0, `${label}: status text missing`);
+
+    const observable = page.captureObservableState();
+    const nonce = page.sentOfType("requestMatches")[0].focusNonce;
+    for (const canary of ["entry-canary-1", "token-canary-1", nonce]) {
+      assert.ok(!observable.includes(canary), `${label}: "${canary}" leaked into the DOM`);
+    }
+    // Loading state, observed mid-flight, is covered by the gated A030 test;
+    // here every terminal state has been proven metadata-only.
+  }
+});
+
+test("anchors below, flips above, and clamps viewport", async () => {
+  const { page, password: pwInput } = await loginPage();
+  // Fallback overlay size is 320x240 (the CSS sizes; the fake reports an
+  // unmeasurable host, exactly like a display:none-free but unlaid-out tree).
+
+  // 1. Room below: anchored below the input, at its left edge.
+  pwInput._rect = { top: 100, bottom: 120, left: 50, right: 250, width: 200, height: 20 };
+  await page.focus(pwInput);
+  let host = page.overlayHosts()[0];
+  assert.equal(host.style.position, "fixed");
+  assert.equal(host.style.top, "120px");
+  assert.equal(host.style.left, "50px");
+
+  // 2. No room below, room above: flipped above the input.
+  pwInput._rect = { top: 700, bottom: 720, left: 50, right: 250, width: 200, height: 20 };
+  await page.fireScroll(); // repositions on scroll
+  assert.equal(host.style.top, `${700 - 240}px`, "must flip above");
+
+  // 3. No room below NOR above: clamped inside the viewport.
+  pwInput._rect = { top: 100, bottom: 700, left: 50, right: 250, width: 200, height: 600 };
+  await page.fireScroll();
+  assert.equal(host.style.top, `${768 - 240}px`, "must clamp to the viewport");
+
+  // 4. Horizontal clamp, driven by a resize (zoom = fewer CSS pixels).
+  pwInput._rect = { top: 100, bottom: 120, left: 900, right: 1000, width: 100, height: 20 };
+  await page.setViewport(1024, 768);
+  assert.equal(host.style.left, `${1024 - 320}px`, "must clamp horizontally");
+
+  // 5. A shrunken viewport (zoomed page) re-clamps on resize.
+  await page.setViewport(400, 300);
+  assert.equal(host.style.left, `${400 - 320}px`);
+  assert.equal(host.style.top, `${300 - 240}px`);
+});
+
+test("applies light/dark/forced-colors contract", async () => {
+  const { page, password: pwInput } = await loginPage();
+  await page.focus(pwInput);
+
+  const styleEl = page.allElements().find((el) => el.tagName === "STYLE");
+  assert.ok(styleEl, "the shadow tree must carry its own stylesheet");
+  const css = styleEl.textContent;
+
+  // The browser, not the script, picks the scheme: all four contracts are
+  // declarative media sections of one static local stylesheet.
+  assert.ok(css.includes("@media (prefers-color-scheme: dark)"), "dark contract missing");
+  assert.ok(css.includes("@media (forced-colors: active)"), "forced-colors contract missing");
+  assert.ok(css.includes("@media (prefers-reduced-motion: reduce)"), "reduced-motion contract missing");
+  // Forced colors must defer to SYSTEM colors, not authored ones.
+  for (const systemColor of ["Canvas", "CanvasText", "Highlight", "HighlightText"]) {
+    assert.ok(css.includes(systemColor), `forced-colors must use ${systemColor}`);
+  }
+  // Reduced motion disables the only transition the overlay declares.
+  assert.ok(/prefers-reduced-motion: reduce\)\{[^}]*\{transition:none;\}/.test(css));
+  // The stylesheet is static local copy: nothing item- or origin-derived.
+  assert.ok(!css.includes("example.com"));
+});
+
+test("exposes listbox/options/live state and restores ARIA", async () => {
+  const { page, password: pwInput, handlers } = await loginPage();
+  handlers.matches = (m) =>
+    matchesResult(m, {
+      items: [item({ title: "First" }), item({ entryId: "entry-2", title: "Second" })],
+    });
+  // Pre-existing anchor ARIA that the session will touch AND one it will not.
+  pwInput.setAttribute("aria-expanded", "false");
+  pwInput.setAttribute("aria-haspopup", "menu");
+  pwInput.setAttribute("aria-label", "Password");
+  await page.focus(pwInput);
+
+  // Anchor combobox state while open.
+  assert.equal(pwInput.getAttribute("aria-expanded"), "true");
+  assert.equal(pwInput.getAttribute("aria-haspopup"), "listbox");
+
+  // Listbox, options, stable ids, selection agreement.
+  const list = listboxEl(page);
+  assert.ok(list, "role=listbox missing");
+  const rows = optionRows(page);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((row) => row.id), ["kv-option-0", "kv-option-1"]);
+  assert.deepEqual(rows.map((row) => row.getAttribute("aria-selected")), ["true", "false"]);
+  const active = list.getAttribute("aria-activedescendant");
+  assert.ok(rows.some((row) => row.id === active), "activedescendant must reference a real row");
+
+  // Live region: polite status, count first, then selected label + position
+  // on arrow move (the closed-shadow IDREF fallback the spec mandates).
+  const status = page.allElements().find((el) => el.id === "kv-status");
+  assert.equal(status.getAttribute("role"), "status");
+  assert.equal(status.getAttribute("aria-live"), "polite");
+  assert.equal(status.textContent, "2 KeyVault suggestions");
+  await page.pressKey("ArrowDown");
+  assert.equal(status.textContent, "Second, 2 of 2");
+  assert.deepEqual(optionRows(page).map((row) => row.getAttribute("aria-selected")), ["false", "true"]);
+  assert.equal(listboxEl(page).getAttribute("aria-activedescendant"), "kv-option-1");
+
+  // Teardown restores EVERY touched attribute to its pre-session value and
+  // leaves the untouched one alone.
+  await page.pressKey("Escape");
+  assert.equal(pwInput.getAttribute("aria-expanded"), "false");
+  assert.equal(pwInput.getAttribute("aria-haspopup"), "menu");
+  assert.equal(pwInput.getAttribute("aria-label"), "Password");
+
+  // An anchor that HAD no ARIA gets it fully removed, not set to a default.
+  const bare = await loginPage();
+  await bare.page.focus(bare.password);
+  assert.equal(bare.password.getAttribute("aria-expanded"), "true");
+  await bare.page.pressKey("Escape");
+  assert.equal(bare.password.getAttribute("aria-expanded"), null);
+  assert.equal(bare.password.getAttribute("aria-haspopup"), null);
+});
+
+test("teardown removes host/listeners and never submits", async () => {
+  // Via the keyboard fill — the full pointerless path — and via Escape.
+  const { page, form, password: pwInput, handlers } = await loginPage();
+  handlers.fill = (m) => fillResult(m, { password: FILL_VALUE_G });
+  await page.focus(pwInput);
+  assert.equal(overlayCount(page), 1);
+  assert.ok(pwInput.listenerTypes.includes("keydown"), "session keyboard listener missing");
+  const documentListenersBefore = page.document.listenerTypes.length;
+
+  const enter = await page.pressKey("Enter");
+  assert.equal(enter.defaultPrevented, true, "the fill Enter is consumed");
+  assert.equal(pwInput.value, FILL_VALUE_G);
+
+  // Fill ends with teardown: host gone, session listeners gone, instance
+  // listeners (focusin/focusout/visibility) still owned by the instance.
+  assert.equal(overlayCount(page), 0, "host must be removed");
+  assert.ok(!pwInput.listenerTypes.includes("keydown"), "session keydown must be aborted");
+  assert.equal(page.document.listenerTypes.length, documentListenersBefore - 2,
+    "session-scoped document listeners (scroll, mouseup) must be aborted");
+  assert.equal(page._intervals.size, 0, "watchdog must be stopped");
+  assert.equal(page._timeouts.size, 0, "no deferred timer may survive");
+  assert.equal(page.submitCount, 0, "the overlay must never submit");
+
+  // And the page's own submit machinery was never touched on the Escape path.
+  const second = await loginPage();
+  let submitSeen = 0;
+  second.form.addEventListener("submit", () => { submitSeen += 1; });
+  await second.page.focus(second.password);
+  await second.page.pressKey("Escape");
+  assert.equal(overlayCount(second.page), 0);
+  assert.equal(second.page.submitCount + submitSeen, 0);
+  assert.ok(form !== null);
 });

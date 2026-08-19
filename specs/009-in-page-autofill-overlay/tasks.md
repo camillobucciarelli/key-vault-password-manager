@@ -203,24 +203,24 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
 
 ## Slice A5 — iframe, accessibility, behavior, visuals
 
-- [ ] **A035** Implement frame policy exactly: top and injected same-origin frames
+- [x] **A035** Implement frame policy exactly: top and injected same-origin frames
       supported; cross-origin frame only with child origin separately enabled,
       permitted, injected, and sender-validated; otherwise fail closed. Where
       detectable show unsupported state directing manual copy from KeyVault app.
       Add no extension clipboard path.
-- [ ] **A036** Add `role=listbox`, `role=option`, `aria-selected`, stable option
+- [x] **A036** Add `role=listbox`, `role=option`, `aria-selected`, stable option
       ids, `aria-activedescendant`, anchor combobox expanded state, and
       `role=status aria-live=polite` fallback. Restore original anchor ARIA on
       teardown.
-- [ ] **A037** Keyboard: arrows move selection; Enter fills current eligible row
+- [x] **A037** Keyboard: arrows move selection; Enter fills current eligible row
       and prevents only that action's default/propagation; Escape dismisses current
       focus session; Tab tears down and passes through. Closed overlay captures no
       page keys.
-- [ ] **A038** Resolve click-vs-blur race: pointer-down inside overlay preserves
+- [x] **A038** Resolve click-vs-blur race: pointer-down inside overlay preserves
       anchor focus and marks pending action; deferred outside blur cannot remove
       row before click. Controls are `type=button`, outside page forms, and produce
       zero submit events.
-- [ ] **A039** Test plain and framework-controlled input event delivery, no submit,
+- [x] **A039** Test plain and framework-controlled input event delivery, no submit,
       no hidden/read-only fill, anchor removal, scroll/resize, viewport flip/clamp,
       zoom, forced colors, reduced motion, and light/dark mode. Required named DOM
       assertions: `renders every state with metadata-only DOM`, `anchors below,

@@ -35,9 +35,19 @@
 //   * Visibility of an element follows `display:none`/`[hidden]` up the
 //     ancestor chain, which is what `getClientRects().length` reflects in a
 //     real layout.
-//   * Events bubble target → ancestors → document → window, and stop at a
-//     shadow root boundary (this harness models non-composed propagation
-//     only; the overlay attaches its listeners directly on its own nodes).
+//   * Events bubble target → ancestors → document → window. COMPOSED events
+//     (what Chrome stamps on UA-generated mousedown/mouseup/click/keydown/
+//     focusin/focusout) cross the shadow boundary and are RETARGETED: outside
+//     the shadow tree, `event.target` reads as the shadow HOST, exactly as in
+//     Chrome. Non-composed events (the overlay's own `input`/`change`
+//     constructor events, page-synthesized events without `composed`) stop at
+//     the shadow root. Without this, "a closed overlay captures no page keys"
+//     (A037) would be unfalsifiable: no keydown would ever reach a document
+//     listener in the first place.
+//   * `value` is an accessor on the element PROTOTYPE (like
+//     `HTMLInputElement.prototype.value`), so the framework-controlled-input
+//     contract — fill through the native prototype setter, bypassing an
+//     instance-level override — is testable against the real mechanism.
 
 "use strict";
 
@@ -63,6 +73,7 @@ class FakeEvent {
     this.type = type;
     this.bubbles = init.bubbles === true;
     this.cancelable = init.cancelable === true;
+    this.composed = init.composed === true;
     this.key = init.key;
     this.relatedTarget = init.relatedTarget ?? null;
     this.target = null;
@@ -133,7 +144,7 @@ class FakeShadowRoot extends FakeEventTarget {
   }
 }
 
-const FOCUSABLE_TAGS = new Set(["INPUT", "BUTTON", "SELECT", "TEXTAREA"]);
+const FOCUSABLE_TAGS = new Set(["INPUT", "BUTTON", "SELECT", "TEXTAREA", "IFRAME"]);
 
 class FakeElement extends FakeEventTarget {
   constructor(doc, tagName) {
@@ -147,7 +158,7 @@ class FakeElement extends FakeEventTarget {
     this.parentNode = null;
     this._text = "";
     this.id = "";
-    this.value = "";
+    this._value = "";
     this.type = this.tagName === "INPUT" ? "text" : "";
     this.disabled = false;
     this.readOnly = false;
@@ -290,6 +301,21 @@ class FakeElement extends FakeEventTarget {
     );
   }
 
+  // -- value ----------------------------------------------------------------
+
+  /**
+   * Accessor on the PROTOTYPE, like `HTMLInputElement.prototype.value`: an
+   * instance-level override (what a framework installs) shadows it, and the
+   * fill path must reach this one through the prototype descriptor.
+   */
+  get value() {
+    return this._value;
+  }
+
+  set value(next) {
+    this._value = String(next);
+  }
+
   // -- shadow ---------------------------------------------------------------
 
   attachShadow({ mode } = {}) {
@@ -397,11 +423,15 @@ class FakePage {
     this._pending = [];
     this._activeLastError = undefined;
     this._intervals = new Map();
+    this._timeouts = new Map();
     this._timerId = 0;
     this._timeOffsetMs = 0;
 
     this.document = new FakeDocument(this);
     this.window = new FakeEventTarget();
+    // Viewport, controllable per test (`setViewport`). Real defaults.
+    this.window.innerWidth = 1024;
+    this.window.innerHeight = 768;
 
     const self = this;
     const chrome = {
@@ -484,6 +514,17 @@ class FakePage {
       clearInterval: (id) => {
         this._intervals.delete(id);
       },
+      // Zero-delay task queue, drained deterministically by `settle()` AFTER
+      // the current event/response cascade — which is exactly the "after the
+      // current pointer task" semantics the deferred-blur teardown relies on.
+      setTimeout: (fn, _ms) => {
+        this._timerId += 1;
+        this._timeouts.set(this._timerId, fn);
+        return this._timerId;
+      },
+      clearTimeout: (id) => {
+        this._timeouts.delete(id);
+      },
       location: {
         get href() {
           return self.url;
@@ -523,12 +564,22 @@ class FakePage {
     await this.settle();
   }
 
-  /** Await every in-flight `sendMessage` callback, including nested ones. */
+  /**
+   * Await every in-flight `sendMessage` callback (including nested ones),
+   * then drain due zero-delay timeouts, honouring `clearTimeout` calls made
+   * by earlier callbacks in the same drain.
+   */
   async settle() {
-    while (this._pending.length > 0) {
-      const inflight = this._pending;
-      this._pending = [];
-      await Promise.all(inflight);
+    for (;;) {
+      while (this._pending.length > 0) {
+        const inflight = this._pending;
+        this._pending = [];
+        await Promise.all(inflight);
+      }
+      if (this._timeouts.size === 0) return;
+      const next = this._timeouts.entries().next().value;
+      this._timeouts.delete(next[0]);
+      next[1]();
     }
   }
 
@@ -553,18 +604,22 @@ class FakePage {
     if (prev && prev !== this.document.body) {
       this._propagate(
         prev,
-        new FakeEvent("focusout", { bubbles: true, relatedTarget: next })
+        new FakeEvent("focusout", { bubbles: true, composed: true, relatedTarget: next })
       );
     }
     if (next && next !== this.document.body) {
       this._propagate(
         next,
-        new FakeEvent("focusin", { bubbles: true, relatedTarget: prev })
+        new FakeEvent("focusin", { bubbles: true, composed: true, relatedTarget: prev })
       );
     }
   }
 
-  /** target → ancestors → document → window; stops at a shadow boundary. */
+  /**
+   * target → ancestors → document → window. A composed event crosses a
+   * shadow root and is RETARGETED to the host for every node outside the
+   * shadow tree (Chrome semantics); a non-composed event stops at the root.
+   */
   _propagate(target, event) {
     if (event.target === null) event.target = target;
     if (event.type === "submit") this.submitCount += 1;
@@ -575,6 +630,12 @@ class FakePage {
       if (node === this.window) return;
       if (node === this.document) {
         node = this.window;
+        continue;
+      }
+      if (node instanceof FakeShadowRoot) {
+        if (!event.composed) return;
+        event.target = node.host; // retargeting at the boundary
+        node = node.host;
         continue;
       }
       node = node.parentNode ?? null;
@@ -593,20 +654,57 @@ class FakePage {
    * hazard reproducible instead of assumed away.
    */
   async click(el) {
-    const mousedown = new FakeEvent("mousedown", { bubbles: true, cancelable: true });
+    const mousedown = new FakeEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    });
     this._propagate(el, mousedown);
     if (!mousedown.defaultPrevented) {
       if (el._focusable) el.focus();
       else this._moveFocus(this.document.body);
     }
-    this._propagate(el, new FakeEvent("click", { bubbles: true, cancelable: true }));
+    this._propagate(
+      el,
+      new FakeEvent("mouseup", { bubbles: true, cancelable: true, composed: true })
+    );
+    this._propagate(
+      el,
+      new FakeEvent("click", { bubbles: true, cancelable: true, composed: true })
+    );
     await this.settle();
   }
 
-  /** Key press delivered at the focused element, bubbling to the document. */
+  /**
+   * Key press delivered at the focused element, bubbling (composed, like a
+   * real UA keydown) to the document. Returns the event so callers can assert
+   * on `defaultPrevented`/propagation — the A037 "prevent ONLY the fill
+   * action" contract.
+   */
   async pressKey(key) {
     const target = this.document.activeElement ?? this.document.body;
-    this._propagate(target, new FakeEvent("keydown", { bubbles: true, key }));
+    const event = new FakeEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      key,
+    });
+    this._propagate(target, event);
+    await this.settle();
+    return event;
+  }
+
+  /** Resize the viewport and fire `resize` at the window, then settle. */
+  async setViewport(width, height) {
+    this.window.innerWidth = width;
+    this.window.innerHeight = height;
+    this.window._invoke(new FakeEvent("resize", { bubbles: false }));
+    await this.settle();
+  }
+
+  /** Fire a scroll at the document (capture-phase listeners see it), settle. */
+  async fireScroll() {
+    this._propagate(this.document, new FakeEvent("scroll", { bubbles: false }));
     await this.settle();
   }
 
