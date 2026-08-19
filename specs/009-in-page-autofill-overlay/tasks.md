@@ -230,7 +230,7 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
 - [ ] **A040** Manual accessibility checks: keyboard-only; Chrome + NVDA on
       Windows; Chrome + VoiceOver on macOS where available. Record closed-shadow
       active-descendant limitation and verify live announcement fallback.
-- [ ] **A041** Only after Gates A0–A3 and tasks A028–A040 pass, capture real
+- [x] **A041** Only after Gates A0–A3 and tasks A028–A040 pass, capture real
       unpacked-extension browser screenshots because Flutter goldens/widget tests
       do not render this DOM.
       Canonical acceptance uses one Linux x86_64 OCI digest and exact Chrome for
@@ -269,7 +269,10 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
       `chrome-extension://<id>/` in `allowed_origins`. Protocol capability does not
       require broader native host registration. Reinstall/restart only when host
       binary/extension id changed.
-- [x] **A045** *(visual verify deferred to A041)* Run the targeted checks that CI does **not** already run. The
+- [x] **A045** Run the targeted checks that CI does **not** already run. The
+      visual verify below became executable with A041 (canonical container run;
+      on Apple Silicon use `KEYVAULT_VISUAL_PODMAN_CONNECTION` per the extension
+      README) and was re-run then: exit 0, 18/18 baselines verified. The
       `extension-tests` job in `.github/workflows/pr.yml` runs Gate A0
       (`node --test desktop/browser_extension/test/*.test.js`) and `node --check`
       on every extension source — including `content_overlay.js` once A028 adds it

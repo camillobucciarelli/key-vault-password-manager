@@ -160,10 +160,48 @@ the Chrome/Edge install/grant/revoke matrix (spec 009 A046).
 
 ### Visual baselines
 
-Canonical visual baseline capture/verification (pinned Linux OCI digest +
-exact Chrome for Testing build) is **not yet in the tree**; it arrives with
-spec 009 task A041. Until then there are no baseline commands to run — DOM and
-geometry assertions in the automated suite are the acceptance surface.
+Pixel acceptance for the overlay runs in ONE canonical environment: a Linux
+x86_64 OCI image pinned by immutable digest plus an exact Chrome for Testing
+build (version, archive SHA-256, and binary SHA-256), all locked in
+`test/visual_environment_v1.json` together with timezone, locale, the
+installed font-set hash, and the full rendering flag list. Any mismatch —
+image contents, Chrome hash, fonts, timezone — fails loudly before capture;
+there is no skip path and no mutable-tag fallback.
+
+```bash
+# Recapture into test/screenshots/actual/ and compare decoded pixels + the
+# approved sha256 per baseline against test/screenshots/expected/. Never
+# rewrites expected/. Exit 0 = all 18 baselines match.
+./desktop/browser_extension/test/run_visual_baselines.sh --verify
+
+# Regenerate expected/ + visual_baselines_v1.sha256. ONLY after human design
+# review; commit both together or the inventory test and --verify reject the
+# unapproved edit.
+./desktop/browser_extension/test/run_visual_baselines.sh --approve
+```
+
+Requires `podman`. On Apple Silicon the amd64 image must run under a
+Rosetta-enabled podman machine (qemu TCG cannot run Chrome — the run then
+fails on CDP timeouts, never silently):
+
+```bash
+printf '[machine]\nprovider = "applehv"\nrosetta = true\n' > /tmp/kv-machine.conf
+CONTAINERS_CONF_OVERRIDE=/tmp/kv-machine.conf podman machine init kv-visual-amd64
+CONTAINERS_CONF_OVERRIDE=/tmp/kv-machine.conf podman machine start kv-visual-amd64
+KEYVAULT_VISUAL_PODMAN_CONNECTION=kv-visual-amd64 \
+  ./desktop/browser_extension/test/run_visual_baselines.sh --verify
+```
+
+Every run captures the 18 scenarios TWICE with fresh browser profiles and
+requires the two passes to be byte-identical (determinism proof re-established
+on every run). The capture drives the UNMODIFIED production
+`overlay_security.js` + `content_overlay.js` loaded as an unpacked extension in
+Chrome for Testing; scenario states come from a test-only background stub under
+`test/visual/harness/` that is never packaged. The supplemental inventory test
+(`test/visual_inventory.test.js`, runs in the normal Gate A0 suite) asserts the
+exact 18 basenames and that every committed expected PNG still matches its
+approved hash. Windows/macOS/Edge remain DOM/geometry/manual-smoke
+environments, never pixel authorities.
 
 ## Package contents
 
