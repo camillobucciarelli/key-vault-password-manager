@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<!--
+  009 A041 — deterministic visual-baseline test page. TEST-ONLY: never packaged.
+  The page contains a neutral credential form; no credential-shaped values
+  anywhere. The caret is hidden so the focused input cannot introduce
+  blink-phase nondeterminism between capture passes.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Example sign-in</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; }
+  body {
+    font: 14px/1.4 system-ui, sans-serif;
+    background: #f4f4f4;
+    color: #1a1a1a;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { background: #17181a; color: #e8eaed; }
+    input { background: #202124; color: #e8eaed; border-color: #5f6368; }
+  }
+  form {
+    position: fixed;
+    left: 40px;
+    width: 300px;
+  }
+  body[data-anchor="top"] form { top: 40px; }
+  body[data-anchor="bottom"] form { bottom: 24px; }
+  label { display: block; margin: 8px 0 2px; }
+  input {
+    width: 100%;
+    font: inherit;
+    padding: 5px 8px;
+    border: 1px solid #b0b0b0;
+    border-radius: 4px;
+    background: #ffffff;
+    color: inherit;
+    caret-color: transparent; /* determinism: no caret blink phase */
+    outline: 2px solid #5b7fd4;
+    outline-offset: 0;
+  }
+</style>
+</head>
+<body data-anchor="top">
+<form autocomplete="off">
+  <h1 style="font-size:16px;margin-bottom:4px;">Example sign-in</h1>
+  <label for="username">Username</label>
+  <input id="username" type="text" autocomplete="username" name="login-name">
+  <label for="password">Password</label>
+  <input id="password" type="password" name="login-key">
+</form>
+<script>
+  // Anchor placement comes from the query string so one page serves the
+  // "below" and "flipped above" geometry scenarios deterministically.
+  (() => {
+    const anchor = new URLSearchParams(location.search).get("anchor");
+    if (anchor === "bottom") document.body.dataset.anchor = "bottom";
+  })();
+</script>
+</body>
+</html>
