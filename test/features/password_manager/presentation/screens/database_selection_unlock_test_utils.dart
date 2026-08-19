@@ -20,6 +20,7 @@ import 'package:password_manager/features/password_manager/presentation/bloc/dat
 import 'package:password_manager/features/password_manager/presentation/bloc/database_selection/database_selection_event.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/database_unlock/database_unlock_bloc.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/database_session_coordinator.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/master_password_session.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/otpauth_deep_link_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/screens/create_database_screen.dart';
 import 'package:password_manager/features/password_manager/presentation/screens/database_selection_screen.dart';
@@ -69,6 +70,7 @@ DatabaseTestHarness _buildHarness() {
     createDatabaseUseCase: CreateDatabaseUseCase(
       databaseFileRepository: fileRepository,
     ),
+    masterPasswordSession: MasterPasswordSession(),
   );
 
   di.sl.registerLazySingleton<DatabaseSessionCoordinator>(() => coordinator);

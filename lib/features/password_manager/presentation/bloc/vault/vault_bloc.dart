@@ -5,7 +5,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:loggy/loggy.dart';
 import 'package:stream_transform/stream_transform.dart';
 
-import '../../../data/datasources/secure_data_source.dart';
 import '../../../data/services/vault_csv_import_service.dart';
 import '../../../data/services/vault_duplicate_service.dart';
 import '../../../data/services/vault_kdbx_service.dart';
@@ -18,6 +17,7 @@ import '../../../domain/models/vault_group.dart';
 import '../../../domain/models/vault_snapshot.dart';
 import '../../../domain/services/vault_health_service.dart';
 import '../../coordinators/apple_autofill_v2_coordinator.dart';
+import '../../coordinators/master_password_session.dart';
 import 'vault_event.dart';
 import 'vault_state.dart';
 
@@ -25,7 +25,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   VaultBloc({
     required String databasePath,
     required this.getSelectedKeyFilePath,
-    required this.secureDataSource,
+    required this.masterPasswordSession,
     required this.vaultKdbxService,
     required this.vaultCsvImportService,
     required this.vaultDuplicateService,
@@ -103,7 +103,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   }
 
   final Future<String?> Function() getSelectedKeyFilePath;
-  final SecureDataSource secureDataSource;
+  final MasterPasswordSession masterPasswordSession;
   final VaultKdbxService vaultKdbxService;
   final VaultCsvImportService vaultCsvImportService;
   final VaultDuplicateService vaultDuplicateService;
@@ -145,7 +145,21 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   ) async {
     _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
     try {
-      _password = await secureDataSource.getMasterPassword() ?? '';
+      // FR-1/FR-2 (spec 011): the session secret comes from the in-memory
+      // holder, not secure storage. An absent secret means no unlocked session;
+      // fail with the locked-state error instead of proceeding with '' .
+      final sessionPassword = masterPasswordSession.value;
+      if (sessionPassword == null) {
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isLoading: false,
+            errorMessage: 'Unable to load vault credentials.',
+          ),
+        );
+        return;
+      }
+      _password = sessionPassword;
       _keyFilePath = await getSelectedKeyFilePath();
       await _preloadDriveStateFromLocalMapping(emit);
       await _reload(emit);

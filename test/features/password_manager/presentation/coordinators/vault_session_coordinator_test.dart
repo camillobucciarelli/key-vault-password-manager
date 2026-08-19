@@ -18,6 +18,7 @@ import 'package:password_manager/features/password_manager/domain/repositories/d
 import 'package:password_manager/features/password_manager/domain/repositories/database_security_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/master_password_session.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/vault_session_coordinator.dart';
 
 void main() {
@@ -29,6 +30,7 @@ void main() {
     late _FakeSecureDataSource secureDataSource;
     late _FakeVaultKdbxService vaultKdbxService;
     late _FakeAppleAutofillV2Coordinator appleAutofillV2Coordinator;
+    late MasterPasswordSession masterPasswordSession;
     late VaultSessionCoordinator coordinator;
 
     setUp(() {
@@ -39,6 +41,7 @@ void main() {
       secureDataSource = _FakeSecureDataSource();
       vaultKdbxService = _FakeVaultKdbxService();
       appleAutofillV2Coordinator = _FakeAppleAutofillV2Coordinator();
+      masterPasswordSession = MasterPasswordSession();
       coordinator = VaultSessionCoordinator(
         localDataSource: localDataSource,
         databaseRegistryRepository: registryRepository,
@@ -47,6 +50,7 @@ void main() {
         databaseSyncRepository: syncRepository,
         vaultKdbxService: vaultKdbxService,
         appleAutofillV2Coordinator: appleAutofillV2Coordinator,
+        masterPasswordSession: masterPasswordSession,
       );
     });
 
@@ -74,6 +78,9 @@ void main() {
           ),
         ];
         secureDataSource.password = 'secret';
+        // spec-011 FR-1: the current session credential is now read from the
+        // in-memory holder, not the keystore.
+        masterPasswordSession.set('secret');
 
         final result = await coordinator.updateDatabaseSettings(
           DatabaseSettingsUpdateRequest(
@@ -242,6 +249,7 @@ void main() {
         );
         localDataSource.selectedKeyFilePath = currentKey;
         secureDataSource.password = 'old-secret';
+        masterPasswordSession.set('old-secret');
         securityRepository.failNextSave = true;
 
         await expectLater(
@@ -272,6 +280,7 @@ void main() {
       const databasePath = '/tmp/vault.kdbx';
       registryRepository.records = [_recordForTest('db-1', databasePath)];
       secureDataSource.password = 'old-secret';
+      masterPasswordSession.set('old-secret');
       secureDataSource.failNextSave = true;
 
       await expectLater(
@@ -313,6 +322,7 @@ void main() {
         databaseSyncRepository: syncRepository,
         vaultKdbxService: realService,
         appleAutofillV2Coordinator: appleAutofillV2Coordinator,
+        masterPasswordSession: masterPasswordSession,
       );
 
       await expectLater(
@@ -374,6 +384,7 @@ void main() {
         databaseSyncRepository: syncRepository,
         vaultKdbxService: realService,
         appleAutofillV2Coordinator: appleAutofillV2Coordinator,
+        masterPasswordSession: masterPasswordSession,
       );
 
       final result = await coordinator.updateDatabaseSettings(
@@ -483,22 +494,28 @@ void main() {
         'master password', () async {
       localDataSource.selectedKeyFilePath = '/tmp/a.key';
       secureDataSource.password = 'secret';
+      masterPasswordSession.set('secret');
       registryRepository.activeId = 'db-1';
 
       await coordinator.changeDatabase(currentDatabasePath: '/tmp/a.kdbx');
 
       expect(localDataSource.selectedKeyFilePath, isNull);
       expect(secureDataSource.password, isNull);
+      // spec-011 FR-2: switching database drops the in-memory session secret.
+      expect(masterPasswordSession.value, isNull);
       expect(registryRepository.activeId, isNull);
       expect(appleAutofillV2Coordinator.clearCallCount, 1);
     });
 
     test('lockVault clears Apple autofill credentials', () async {
       secureDataSource.password = 'secret';
+      masterPasswordSession.set('secret');
 
       await coordinator.lockVault(currentDatabasePath: '/tmp/a.kdbx');
 
       expect(secureDataSource.password, isNull);
+      // spec-011 FR-2: locking drops the in-memory session secret.
+      expect(masterPasswordSession.value, isNull);
       expect(appleAutofillV2Coordinator.clearCallCount, 1);
     });
 

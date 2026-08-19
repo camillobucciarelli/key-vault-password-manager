@@ -29,6 +29,7 @@ import 'package:password_manager/features/password_manager/domain/usecases/valid
 import 'package:password_manager/features/password_manager/presentation/bloc/database_selection/database_selection_event.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/database_session_coordinator.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/master_password_session.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
@@ -47,6 +48,7 @@ void main() {
     late _FakeSecureDataSource secureDataSource;
     late _FakeAppleAutofillV2Coordinator appleAutofillV2Coordinator;
     late DatabaseImportService databaseImportService;
+    late MasterPasswordSession masterPasswordSession;
     late DatabaseSessionCoordinator coordinator;
 
     setUp(() async {
@@ -59,6 +61,7 @@ void main() {
       syncRepository = _FakeSyncRepository();
       secureDataSource = _FakeSecureDataSource();
       appleAutofillV2Coordinator = _FakeAppleAutofillV2Coordinator();
+      masterPasswordSession = MasterPasswordSession();
       databaseImportService = DatabaseImportService(
         validateDatabaseUseCase: ValidateDatabaseUseCase(),
       );
@@ -80,6 +83,7 @@ void main() {
         createDatabaseUseCase: CreateDatabaseUseCase(
           databaseFileRepository: databaseImportService,
         ),
+        masterPasswordSession: masterPasswordSession,
         appleAutofillV2Coordinator: appleAutofillV2Coordinator,
       );
     });
@@ -803,6 +807,7 @@ void main() {
           createDatabaseUseCase: _FailingCreateDatabaseUseCase(
             databaseFileRepository: databaseImportService,
           ),
+          masterPasswordSession: MasterPasswordSession(),
           appleAutofillV2Coordinator: appleAutofillV2Coordinator,
         );
 

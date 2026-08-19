@@ -13,6 +13,7 @@ import '../../domain/repositories/database_security_repository.dart';
 import '../../domain/repositories/database_sync_repository.dart';
 import '../../../../core/utils/mobile_file_storage.dart';
 import 'apple_autofill_v2_coordinator.dart';
+import 'master_password_session.dart';
 
 class DatabaseSettingsUpdateRequest {
   const DatabaseSettingsUpdateRequest({
@@ -54,6 +55,7 @@ class VaultSessionCoordinator {
     required this.secureDataSource,
     required this.databaseSyncRepository,
     required this.vaultKdbxService,
+    required this.masterPasswordSession,
     this.appleAutofillV2Coordinator = const NoopAppleAutofillV2Coordinator(),
   });
 
@@ -64,6 +66,7 @@ class VaultSessionCoordinator {
   final DatabaseSyncRepository databaseSyncRepository;
   final VaultKdbxService vaultKdbxService;
   final AppleAutofillV2CoordinatorContract appleAutofillV2Coordinator;
+  final MasterPasswordSession masterPasswordSession;
 
   Future<String?> getSelectedKeyFilePath() {
     return localDataSource.getCachedKeyFilePath();
@@ -95,6 +98,8 @@ class VaultSessionCoordinator {
   }
 
   Future<void> changeDatabase({required String currentDatabasePath}) async {
+    // FR-2 (spec 011): switching database drops the in-memory session secret.
+    masterPasswordSession.clear();
     await appleAutofillV2Coordinator.clearCredentials();
     await localDataSource.cacheKeyFilePath(null);
     await secureDataSource.clearMasterPassword();
@@ -102,6 +107,8 @@ class VaultSessionCoordinator {
   }
 
   Future<void> lockVault({required String currentDatabasePath}) async {
+    // FR-2 (spec 011): locking drops the in-memory session secret.
+    masterPasswordSession.clear();
     await appleAutofillV2Coordinator.clearCredentials();
     await secureDataSource.clearMasterPassword();
   }
@@ -184,7 +191,9 @@ class VaultSessionCoordinator {
       }
     }
 
-    final storedPassword = await secureDataSource.getMasterPassword();
+    // FR-1 (spec 011): the current session credential comes from the in-memory
+    // holder, not the keystore, which may not hold it when biometrics are off.
+    final storedPassword = masterPasswordSession.value;
     var currentPassword = storedPassword;
     var newPassword = storedPassword;
     if (request.changePassword || keyFileChanged) {
@@ -258,7 +267,10 @@ class VaultSessionCoordinator {
       }
 
       if (request.changePassword) {
-        await secureDataSource.saveMasterPassword(newPassword!);
+        // FR-1: the session secret changed; update the in-memory holder so the
+        // open vault keeps working. Keystore write is gated in FR-3.
+        masterPasswordSession.set(newPassword!);
+        await secureDataSource.saveMasterPassword(newPassword);
       }
       await databaseRegistryRepository.upsert(
         record.copyWith(

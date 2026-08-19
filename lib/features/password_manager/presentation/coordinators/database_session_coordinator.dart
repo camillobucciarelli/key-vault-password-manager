@@ -23,6 +23,7 @@ import '../../domain/usecases/get_active_database_usecase.dart';
 import '../../domain/usecases/resolve_database_duplicate_usecase.dart';
 import '../../domain/usecases/unlock_database_usecase.dart';
 import 'apple_autofill_v2_coordinator.dart';
+import 'master_password_session.dart';
 
 enum DatabaseSessionStatus {
   success,
@@ -100,6 +101,7 @@ class DatabaseSessionCoordinator {
     required this.resolveDatabaseDuplicateUseCase,
     required this.unlockDatabaseUseCase,
     required this.createDatabaseUseCase,
+    required this.masterPasswordSession,
     this.appleAutofillV2Coordinator = const NoopAppleAutofillV2Coordinator(),
   });
 
@@ -112,6 +114,7 @@ class DatabaseSessionCoordinator {
   final ResolveDatabaseDuplicateUseCase resolveDatabaseDuplicateUseCase;
   final UnlockDatabaseUseCase unlockDatabaseUseCase;
   final CreateDatabaseUseCase createDatabaseUseCase;
+  final MasterPasswordSession masterPasswordSession;
   final AppleAutofillV2CoordinatorContract appleAutofillV2Coordinator;
 
   Future<DatabaseSelectionSessionResult> checkInitialDatabase() async {
@@ -597,6 +600,9 @@ class DatabaseSessionCoordinator {
         keyFilePath: created.keyFilePath,
         biometricProtectionEnabled: biometricProtectionEnabled,
       );
+      // FR-1: a freshly created database is opened straight into the vault, so
+      // its session secret must be live in memory.
+      masterPasswordSession.set(password);
       await databaseSessionRepository.saveMasterPassword(password);
       await databaseSessionRepository.cacheKeyFilePath(created.keyFilePath);
     }
@@ -651,6 +657,8 @@ class DatabaseSessionCoordinator {
     final activeRecord = await getActiveDatabaseUseCase();
     if (activeRecord != null &&
         _containsPath([activeRecord.canonicalPath], trimmed)) {
+      // FR-2: removing the active database drops its in-memory session secret.
+      masterPasswordSession.clear();
       await databaseSessionRepository.cacheKeyFilePath(null);
       await databaseSessionRepository.clearMasterPassword();
       await databaseRegistryRepository.setActive(null);
@@ -795,12 +803,21 @@ class DatabaseSessionCoordinator {
   }) async {
     final persistedKeyFilePath = await databaseFileRepository
         .ensureManagedKeyFilePath(keyFilePath);
-    await unlockDatabaseUseCase(
-      databasePath: databasePath,
-      password: password,
-      keyFilePath: persistedKeyFilePath,
-    );
+    try {
+      await unlockDatabaseUseCase(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: persistedKeyFilePath,
+      );
+    } catch (_) {
+      // FR-2: a failed unlock leaves no live session secret.
+      masterPasswordSession.clear();
+      rethrow;
+    }
     await databaseSessionRepository.cacheKeyFilePath(persistedKeyFilePath);
+    // FR-1 (spec 011): the unlocked-session secret lives in memory, not on
+    // disk. The keystore write below is the biometric credential, gated in FR-3.
+    masterPasswordSession.set(password);
     await databaseSessionRepository.saveMasterPassword(password);
     await _saveSecurityProfile(
       path: databasePath,
@@ -815,11 +832,19 @@ class DatabaseSessionCoordinator {
   }) async {
     final storedPassword =
         await databaseSessionRepository.getMasterPassword() ?? '';
-    await unlockDatabaseUseCase(
-      databasePath: databasePath,
-      password: storedPassword,
-      keyFilePath: keyFilePath,
-    );
+    try {
+      await unlockDatabaseUseCase(
+        databasePath: databasePath,
+        password: storedPassword,
+        keyFilePath: keyFilePath,
+      );
+    } catch (_) {
+      // FR-2: a failed unlock leaves no live session secret.
+      masterPasswordSession.clear();
+      rethrow;
+    }
+    // FR-1: populate the in-memory session secret for the biometric path too.
+    masterPasswordSession.set(storedPassword);
   }
 
   Future<bool> hasStoredMasterPassword() async {
@@ -842,6 +867,9 @@ class DatabaseSessionCoordinator {
   }
 
   Future<void> _clearSessionCredentials() async {
+    // FR-2 (spec 011): dropping the persisted session state also drops the
+    // in-memory secret.
+    masterPasswordSession.clear();
     await databaseSessionRepository.cacheKeyFilePath(null);
     await databaseSessionRepository.clearMasterPassword();
     await appleAutofillV2Coordinator.clearCredentials();
