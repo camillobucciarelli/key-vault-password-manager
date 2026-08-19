@@ -110,6 +110,64 @@ test("A015: every runtime file the extension loads is packaged and syntax-gated"
   }
 });
 
+test("A042: package allowlist names every runtime file and no test artifact", () => {
+  const packaged = fs.readFileSync(path.join(EXT_DIR, "package_extension.sh"), "utf8");
+
+  // Presence, not only absence: the allowlist fails silently (zip exits 0 with
+  // a file missing), so every expected runtime file must be asserted by name.
+  // Non-JS runtime files are enumerated from the manifest where possible so a
+  // renamed popup or icon fails here instead of in the installed extension.
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(EXT_DIR, "manifest.json"), "utf8")
+  );
+  const expected = new Set(["manifest.json", "README.md"]);
+  expected.add(manifest.background.service_worker);
+  expected.add(manifest.action.default_popup);
+  for (const icon of Object.values(manifest.icons)) expected.add(icon);
+  for (const icon of Object.values(manifest.action.default_icon)) expected.add(icon);
+  // CSS is referenced from popup.html, not the manifest.
+  const popupHtml = fs.readFileSync(
+    path.join(EXT_DIR, manifest.action.default_popup),
+    "utf8"
+  );
+  for (const [, href] of popupHtml.matchAll(/href="([^"]+\.css)"/g)) {
+    expected.add(href);
+  }
+  assert.ok(expected.size >= 9, "expected runtime file set looks implausibly small");
+
+  for (const file of [...expected].sort()) {
+    const escaped = file.replaceAll(".", "\\.").replaceAll("/", "\\/");
+    assert.equal(fs.existsSync(path.join(EXT_DIR, file)), true, `${file} exists`);
+    assert.match(
+      packaged,
+      // Trailing ` \` on every line except the last argument of `zip`.
+      new RegExp(`^\\s*${escaped}(?: \\\\)?$`, "m"),
+      `${file} present in zip allowlist`
+    );
+  }
+
+  // Exclusions: nothing under test/ (session_helpers.js is harness-only),
+  // no fixtures, screenshots, visual manifests, source maps, or env files.
+  for (const forbidden of [
+    "test/",
+    "session_helpers",
+    "fixtures",
+    "screenshots",
+    "visual_environment",
+    "visual_baselines",
+    ".map",
+    ".env",
+  ]) {
+    // Only inspect the zip invocation, not comments.
+    const zipBlock = packaged.slice(packaged.indexOf("zip -X"));
+    assert.equal(
+      zipBlock.includes(forbidden),
+      false,
+      `${forbidden} must not be packaged`
+    );
+  }
+});
+
 // ---------------------------------------------------------------------------
 // A016 — overlayConfigV1.
 // ---------------------------------------------------------------------------
