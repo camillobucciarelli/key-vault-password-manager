@@ -47,8 +47,10 @@ DatabaseSecurityProfile _profileFromMap(
     map['keyFilePath'] as String?,
     documentsRoot,
   ),
+  // spec-011 FR-7: absence of the flag must not be read as consent to persist a
+  // secret. Profiles with biometrics enabled carry the field explicitly.
   biometricProtectionEnabled:
-      map['biometricProtectionEnabled'] as bool? ?? true,
+      map['biometricProtectionEnabled'] as bool? ?? false,
   inactivityLockTimeoutSeconds: map['inactivityLockTimeoutSeconds'] as int?,
   updatedAt: map['updatedAt'] == null
       ? null

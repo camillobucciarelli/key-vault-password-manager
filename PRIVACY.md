@@ -16,7 +16,7 @@ server and receives no data from your device, ever.
 | Data | Where | Purpose |
 |---|---|---|
 | Vault contents (entries, passwords, notes, TOTP secrets) | Encrypted `.kdbx` file in a location you choose | The core function of the application |
-| Master password, while a vault is unlocked | Platform keystore (Apple Keychain, Android Keystore, OS secure store on desktop) | Re-unlocking the vault, including with biometrics. Removed when you lock the vault or switch database. |
+| Master password, **only if you enable biometric unlock** for a database | Platform keystore (Apple Keychain, Android Keystore, OS secure store on desktop) | Serving a biometric unlock of that database. It is never written to the keystore when biometric unlock is off — in that case it lives only in memory while the vault is open. When stored, it is keyed per database and removed the moment you disable biometric unlock or delete that database. |
 | Google OAuth tokens, only if you enable cloud sync | Platform keystore | Authenticating to your own cloud storage |
 | Preferences (theme, selected database path) | Application preferences storage | Restoring your settings |
 

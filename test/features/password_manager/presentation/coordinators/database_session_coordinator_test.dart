@@ -1035,19 +1035,28 @@ class _FakeSecurityRepository implements DatabaseSecurityRepository {
 }
 
 class _FakeSecureDataSource implements SecureDataSource {
+  // Single-slot store: these tests assert only presence/absence of a stored
+  // credential, not FR-4 per-id keying (covered by the repository and gate
+  // tests), so the database id is intentionally ignored here.
   String? password;
+  bool legacyGlobalCleared = false;
 
   @override
-  Future<void> clearMasterPassword() async {
+  Future<void> clearMasterPassword(String databaseId) async {
     password = null;
   }
 
   @override
-  Future<String?> getMasterPassword() async => password;
+  Future<String?> getMasterPassword(String databaseId) async => password;
 
   @override
-  Future<void> saveMasterPassword(String password) async {
+  Future<void> saveMasterPassword(String databaseId, String password) async {
     this.password = password;
+  }
+
+  @override
+  Future<void> clearLegacyGlobalMasterPassword() async {
+    legacyGlobalCleared = true;
   }
 }
 

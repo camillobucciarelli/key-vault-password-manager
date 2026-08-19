@@ -491,7 +491,7 @@ void main() {
     });
 
     test('changeDatabase clears the selected key file, active database, and '
-        'master password', () async {
+        'in-memory session secret (biometric credential preserved)', () async {
       localDataSource.selectedKeyFilePath = '/tmp/a.key';
       secureDataSource.password = 'secret';
       masterPasswordSession.set('secret');
@@ -500,8 +500,9 @@ void main() {
       await coordinator.changeDatabase(currentDatabasePath: '/tmp/a.kdbx');
 
       expect(localDataSource.selectedKeyFilePath, isNull);
-      expect(secureDataSource.password, isNull);
-      // spec-011 FR-2: switching database drops the in-memory session secret.
+      // spec-011 FR-3/AC-3: a biometric credential survives a database switch;
+      // only the in-memory session secret is dropped (FR-2).
+      expect(secureDataSource.password, 'secret');
       expect(masterPasswordSession.value, isNull);
       expect(registryRepository.activeId, isNull);
       expect(appleAutofillV2Coordinator.clearCallCount, 1);
@@ -513,8 +514,9 @@ void main() {
 
       await coordinator.lockVault(currentDatabasePath: '/tmp/a.kdbx');
 
-      expect(secureDataSource.password, isNull);
-      // spec-011 FR-2: locking drops the in-memory session secret.
+      // spec-011 FR-3/AC-3: a biometric credential survives lock; only the
+      // in-memory session secret is dropped (FR-2).
+      expect(secureDataSource.password, 'secret');
       expect(masterPasswordSession.value, isNull);
       expect(appleAutofillV2Coordinator.clearCallCount, 1);
     });
@@ -679,24 +681,42 @@ class _FakeSecurityRepository implements DatabaseSecurityRepository {
 }
 
 class _FakeSecureDataSource implements SecureDataSource {
-  String? password;
+  // spec-011 FR-4: keyed per database id. These tests operate on 'db-1', so the
+  // [password] sugar reads/writes that entry.
+  final Map<String, String> passwords = {};
   bool failNextSave = false;
+  bool legacyGlobalCleared = false;
 
-  @override
-  Future<void> clearMasterPassword() async {
-    password = null;
+  String? get password => passwords['db-1'];
+  set password(String? value) {
+    if (value == null) {
+      passwords.remove('db-1');
+    } else {
+      passwords['db-1'] = value;
+    }
   }
 
   @override
-  Future<String?> getMasterPassword() async => password;
+  Future<void> clearMasterPassword(String databaseId) async {
+    passwords.remove(databaseId);
+  }
 
   @override
-  Future<void> saveMasterPassword(String password) async {
+  Future<String?> getMasterPassword(String databaseId) async =>
+      passwords[databaseId];
+
+  @override
+  Future<void> saveMasterPassword(String databaseId, String password) async {
     if (failNextSave) {
       failNextSave = false;
       throw Exception('Secure storage write failed.');
     }
-    this.password = password;
+    passwords[databaseId] = password;
+  }
+
+  @override
+  Future<void> clearLegacyGlobalMasterPassword() async {
+    legacyGlobalCleared = true;
   }
 }
 

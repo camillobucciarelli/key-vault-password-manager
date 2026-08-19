@@ -99,18 +99,20 @@ class VaultSessionCoordinator {
 
   Future<void> changeDatabase({required String currentDatabasePath}) async {
     // FR-2 (spec 011): switching database drops the in-memory session secret.
+    // FR-3/FR-4: the keystore credential is NOT cleared here — a biometric
+    // credential must survive lock/switch so biometric unlock keeps working
+    // (AC-3). It is removed only on disable/delete (FR-5).
     masterPasswordSession.clear();
     await appleAutofillV2Coordinator.clearCredentials();
     await localDataSource.cacheKeyFilePath(null);
-    await secureDataSource.clearMasterPassword();
     await databaseRegistryRepository.setActive(null);
   }
 
   Future<void> lockVault({required String currentDatabasePath}) async {
-    // FR-2 (spec 011): locking drops the in-memory session secret.
+    // FR-2 (spec 011): locking drops the in-memory session secret only. The
+    // keystore biometric credential is preserved across lock (AC-3).
     masterPasswordSession.clear();
     await appleAutofillV2Coordinator.clearCredentials();
-    await secureDataSource.clearMasterPassword();
   }
 
   Future<bool> getBiometricProtectionEnabledForPath({
@@ -268,9 +270,16 @@ class VaultSessionCoordinator {
 
       if (request.changePassword) {
         // FR-1: the session secret changed; update the in-memory holder so the
-        // open vault keeps working. Keystore write is gated in FR-3.
+        // open vault keeps working.
         masterPasswordSession.set(newPassword!);
-        await secureDataSource.saveMasterPassword(newPassword);
+        // FR-3/FR-4: persist the new credential only when biometrics stay on
+        // for this database, keyed per id.
+        if (request.biometricProtectionEnabled) {
+          await secureDataSource.saveMasterPassword(
+            record.databaseId,
+            newPassword,
+          );
+        }
       }
       await databaseRegistryRepository.upsert(
         record.copyWith(
@@ -281,6 +290,10 @@ class VaultSessionCoordinator {
         ),
       );
       await databaseSecurityRepository.saveProfile(profile);
+      // FR-5: turning biometric protection off removes the stored credential.
+      if (!request.biometricProtectionEnabled) {
+        await secureDataSource.clearMasterPassword(record.databaseId);
+      }
       await localDataSource.cacheKeyFilePath(persistedKeyFilePath);
 
       if (credentialChange != null) {
@@ -347,9 +360,9 @@ class VaultSessionCoordinator {
     } catch (_) {}
     try {
       if (password == null) {
-        await secureDataSource.clearMasterPassword();
+        await secureDataSource.clearMasterPassword(record.databaseId);
       } else {
-        await secureDataSource.saveMasterPassword(password);
+        await secureDataSource.saveMasterPassword(record.databaseId, password);
       }
     } catch (_) {}
   }
