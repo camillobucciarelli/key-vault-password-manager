@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "description": "Canonical visual-baseline environment lock for spec 009 A041. Every field is verified before capture or verification; any mismatch is a hard failure, never a skip.",
+  "platform": {
+    "os": "linux",
+    "arch": "x86_64",
+    "osRelease": { "id": "ubuntu", "versionId": "24.04" }
+  },
+  "image": {
+    "reference": "mcr.microsoft.com/playwright@sha256:b27e719ecbfef153e13fd24e8341736733bf2658b229677eb21ff57ff5d7fb29",
+    "digest": "sha256:b27e719ecbfef153e13fd24e8341736733bf2658b229677eb21ff57ff5d7fb29",
+    "arch": "amd64"
+  },
+  "browser": {
+    "name": "chrome-for-testing",
+    "channel": "Stable",
+    "version": "152.0.7977.54",
+    "revision": "1669021",
+    "archiveUrl": "https://storage.googleapis.com/chrome-for-testing-public/152.0.7977.54/linux64/chrome-linux64.zip",
+    "archiveSha256": "88af83664e1e5f79dc1c1378d0699b98dddd69690a748addf4ccbe322bfacedf",
+    "binaryPath": "chrome-linux64/chrome",
+    "binarySha256": "fc72abf84931a440c114f5eaf216433ca9b3ea051eafa6d6c5e9423848373ccd"
+  },
+  "locale": "en-US",
+  "timezone": "UTC",
+  "fonts": {
+    "aggregateSha256": "78537eb6102004fbc1f59968289025bc4c8ba9ec4fea6e37646580246a21ead0",
+    "fileCount": 48,
+    "aggregation": "sha256 over sorted lines of '<font file path> <file sha256>' for every unique file reported by fc-list"
+  },
+  "rendering": {
+    "colorProfile": "srgb",
+    "flags": [
+      "--headless=new",
+      "--no-sandbox",
+      "--disable-gpu",
+      "--force-color-profile=srgb",
+      "--hide-scrollbars",
+      "--force-device-scale-factor=1",
+      "--force-prefers-reduced-motion",
+      "--disable-lcd-text",
+      "--disable-font-subpixel-positioning",
+      "--disable-field-trial-config",
+      "--disable-background-networking",
+      "--disable-component-update",
+      "--disable-sync",
+      "--metrics-recording-only",
+      "--disable-dev-shm-usage",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--lang=en-US",
+      "--window-size=1440,900"
+    ],
+    "animationPolicy": "prefers-reduced-motion forced via flag and CDP emulated media",
+    "deviceScaleFactor": "per-scenario CDP Emulation.setDeviceMetricsOverride"
+  }
+}
