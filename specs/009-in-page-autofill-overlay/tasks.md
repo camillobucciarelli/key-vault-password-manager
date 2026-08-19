@@ -245,7 +245,7 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
 
 ## Slice A6 — packaging, README, release checks
 
-- [ ] **A042** Update `desktop/browser_extension/package_extension.sh` explicit
+- [x] **A042** Update `desktop/browser_extension/package_extension.sh` explicit
       allowlist with `overlay_security.js` and `content_overlay.js` (plus any other
       actual runtime file). Keep `test/`, origin fixture, screenshots, debug hooks,
       visual environment/hash manifests, source maps, and secrets out of ZIP.
@@ -259,17 +259,17 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
       same commit. The packaging assertion below must therefore also assert that
       each expected runtime file is *present*, not only that excluded paths are
       absent.
-- [ ] **A043** Update `desktop/browser_extension/README.md`: permissions and store
+- [x] **A043** Update `desktop/browser_extension/README.md`: permissions and store
       justification; exact-origin opt-in/revoke; port-granularity caveat; dynamic
       injection/teardown; frame/restricted-page limits; worker cold-start recovery;
       exact-origin native capability; secret policy; Chrome/Edge native host setup;
       automated/manual commands; canonical visual environment/baseline verification
       and approval; package contents.
-- [ ] **A044** Confirm native host templates/installers still contain one exact
+- [x] **A044** Confirm native host templates/installers still contain one exact
       `chrome-extension://<id>/` in `allowed_origins`. Protocol capability does not
       require broader native host registration. Reinstall/restart only when host
       binary/extension id changed.
-- [ ] **A045** Run the targeted checks that CI does **not** already run. The
+- [x] **A045** *(visual verify deferred to A041)* Run the targeted checks that CI does **not** already run. The
       `extension-tests` job in `.github/workflows/pr.yml` runs Gate A0
       (`node --test desktop/browser_extension/test/*.test.js`) and `node --check`
       on every extension source — including `content_overlay.js` once A028 adds it
