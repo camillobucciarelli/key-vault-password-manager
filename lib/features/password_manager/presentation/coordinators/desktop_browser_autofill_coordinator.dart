@@ -2,6 +2,7 @@ import 'package:loggy/loggy.dart';
 
 import '../../data/services/desktop_browser_autofill_cache.dart';
 import '../../data/services/desktop_browser_autofill_reveal_bridge_service.dart';
+import '../../data/services/desktop_browser_pending_generation_service.dart';
 import '../../domain/models/apple_autofill_v2_models.dart';
 import '../../domain/models/vault_entry.dart';
 import 'apple_autofill_v2_coordinator.dart';
@@ -12,17 +13,25 @@ class DesktopBrowserAutofillCoordinator
     required this.store,
     required this.mapper,
     required this.revealBridge,
+    this.pendingGeneration,
   });
 
   final DesktopBrowserAutofillCacheStore store;
   final DesktopBrowserAutofillMetadataMapper mapper;
   final DesktopBrowserAutofillRevealBridgeService revealBridge;
 
+  /// 009 / B004 — in-memory pending generated secrets. Cleared whenever the
+  /// reveal-bridge session ends or restarts: lock, database switch, and vault
+  /// close all route through [clearCredentials]; a republish invalidates the
+  /// previous session in [publishVault].
+  final DesktopBrowserPendingGenerationService? pendingGeneration;
+
   @override
   Future<void> publishVault({
     required String databasePath,
     required List<VaultEntry> entries,
   }) async {
+    pendingGeneration?.clearAll();
     if (store.directory == null) {
       return;
     }
@@ -43,6 +52,7 @@ class DesktopBrowserAutofillCoordinator
     required bool metadataPublished,
   }) async {
     try {
+      pendingGeneration?.clearAll();
       await revealBridge.stop();
       if (!metadataPublished) {
         await store.clearCredentials();
@@ -54,6 +64,7 @@ class DesktopBrowserAutofillCoordinator
 
   @override
   Future<void> clearCredentials({String? databasePath}) async {
+    pendingGeneration?.clearAll();
     try {
       await revealBridge.stop();
       if (store.directory == null) {
@@ -63,6 +74,17 @@ class DesktopBrowserAutofillCoordinator
     } catch (e, st) {
       logWarning('Desktop browser Autofill cache clear failed.', e, st);
     }
+  }
+
+  /// 009 / B005 — hands a pending generated secret to the app's normal
+  /// new-entry/save flow, exactly once. The app owns the vault mutation;
+  /// the page/extension never reach this path and cannot auto-save.
+  /// Slice B1/B2 (native `generatePendingEntry` + Generate UI) call this.
+  PendingGeneratedNewEntryDraft? consumePendingGenerationForNewEntry({
+    required String id,
+    required String origin,
+  }) {
+    return pendingGeneration?.consume(id, origin: origin);
   }
 
   @override

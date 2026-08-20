@@ -23,6 +23,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
         store: sl(),
         mapper: sl(),
         revealBridge: sl(),
+        pendingGeneration: sl(),
       ),
     ]),
   );
