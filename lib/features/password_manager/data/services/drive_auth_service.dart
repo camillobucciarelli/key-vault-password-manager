@@ -308,12 +308,12 @@ class DriveAuthService {
     if (exception.code == GoogleSignInExceptionCode.clientConfigurationError) {
       if (!kIsWeb && Platform.isAndroid) {
         return Exception(
-          'Android Google Sign-In is not configured. Set GOOGLE_ANDROID_SERVER_CLIENT_ID (or GOOGLE_WEB_CLIENT_ID) in --dart-define-from-file.',
+          'Android Google Sign-In is not configured. Set GOOGLE_WEB_CLIENT_ID in --dart-define-from-file.',
         );
       }
       if (!kIsWeb && Platform.isIOS) {
         return Exception(
-          'iOS Google Sign-In is not configured. Set GOOGLE_MOBILE_CLIENT_ID in --dart-define-from-file.',
+          'iOS Google Sign-In is not configured. Set GOOGLE_IOS_CLIENT_ID in --dart-define-from-file.',
         );
       }
     }
