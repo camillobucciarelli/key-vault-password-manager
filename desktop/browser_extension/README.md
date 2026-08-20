@@ -110,10 +110,12 @@ terminal commands.
 ### macOS signing/TCC notes
 
 - The host is a Dart AOT binary. The Apple hardened runtime blocks Dart AOT's
-  snapshot mapping, so the binary must not be signed with `--options runtime`
-  unless the unsigned-executable-memory entitlement is granted — a
-  hardened-runtime-signed host dies on launch and the extension only sees
-  "host unavailable".
+  snapshot mapping, so signing with `--options runtime` requires the
+  `com.apple.security.cs.allow-unsigned-executable-memory` entitlement — a
+  hardened-runtime-signed host without it dies on launch (SIGKILL) and the
+  extension only sees "host unavailable". The packaging script
+  (`tool/package_native_host_macos.sh`) keeps the hardened runtime (required
+  for notarization) and signs with `tool/native_host_macos.entitlements`.
 - On macOS Sequoia, the host reads the app's Group Container
   (`group.dev.camillobucciarelli.kdbxKeyVault`) for the metadata cache; TCC
   may show a one-time access prompt for it. Denying it leaves the host
