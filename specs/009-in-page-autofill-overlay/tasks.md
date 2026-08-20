@@ -360,18 +360,18 @@ flutter test \
 
 ## Slice B1 — native generation capability
 
-- [ ] **B006** Add authenticated app bridge `/generate-pending` only after B0.
+- [x] **B006** Add authenticated app bridge `/generate-pending` only after B0.
       Validate loopback bearer, database, unlock state, exact origin, bounds/rate,
       expected cache/bridge generation, and latest committed app settings. Return
       password + pending id + expiry + echoed binding/settings revision once.
-- [ ] **B007** Add native protocol `generatePendingEntry` and advertise
+- [x] **B007** Add native protocol `generatePendingEntry` and advertise
       `generatePendingEntryV1` only when app endpoint/contract is available. Old
       peer returns unsupported capability.
-- [ ] **B008** Add native tests for malformed request/response, origin scheme/port,
+- [x] **B008** Add native tests for malformed request/response, origin scheme/port,
       locked/database mismatch, timeout, response size, capability negotiation,
       cache/bridge generation mismatch (`stale_session`), settings ownership/
       revision, expiry metadata, and no native-host persistence/logging.
-- [ ] **B009** Ensure coordinator lock/database/close paths stop endpoint and clear
+- [x] **B009** Ensure coordinator lock/database/close paths stop endpoint and clear
       pending generated secrets before descriptor removal completes.
 
 ## Slice B2 — explicit Generate UI

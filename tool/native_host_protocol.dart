@@ -31,10 +31,19 @@ const supportedNativeMessageTypes = <String>[
   // fail-closed behaviour is therefore structural instead of contingent.
   'overlayQueryCredentials',
   'overlayRevealForFill',
+  // 009 / B007. Same structural fail-closed reasoning as the overlay types:
+  // a host predating this slice answers `unsupported_type`, so an old peer
+  // can never generate under any policy at all.
+  'generatePendingEntry',
 ];
 
 /// Capabilities advertised by `hello`, so the extension can gate the overlay on
 /// the host actually implementing this contract instead of probing for it.
+///
+/// This is the *unconditional* set — what the host binary itself implements.
+/// `generatePendingEntryV1` is deliberately not here: it is advertised by
+/// `hello` only when the current app bridge descriptor lists it (B007), so an
+/// old app makes Generate disappear instead of failing at click time.
 const nativeHostCapabilities = <String>[overlayExactOriginCapability];
 
 /// Overlay metadata items returned by one `overlayQueryCredentials` response.
@@ -330,6 +339,12 @@ Future<Map<String, Object?>> handleNativeHostRequest(
       payload: payload,
       store: effectiveStore,
     ),
+    'generatePendingEntry' => await _generatePendingEntryResponse(
+      id: id,
+      type: type,
+      payload: payload,
+      store: effectiveStore,
+    ),
     _ => nativeHostErrorResponse(
       id: id,
       type: type,
@@ -368,9 +383,29 @@ Future<Map<String, Object?>> _helloResponse({
     data: {
       ...await _statusData(store),
       'supportedMessages': supportedNativeMessageTypes,
-      'capabilities': nativeHostCapabilities,
+      'capabilities': await _advertisedCapabilities(store),
     },
   );
+}
+
+/// 009 / B007 — host capabilities plus the app-contract-gated ones.
+///
+/// `generatePendingEntryV1` appears only when the *current* bridge descriptor
+/// says the running app actually serves `/generate-pending`. No descriptor,
+/// old descriptor, locked app — the capability is simply absent and the
+/// extension keeps Generate disabled with honest copy.
+Future<List<String>> _advertisedCapabilities(
+  DesktopBrowserAutofillCacheStore store,
+) async {
+  final descriptor = await store.readBridgeDescriptor();
+  return [
+    ...nativeHostCapabilities,
+    if (descriptor != null &&
+        descriptor.appCapabilities.contains(
+          desktopBrowserGeneratePendingCapability,
+        ))
+      desktopBrowserGeneratePendingCapability,
+  ];
 }
 
 Future<Map<String, Object?>> _statusResponse({
@@ -954,6 +989,168 @@ Future<Map<String, Object?>> _overlayRevealForFillResponse({
         'bridgeGeneration': binding.bridgeGeneration,
       },
       'username': username,
+      'password': password,
+    },
+  );
+}
+
+/// 009 / B007 — app-owned password generation over the native protocol.
+///
+/// The host is a pure conduit: it validates, forwards to `/generate-pending`,
+/// validates the echo, and answers once. It persists nothing — no file, no
+/// cache, no log line — and the secret exists only inside this one response.
+/// Settings never travel this path in either direction: a request that
+/// carries a `settings` field is `invalid_request`, not silently ignored.
+Future<Map<String, Object?>> _generatePendingEntryResponse({
+  required String? id,
+  required String type,
+  required Map<String, Object?> payload,
+  required DesktopBrowserAutofillCacheStore store,
+}) async {
+  if (payload.containsKey('settings')) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'invalid_request',
+      message: 'Generation settings are app-owned and cannot be supplied.',
+    );
+  }
+  final rawOrigin = payload['origin'];
+  final origin = rawOrigin is String && rawOrigin.length <= 4096
+      ? browserExactOriginOrNull(rawOrigin)
+      : null;
+  final expectedDatabaseId = _safeOptionalString(
+    payload['expectedDatabaseId'],
+    maxLength: 128,
+  );
+  final expectedCacheGeneration = _safeOptionalString(
+    payload['expectedCacheGeneration'],
+    maxLength: 128,
+  );
+  final expectedBridgeGeneration = _safeOptionalString(
+    payload['expectedBridgeGeneration'],
+    maxLength: 128,
+  );
+  if (origin == null ||
+      expectedDatabaseId == null ||
+      expectedCacheGeneration == null ||
+      expectedBridgeGeneration == null) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'invalid_request',
+      message: 'Generate request is invalid.',
+    );
+  }
+
+  final cache = await store.readMetadataCache();
+  if (cache == null) {
+    return _cacheUnavailableResponse(id: id, type: type);
+  }
+  final descriptor = await store.readBridgeDescriptor();
+  if (descriptor == null) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'app_bridge_unavailable',
+      message:
+          'KeyVault reveal bridge is unavailable. Open and unlock the desktop app first.',
+    );
+  }
+  // B007 negotiation: an app that does not declare the endpoint gets a hard
+  // `unsupported_capability` — never a fallback to host-side generation or
+  // default settings.
+  if (!descriptor.appCapabilities.contains(
+    desktopBrowserGeneratePendingCapability,
+  )) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'unsupported_capability',
+      message: 'KeyVault desktop does not support password generation yet.',
+    );
+  }
+
+  final binding = _overlaySessionBinding(cache, descriptor);
+  if (binding == null ||
+      binding.databaseId != expectedDatabaseId ||
+      binding.cacheGeneration != expectedCacheGeneration ||
+      binding.bridgeGeneration != expectedBridgeGeneration) {
+    return _staleSessionResponse(id: id, type: type);
+  }
+
+  final call = await _postToAppBridge(
+    descriptor: descriptor,
+    path: '/generate-pending',
+    body: {
+      'version': desktopBrowserAutofillBridgeDescriptorVersion,
+      'origin': origin,
+      'databaseId': binding.databaseId,
+      'cacheGeneration': binding.cacheGeneration,
+      'bridgeGeneration': binding.bridgeGeneration,
+    },
+  );
+  if (call.errorCode != null) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: call.errorCode!,
+      message: _publicRevealErrorMessage(call.errorCode!),
+    );
+  }
+
+  final data = call.data;
+  final pendingGenerationId = data?['pendingGenerationId'];
+  final expiresAtEpochMs = data?['expiresAtEpochMs'];
+  final settingsRevision = data?['settingsRevision'];
+  final password = data?['password'];
+  // Expiry metadata contract: an int, in the future-ish, and no further out
+  // than the five-minute ceiling the pending model guarantees (small slack
+  // for clock skew between validation and creation).
+  final nowMs = DateTime.now().millisecondsSinceEpoch;
+  final expiryValid =
+      expiresAtEpochMs is int &&
+      expiresAtEpochMs > nowMs - 60000 &&
+      expiresAtEpochMs <= nowMs + 5 * 60 * 1000 + 10000;
+  if (pendingGenerationId is! String ||
+      pendingGenerationId.isEmpty ||
+      pendingGenerationId.length > 256 ||
+      !expiryValid ||
+      settingsRevision is! int ||
+      settingsRevision < 1 ||
+      data?['databaseId'] != binding.databaseId ||
+      data?['cacheGeneration'] != binding.cacheGeneration ||
+      data?['bridgeGeneration'] != binding.bridgeGeneration ||
+      password is! String ||
+      password.isEmpty ||
+      utf8.encode(password).length > _maxRevealPasswordBytes) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'app_bridge_invalid_response',
+      message: _publicRevealErrorMessage('app_bridge_invalid_response'),
+    );
+  }
+
+  // SR-4: re-read cache and descriptor after the app answered; a vault switch
+  // in flight drops the secret here.
+  if (!await _overlayBindingIsStillCurrent(store, binding)) {
+    return _staleSessionResponse(id: id, type: type);
+  }
+
+  return _successResponse(
+    id: id,
+    type: type,
+    data: {
+      'pendingGenerationId': pendingGenerationId,
+      'expiresAtEpochMs': expiresAtEpochMs,
+      'origin': origin,
+      'sessionBinding': {
+        'databaseId': binding.databaseId,
+        'cacheGeneration': binding.cacheGeneration,
+        'bridgeGeneration': binding.bridgeGeneration,
+      },
+      'settingsRevision': settingsRevision,
       'password': password,
     },
   );
@@ -1630,6 +1827,9 @@ String _publicRevealErrorMessage(String code) {
       'Credential reveal requires an exact strong match for the current site.',
     'invalid_request' => 'Reveal request is invalid.',
     'unauthorized' => 'KeyVault reveal bridge authentication failed.',
+    'rate_limited' => 'Too many generation requests. Try again shortly.',
+    'unsupported_capability' =>
+      'KeyVault desktop does not support password generation yet.',
     _ => 'KeyVault reveal bridge failed.',
   };
 }

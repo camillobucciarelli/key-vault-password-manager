@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -5,8 +6,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/data/services/browser_exact_origin.dart';
 import 'package:password_manager/features/password_manager/data/services/desktop_browser_autofill_cache.dart';
 import 'package:password_manager/features/password_manager/data/services/desktop_browser_autofill_reveal_bridge_service.dart';
+import 'package:password_manager/features/password_manager/data/services/desktop_browser_pending_generation_service.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
+import 'package:password_manager/features/password_manager/domain/repositories/password_generator_settings_repository.dart';
+import 'package:password_manager/features/password_manager/domain/services/password_generator_service.dart';
 
 void main() {
   group('DesktopBrowserAutofillRevealBridgeService', () {
@@ -826,6 +830,298 @@ void main() {
       },
     );
   });
+
+  // 009 / B006 — the app-owned `/generate-pending` endpoint.
+  //
+  // Secret-lifetime assertions follow the project method: the *actual*
+  // generated value returned by the endpoint is searched for in every
+  // observable surface (store files on disk, print/log output) — never
+  // inferred from internal state.
+  group('generate-pending endpoint (B006)', () {
+    test('returns one-shot password, pending id, expiry, echoed binding and '
+        'settings revision from the committed app snapshot', () async {
+      final bridge = await _startGenerationBridge();
+
+      final response = await _postBridge(
+        descriptor: bridge.descriptor,
+        path: '/generate-pending',
+        body: _generateBody(bridge.descriptor),
+      );
+
+      expect(response.statusCode, HttpStatus.ok);
+      final data = response.json['data']! as Map<String, Object?>;
+      final password = data['password']! as String;
+      // Generated with the committed snapshot, never caller input:
+      // digits-only, length 24 is this test's committed settings shape.
+      expect(password.length, 24);
+      expect(RegExp(r'^[0-9]+$').hasMatch(password), isTrue);
+      expect(data['settingsRevision'], 7);
+      expect(data['databaseId'], bridge.descriptor.databaseId);
+      expect(data['cacheGeneration'], bridge.descriptor.cacheGeneration);
+      expect(data['bridgeGeneration'], bridge.descriptor.bridgeGeneration);
+      final pendingId = data['pendingGenerationId']! as String;
+      expect(pendingId, isNotEmpty);
+      expect(pendingId, isNot(contains(password)));
+      final expiresAt = data['expiresAtEpochMs']! as int;
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      expect(expiresAt, greaterThan(nowMs));
+      expect(expiresAt, lessThanOrEqualTo(nowMs + 5 * 60 * 1000));
+
+      // The record is app-owned and consumable exactly once, bound to the
+      // exact origin of the request.
+      final draft = bridge.pending.consume(
+        pendingId,
+        origin: 'https://example.com',
+      );
+      expect(draft, isNotNull);
+      expect(draft!.password, password);
+      expect(draft.settingsRevision, 7);
+      expect(
+        bridge.pending.consume(pendingId, origin: 'https://example.com'),
+        isNull,
+      );
+    });
+
+    test('a non-default port is part of the pending record origin', () async {
+      final bridge = await _startGenerationBridge();
+
+      final response = await _postBridge(
+        descriptor: bridge.descriptor,
+        path: '/generate-pending',
+        body: _generateBody(
+          bridge.descriptor,
+          origin: 'https://example.com:8443',
+        ),
+      );
+
+      expect(response.statusCode, HttpStatus.ok);
+      final data = response.json['data']! as Map<String, Object?>;
+      final pendingId = data['pendingGenerationId']! as String;
+      // The default-port origin cannot consume a record created for the
+      // non-default port — ownership is the full exact-origin tuple.
+      expect(
+        bridge.pending.consume(pendingId, origin: 'https://example.com'),
+        isNull,
+      );
+      expect(
+        bridge.pending.consume(pendingId, origin: 'https://example.com:8443'),
+        isNotNull,
+      );
+    });
+
+    test('descriptor advertises the capability only when the endpoint '
+        'exists', () async {
+      final withGeneration = await _startGenerationBridge();
+      expect(
+        withGeneration.descriptor.appCapabilities,
+        contains(desktopBrowserGeneratePendingCapability),
+      );
+
+      // A bridge without the generation dependencies is the pre-B1 app: no
+      // capability in the descriptor, `not_found` on the route.
+      final without = await _startOverlayBridge();
+      expect(without.descriptor.appCapabilities, isEmpty);
+      final response = await _postBridge(
+        descriptor: without.descriptor,
+        path: '/generate-pending',
+        body: _generateBody(without.descriptor),
+      );
+      expect(response.statusCode, HttpStatus.notFound);
+    });
+
+    test('a settings field in the request is invalid_request, not '
+        'ignored', () async {
+      final bridge = await _startGenerationBridge();
+
+      for (final smuggled in <Map<String, Object?>>[
+        {
+          'settings': <String, Object?>{'length': 4},
+        },
+        {'length': 4},
+        {'includeSymbols': false},
+      ]) {
+        final response = await _postBridge(
+          descriptor: bridge.descriptor,
+          path: '/generate-pending',
+          body: {..._generateBody(bridge.descriptor), ...smuggled},
+        );
+        expect(response.statusCode, HttpStatus.badRequest);
+        expect(
+          (response.json['error']! as Map<String, Object?>)['code'],
+          'invalid_request',
+        );
+      }
+      // Nothing was generated for any of them.
+      expect(bridge.pending.pendingCount, 0);
+    });
+
+    test('requires the bearer token', () async {
+      final bridge = await _startGenerationBridge();
+
+      final response = await _postBridge(
+        descriptor: bridge.descriptor,
+        path: '/generate-pending',
+        body: _generateBody(bridge.descriptor),
+        authorizationToken: 'wrong-token-wrong-token-wrong-token',
+      );
+
+      expect(response.statusCode, HttpStatus.unauthorized);
+      expect(bridge.pending.pendingCount, 0);
+    });
+
+    test('refuses a non-exact or non-http(s) origin', () async {
+      final bridge = await _startGenerationBridge();
+
+      for (final origin in const [
+        'ftp://example.com',
+        'chrome-extension://abcdefg',
+        'https://alice@example.com',
+        'not a url',
+      ]) {
+        final response = await _postBridge(
+          descriptor: bridge.descriptor,
+          path: '/generate-pending',
+          body: _generateBody(bridge.descriptor, origin: origin),
+        );
+        expect(response.statusCode, HttpStatus.badRequest, reason: origin);
+      }
+      expect(bridge.pending.pendingCount, 0);
+    });
+
+    for (final mismatch in const [
+      'databaseId',
+      'cacheGeneration',
+      'bridgeGeneration',
+    ]) {
+      test('$mismatch mismatch is stale_session before generation', () async {
+        final bridge = await _startGenerationBridge();
+
+        final response = await _postBridge(
+          descriptor: bridge.descriptor,
+          path: '/generate-pending',
+          body: _generateBody(
+            bridge.descriptor,
+            databaseId: mismatch == 'databaseId' ? 'db-other' : null,
+            cacheGeneration: mismatch == 'cacheGeneration' ? 'other' : null,
+            bridgeGeneration: mismatch == 'bridgeGeneration' ? 'other' : null,
+          ),
+        );
+
+        expect(response.statusCode, HttpStatus.conflict);
+        expect(
+          (response.json['error']! as Map<String, Object?>)['code'],
+          'stale_session',
+        );
+        // Stale sessions never generate: no pending record, no secret.
+        expect(bridge.pending.pendingCount, 0);
+      });
+    }
+
+    test('bounded rate: requests beyond the window are refused without '
+        'generating', () async {
+      final bridge = await _startGenerationBridge();
+      final limit = DesktopBrowserAutofillRevealBridgeService
+          .maxGenerateRequestsPerMinute;
+
+      for (var i = 0; i < limit; i += 1) {
+        final response = await _postBridge(
+          descriptor: bridge.descriptor,
+          path: '/generate-pending',
+          body: _generateBody(bridge.descriptor),
+        );
+        expect(response.statusCode, HttpStatus.ok);
+      }
+
+      final refused = await _postBridge(
+        descriptor: bridge.descriptor,
+        path: '/generate-pending',
+        body: _generateBody(bridge.descriptor),
+      );
+      expect(refused.statusCode, HttpStatus.tooManyRequests);
+      expect(
+        (refused.json['error']! as Map<String, Object?>)['code'],
+        'rate_limited',
+      );
+      // The pending set stays bounded regardless (service ceiling).
+      expect(
+        bridge.pending.pendingCount,
+        lessThanOrEqualTo(DesktopBrowserPendingGenerationService.maxRecords),
+      );
+    });
+
+    test('a session torn down between generation and response is stale_session '
+        'and the pending secret is dropped', () async {
+      final bridge = await _startGenerationBridge();
+      // The durable descriptor flips to another session while the response
+      // is about to be written — exactly the window the SR-4 re-check
+      // closes on the overlay path.
+      bridge.service.debugBeforeGeneratePendingResponse = () async {
+        await bridge.store.writeBridgeDescriptor(
+          DesktopBrowserAutofillBridgeDescriptor(
+            version: desktopBrowserAutofillBridgeDescriptorVersion,
+            port: bridge.descriptor.port,
+            token: bridge.descriptor.token,
+            databaseId: 'sha256:other-vault',
+            cacheGeneration: 'other-cache-generation',
+            bridgeGeneration: 'other-bridge-generation',
+            createdAtEpochMs: 2,
+          ),
+        );
+      };
+
+      final response = await _postBridge(
+        descriptor: bridge.descriptor,
+        path: '/generate-pending',
+        body: _generateBody(bridge.descriptor),
+      );
+
+      expect(response.statusCode, HttpStatus.conflict);
+      expect(
+        (response.json['error']! as Map<String, Object?>)['code'],
+        'stale_session',
+      );
+      // The record created mid-flight was rejected: nothing pending, and
+      // its secret reference is gone.
+      expect(bridge.pending.pendingCount, 0);
+    });
+
+    test('the generated secret never reaches any store file or log', () async {
+      final bridge = await _startGenerationBridge();
+
+      final printed = <String>[];
+      late String password;
+      await runZoned(
+        () async {
+          final response = await _postBridge(
+            descriptor: bridge.descriptor,
+            path: '/generate-pending',
+            body: _generateBody(bridge.descriptor),
+          );
+          expect(response.statusCode, HttpStatus.ok);
+          password =
+              (response.json['data']! as Map<String, Object?>)['password']!
+                  as String;
+        },
+        zoneSpecification: ZoneSpecification(
+          print: (self, parent, zone, line) => printed.add(line),
+        ),
+      );
+
+      await for (final fileEntity in bridge.store.directory!.list(
+        recursive: true,
+        followLinks: false,
+      )) {
+        if (fileEntity is File) {
+          expect(
+            await fileEntity.readAsString(),
+            isNot(contains(password)),
+            reason: 'secret leaked to ${fileEntity.uri.pathSegments.last}',
+          );
+        }
+      }
+      expect(printed.join('\n'), isNot(contains(password)));
+    });
+  });
 }
 
 /// 009 / A012 — the origin-bound overlay endpoint on the app bridge.
@@ -874,6 +1170,106 @@ _startOverlayBridge({List<VaultEntry>? entries}) async {
     service: service,
     store: store,
   );
+}
+
+/// 009 / B006 — a bridge with the generation dependencies wired, standing in
+/// for the running unlocked app. The committed settings snapshot is
+/// digits-only length 24 at revision 7, so tests can assert the generated
+/// shape without ever embedding a literal credential value.
+Future<
+  ({
+    DesktopBrowserAutofillBridgeDescriptor descriptor,
+    DesktopBrowserAutofillRevealBridgeService service,
+    DesktopBrowserAutofillCacheStore store,
+    DesktopBrowserPendingGenerationService pending,
+  })
+>
+_startGenerationBridge() async {
+  final store = DesktopBrowserAutofillCacheStore(
+    directory: await Directory.systemTemp.createTemp('kv-generate-bridge-'),
+  );
+  const mapper = DesktopBrowserAutofillMetadataMapper();
+  final vaultEntries = [
+    _entry(
+      id: 'entry-1',
+      username: 'alice',
+      password: 'test-only-secret',
+      url: 'https://example.com/login',
+    ),
+  ];
+  await store.writeMetadataCache(
+    mapper.mapVault(
+      databasePath: '/vaults/example.kdbx',
+      entries: vaultEntries,
+    ),
+  );
+  final pending = DesktopBrowserPendingGenerationService();
+  final service = DesktopBrowserAutofillRevealBridgeService(
+    store: store,
+    mapper: mapper,
+    settingsRepository: _FixedSettingsRepository(
+      const GeneratorSettingsSnapshot(
+        revision: 7,
+        length: 24,
+        includeLowercase: false,
+        includeUppercase: false,
+        includeDigits: true,
+        includeSymbols: false,
+      ),
+    ),
+    passwordGenerator: PasswordGeneratorService(),
+    pendingGeneration: pending,
+  );
+  addTearDown(service.stop);
+  await service.start(
+    databasePath: '/vaults/example.kdbx',
+    entries: vaultEntries,
+  );
+  return (
+    descriptor: (await store.readBridgeDescriptor())!,
+    service: service,
+    store: store,
+    pending: pending,
+  );
+}
+
+Map<String, Object?> _generateBody(
+  DesktopBrowserAutofillBridgeDescriptor descriptor, {
+  String origin = 'https://example.com',
+  String? databaseId,
+  String? cacheGeneration,
+  String? bridgeGeneration,
+}) {
+  return {
+    'origin': origin,
+    'databaseId': databaseId ?? descriptor.databaseId,
+    'cacheGeneration': cacheGeneration ?? descriptor.cacheGeneration,
+    'bridgeGeneration': bridgeGeneration ?? descriptor.bridgeGeneration,
+  };
+}
+
+/// Settings are app-owned: the bridge must only ever read the committed
+/// snapshot. Save/reset are unreachable from the endpoint by construction.
+class _FixedSettingsRepository implements PasswordGeneratorSettingsRepository {
+  _FixedSettingsRepository(this.snapshot);
+
+  final GeneratorSettingsSnapshot snapshot;
+
+  @override
+  Future<GeneratorSettingsSnapshot> read() async => snapshot;
+
+  @override
+  Future<GeneratorSettingsSnapshot> save(
+    GeneratorSettingsSnapshot draft, {
+    required int expectedRevision,
+  }) => throw UnsupportedError('the bridge endpoint never writes settings');
+
+  @override
+  Future<GeneratorSettingsSnapshot> reset() =>
+      throw UnsupportedError('the bridge endpoint never writes settings');
+
+  @override
+  Stream<GeneratorSettingsSnapshot> watch() => const Stream.empty();
 }
 
 Map<String, Object?> _overlayBody(

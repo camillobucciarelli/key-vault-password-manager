@@ -7,8 +7,11 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 
 import '../../domain/models/vault_entry.dart';
+import '../../domain/repositories/password_generator_settings_repository.dart';
+import '../../domain/services/password_generator_service.dart';
 import 'browser_exact_origin.dart';
 import 'desktop_browser_autofill_cache.dart';
+import 'desktop_browser_pending_generation_service.dart';
 
 const _maxRevealRequestBytes = 4096;
 
@@ -16,10 +19,33 @@ class DesktopBrowserAutofillRevealBridgeService {
   DesktopBrowserAutofillRevealBridgeService({
     required this.store,
     required this.mapper,
+    this.settingsRepository,
+    this.passwordGenerator,
+    this.pendingGeneration,
   });
+
+  /// 009 / B006 — anti-grinding bound: fixed one-minute window per bridge
+  /// session. Generation is a user-gesture path (one click, one password),
+  /// so a tight ceiling costs nothing legitimate.
+  // ponytail: fixed window; sliding window if a real client ever hits this.
+  static const maxGenerateRequestsPerMinute = 10;
 
   final DesktopBrowserAutofillCacheStore store;
   final DesktopBrowserAutofillMetadataMapper mapper;
+
+  /// 009 / B006 — generation dependencies. All three must be present for the
+  /// `/generate-pending` endpoint to exist; otherwise the bridge behaves
+  /// exactly like a pre-B1 app: the route answers `not_found` and the
+  /// descriptor advertises no `generatePendingEntryV1` capability. Settings
+  /// are read from [settingsRepository] only — the request cannot carry them.
+  final PasswordGeneratorSettingsRepository? settingsRepository;
+  final PasswordGeneratorService? passwordGenerator;
+  final DesktopBrowserPendingGenerationService? pendingGeneration;
+
+  bool get _generationAvailable =>
+      settingsRepository != null &&
+      passwordGenerator != null &&
+      pendingGeneration != null;
 
   HttpServer? _server;
   String? _databaseId;
@@ -42,6 +68,14 @@ class DesktopBrowserAutofillRevealBridgeService {
   /// exact window the second check exists to close. Production never sets it.
   @visibleForTesting
   Future<void> Function()? debugBeforeOverlayRevealResponse;
+
+  /// Same seam for `/generate-pending`: awaited between the pending-record
+  /// creation and the response write. Production never sets it.
+  @visibleForTesting
+  Future<void> Function()? debugBeforeGeneratePendingResponse;
+
+  int _generateWindowStartMs = 0;
+  int _generateWindowCount = 0;
 
   Future<void> start({
     required String databasePath,
@@ -77,6 +111,8 @@ class DesktopBrowserAutofillRevealBridgeService {
     _token = token;
     _credentials = credentials;
     _sessionEpoch += 1;
+    _generateWindowStartMs = 0;
+    _generateWindowCount = 0;
 
     try {
       await store.writeBridgeDescriptor(
@@ -88,6 +124,11 @@ class DesktopBrowserAutofillRevealBridgeService {
           cacheGeneration: cacheGeneration,
           bridgeGeneration: bridgeGeneration,
           createdAtEpochMs: DateTime.now().millisecondsSinceEpoch,
+          // B007: the capability is advertised only when the endpoint truly
+          // exists on this running bridge — the two can never disagree.
+          appCapabilities: _generationAvailable
+              ? const [desktopBrowserGeneratePendingCapability]
+              : const [],
         ),
       );
     } catch (_) {
@@ -107,6 +148,8 @@ class DesktopBrowserAutofillRevealBridgeService {
     _token = null;
     _credentials = const {};
     _sessionEpoch += 1;
+    _generateWindowStartMs = 0;
+    _generateWindowCount = 0;
 
     if (server != null) {
       try {
@@ -150,6 +193,7 @@ class DesktopBrowserAutofillRevealBridgeService {
       if (request.method != 'POST' ||
           (request.uri.path != '/reveal' &&
               request.uri.path != '/overlay-reveal' &&
+              request.uri.path != '/generate-pending' &&
               request.uri.path != '/status')) {
         await _writeError(request, HttpStatus.notFound, 'not_found');
         return;
@@ -184,6 +228,11 @@ class DesktopBrowserAutofillRevealBridgeService {
 
       if (request.uri.path == '/overlay-reveal') {
         await _handleOverlayReveal(request, payload);
+        return;
+      }
+
+      if (request.uri.path == '/generate-pending') {
+        await _handleGeneratePending(request, payload);
         return;
       }
 
@@ -332,6 +381,136 @@ class DesktopBrowserAutofillRevealBridgeService {
         'bridgeGeneration': bridgeGeneration,
         'username': credential.username,
         'password': credential.password,
+      },
+    });
+  }
+
+  /// 009 / B006 — one-shot app-owned password generation.
+  ///
+  /// The secret exists in exactly three places: this response, the in-memory
+  /// pending record, and the native host's one-shot response. It never touches
+  /// the metadata cache, the bridge descriptor, `pending_associations.json`,
+  /// or a log. Settings come exclusively from the app repository's last
+  /// committed snapshot: a request that even *mentions* settings is
+  /// `invalid_request` — rejected, not ignored — via the strict key allowlist.
+  Future<void> _handleGeneratePending(
+    HttpRequest request,
+    Map<String, Object?> payload,
+  ) async {
+    final settingsRepository = this.settingsRepository;
+    final passwordGenerator = this.passwordGenerator;
+    final pendingGeneration = this.pendingGeneration;
+    if (settingsRepository == null ||
+        passwordGenerator == null ||
+        pendingGeneration == null) {
+      // Same shape a pre-B1 app produces: the endpoint does not exist.
+      await _writeError(request, HttpStatus.notFound, 'not_found');
+      return;
+    }
+
+    // Read the whole session under one epoch, before anything else.
+    final epochAtEntry = _sessionEpoch;
+
+    // Strict allowlist: any unknown key — a smuggled `settings` object, a
+    // `length` override, anything — invalidates the whole request.
+    const allowedKeys = {
+      'version',
+      'origin',
+      'databaseId',
+      'cacheGeneration',
+      'bridgeGeneration',
+    };
+    if (payload.keys.any((key) => !allowedKeys.contains(key))) {
+      await _writeError(request, HttpStatus.badRequest, 'invalid_request');
+      return;
+    }
+
+    final origin = browserExactOriginOrNull(payload['origin']);
+    final databaseId = _safeString(payload['databaseId'], maxLength: 128);
+    final cacheGeneration = _safeString(
+      payload['cacheGeneration'],
+      maxLength: 128,
+    );
+    final bridgeGeneration = _safeString(
+      payload['bridgeGeneration'],
+      maxLength: 128,
+    );
+    if (origin == null) {
+      await _writeError(request, HttpStatus.badRequest, 'invalid_request');
+      return;
+    }
+    if (!_matchesCurrentBinding(
+      epoch: epochAtEntry,
+      databaseId: databaseId,
+      cacheGeneration: cacheGeneration,
+      bridgeGeneration: bridgeGeneration,
+    )) {
+      // The bridge only runs while the vault is unlocked, so a locked or
+      // switched database can never satisfy the current binding.
+      await _writeError(request, HttpStatus.conflict, 'stale_session');
+      return;
+    }
+
+    // B006 rate bound — checked only after the request proved authentic and
+    // current, so garbage cannot burn the window of a legitimate caller.
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs - _generateWindowStartMs >= 60000) {
+      _generateWindowStartMs = nowMs;
+      _generateWindowCount = 0;
+    }
+    if (_generateWindowCount >= maxGenerateRequestsPerMinute) {
+      await _writeError(request, HttpStatus.tooManyRequests, 'rate_limited');
+      return;
+    }
+    _generateWindowCount += 1;
+
+    // Latest *committed* app settings — never anything from the caller.
+    final settings = await settingsRepository.read();
+    final password = passwordGenerator.generate(settings.toOptions());
+    final pending = pendingGeneration.create(
+      databaseId: databaseId!,
+      cacheGeneration: cacheGeneration!,
+      bridgeGeneration: bridgeGeneration!,
+      settingsRevision: settings.revision,
+      origin: origin,
+      password: password,
+    );
+
+    final beforeResponse = debugBeforeGeneratePendingResponse;
+    if (beforeResponse != null) {
+      await beforeResponse();
+    }
+
+    // SR-4: re-check against the in-memory session and the durable descriptor
+    // immediately before the secret is written. A lock/switch that landed
+    // mid-request already cleared the pending set via the coordinator; the
+    // explicit reject below covers the durable-only divergence.
+    final durable = await store.readBridgeDescriptor();
+    if (!_matchesCurrentBinding(
+          epoch: epochAtEntry,
+          databaseId: databaseId,
+          cacheGeneration: cacheGeneration,
+          bridgeGeneration: bridgeGeneration,
+        ) ||
+        durable == null ||
+        durable.databaseId != databaseId ||
+        durable.cacheGeneration != cacheGeneration ||
+        durable.bridgeGeneration != bridgeGeneration) {
+      pendingGeneration.reject(pending.id);
+      await _writeError(request, HttpStatus.conflict, 'stale_session');
+      return;
+    }
+
+    await _writeJson(request, HttpStatus.ok, {
+      'ok': true,
+      'data': {
+        'pendingGenerationId': pending.id,
+        'expiresAtEpochMs': pending.expiresAtEpochMs,
+        'databaseId': databaseId,
+        'cacheGeneration': cacheGeneration,
+        'bridgeGeneration': bridgeGeneration,
+        'settingsRevision': settings.revision,
+        'password': password,
       },
     });
   }
@@ -529,6 +708,7 @@ String _publicErrorMessage(String code) {
     // the entry exists, nor which part of the origin failed to match.
     'stale_session' => 'Reveal bridge session is no longer current.',
     'forbidden' => 'Reveal bridge rejected the request.',
+    'rate_limited' => 'Too many generation requests. Try again shortly.',
     _ => 'Reveal bridge request failed.',
   };
 }

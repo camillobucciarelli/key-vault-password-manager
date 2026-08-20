@@ -41,6 +41,16 @@ const desktopBrowserAutofillCacheVersion = 5;
 /// metadata cache it was started for. A version 1 descriptor cannot satisfy the
 /// SR-4 binding, so it is rejected rather than treated as unbound.
 const desktopBrowserAutofillBridgeDescriptorVersion = 2;
+
+/// 009 / B007 — app-side capability carried by the bridge descriptor.
+///
+/// Written by the app only when its bridge actually serves
+/// `/generate-pending`. The native host advertises `generatePendingEntryV1`
+/// in `hello` if and only if the current descriptor lists it, so an old app
+/// (descriptor without the field) makes the capability disappear and every
+/// `generatePendingEntry` request fail closed with `unsupported_capability` —
+/// never a fallback to extension/native-side generation.
+const desktopBrowserGeneratePendingCapability = 'generatePendingEntryV1';
 const desktopBrowserAutofillPlatform = 'desktop/browser';
 const desktopBrowserAutofillMaxPendingAssociations = 100;
 
@@ -208,6 +218,7 @@ class DesktopBrowserAutofillBridgeDescriptor {
     required this.cacheGeneration,
     required this.bridgeGeneration,
     required this.createdAtEpochMs,
+    this.appCapabilities = const [],
   });
 
   factory DesktopBrowserAutofillBridgeDescriptor.fromJson(
@@ -221,7 +232,26 @@ class DesktopBrowserAutofillBridgeDescriptor {
       cacheGeneration: _readString(json, 'cacheGeneration'),
       bridgeGeneration: _readString(json, 'bridgeGeneration'),
       createdAtEpochMs: _readInt(json, 'createdAtEpochMs'),
+      appCapabilities: _readCapabilities(json['appCapabilities']),
     );
+  }
+
+  /// Optional for backward compatibility: a pre-B1 app writes no
+  /// `appCapabilities` field and gets the empty list, which advertises
+  /// nothing. Anything that is not a bounded list of short strings is
+  /// treated the same way — fail closed, never fail open.
+  static List<String> _readCapabilities(Object? value) {
+    if (value is! List || value.length > 16) {
+      return const [];
+    }
+    final result = <String>[];
+    for (final item in value) {
+      if (item is! String || item.isEmpty || item.length > 64) {
+        return const [];
+      }
+      result.add(item);
+    }
+    return List.unmodifiable(result);
   }
 
   final int version;
@@ -238,6 +268,9 @@ class DesktopBrowserAutofillBridgeDescriptor {
   final String bridgeGeneration;
   final int createdAtEpochMs;
 
+  /// 009 / B007 — endpoints this app bridge actually serves (non-secret).
+  final List<String> appCapabilities;
+
   Map<String, Object?> toJson() => {
     'version': version,
     'port': port,
@@ -246,6 +279,7 @@ class DesktopBrowserAutofillBridgeDescriptor {
     'cacheGeneration': cacheGeneration,
     'bridgeGeneration': bridgeGeneration,
     'createdAtEpochMs': createdAtEpochMs,
+    'appCapabilities': appCapabilities,
   };
 }
 
