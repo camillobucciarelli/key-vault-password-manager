@@ -320,6 +320,10 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
         _onAppResumed();
         break;
       case AppLifecycleState.detached:
+        // FR-2 (spec 011): process termination drops the in-memory session
+        // secret. The keystore no longer persists it for a biometrics-off
+        // database (FR-3), so nothing survives the kill.
+        di.sl<MasterPasswordSession>().clear();
         break;
     }
   }

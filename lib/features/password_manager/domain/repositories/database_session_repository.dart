@@ -5,7 +5,12 @@
 abstract class DatabaseSessionRepository {
   Future<String?> getCachedKeyFilePath();
   Future<void> cacheKeyFilePath(String? path);
-  Future<void> saveMasterPassword(String password);
-  Future<String?> getMasterPassword();
-  Future<void> clearMasterPassword();
+
+  /// spec-011 FR-4: the biometric credential is keyed per database id.
+  Future<void> saveMasterPassword(String databaseId, String password);
+  Future<String?> getMasterPassword(String databaseId);
+  Future<void> clearMasterPassword(String databaseId);
+
+  /// spec-011 FR-6: delete the legacy global master-password entry once.
+  Future<void> clearLegacyGlobalMasterPassword();
 }

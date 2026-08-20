@@ -27,16 +27,26 @@ void main() {
     });
 
     test('composes secure data source for the master password', () async {
-      expect(await repository.getMasterPassword(), isNull);
+      expect(await repository.getMasterPassword('db-1'), isNull);
 
-      await repository.saveMasterPassword('kv-test-only-not-a-real-password');
-      expect(
-        await repository.getMasterPassword(),
+      await repository.saveMasterPassword(
+        'db-1',
         'kv-test-only-not-a-real-password',
       );
+      expect(
+        await repository.getMasterPassword('db-1'),
+        'kv-test-only-not-a-real-password',
+      );
+      // FR-4: entries are keyed per database id.
+      expect(await repository.getMasterPassword('db-2'), isNull);
 
-      await repository.clearMasterPassword();
-      expect(await repository.getMasterPassword(), isNull);
+      await repository.clearMasterPassword('db-1');
+      expect(await repository.getMasterPassword('db-1'), isNull);
+    });
+
+    test('composes secure data source for the legacy global clear', () async {
+      await repository.clearLegacyGlobalMasterPassword();
+      expect(secureDataSource.legacyGlobalCleared, isTrue);
     });
   });
 }
@@ -63,18 +73,25 @@ class _FakeLocalDataSource implements LocalDataSource {
 }
 
 class _FakeSecureDataSource implements SecureDataSource {
-  String? password;
+  final Map<String, String> passwords = {};
+  bool legacyGlobalCleared = false;
 
   @override
-  Future<void> clearMasterPassword() async {
-    password = null;
+  Future<void> clearMasterPassword(String databaseId) async {
+    passwords.remove(databaseId);
   }
 
   @override
-  Future<String?> getMasterPassword() async => password;
+  Future<String?> getMasterPassword(String databaseId) async =>
+      passwords[databaseId];
 
   @override
-  Future<void> saveMasterPassword(String password) async {
-    this.password = password;
+  Future<void> saveMasterPassword(String databaseId, String password) async {
+    passwords[databaseId] = password;
+  }
+
+  @override
+  Future<void> clearLegacyGlobalMasterPassword() async {
+    legacyGlobalCleared = true;
   }
 }

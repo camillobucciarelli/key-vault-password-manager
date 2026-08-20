@@ -3,7 +3,6 @@ import 'dart:io' show SocketException;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_csv_import_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_duplicate_service.dart';
@@ -21,6 +20,7 @@ import 'package:password_manager/features/password_manager/presentation/bloc/vau
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_event.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_state.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/master_password_session.dart';
 
 void main() {
   group('VaultState background sync fields', () {
@@ -378,6 +378,28 @@ void main() {
         expect(bloc.state.isLoading, isFalse);
       },
     );
+
+    test(
+      'FR-2: an absent session secret fails to load rather than using ""',
+      () async {
+        // No live session secret (holder empty): InitializeVault must surface
+        // the locked-state error and never open the vault with an empty
+        // password.
+        final lockedBloc = _makeBloc(
+          repo,
+          kdbx,
+          masterPasswordSession: MasterPasswordSession(),
+        );
+        addTearDown(() async => lockedBloc.close());
+
+        lockedBloc.add(const InitializeVault());
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+
+        expect(kdbx.loadCallCount, 0);
+        expect(lockedBloc.state.isLoading, isFalse);
+        expect(lockedBloc.state.errorMessage, isNotNull);
+      },
+    );
   });
 
   group('BackgroundDriveSync', () {
@@ -703,15 +725,6 @@ VaultSnapshot _snapshotReplacingEntry(
 
 // --- Fakes ---
 
-class _FakeSecureDataSource implements SecureDataSource {
-  @override
-  Future<String?> getMasterPassword() async => '';
-  @override
-  Future<void> saveMasterPassword(String p) async {}
-  @override
-  Future<void> clearMasterPassword() async {}
-}
-
 class _FakeVaultKdbxService implements VaultKdbxService {
   _FakeVaultKdbxService({List<String>? operations})
     : operations = operations ?? <String>[];
@@ -879,11 +892,13 @@ VaultBloc _makeBloc(
   _FakeVaultKdbxService kdbx, {
   AppleAutofillV2CoordinatorContract appleAutofillV2Coordinator =
       const NoopAppleAutofillV2Coordinator(),
+  MasterPasswordSession? masterPasswordSession,
 }) {
   return VaultBloc(
     databasePath: _kDbPath,
     getSelectedKeyFilePath: () async => null,
-    secureDataSource: _FakeSecureDataSource(),
+    masterPasswordSession:
+        masterPasswordSession ?? (MasterPasswordSession()..set('')),
     vaultKdbxService: kdbx,
     vaultCsvImportService: VaultCsvImportService(),
     vaultDuplicateService: VaultDuplicateService(),

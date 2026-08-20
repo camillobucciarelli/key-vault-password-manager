@@ -228,7 +228,7 @@ class DatabaseUnlockBloc
     );
 
     final hasStoredPassword = await databaseSessionCoordinator
-        .hasStoredMasterPassword();
+        .hasStoredMasterPassword(state.databasePath);
     final hasKeyFile =
         state.keyFilePath != null && state.keyFilePath!.isNotEmpty;
 

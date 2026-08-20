@@ -162,7 +162,10 @@ class FakeDatabaseFileRepository implements DatabaseFileRepository {
 
 class FakeDatabaseSessionRepository implements DatabaseSessionRepository {
   String? keyFilePath;
-  String? masterPassword;
+
+  // spec-011 FR-4: credentials keyed per database id.
+  final Map<String, String> masterPasswords = {};
+  bool legacyGlobalCleared = false;
 
   @override
   Future<String?> getCachedKeyFilePath() async => keyFilePath;
@@ -173,16 +176,22 @@ class FakeDatabaseSessionRepository implements DatabaseSessionRepository {
   }
 
   @override
-  Future<void> saveMasterPassword(String password) async {
-    masterPassword = password;
+  Future<void> saveMasterPassword(String databaseId, String password) async {
+    masterPasswords[databaseId] = password;
   }
 
   @override
-  Future<String?> getMasterPassword() async => masterPassword;
+  Future<String?> getMasterPassword(String databaseId) async =>
+      masterPasswords[databaseId];
 
   @override
-  Future<void> clearMasterPassword() async {
-    masterPassword = null;
+  Future<void> clearMasterPassword(String databaseId) async {
+    masterPasswords.remove(databaseId);
+  }
+
+  @override
+  Future<void> clearLegacyGlobalMasterPassword() async {
+    legacyGlobalCleared = true;
   }
 }
 

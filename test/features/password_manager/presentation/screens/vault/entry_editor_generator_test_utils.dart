@@ -11,7 +11,7 @@ import 'package:password_manager/core/theme/app_theme.dart';
 import 'package:password_manager/core/utils/clipboard_guard.dart';
 import 'package:password_manager/core/theme/theme_cubit.dart';
 import 'package:password_manager/features/password_manager/data/datasources/biometric_data_source.dart';
-import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
+
 import 'package:password_manager/features/password_manager/data/services/vault_csv_import_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_duplicate_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
@@ -24,6 +24,7 @@ import 'package:password_manager/features/password_manager/domain/models/vault_s
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 import 'package:password_manager/features/password_manager/domain/services/password_generator_service.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_bloc.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/master_password_session.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/otpauth_deep_link_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/vault_session_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/screens/vault_screen.dart';
@@ -156,6 +157,11 @@ Future<Widget> pumpableEntryScreen({
   di.sl.registerLazySingleton<BiometricDataSource>(
     () => _FakeBiometricDataSource(resolvedHarness),
   );
+  // spec-011: VaultBloc reads the session secret from this holder; the shell's
+  // `detached` handler resolves it via di.sl. Seed a non-null value.
+  di.sl.registerLazySingleton<MasterPasswordSession>(
+    () => MasterPasswordSession()..set(''),
+  );
   if (!di.sl.isRegistered<PasswordGeneratorService>()) {
     // Fixed seed: goldens photograph the generator's result box (mono,
     // break-all) — a real Random.secure() draw would make those goldens
@@ -168,7 +174,7 @@ Future<Widget> pumpableEntryScreen({
     (path, _) => VaultBloc(
       databasePath: path,
       getSelectedKeyFilePath: () async => null,
-      secureDataSource: _FakeSecureDataSource(),
+      masterPasswordSession: di.sl<MasterPasswordSession>(),
       vaultKdbxService: _FakeVaultKdbxService(resolvedHarness),
       vaultCsvImportService: VaultCsvImportService(),
       vaultDuplicateService: VaultDuplicateService(),
@@ -190,17 +196,6 @@ Future<Widget> pumpableEntryScreen({
 }
 
 Future<void> resetEntryTestDi() => di.sl.reset();
-
-class _FakeSecureDataSource implements SecureDataSource {
-  @override
-  Future<String?> getMasterPassword() async => '';
-
-  @override
-  Future<void> saveMasterPassword(String password) async {}
-
-  @override
-  Future<void> clearMasterPassword() async {}
-}
 
 class _FakeVaultKdbxService implements VaultKdbxService {
   _FakeVaultKdbxService(this.harness);

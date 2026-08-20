@@ -18,6 +18,7 @@ import 'package:password_manager/features/password_manager/domain/repositories/d
 import 'package:password_manager/features/password_manager/domain/repositories/database_security_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/master_password_session.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/vault_session_coordinator.dart';
 
 void main() {
@@ -29,6 +30,7 @@ void main() {
     late _FakeSecureDataSource secureDataSource;
     late _FakeVaultKdbxService vaultKdbxService;
     late _FakeAppleAutofillV2Coordinator appleAutofillV2Coordinator;
+    late MasterPasswordSession masterPasswordSession;
     late VaultSessionCoordinator coordinator;
 
     setUp(() {
@@ -39,6 +41,7 @@ void main() {
       secureDataSource = _FakeSecureDataSource();
       vaultKdbxService = _FakeVaultKdbxService();
       appleAutofillV2Coordinator = _FakeAppleAutofillV2Coordinator();
+      masterPasswordSession = MasterPasswordSession();
       coordinator = VaultSessionCoordinator(
         localDataSource: localDataSource,
         databaseRegistryRepository: registryRepository,
@@ -47,6 +50,7 @@ void main() {
         databaseSyncRepository: syncRepository,
         vaultKdbxService: vaultKdbxService,
         appleAutofillV2Coordinator: appleAutofillV2Coordinator,
+        masterPasswordSession: masterPasswordSession,
       );
     });
 
@@ -74,6 +78,9 @@ void main() {
           ),
         ];
         secureDataSource.password = 'secret';
+        // spec-011 FR-1: the current session credential is now read from the
+        // in-memory holder, not the keystore.
+        masterPasswordSession.set('secret');
 
         final result = await coordinator.updateDatabaseSettings(
           DatabaseSettingsUpdateRequest(
@@ -155,6 +162,46 @@ void main() {
         expect(localDataSource.selectedKeyFilePath, isNull);
         expect(securityRepository.profiles['db-1'], isNull);
         expect(secureDataSource.password, isNull);
+      },
+    );
+
+    test(
+      'FR-3 regression: a failed settings update with biometrics OFF never '
+      'writes the in-memory session secret into the keystore',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'vault_session_rollback_off_',
+        );
+        addTearDown(() => tempDir.delete(recursive: true));
+        final oldFile = File('${tempDir.path}/old.kdbx');
+        await oldFile.writeAsBytes(const [1, 2, 3], flush: true);
+        registryRepository.records = [_recordForTest('db-1', oldFile.path)];
+        // A live session secret exists in memory, but biometrics are off and
+        // nothing is stored in the keystore.
+        masterPasswordSession.set('must-not-leak');
+        expect(secureDataSource.password, isNull);
+        vaultKdbxService.shouldThrowOnChangeMasterPassword = true;
+
+        await expectLater(
+          coordinator.updateDatabaseSettings(
+            DatabaseSettingsUpdateRequest(
+              currentDatabasePath: oldFile.path,
+              fileName: 'renamed.kdbx',
+              keyFilePath: null,
+              biometricProtectionEnabled: false,
+              changePassword: true,
+              inactivityLockTimeoutSeconds: null,
+              currentPassword: 'must-not-leak',
+              newPassword: 'new-secret',
+            ),
+          ),
+          throwsA(isA<Exception>()),
+        );
+
+        // The rollback must restore the original (absent) keystore entry, not
+        // deposit the session secret.
+        expect(secureDataSource.password, isNull);
+        expect(secureDataSource.passwords, isEmpty);
       },
     );
 
@@ -242,6 +289,7 @@ void main() {
         );
         localDataSource.selectedKeyFilePath = currentKey;
         secureDataSource.password = 'old-secret';
+        masterPasswordSession.set('old-secret');
         securityRepository.failNextSave = true;
 
         await expectLater(
@@ -272,6 +320,7 @@ void main() {
       const databasePath = '/tmp/vault.kdbx';
       registryRepository.records = [_recordForTest('db-1', databasePath)];
       secureDataSource.password = 'old-secret';
+      masterPasswordSession.set('old-secret');
       secureDataSource.failNextSave = true;
 
       await expectLater(
@@ -313,6 +362,7 @@ void main() {
         databaseSyncRepository: syncRepository,
         vaultKdbxService: realService,
         appleAutofillV2Coordinator: appleAutofillV2Coordinator,
+        masterPasswordSession: masterPasswordSession,
       );
 
       await expectLater(
@@ -374,6 +424,7 @@ void main() {
         databaseSyncRepository: syncRepository,
         vaultKdbxService: realService,
         appleAutofillV2Coordinator: appleAutofillV2Coordinator,
+        masterPasswordSession: masterPasswordSession,
       );
 
       final result = await coordinator.updateDatabaseSettings(
@@ -480,25 +531,33 @@ void main() {
     });
 
     test('changeDatabase clears the selected key file, active database, and '
-        'master password', () async {
+        'in-memory session secret (biometric credential preserved)', () async {
       localDataSource.selectedKeyFilePath = '/tmp/a.key';
       secureDataSource.password = 'secret';
+      masterPasswordSession.set('secret');
       registryRepository.activeId = 'db-1';
 
       await coordinator.changeDatabase(currentDatabasePath: '/tmp/a.kdbx');
 
       expect(localDataSource.selectedKeyFilePath, isNull);
-      expect(secureDataSource.password, isNull);
+      // spec-011 FR-3/AC-3: a biometric credential survives a database switch;
+      // only the in-memory session secret is dropped (FR-2).
+      expect(secureDataSource.password, 'secret');
+      expect(masterPasswordSession.value, isNull);
       expect(registryRepository.activeId, isNull);
       expect(appleAutofillV2Coordinator.clearCallCount, 1);
     });
 
     test('lockVault clears Apple autofill credentials', () async {
       secureDataSource.password = 'secret';
+      masterPasswordSession.set('secret');
 
       await coordinator.lockVault(currentDatabasePath: '/tmp/a.kdbx');
 
-      expect(secureDataSource.password, isNull);
+      // spec-011 FR-3/AC-3: a biometric credential survives lock; only the
+      // in-memory session secret is dropped (FR-2).
+      expect(secureDataSource.password, 'secret');
+      expect(masterPasswordSession.value, isNull);
       expect(appleAutofillV2Coordinator.clearCallCount, 1);
     });
 
@@ -662,24 +721,42 @@ class _FakeSecurityRepository implements DatabaseSecurityRepository {
 }
 
 class _FakeSecureDataSource implements SecureDataSource {
-  String? password;
+  // spec-011 FR-4: keyed per database id. These tests operate on 'db-1', so the
+  // [password] sugar reads/writes that entry.
+  final Map<String, String> passwords = {};
   bool failNextSave = false;
+  bool legacyGlobalCleared = false;
 
-  @override
-  Future<void> clearMasterPassword() async {
-    password = null;
+  String? get password => passwords['db-1'];
+  set password(String? value) {
+    if (value == null) {
+      passwords.remove('db-1');
+    } else {
+      passwords['db-1'] = value;
+    }
   }
 
   @override
-  Future<String?> getMasterPassword() async => password;
+  Future<void> clearMasterPassword(String databaseId) async {
+    passwords.remove(databaseId);
+  }
 
   @override
-  Future<void> saveMasterPassword(String password) async {
+  Future<String?> getMasterPassword(String databaseId) async =>
+      passwords[databaseId];
+
+  @override
+  Future<void> saveMasterPassword(String databaseId, String password) async {
     if (failNextSave) {
       failNextSave = false;
       throw Exception('Secure storage write failed.');
     }
-    this.password = password;
+    passwords[databaseId] = password;
+  }
+
+  @override
+  Future<void> clearLegacyGlobalMasterPassword() async {
+    legacyGlobalCleared = true;
   }
 }
 

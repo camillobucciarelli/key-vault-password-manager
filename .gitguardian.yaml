@@ -1,0 +1,10 @@
+# GitGuardian configuration.
+#
+# Test suites necessarily contain fabricated credentials (fake master passwords,
+# placeholder tokens) used only to exercise the code. These are not real secrets
+# and must not be flagged. Exclude the test tree from secret detection.
+version: 2
+secret:
+  ignored-paths:
+    - 'test/**'
+    - 'integration_test/**'

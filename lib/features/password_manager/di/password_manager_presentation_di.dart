@@ -7,6 +7,7 @@ import '../presentation/bloc/vault/vault_bloc.dart';
 import '../presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import '../presentation/coordinators/database_session_coordinator.dart';
 import '../presentation/coordinators/desktop_browser_autofill_coordinator.dart';
+import '../presentation/coordinators/master_password_session.dart';
 import '../presentation/coordinators/otpauth_deep_link_coordinator.dart';
 import '../presentation/coordinators/vault_session_coordinator.dart';
 
@@ -15,6 +16,11 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
   // pending 30s clear timer cancelled by that screen's dispose() the moment
   // the user navigated away right after copying (spec-004 FR-3 bug).
   sl.registerLazySingleton<ClipboardGuard>(() => ClipboardGuard());
+
+  // FR-1 (spec 011): app-lifetime holder for the unlocked-session master
+  // password. Single shared instance so the coordinators that populate/clear it
+  // and the VaultBloc that reads it observe the same secret.
+  sl.registerLazySingleton<MasterPasswordSession>(() => MasterPasswordSession());
 
   sl.registerLazySingleton<AppleAutofillV2CoordinatorContract>(
     () => CompositeAutofillV2Coordinator([
@@ -39,6 +45,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       unlockDatabaseUseCase: sl(),
       createDatabaseUseCase: sl(),
       appleAutofillV2Coordinator: sl(),
+      masterPasswordSession: sl(),
     ),
   );
 
@@ -51,6 +58,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       databaseSyncRepository: sl(),
       vaultKdbxService: sl(),
       appleAutofillV2Coordinator: sl(),
+      masterPasswordSession: sl(),
     ),
   );
 
@@ -75,7 +83,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       databasePath: databasePath,
       getSelectedKeyFilePath:
           sl<VaultSessionCoordinator>().getSelectedKeyFilePath,
-      secureDataSource: sl(),
+      masterPasswordSession: sl(),
       vaultKdbxService: sl(),
       vaultCsvImportService: sl(),
       vaultDuplicateService: sl(),

@@ -8,6 +8,7 @@ import 'package:password_manager/features/password_manager/presentation/bloc/dat
 import 'package:password_manager/features/password_manager/presentation/bloc/database_unlock/database_unlock_event.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/database_unlock/database_unlock_state.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/database_session_coordinator.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/master_password_session.dart';
 
 import '../coordinators/fake_database_ports.dart';
 
@@ -45,6 +46,7 @@ void main() {
         createDatabaseUseCase: CreateDatabaseUseCase(
           databaseFileRepository: fileRepository,
         ),
+        masterPasswordSession: MasterPasswordSession(),
       );
       bloc = DatabaseUnlockBloc(
         databasePath: '/tmp/vault.kdbx',

@@ -29,6 +29,7 @@ import 'package:password_manager/features/password_manager/domain/usecases/valid
 import 'package:password_manager/features/password_manager/presentation/bloc/database_selection/database_selection_event.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/database_session_coordinator.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/master_password_session.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
@@ -47,6 +48,7 @@ void main() {
     late _FakeSecureDataSource secureDataSource;
     late _FakeAppleAutofillV2Coordinator appleAutofillV2Coordinator;
     late DatabaseImportService databaseImportService;
+    late MasterPasswordSession masterPasswordSession;
     late DatabaseSessionCoordinator coordinator;
 
     setUp(() async {
@@ -59,6 +61,7 @@ void main() {
       syncRepository = _FakeSyncRepository();
       secureDataSource = _FakeSecureDataSource();
       appleAutofillV2Coordinator = _FakeAppleAutofillV2Coordinator();
+      masterPasswordSession = MasterPasswordSession();
       databaseImportService = DatabaseImportService(
         validateDatabaseUseCase: ValidateDatabaseUseCase(),
       );
@@ -80,6 +83,7 @@ void main() {
         createDatabaseUseCase: CreateDatabaseUseCase(
           databaseFileRepository: databaseImportService,
         ),
+        masterPasswordSession: masterPasswordSession,
         appleAutofillV2Coordinator: appleAutofillV2Coordinator,
       );
     });
@@ -502,7 +506,9 @@ void main() {
         expect(result.duplicatePrompt, isNull);
         expect(registryRepository.activeId, 'db-current');
         expect(localDataSource.selectedKeyFilePath, isNull);
-        expect(secureDataSource.password, isNull);
+        // spec-011 FR-3/AC-3: opening a database no longer wipes its keystore
+        // biometric credential; only the in-memory session is reset.
+        expect(secureDataSource.password, 'secret');
         expect(appleAutofillV2Coordinator.clearCallCount, 1);
       },
     );
@@ -803,6 +809,7 @@ void main() {
           createDatabaseUseCase: _FailingCreateDatabaseUseCase(
             databaseFileRepository: databaseImportService,
           ),
+          masterPasswordSession: MasterPasswordSession(),
           appleAutofillV2Coordinator: appleAutofillV2Coordinator,
         );
 
@@ -1030,19 +1037,28 @@ class _FakeSecurityRepository implements DatabaseSecurityRepository {
 }
 
 class _FakeSecureDataSource implements SecureDataSource {
+  // Single-slot store: these tests assert only presence/absence of a stored
+  // credential, not FR-4 per-id keying (covered by the repository and gate
+  // tests), so the database id is intentionally ignored here.
   String? password;
+  bool legacyGlobalCleared = false;
 
   @override
-  Future<void> clearMasterPassword() async {
+  Future<void> clearMasterPassword(String databaseId) async {
     password = null;
   }
 
   @override
-  Future<String?> getMasterPassword() async => password;
+  Future<String?> getMasterPassword(String databaseId) async => password;
 
   @override
-  Future<void> saveMasterPassword(String password) async {
+  Future<void> saveMasterPassword(String databaseId, String password) async {
     this.password = password;
+  }
+
+  @override
+  Future<void> clearLegacyGlobalMasterPassword() async {
+    legacyGlobalCleared = true;
   }
 }
 
