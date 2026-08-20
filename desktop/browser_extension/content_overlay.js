@@ -100,13 +100,22 @@
     timeout: "KeyVault did not respond in time.",
     unsupported_frame:
       "The overlay is not available in this frame. Copy your login from the KeyVault app.",
-    unsupported_capability: "Update the KeyVault native host to use the overlay.",
+    // Neutral on purpose: the missing capability can be an old native host OR
+    // an old app (B007 advertises generation only when the app declares it).
+    unsupported_capability: "Update KeyVault to use this feature.",
     stale_session: "KeyVault session changed.",
   });
 
-  // Slice A has no generation contract (spec: Slice B). The control exists,
-  // is disabled, and says exactly what the user can actually do.
+  // B010/B013 — honest copy for both Generate states. The row is ACTIVE only
+  // when the worker's matchesResult affirmatively advertises the
+  // `generatePendingEntryV1` capability AND carries a one-shot generate
+  // token; an old host/app peer keeps the disabled text, which directs the
+  // user to the app and never promises in-page generation. The active copy
+  // says who owns the save: KeyVault, after the user confirms there — the
+  // extension neither saves nor remembers the generated password.
   const GENERATE_TEXT = "Open KeyVault to generate a password.";
+  const GENERATE_ACTIVE_TEXT =
+    "Generate a password — confirm the save in KeyVault.";
 
   // Codes that render an A030 state. Anything else — disabled, forbidden,
   // invalid_request, internal_error, an unknown code — is an authorization or
@@ -269,8 +278,10 @@
     s.statusEl = null;
     s.listEl = null;
     s.retryEl = null;
+    s.generateEl = null;
     s.items = null;
     s.fillToken = null;
+    s.generateToken = null;
     s.sessionBinding = null;
     s.savedAria = null;
   };
@@ -424,6 +435,16 @@
     generateEl.setAttribute("disabled", "");
     generateEl.setAttribute("aria-disabled", "true");
     generateEl.textContent = GENERATE_TEXT;
+    // Inert until a matchesResult advertises the capability with a token;
+    // attemptGenerate refuses while `session.generateToken` is null, so a
+    // click delivered to the disabled control cannot do anything either.
+    generateEl.addEventListener(
+      "click",
+      () => {
+        attemptGenerate();
+      },
+      { signal }
+    );
 
     sectionEl.appendChild(statusEl);
     sectionEl.appendChild(listEl);
@@ -437,6 +458,7 @@
     session.shadowRoot = shadow;
     session.statusEl = statusEl;
     session.listEl = listEl;
+    session.generateEl = generateEl;
 
     updatePosition();
     // Re-anchor while the session lives. Scroll is capture-phase so inner
@@ -493,18 +515,36 @@
   const updateSelection = ({ announce } = { announce: true }) => {
     if (session === null || session.listEl === null) return;
     const rows = session.listEl.childNodes;
-    if (session.items.length === 0 || rows.length === 0) {
+    const itemCount = session.items === null ? 0 : session.items.length;
+    const index = session.selectedIndex;
+    // B010 — the active Generate row is the virtual last option, reachable
+    // only by explicit arrow navigation (never auto-selected), so Enter can
+    // never generate without the user having moved onto the row first.
+    const onGenerate = session.generateToken !== null && index === itemCount;
+    for (let at = 0; at < rows.length; at += 1) {
+      rows[at].setAttribute(
+        "aria-selected",
+        !onGenerate && at === index ? "true" : "false"
+      );
+    }
+    if (session.generateEl !== null && session.generateToken !== null) {
+      session.generateEl.setAttribute("aria-selected", onGenerate ? "true" : "false");
+    }
+    if (onGenerate) {
       session.listEl.removeAttribute("aria-activedescendant");
+      if (announce) {
+        session.statusEl.textContent = `${GENERATE_ACTIVE_TEXT}, ${index + 1} of ${itemCount + 1}`;
+      }
       return;
     }
-    const index = session.selectedIndex;
-    for (let at = 0; at < rows.length; at += 1) {
-      rows[at].setAttribute("aria-selected", at === index ? "true" : "false");
+    if (itemCount === 0 || rows.length === 0 || index < 0) {
+      session.listEl.removeAttribute("aria-activedescendant");
+      return;
     }
     session.listEl.setAttribute("aria-activedescendant", `kv-option-${index}`);
     if (announce) {
       const entry = session.items[index];
-      session.statusEl.textContent = `${entry.title}, ${index + 1} of ${session.items.length}`;
+      session.statusEl.textContent = `${entry.title}, ${index + 1} of ${itemCount}`;
     }
   };
 
@@ -577,6 +617,23 @@
     );
   };
 
+  /** B010 — flip the Generate row between its two honest states. */
+  const setGenerateState = (active) => {
+    const el = session?.generateEl;
+    if (el == null) return;
+    if (active) {
+      el.disabled = false;
+      el.removeAttribute("disabled");
+      el.setAttribute("aria-disabled", "false");
+      el.textContent = GENERATE_ACTIVE_TEXT;
+    } else {
+      el.disabled = true;
+      el.setAttribute("disabled", "");
+      el.setAttribute("aria-disabled", "true");
+      el.textContent = GENERATE_TEXT;
+    }
+  };
+
   const handleMatches = (response) => {
     if (response?.ok !== true) {
       const code = response?.error?.code;
@@ -602,16 +659,22 @@
       matchType: entry.matchType,
       fillEligible: entry.fillEligible === true,
     }));
-    session.sessionBinding =
-      typeof response.fillToken === "string"
-        ? {
-            databaseId: response.sessionBinding.databaseId,
-            cacheGeneration: response.sessionBinding.cacheGeneration,
-            bridgeGeneration: response.sessionBinding.bridgeGeneration,
-          }
-        : null;
+    session.sessionBinding = {
+      databaseId: response.sessionBinding.databaseId,
+      cacheGeneration: response.sessionBinding.cacheGeneration,
+      bridgeGeneration: response.sessionBinding.bridgeGeneration,
+    };
     session.fillToken =
       typeof response.fillToken === "string" ? response.fillToken : null;
+    // B010 — the row is active ONLY on an affirmative capability plus its
+    // one-shot token. Absent, false, or token-less: disabled with the copy
+    // that directs the user to the app.
+    session.generateToken =
+      response.generateAvailable === true &&
+      typeof response.generateToken === "string"
+        ? response.generateToken
+        : null;
+    setGenerateState(session.generateToken !== null);
     if (
       Number.isInteger(response.expiresAtEpochMs) &&
       response.expiresAtEpochMs < session.expiresAtEpochMs
@@ -620,7 +683,11 @@
     }
 
     if (session.items.length === 0) {
+      // Nothing auto-selected: Enter stays with the page until the user
+      // explicitly arrows onto the Generate row (when it is active).
+      session.selectedIndex = -1;
       renderState("no-matches");
+      updateSelection({ announce: false });
       return;
     }
     if (session.fillToken === null) {
@@ -774,6 +841,112 @@
   };
 
   // -------------------------------------------------------------------------
+  // B010/B011 — explicit generate.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Runs only from an explicit click on the active Generate row or an Enter
+   * while it is the arrow-selected option. One-shot on this side: the token
+   * dies before the worker answers, so a second activation sends nothing.
+   */
+  const attemptGenerate = () => {
+    if (session === null || session.filling === true || session.generating === true) {
+      return;
+    }
+    if (typeof session.generateToken !== "string") return;
+    if (session.sessionBinding === null) return;
+
+    session.generating = true;
+    const nonce = session.focusNonce;
+    const request = {
+      channel: security.CHANNEL,
+      version: security.MESSAGE_VERSION,
+      type: "generate",
+      origin: session.origin,
+      focusNonce: nonce,
+      generateToken: session.generateToken,
+      sessionBinding: { ...session.sessionBinding },
+    };
+    session.generateToken = null;
+    // Busy: not activatable while the request is in flight. The copy is not
+    // reset to the disabled sentence — this is "working", not "old peer".
+    const el = session.generateEl;
+    if (el != null) {
+      el.disabled = true;
+      el.setAttribute("disabled", "");
+      el.setAttribute("aria-disabled", "true");
+    }
+
+    chrome.runtime.sendMessage(request, (response) => {
+      if (chrome.runtime.lastError) {
+        teardownSession();
+        return;
+      }
+      // SR-3: a response whose nonce is no longer current can neither render
+      // nor fill — a late/stale generate answer for a previous session dies
+      // here, even if it arrives well-formed.
+      if (session === null || session.focusNonce !== nonce) return;
+      handleGenerate(response);
+    });
+  };
+
+  const handleGenerate = (response) => {
+    session.generating = false;
+    if (response?.ok !== true) {
+      const code = response?.error?.code;
+      if (RENDERABLE_ERRORS.has(code)) renderState(code);
+      else teardownSession();
+      return;
+    }
+    // B011 — verify against the CURRENT session before the secret is used:
+    // type, origin, nonce-checked already, binding.
+    if (
+      response.type !== "generateResult" ||
+      response.origin !== session.origin ||
+      !security.sessionBindingsEqual(response.sessionBinding, session.sessionBinding)
+    ) {
+      teardownSession();
+      return;
+    }
+    // The anchor must still be the live, focused element the user acted on.
+    const anchor = session.anchorEl;
+    if (anchor == null || anchor.isConnected !== true || document.activeElement !== anchor) {
+      teardownSession();
+      return;
+    }
+    if (!isWritablePasswordInput(session.passwordEl)) {
+      teardownSession();
+      return;
+    }
+    const data = response.data;
+    if (
+      !security.isPlainObject(data) ||
+      typeof data.password !== "string" ||
+      data.password.length === 0
+    ) {
+      teardownSession();
+      return;
+    }
+
+    // SR-5 — the generated secret lives in this local and the password input
+    // value only. Never the DOM (attributes/dataset/title), storage, logs, or
+    // any durable binding; the response carries no pending id to keep.
+    let generated = data.password;
+    try {
+      data.password = "";
+      response.data = null;
+    } catch (_) {
+      // Frozen/exotic clone: the references still die with this scope.
+    }
+
+    dispatchFieldValue(session.passwordEl, generated);
+    // B011: never submit — the app owns the save; the user confirms it there.
+
+    generated = null;
+    teardownSession();
+  };
+
+  // -------------------------------------------------------------------------
   // A028 — focus session lifecycle.
   // -------------------------------------------------------------------------
 
@@ -799,12 +972,13 @@
       return;
     }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      if (session.items === null || session.items.length === 0) return;
+      const itemCount = session.items === null ? 0 : session.items.length;
+      // B010 — the active Generate row is one extra, LAST option.
+      const maxIndex =
+        session.generateToken !== null ? itemCount : itemCount - 1;
+      if (maxIndex < 0) return;
       const delta = event.key === "ArrowDown" ? 1 : -1;
-      const next = Math.min(
-        Math.max(session.selectedIndex + delta, 0),
-        session.items.length - 1
-      );
+      const next = Math.min(Math.max(session.selectedIndex + delta, 0), maxIndex);
       if (next !== session.selectedIndex) {
         session.selectedIndex = next;
         updateSelection();
@@ -812,6 +986,17 @@
       return;
     }
     if (event.key === "Enter") {
+      const itemCount = session.items === null ? 0 : session.items.length;
+      if (
+        session.generateToken !== null &&
+        session.selectedIndex === itemCount
+      ) {
+        // B011 — explicit Enter on the arrow-selected Generate row.
+        event.preventDefault();
+        event.stopPropagation();
+        attemptGenerate();
+        return;
+      }
       const entry = session.items?.[session.selectedIndex];
       if (
         entry == null ||
@@ -851,11 +1036,14 @@
       statusEl: null,
       listEl: null,
       retryEl: null,
+      generateEl: null,
       items: [],
       selectedIndex: 0,
       fillToken: null,
+      generateToken: null,
       sessionBinding: null,
       filling: false,
+      generating: false,
       pendingAction: false,
       blurTimerId: 0,
       savedAria: new Map(),

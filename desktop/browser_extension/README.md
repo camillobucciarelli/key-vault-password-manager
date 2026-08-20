@@ -95,6 +95,35 @@ path or the extension ID changes; a Chrome restart picks up manifest changes.
 - Do not put vault passwords, key file paths, database paths, or other secrets
   in extension files, console output, DOM nodes, or browser storage.
 
+## Password generation (Slice B)
+
+The overlay's **Generate** row is active only when the running KeyVault app
+advertises the `generatePendingEntryV1` capability through the native host
+(`hello`). With an older host or app the row stays disabled and reads "Open
+KeyVault to generate a password." — it directs the user to the app and never
+promises in-page generation; there is **no fallback** generation in the
+extension or native host, and no default settings.
+
+How a generation actually works, and who owns what:
+
+- **The app generates and the app saves.** An explicit click (or Enter on the
+  arrow-selected row) asks the running unlocked app — via the native host —
+  to generate a password with the app's own committed generator settings. The
+  extension cannot send, override, or even express settings: the request
+  schema has no field for them.
+- The app creates an **app-owned pending entry** for the exact origin. The
+  user completes the save **inside the KeyVault app** through the normal
+  new-entry confirmation; the page and the extension cannot auto-save
+  anything into the vault.
+- The pending entry **expires after at most 5 minutes** (or on lock, vault
+  switch, vault close, or app exit). If it expires, generate again.
+- The extension fills the generated password into the focused password field
+  **once**, never submits the form, then tears the overlay down. It does
+  **not save and does not remember** the generated password, and it never
+  receives or stores the pending-entry id. A worker/page reload cannot replay
+  a generation: the one-shot token is consumed before the native request is
+  issued.
+
 ## Production setup
 
 1. Install KeyVault from Chrome Web Store. Published extension ID:

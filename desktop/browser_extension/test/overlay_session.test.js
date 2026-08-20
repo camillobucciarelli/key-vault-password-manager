@@ -227,7 +227,8 @@ test("A030: every terminal state renders its honest text", async () => {
     ],
     [
       (m) => errorResult("matchesResult", "unsupported_capability", m),
-      "Update the KeyVault native host to use the overlay.",
+      // Neutral: an old native host or an old app both land here.
+      "Update KeyVault to use this feature.",
     ],
     [(m) => errorResult("matchesResult", "stale_session", m), "KeyVault session changed."],
   ];

@@ -66,7 +66,8 @@
     "A2": "per-origin opt-in with crash-consistent revocation — PR #50",
     "A3": "background trust paths and focus grants (A022-A027) — PR #55",
     "A4": "metadata overlay and explicit fill in content_overlay.js (A028-A034) — this PR",
-    "A5": "iframe policy surface, ARIA, keyboard, click-vs-blur, geometry (A035-A039) — this PR"
+    "A5": "iframe policy surface, ARIA, keyboard, click-vs-blur, geometry (A035-A039) — this PR",
+    "B2": "explicit Generate UI: capability-gated row, one-shot generate token, app-owned pending (B010-B013) — this PR"
   },
   "suites": {
     "node-extension": {
@@ -115,7 +116,7 @@
     },
     {
       "id": "A0-M2",
-      "expectedKills": 192,
+      "expectedKills": 214,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -196,7 +197,7 @@
     },
     {
       "id": "A0-M7",
-      "expectedKills": 6,
+      "expectedKills": 10,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -512,7 +513,7 @@
     },
     {
       "id": "A2-M9",
-      "expectedKills": 59,
+      "expectedKills": 73,
       "slice": "A2",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_lifecycle.js",
@@ -644,7 +645,7 @@
     },
     {
       "id": "A3-M1",
-      "expectedKills": 52,
+      "expectedKills": 66,
       "slice": "A3",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_routes.js",
@@ -695,19 +696,20 @@
         "validateContentScriptRequest proves the two equal before any handler runs;",
         "a mutant that reads the body behaves identically. That is the guard",
         "working, not a coverage hole. A0-M6 removes the guard, and its kill count",
-        "rose in this slice because the router tests now exercise it too."
+        "rose in this slice because the router tests now exercise it too.",
+        "Slice B2: _generate added a third `auth.sender.origin` read — the generate path binds to the frame origin too, so the swap now covers it (expect: 3)."
       ],
       "edits": [
         {
           "find": "    const origin = auth.sender.origin;",
           "replace": "    const origin = auth.sender.topOrigin ?? auth.sender.origin;",
-          "expect": 2
+          "expect": 3
         }
       ]
     },
     {
       "id": "A3-M3",
-      "expectedKills": 9,
+      "expectedKills": 10,
       "slice": "A3",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_routes.js",
@@ -736,13 +738,14 @@
       "property": "a fill grant expires at its TTL ceiling, measured against real time",
       "$comment": [
         "A0-M5 pins the comparison inside the store. This pins the other half: the",
-        "store can only enforce a TTL if the caller actually hands it the time."
+        "store can only enforce a TTL if the caller actually hands it the time.",
+        "Slice B2: the generate grant issue/consume added two more call sites — a generate grant must expire against real time too (expect: 4)."
       ],
       "edits": [
         {
           "find": "      nowMs: this._now(),",
           "replace": "      nowMs: 0,",
-          "expect": 2
+          "expect": 4
         }
       ]
     },
@@ -870,7 +873,7 @@
     },
     {
       "id": "A3-M11",
-      "expectedKills": 7,
+      "expectedKills": 10,
       "slice": "A3",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_routes.js",
@@ -930,7 +933,7 @@
     },
     {
       "id": "A3-M15",
-      "expectedKills": 2,
+      "expectedKills": 3,
       "slice": "A3",
       "suite": "node-extension",
       "file": "desktop/browser_extension/content_overlay.js",
@@ -1151,7 +1154,7 @@
     },
     {
       "id": "A4-M7",
-      "expectedKills": 3,
+      "expectedKills": 4,
       "slice": "A4",
       "suite": "node-extension",
       "file": "desktop/browser_extension/content_overlay.js",
@@ -1181,7 +1184,7 @@
     },
     {
       "id": "A4-M9",
-      "expectedKills": 29,
+      "expectedKills": 33,
       "slice": "A4",
       "suite": "node-extension",
       "file": "desktop/browser_extension/content_overlay.js",
@@ -1196,7 +1199,7 @@
     },
     {
       "id": "A4-M10",
-      "expectedKills": 12,
+      "expectedKills": 17,
       "slice": "A4",
       "suite": "node-extension",
       "file": "desktop/browser_extension/content_overlay.js",
@@ -1277,7 +1280,7 @@
           "replace": "    document.addEventListener(\"focusin\", onFocusIn, { signal });\n    document.addEventListener(\n      \"keydown\",\n      (event) => {\n        event.preventDefault();\n        event.stopPropagation();\n      },\n      { signal }\n    );"
         }
       ],
-      "expectedKills": 7
+      "expectedKills": 8
     },
     {
       "id": "A5-M4",
@@ -1398,6 +1401,141 @@
         }
       ],
       "expectedKills": 1
+    },
+    {
+      "id": "B2-M1",
+      "expectedKills": 1,
+      "slice": "B2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "generate response is used without the nonce-check",
+      "property": "SR-3/B011: a generate answer whose focus nonce is no longer current can neither render nor fill",
+      "edits": [
+        {
+          "find": "      // SR-3: a response whose nonce is no longer current can neither render\n      // nor fill — a late/stale generate answer for a previous session dies\n      // here, even if it arrives well-formed.\n      if (session === null || session.focusNonce !== nonce) return;\n      handleGenerate(response);",
+          "replace": "      if (session === null) return;\n      handleGenerate(response);"
+        }
+      ]
+    },
+    {
+      "id": "B2-M2",
+      "expectedKills": 3,
+      "slice": "B2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "capability ignored: the Generate row activates on an old peer",
+      "property": "B010: the row is active ONLY when the worker affirmatively advertises generatePendingEntryV1 with a token; an old host/app keeps the honest disabled copy",
+      "edits": [
+        {
+          "find": "    setGenerateState(session.generateToken !== null);",
+          "replace": "    setGenerateState(true);"
+        }
+      ]
+    },
+    {
+      "id": "B2-M3",
+      "expectedKills": 1,
+      "slice": "B2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "the generated secret is written into a DOM attribute",
+      "property": "SR-5/B011: the generated secret reaches the password input value and nothing else — attributes are shared DOM the page reads",
+      "edits": [
+        {
+          "find": "    dispatchFieldValue(session.passwordEl, generated);\n    // B011: never submit — the app owns the save; the user confirms it there.",
+          "replace": "    dispatchFieldValue(session.passwordEl, generated);\n    session.passwordEl.setAttribute(\"data-kv-generated\", generated);\n    // B011: never submit — the app owns the save; the user confirms it there."
+        }
+      ]
+    },
+    {
+      "id": "B2-M4",
+      "expectedKills": 2,
+      "slice": "B2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_routes.js",
+      "title": "the app-owned pending id is persisted in extension storage",
+      "property": "B011/B012: the extension stores neither the generated password nor the pending id — the app owns the pending record",
+      "edits": [
+        {
+          "find": "    // Built field by field from locals; the native response object itself is\n    // never forwarded. Only the password crosses — no pending id, no expiry,\n    // no settings revision.\n    return {\n      ok: true,\n      type: \"generateResult\",",
+          "replace": "    void this._lifecycle._browser.storage.local.set({\n      kvPendingGenerationId: data.pendingGenerationId,\n    });\n    return {\n      ok: true,\n      type: \"generateResult\","
+        }
+      ]
+    },
+    {
+      "id": "B2-M5",
+      "expectedKills": 3,
+      "slice": "B2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_routes.js",
+      "title": "the worker re-issues generatePendingEntry after delivery",
+      "property": "B011/B012: one consumed token means exactly one native generate — the worker never retries or replays, so the app never accumulates duplicate pending records",
+      "edits": [
+        {
+          "find": "    const response = await this._native(\"generatePendingEntry\", {\n      origin,\n      expectedDatabaseId: grant.sessionBinding.databaseId,\n      expectedCacheGeneration: grant.sessionBinding.cacheGeneration,\n      expectedBridgeGeneration: grant.sessionBinding.bridgeGeneration,\n    });",
+          "replace": "    await this._native(\"generatePendingEntry\", {\n      origin,\n      expectedDatabaseId: grant.sessionBinding.databaseId,\n      expectedCacheGeneration: grant.sessionBinding.cacheGeneration,\n      expectedBridgeGeneration: grant.sessionBinding.bridgeGeneration,\n    });\n    const response = await this._native(\"generatePendingEntry\", {\n      origin,\n      expectedDatabaseId: grant.sessionBinding.databaseId,\n      expectedCacheGeneration: grant.sessionBinding.cacheGeneration,\n      expectedBridgeGeneration: grant.sessionBinding.bridgeGeneration,\n    });"
+        }
+      ]
+    },
+    {
+      "id": "B2-M6",
+      "expectedKills": 1,
+      "slice": "B2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_routes.js",
+      "title": "a settings payload is attached to the native generate request",
+      "property": "B006/B010: the native request carries the session tuple and origin only — the app's committed settings are the sole generation source and the worker has no field to override them",
+      "edits": [
+        {
+          "find": "    const response = await this._native(\"generatePendingEntry\", {\n      origin,\n      expectedDatabaseId: grant.sessionBinding.databaseId,",
+          "replace": "    const response = await this._native(\"generatePendingEntry\", {\n      origin,\n      settings: { length: 8, includeSymbols: false },\n      expectedDatabaseId: grant.sessionBinding.databaseId,"
+        }
+      ]
+    },
+    {
+      "id": "B2-M7",
+      "expectedKills": 1,
+      "slice": "B2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_security.js",
+      "title": "the generate message schema grows a settings field",
+      "property": "B010: the generate request schema is closed — no key exists for the content script (or a page that captured the channel) to smuggle generator settings through",
+      "edits": [
+        {
+          "find": "  generate: {\n    route: CONTENT_SCRIPT_ROUTE,\n    fields: {\n      origin: { type: \"origin\" },\n      focusNonce: { type: \"string\", maxLength: LIMITS.TOKEN },\n      generateToken: { type: \"string\", maxLength: LIMITS.TOKEN },\n      sessionBinding: { type: \"sessionBinding\" },\n    },\n  },",
+          "replace": "  generate: {\n    route: CONTENT_SCRIPT_ROUTE,\n    fields: {\n      origin: { type: \"origin\" },\n      focusNonce: { type: \"string\", maxLength: LIMITS.TOKEN },\n      generateToken: { type: \"string\", maxLength: LIMITS.TOKEN },\n      sessionBinding: { type: \"sessionBinding\" },\n      settings: { type: \"array\", optional: true },\n    },\n  },"
+        }
+      ]
+    },
+    {
+      "id": "B2-M8",
+      "expectedKills": 1,
+      "slice": "B2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_security.js",
+      "title": "grant purpose separation is dropped in consume",
+      "property": "B010: a fill token can never authorize a generate and the reverse — each grant is consumable for exactly the purpose it was minted for",
+      "edits": [
+        {
+          "find": "    // Purpose mismatch is checked AFTER one-shot deletion, so presenting a\n    // fill token on the generate path burns it — replay dies either way.\n    if (grant.purpose !== purpose) {\n      return { ok: false, error: \"forbidden\" };\n    }\n",
+          "replace": ""
+        }
+      ]
+    },
+    {
+      "id": "B2-M9",
+      "expectedKills": 1,
+      "slice": "B2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "the row guard is reduced to the capability flag alone",
+      "property": "B010: activation requires BOTH the affirmative capability AND the one-shot token — the flag alone (token undefined) must never enable the row",
+      "edits": [
+        {
+          "find": "    session.generateToken =\n      response.generateAvailable === true &&\n      typeof response.generateToken === \"string\"\n        ? response.generateToken\n        : null;",
+          "replace": "    session.generateToken =\n      response.generateAvailable === true\n        ? response.generateToken\n        : null;"
+        }
+      ]
     }
   ]
 }

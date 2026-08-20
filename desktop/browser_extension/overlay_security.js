@@ -40,6 +40,12 @@ const LIMITS = Object.freeze({
 const CHANNEL = "keyvault-overlay-v1";
 const MESSAGE_VERSION = 1;
 
+// 009 Slice B2 — the capability the native host advertises via `hello` only
+// when the running app's bridge descriptor lists it (B007). Mirrors
+// `desktopBrowserGeneratePendingCapability` in
+// `lib/features/password_manager/data/services/desktop_browser_autofill_cache.dart`.
+const GENERATE_CAPABILITY = "generatePendingEntryV1";
+
 // SR-5 / A007: keys that may never appear in persisted config or in any
 // metadata message, at any nesting depth. Unknown keys are rejected anyway by
 // the exact-shape check; this list exists so the *reason* is explicit and so a
@@ -405,6 +411,18 @@ const MESSAGE_SCHEMAS = Object.freeze({
       sessionBinding: { type: "sessionBinding" },
     },
   },
+  // B010 — explicit generate. DELIBERATELY no settings field of any kind:
+  // the app owns generator settings and the worker has no key to carry them
+  // (an extra key of any name fails the exact-shape check).
+  generate: {
+    route: CONTENT_SCRIPT_ROUTE,
+    fields: {
+      origin: { type: "origin" },
+      focusNonce: { type: "string", maxLength: LIMITS.TOKEN },
+      generateToken: { type: "string", maxLength: LIMITS.TOKEN },
+      sessionBinding: { type: "sessionBinding" },
+    },
+  },
 });
 
 const ENVELOPE_FIELDS = Object.freeze({
@@ -735,8 +753,21 @@ function validateMatchesResult(result) {
     items: { type: "array", maxLength: LIMITS.ITEMS },
     fillToken: { type: "string", maxLength: LIMITS.TOKEN, optional: true },
     expiresAtEpochMs: { type: "int", min: 0, optional: true },
+    // B010 — capability + one-shot generate token. Optional so pre-B2 shapes
+    // stay valid; the shipped worker always sets `generateAvailable`.
+    generateAvailable: { type: "bool", optional: true },
+    generateToken: { type: "string", maxLength: LIMITS.TOKEN, optional: true },
   });
   if (!shape.ok) return shape;
+
+  // A generate token may only exist when the capability is affirmatively
+  // advertised — a token on an old-peer result is a contract violation.
+  if (
+    typeof result.generateToken === "string" &&
+    result.generateAvailable !== true
+  ) {
+    return shapeError("token_without_capability", "generateToken");
+  }
 
   for (const item of result.items) {
     const itemShape = validateMatchItem(item);
@@ -795,22 +826,31 @@ class FocusGrantStore {
     configRevision,
     nowMs,
     ttlMs = LIMITS.TOKEN_TTL_MS,
+    // B010 — a grant is minted for exactly one purpose. A fill grant can
+    // never authorize a generate and the reverse; `consume` enforces it.
+    purpose = "fill",
   }) {
+    if (purpose !== "fill" && purpose !== "generate") return null;
     if (canonicalOriginOrNull(origin) !== origin) return null;
     if (!Number.isInteger(tabId) || !Number.isInteger(frameId)) return null;
     if (typeof focusNonce !== "string" || focusNonce.length === 0) return null;
-    if (!Array.isArray(entryIds) || entryIds.length === 0) return null;
+    // A generate grant names no entries; a fill grant must name at least one.
+    if (purpose === "fill" && (!Array.isArray(entryIds) || entryIds.length === 0)) {
+      return null;
+    }
     if (!validateSessionBinding(sessionBinding).ok) return null;
     if (!Number.isInteger(configRevision) || !Number.isInteger(nowMs)) return null;
 
     this._pruneExpired(nowMs);
-    // One live grant per (tab, frame, document): a new eligible focus replaces
-    // the previous session rather than accumulating alongside it.
+    // One live grant per (tab, frame, document, purpose): a new eligible focus
+    // replaces the previous session's grant of the SAME purpose — a fill and a
+    // generate grant for one session coexist by design.
     for (const [token, grant] of this._grants) {
       if (
         grant.tabId === tabId &&
         grant.frameId === frameId &&
-        grant.documentId === documentId
+        grant.documentId === documentId &&
+        grant.purpose === purpose
       ) {
         this._grants.delete(token);
       }
@@ -823,12 +863,13 @@ class FocusGrantStore {
     const token = randomToken();
     const expiresAtEpochMs = nowMs + Math.min(ttlMs, this._maxTtlMs);
     this._grants.set(token, {
+      purpose,
       tabId,
       frameId,
       documentId,
       origin,
       focusNonce,
-      entryIds: [...entryIds],
+      entryIds: purpose === "fill" ? [...entryIds] : [],
       sessionBinding: { ...sessionBinding },
       configRevision,
       expiresAtEpochMs,
@@ -881,6 +922,7 @@ class FocusGrantStore {
     sessionBinding,
     configRevision,
     nowMs,
+    purpose = "fill",
   }) {
     if (typeof token !== "string" || token.length === 0) {
       return { ok: false, error: "stale_session" };
@@ -891,6 +933,11 @@ class FocusGrantStore {
 
     if (!Number.isInteger(nowMs) || nowMs >= grant.expiresAtEpochMs) {
       return { ok: false, error: "stale_session" };
+    }
+    // Purpose mismatch is checked AFTER one-shot deletion, so presenting a
+    // fill token on the generate path burns it — replay dies either way.
+    if (grant.purpose !== purpose) {
+      return { ok: false, error: "forbidden" };
     }
     if (grant.tabId !== tabId || grant.frameId !== frameId) {
       return { ok: false, error: "forbidden" };
@@ -903,7 +950,9 @@ class FocusGrantStore {
     if (grant.configRevision !== configRevision) {
       return { ok: false, error: "stale_session" };
     }
-    if (!grant.entryIds.includes(entryId)) return { ok: false, error: "forbidden" };
+    if (purpose === "fill" && !grant.entryIds.includes(entryId)) {
+      return { ok: false, error: "forbidden" };
+    }
     if (!sessionBindingsEqual(grant.sessionBinding, sessionBinding)) {
       return { ok: false, error: "stale_session" };
     }
@@ -969,6 +1018,7 @@ const API = {
   LIMITS,
   CHANNEL,
   MESSAGE_VERSION,
+  GENERATE_CAPABILITY,
   FORBIDDEN_KEYS,
   OVERLAY_CONFIG_KEY,
   OVERLAY_REVISION_FLOOR_KEY,

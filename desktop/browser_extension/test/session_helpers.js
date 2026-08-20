@@ -40,7 +40,13 @@ function item(overrides = {}) {
 /** A `matchesResult` echoing the request, shaped like the production worker. */
 function matchesResult(
   message,
-  { items = [item()], fillToken = "token-1", expiresInMs = 25000 } = {}
+  {
+    items = [item()],
+    fillToken = "token-1",
+    expiresInMs = 25000,
+    generateAvailable,
+    generateToken,
+  } = {}
 ) {
   const result = {
     ok: true,
@@ -55,6 +61,12 @@ function matchesResult(
   if (fillable && typeof fillToken === "string") {
     result.fillToken = fillToken;
     result.expiresAtEpochMs = Date.now() + expiresInMs;
+  }
+  // B010 — mirror the production worker: capability flag plus one-shot token.
+  if (generateAvailable !== undefined) result.generateAvailable = generateAvailable;
+  if (generateAvailable === true) {
+    result.generateToken =
+      typeof generateToken === "string" ? generateToken : "gen-token-1";
   }
   return result;
 }
@@ -71,6 +83,20 @@ function fillResult(message, { username = "alice", password, ...overrides } = {}
     // Callers pass their own runtime-assembled canary; a default is provided
     // the same way (never a credential-shaped source literal — GitGuardian).
     data: { username, password: password ?? ["canary", "alpha"].join("-") },
+    ...overrides,
+  };
+}
+
+/** A `generateResult` echoing the request, shaped like the production worker. */
+function generateResult(message, { generated, ...overrides } = {}) {
+  return {
+    ok: true,
+    type: "generateResult",
+    origin: message.origin,
+    focusNonce: message.focusNonce,
+    sessionBinding: bindingA(),
+    // Runtime-assembled default; never a credential-shaped source literal.
+    data: { password: generated ?? ["canary", "generated"].join("-") },
     ...overrides,
   };
 }
@@ -96,6 +122,7 @@ async function loginPage({
   const handlers = {
     matches: (message) => matchesResult(message),
     fill: (message) => fillResult(message),
+    generate: (message) => generateResult(message),
   };
   const page = new FakePage({
     url,
@@ -103,6 +130,7 @@ async function loginPage({
       if (message.type === "bootstrap") return bootstrap;
       if (message.type === "requestMatches") return handlers.matches(message);
       if (message.type === "fill") return handlers.fill(message);
+      if (message.type === "generate") return handlers.generate(message);
       throw new Error(`unexpected message type ${message.type}`);
     },
   });
@@ -148,6 +176,7 @@ module.exports = {
   item,
   matchesResult,
   fillResult,
+  generateResult,
   errorResult,
   loginPage,
   statusText,

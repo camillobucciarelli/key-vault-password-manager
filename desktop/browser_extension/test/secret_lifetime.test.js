@@ -37,6 +37,10 @@ const PAGE_URL = "https://example.com/login";
 // Assembled at runtime: no credential-shaped literal in the source (GitGuardian).
 const A032_FILL_VALUE = ["a032", "canary", "fill", "token"].join("-");
 const SECRET_USERNAME = "kv-A032-real-username-77b1e0";
+// B012 — the GENERATED secret and the app-owned pending id, both redeemed
+// through the production dispatcher; the scan looks for the real bytes.
+const B2_GENERATED_VALUE = ["b012", "canary", "generated", "secret"].join("-");
+const B2_PENDING_ID = ["b012", "pending", "id", "canary"].join("-");
 
 /** Models the Slice A1 native transport only; no authorization decisions. */
 class FakeNative {
@@ -54,6 +58,23 @@ class FakeNative {
   }
 
   send = async (type, payload) => {
+    if (type === "hello") {
+      // B007 — the host advertises the generation capability.
+      return { ok: true, data: { capabilities: [security.GENERATE_CAPABILITY] } };
+    }
+    if (type === "generatePendingEntry") {
+      return {
+        ok: true,
+        data: {
+          pendingGenerationId: B2_PENDING_ID,
+          expiresAtEpochMs: Date.now() + 5 * 60 * 1000,
+          origin: payload.origin,
+          sessionBinding: { ...this.binding },
+          settingsRevision: 4,
+          password: B2_GENERATED_VALUE,
+        },
+      };
+    }
     if (type === "overlayQueryCredentials") {
       return {
         ok: true,
@@ -149,6 +170,8 @@ function observableSurfaces({ page, browser }) {
 function assertNoSecretIn(text, label) {
   assert.ok(!text.includes(A032_FILL_VALUE), `${label}: password leaked`);
   assert.ok(!text.includes(SECRET_USERNAME), `${label}: username leaked`);
+  assert.ok(!text.includes(B2_GENERATED_VALUE), `${label}: generated secret leaked`);
+  assert.ok(!text.includes(B2_PENDING_ID), `${label}: pending id leaked`);
 }
 
 function optionRow(page) {
@@ -204,6 +227,64 @@ test("A032: a vault switch between metadata and fill yields stale_session and th
   // The content script renders the stale state rather than tearing down.
   const status = stack.page.allElements().find((el) => el.id === "kv-status");
   assert.equal(status.textContent, "KeyVault session changed.");
+});
+
+test("B012: after an explicit generate the secret exists in the password input value and in no other captured surface — pending id nowhere at all", async () => {
+  const stack = await fullStack();
+  await stack.page.focus(stack.password);
+  const generate = stack.page
+    .allElements()
+    .find((el) => el.id === "kv-generate");
+  assert.ok(generate, "generate row missing");
+  assert.equal(generate.disabled, false, "capability must activate the row");
+  await stack.page.click(generate);
+
+  // The one allowed, inherent sink (SR-5): the password input value.
+  assert.equal(stack.password.value, B2_GENERATED_VALUE);
+  assert.equal(stack.username.value, "", "generate never touches the username");
+
+  // Everything else: DOM/attributes/dataset/style/text of page AND detached
+  // shadow trees (document.title included), content-world globals, console,
+  // every content-sent message, worker durable storage, teardown broadcasts.
+  // The pending id must appear NOWHERE — not even in the allowed sink.
+  assertNoSecretIn(observableSurfaces(stack), "after generate");
+  assert.ok(!stack.page.inputValues().join("\n").includes(B2_PENDING_ID));
+  assert.deepEqual(stack.page.consoleLines, [], "nothing may be logged");
+  assert.equal(stack.page.submitCount, 0, "generate never submits");
+  assert.equal(
+    stack.page.overlayHosts().length,
+    0,
+    "the session tears down after the generated fill"
+  );
+});
+
+test("B012: a replayed generate token at the real dispatcher yields stale_session and no secret", async () => {
+  const stack = await fullStack();
+  await stack.page.focus(stack.password);
+  const generate = stack.page
+    .allElements()
+    .find((el) => el.id === "kv-generate");
+  await stack.page.click(generate);
+  assert.equal(stack.password.value, B2_GENERATED_VALUE, "first generate fills");
+
+  const request = stack.page.sentOfType("generate")[0];
+  stack.password.value = "";
+  // Replay the consumed token straight at the real dispatcher, as a page that
+  // captured the message would.
+  const replay = await stack.page.respond({
+    channel: security.CHANNEL,
+    version: security.MESSAGE_VERSION,
+    type: "generate",
+    origin: ORIGIN,
+    focusNonce: request.focusNonce,
+    generateToken: request.generateToken,
+    sessionBinding: bindingA(),
+  });
+  assert.equal(replay.ok, false);
+  assert.equal(replay.error.code, "stale_session");
+  assert.ok(!JSON.stringify(replay).includes(B2_GENERATED_VALUE));
+  assert.ok(!JSON.stringify(replay).includes(B2_PENDING_ID));
+  assert.equal(stack.password.value, "");
 });
 
 test("A032: a replayed fill token yields no secret on any surface", async () => {
