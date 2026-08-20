@@ -59,10 +59,10 @@ String _driveOpenErrorMessage(Object error) {
     return 'Account selected, but Drive permission was not granted. Please try again and accept the requested permissions.';
   }
   if (normalized.contains('android google sign-in is not configured')) {
-    return 'Android Google Sign-In is not configured. Check GOOGLE_ANDROID_SERVER_CLIENT_ID.';
+    return 'Android Google Sign-In is not configured. Check GOOGLE_WEB_CLIENT_ID.';
   }
   if (normalized.contains('ios google sign-in is not configured')) {
-    return 'iOS Google Sign-In is not configured. Check GOOGLE_MOBILE_CLIENT_ID.';
+    return 'iOS Google Sign-In is not configured. Check GOOGLE_IOS_CLIENT_ID.';
   }
   if (normalized.contains('authorization was not granted')) {
     return 'Google Drive permission was not granted. Enable Drive access and try again.';
