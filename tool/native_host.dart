@@ -1,8 +1,15 @@
 import 'dart:io';
 
+import 'native_host_macos_container.dart';
 import 'native_host_protocol.dart';
 
 Future<void> main() async {
+  // macOS: assert app-group membership with containermanagerd before any
+  // store I/O, so Sequoia treats this process as a group member and raw
+  // file access below never blocks on a TCC prompt. No-op elsewhere,
+  // fail-soft on macOS. See native_host_macos_container.dart.
+  ensureMacosGroupContainerRegistered();
+
   final reader = NativeMessageStreamReader(stdin);
 
   while (true) {
