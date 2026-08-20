@@ -53,6 +53,9 @@ app.*.map.json
 # Local OAuth dart-define values
 .env.dart.define.json
 
+# Local OAuth client secret files (Google Cloud Console downloads)
+keys/
+
 # OpenCode runtime state
 .agent/state/current_task.json
 .agent/state/decision_log.jsonl
