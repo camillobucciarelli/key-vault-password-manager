@@ -319,14 +319,14 @@ no broad always-on permission; explicit exact-origin fill only.
 
 ## Slice B0 — app contracts (blocked until Slice A done; no extension Generate yet)
 
-- [ ] **B001** After Slice A acceptance, define global non-secret
+- [x] **B001** After Slice A acceptance, define global non-secret
       `GeneratorSettingsSnapshot` schema v1/revision and app-owned
       `PasswordGeneratorSettingsRepository`; implement with existing
       `SharedPreferences` under `password_generator_settings_v1`, registered in
       `password_manager_data_di.dart`. First install persists length 16 and all
       four sets enabled. Extension never receives/persists settings. Reuse
       `PasswordGeneratorService`; dialog-local defaults are migration baseline only.
-- [ ] **B002** Implement/test repository and app UI semantics: read/save/watch;
+- [x] **B002** Implement/test repository and app UI semantics: read/save/watch;
       atomic validated Apply/Save; Cancel no-op; explicit Reset commits defaults;
       known-version migration; missing first-install; corrupt JSON/type/range/no-set
       fallback to persisted defaults with redacted code; unknown future version
@@ -335,16 +335,16 @@ no broad always-on permission; explicit exact-origin fill only.
       latest committed revision. Clean open UI follows updates; dirty drafts retain
       edits and stale-revision Apply is rejected until reload/reapply. Test no
       native/extension settings override.
-- [ ] **B003** Define separate in-memory `PendingGeneratedEntry` with app/database/
+- [x] **B003** Define separate in-memory `PendingGeneratedEntry` with app/database/
       cache/bridge generation, settings revision, exact-origin ownership, opaque
       id, created/expiry (`<= 5 minutes`), and pending/consumed/rejected/expired
       transitions. Do not reuse disk-backed `DesktopBrowserAutofillPendingAssociation`.
-- [ ] **B004** Add tests first for generate, consume, reject, expiry, bounded
+- [x] **B004** Add tests first for generate, consume, reject, expiry, bounded
       pending set, clear-on-lock, database switch, vault close, reveal bridge stop,
       and app exit. Assert no generated secret reaches cache, descriptor, pending
       association file, or logs. Verify reference/record removal without claiming
       deterministic zeroization or garbage-collection timing.
-- [ ] **B005** Connect pending record to normal app new-entry/save confirmation.
+- [x] **B005** Connect pending record to normal app new-entry/save confirmation.
       App owns vault mutation; page/extension cannot auto-save.
 
 **Gate B0**: Slice A is complete; settings repository/UI and pending-generation

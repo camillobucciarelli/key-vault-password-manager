@@ -11,12 +11,14 @@ import '../data/repositories/database_registry_repository_impl.dart';
 import '../data/repositories/database_security_repository_impl.dart';
 import '../data/repositories/database_session_repository_impl.dart';
 import '../data/repositories/database_sync_repository_impl.dart';
+import '../data/repositories/shared_preferences_password_generator_settings_repository.dart';
 import '../data/services/apple_autofill_v2_method_channel_client.dart';
 import '../data/services/database_sync_orchestrator.dart';
 import '../data/services/database_import_service.dart';
 import '../data/services/desktop_oauth_pkce_service.dart';
 import '../data/services/desktop_browser_autofill_cache.dart';
 import '../data/services/desktop_browser_autofill_reveal_bridge_service.dart';
+import '../data/services/desktop_browser_pending_generation_service.dart';
 import '../data/services/drive_auth_service.dart';
 import '../data/services/google_drive_api_service.dart';
 import '../data/services/google_oauth_config.dart';
@@ -29,6 +31,7 @@ import '../domain/repositories/database_security_repository.dart';
 import '../domain/repositories/database_session_repository.dart';
 import '../domain/repositories/database_sync_repository.dart';
 import '../domain/repositories/autofill_ports.dart';
+import '../domain/repositories/password_generator_settings_repository.dart';
 import '../domain/services/apple_autofill_v2_payload_mapper.dart';
 import '../domain/services/vault_autofill_matcher.dart';
 
@@ -43,6 +46,11 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
     () => DatabaseSyncRepositoryImpl(
       driveAuthService: sl(),
       databaseSyncOrchestrator: sl(),
+    ),
+  );
+  sl.registerLazySingleton<PasswordGeneratorSettingsRepository>(
+    () => SharedPreferencesPasswordGeneratorSettingsRepository(
+      sharedPreferences: sl(),
     ),
   );
   sl.registerLazySingleton<DatabaseSessionRepository>(
@@ -76,6 +84,7 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
   sl.registerLazySingleton(() => const AppleAutofillV2PayloadMapper());
   sl.registerLazySingleton(() => const DesktopBrowserAutofillMetadataMapper());
   sl.registerLazySingleton(() => DesktopBrowserAutofillCacheStore());
+  sl.registerLazySingleton(() => DesktopBrowserPendingGenerationService());
   sl.registerLazySingleton(
     () => DesktopBrowserAutofillRevealBridgeService(store: sl(), mapper: sl()),
   );
@@ -88,7 +97,9 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
   sl.registerLazySingleton(
     () => DatabaseImportService(validateDatabaseUseCase: sl()),
   );
-  sl.registerLazySingleton<DatabaseFileRepository>(() => sl<DatabaseImportService>());
+  sl.registerLazySingleton<DatabaseFileRepository>(
+    () => sl<DatabaseImportService>(),
+  );
   sl.registerLazySingleton(() => GoogleOAuthConfig.fromEnvironment());
   sl.registerLazySingleton(() => DesktopOAuthPkceService(httpClient: sl()));
   sl.registerLazySingleton(
