@@ -8,10 +8,31 @@ import 'package:password_manager/features/password_manager/domain/models/vault_e
 
 void main() {
   group('DesktopBrowserAutofillCacheStore', () {
-    test('uses macOS app group for browser cache', () {
+    test(
+      'uses the dedicated Team-ID-prefixed macOS app group for browser cache',
+      () {
+        if (!Platform.isMacOS) return;
+
+        final directory = DesktopBrowserAutofillCacheStore.defaultDirectory(
+          environment: const {
+            'HOME':
+                '/Users/alice/Library/Containers/'
+                'dev.camillobucciarelli.kdbxKeyVault/Data',
+          },
+        );
+
+        expect(
+          directory?.path,
+          '/Users/alice/Library/Group Containers/'
+          'A8QUU5F9G3.dev.camillobucciarelli.kdbxKeyVault.browser/browser_v2',
+        );
+      },
+    );
+
+    test('legacy macOS directory points at the old shared group store', () {
       if (!Platform.isMacOS) return;
 
-      final directory = DesktopBrowserAutofillCacheStore.defaultDirectory(
+      final directory = DesktopBrowserAutofillCacheStore.legacyMacosDirectory(
         environment: const {
           'HOME':
               '/Users/alice/Library/Containers/'
@@ -24,6 +45,129 @@ void main() {
         '/Users/alice/Library/Group Containers/'
         'group.dev.camillobucciarelli.kdbxKeyVault/browser_v2',
       );
+    });
+
+    Directory fakeLegacyStore(Directory root) {
+      final legacy = Directory('${root.path}/legacy')
+        ..createSync(recursive: true);
+      File(
+        '${legacy.path}/bridge.json',
+      ).writeAsStringSync('{"token":"stale-bearer"}');
+      File('${legacy.path}/metadata.json').writeAsStringSync('{}');
+      return legacy;
+    }
+
+    test('cleanupLegacyStore deletes the old store, bearer included', () async {
+      final root = await Directory.systemTemp.createTemp('kv-desktop-cache-');
+      final legacyDirectory = fakeLegacyStore(root);
+      // No injected directory: only a store on the default location cleans up.
+      final store = DesktopBrowserAutofillCacheStore(
+        legacyDirectoryOverride: legacyDirectory,
+      );
+
+      await store.cleanupLegacyStore();
+
+      expect(legacyDirectory.existsSync(), isFalse);
+    });
+
+    test('cleanupLegacyStore is a no-op when the old store is gone', () async {
+      final root = await Directory.systemTemp.createTemp('kv-desktop-cache-');
+      final store = DesktopBrowserAutofillCacheStore(
+        legacyDirectoryOverride: Directory('${root.path}/legacy-missing'),
+      );
+
+      await expectLater(store.cleanupLegacyStore(), completes);
+    });
+
+    test('cleanupLegacyStore never touches the legacy store when the directory '
+        'is injected', () async {
+      // Load-bearing guard pin: without the `_directory != null` early
+      // return in cleanupLegacyStore, every test that starts a bridge
+      // against a temp store would delete the developer's REAL legacy
+      // container during `flutter test`. This test must fail if that guard
+      // is removed — on every platform, which is why it pins the guard via
+      // the override seam rather than the macOS-only path derivation.
+      final root = await Directory.systemTemp.createTemp('kv-desktop-cache-');
+      final legacyDirectory = fakeLegacyStore(root);
+      final store = DesktopBrowserAutofillCacheStore(
+        directory: Directory('${root.path}/new'),
+        legacyDirectoryOverride: legacyDirectory,
+      );
+
+      await store.cleanupLegacyStore();
+
+      expect(legacyDirectory.existsSync(), isTrue);
+      expect(File('${legacyDirectory.path}/bridge.json').existsSync(), isTrue);
+    });
+
+    test(
+      'cleanupLegacyStore on macOS derives the legacy path from the injected '
+      'environment and removes it',
+      () async {
+        if (!Platform.isMacOS) return;
+
+        final root = await Directory.systemTemp.createTemp('kv-desktop-cache-');
+        final legacyDirectory = Directory(
+          '${root.path}/Library/Group Containers/'
+          'group.dev.camillobucciarelli.kdbxKeyVault/browser_v2',
+        )..createSync(recursive: true);
+        File(
+          '${legacyDirectory.path}/bridge.json',
+        ).writeAsStringSync('{"token":"stale-bearer"}');
+        final store = DesktopBrowserAutofillCacheStore();
+
+        await store.cleanupLegacyStore(environment: {'HOME': root.path});
+
+        expect(legacyDirectory.existsSync(), isFalse);
+      },
+    );
+
+    test('cleanupLegacyStore on macOS leaves the environment-derived legacy '
+        'store alone when the directory is injected', () async {
+      if (!Platform.isMacOS) return;
+
+      final root = await Directory.systemTemp.createTemp('kv-desktop-cache-');
+      final legacyDirectory = Directory(
+        '${root.path}/Library/Group Containers/'
+        'group.dev.camillobucciarelli.kdbxKeyVault/browser_v2',
+      )..createSync(recursive: true);
+      File(
+        '${legacyDirectory.path}/bridge.json',
+      ).writeAsStringSync('{"token":"stale-bearer"}');
+      final store = DesktopBrowserAutofillCacheStore(
+        directory: Directory('${root.path}/new'),
+      );
+
+      await store.cleanupLegacyStore(environment: {'HOME': root.path});
+
+      expect(legacyDirectory.existsSync(), isTrue);
+    });
+
+    test('writes store directory 0700 and files 0600 on POSIX', () async {
+      if (Platform.isWindows) return;
+
+      final root = await Directory.systemTemp.createTemp('kv-desktop-cache-');
+      final directory = Directory('${root.path}/store');
+      final store = DesktopBrowserAutofillCacheStore(directory: directory);
+      await store.writeBridgeDescriptor(
+        DesktopBrowserAutofillBridgeDescriptor(
+          version: desktopBrowserAutofillBridgeDescriptorVersion,
+          port: 12345,
+          token: 'a' * 64,
+          databaseId: 'sha256:test',
+          cacheGeneration: 'cache-gen',
+          bridgeGeneration: 'bridge-gen',
+          createdAtEpochMs: 1,
+        ),
+      );
+
+      String modeOf(String path) {
+        final stat = FileStat.statSync(path);
+        return (stat.mode & 0xFFF).toRadixString(8);
+      }
+
+      expect(modeOf(directory.path), '700');
+      expect(modeOf(store.bridgeDescriptorFile!.path), '600');
     });
 
     test('publishes metadata without passwords or URL paths', () async {

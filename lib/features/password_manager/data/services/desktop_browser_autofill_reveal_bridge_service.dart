@@ -87,6 +87,12 @@ class DesktopBrowserAutofillRevealBridgeService {
 
     await stop();
 
+    // Migration (fix/macos-autofill-store-location): the store moved out of
+    // the shared app group container; delete the old macOS store so its
+    // bridge.json bearer never stays orphaned there. Best-effort, no-op off
+    // macOS or when already gone.
+    await store.cleanupLegacyStore();
+
     final databaseId = DesktopBrowserAutofillMetadataMapper.databaseIdForPath(
       databasePath,
     );

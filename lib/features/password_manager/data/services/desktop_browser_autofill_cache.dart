@@ -373,10 +373,17 @@ class DesktopBrowserAutofillAssociationTarget {
 }
 
 class DesktopBrowserAutofillCacheStore {
-  DesktopBrowserAutofillCacheStore({Directory? directory})
-    : _directory = directory;
+  DesktopBrowserAutofillCacheStore({
+    Directory? directory,
+    Directory? legacyDirectoryOverride,
+  }) : _directory = directory,
+       _legacyDirectoryOverride = legacyDirectoryOverride;
 
   final Directory? _directory;
+
+  /// Test seam for [cleanupLegacyStore]; production always derives the legacy
+  /// path from [legacyMacosDirectory].
+  final Directory? _legacyDirectoryOverride;
 
   static bool get isPlatformSupported {
     return Platform.isMacOS || Platform.isWindows || Platform.isLinux;
@@ -406,6 +413,40 @@ class DesktopBrowserAutofillCacheStore {
     return dir == null ? null : File(p.join(dir.path, 'bridge.json'));
   }
 
+  /// macOS security analysis (fix/macos-autofill-store-location).
+  ///
+  /// The store lives in a *dedicated* Team-ID-prefixed app group container,
+  /// separate from `group.dev.camillobucciarelli.kdbxKeyVault` (which stays
+  /// owned by the Apple autofill CredentialProviderExtension):
+  ///
+  /// - On macOS Sequoia, "App Data protection" TCC-guards group containers.
+  ///   The native host is an ephemeral process (spawned per browser request,
+  ///   <1s lifetime) and TCC's per-process grant does not attribute reliably
+  ///   to short-lived processes: with the legacy non-prefixed group the
+  ///   "would like to access data from other apps" prompt reappeared on
+  ///   every spawn (measured). Sequoia honors signature *membership* — no
+  ///   prompt, ever — only for group IDs prefixed with the signing Team ID
+  ///   (measured: zero prompts across repeated third-party-parented spawns
+  ///   of a Developer-ID-signed probe declaring this group).
+  /// - Threat model unchanged: pre-Sequoia the group container never
+  ///   protected this store from other non-sandboxed same-user processes,
+  ///   so a dedicated membership-readable container restores the
+  ///   pre-Sequoia status quo rather than widening access. The directory is
+  ///   written 0700 and files 0600 (same-user POSIX protection, equivalent
+  ///   to any user-level secret store).
+  /// - The bearer token in `bridge.json` is not sufficient to reveal
+  ///   secrets on its own: a caller also needs loopback access to the
+  ///   bridge port, the descriptor's triple binding
+  ///   (`databaseId`/`cacheGeneration`/`bridgeGeneration`) to match the
+  ///   live cache, the vault unlocked in the app, and a page origin the
+  ///   reveal policy authorizes. The `.kdbx` vault is never in this store.
+  /// - Least privilege: the native host's entitlements declare only this
+  ///   group, so it cannot read the credential provider's container.
+  /// - Version skew: app and host of the same release derive the path from
+  ///   this one function. An old host paired with a new app finds no
+  ///   descriptor/cache in the old location (the app deletes it, see
+  ///   [cleanupLegacyStore]) and fails closed — no dual-read fallback, so
+  ///   there is exactly one store to protect.
   static Directory? defaultDirectory({Map<String, String>? environment}) {
     if (!isPlatformSupported) {
       return null;
@@ -424,17 +465,12 @@ class DesktopBrowserAutofillCacheStore {
 
     final home = _firstNonEmpty([env['HOME'], env['USERPROFILE']]);
     if (Platform.isMacOS && home != null) {
-      final containersMarker = p.join('Library', 'Containers');
-      final markerIndex = home.indexOf(containersMarker);
-      final userHome = markerIndex < 0
-          ? home
-          : home.substring(0, markerIndex).replaceFirst(RegExp(r'[/\\]+$'), '');
       return Directory(
         p.join(
-          userHome,
+          _macosUserHome(home),
           'Library',
           'Group Containers',
-          'group.dev.camillobucciarelli.kdbxKeyVault',
+          'A8QUU5F9G3.dev.camillobucciarelli.kdbxKeyVault.browser',
           'browser_v2',
         ),
       );
@@ -442,6 +478,71 @@ class DesktopBrowserAutofillCacheStore {
     return home == null
         ? null
         : Directory(p.join(home, '.keyvault_autofill', 'browser_v2'));
+  }
+
+  /// The pre-Sequoia-fix macOS store location, inside the shared app group
+  /// container. Only used by [cleanupLegacyStore]; `null` off macOS.
+  static Directory? legacyMacosDirectory({Map<String, String>? environment}) {
+    if (!Platform.isMacOS) {
+      return null;
+    }
+    final env = environment ?? Platform.environment;
+    final home = _firstNonEmpty([env['HOME'], env['USERPROFILE']]);
+    if (home == null) {
+      return null;
+    }
+    return Directory(
+      p.join(
+        _macosUserHome(home),
+        'Library',
+        'Group Containers',
+        'group.dev.camillobucciarelli.kdbxKeyVault',
+        'browser_v2',
+      ),
+    );
+  }
+
+  /// The real user home even when running sandboxed, where `HOME` points
+  /// inside `~/Library/Containers/<bundle>/Data`.
+  static String _macosUserHome(String home) {
+    final containersMarker = p.join('Library', 'Containers');
+    final markerIndex = home.indexOf(containersMarker);
+    return markerIndex < 0
+        ? home
+        : home.substring(0, markerIndex).replaceFirst(RegExp(r'[/\\]+$'), '');
+  }
+
+  /// Best-effort deletion of the legacy macOS store (migration, one-way).
+  ///
+  /// Nothing in the old store is worth preserving: the metadata cache is
+  /// regenerated at the next publish and the bridge descriptor is rewritten
+  /// on every bridge start. What must NOT happen is the old `bridge.json`
+  /// (which carries a bearer token) staying orphaned in the old container,
+  /// so the whole directory is deleted. The app keeps the legacy group
+  /// entitlement (the credential provider still uses that group), so the
+  /// sandboxed app can perform this delete.
+  Future<void> cleanupLegacyStore({Map<String, String>? environment}) async {
+    // Load-bearing guard: only a store pointing at the real default location
+    // may clean up. A store with an injected directory (tests, tooling) must
+    // never delete a legacy store — without this line, every test that
+    // starts a bridge against a temp store would delete the developer's real
+    // legacy container. Pinned by the 'never touches the legacy store when
+    // the directory is injected' tests; checked before any override or
+    // platform logic so the pin holds on every platform.
+    if (_directory != null) {
+      return;
+    }
+    final legacy =
+        _legacyDirectoryOverride ??
+        legacyMacosDirectory(environment: environment);
+    if (legacy == null) {
+      return;
+    }
+    try {
+      if (await legacy.exists()) {
+        await legacy.delete(recursive: true);
+      }
+    } catch (_) {}
   }
 
   Future<DesktopBrowserAutofillStoreStatus> status() async {

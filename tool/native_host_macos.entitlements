@@ -19,5 +19,41 @@
 	-->
 	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
 	<true/>
+	<!--
+	  App-group membership by signature, NOT sandboxing (the host is not
+	  sandboxed; application-groups on a non-sandboxed helper is the standard
+	  Apple pattern for helpers sharing a group container).
+
+	  Why: on macOS Sequoia, "App Data protection" TCC-guards group
+	  containers. The native host is an ephemeral process (spawned per
+	  browser request, <1s lifetime), and TCC's per-process grant does not
+	  attribute reliably to short-lived processes — the "would like to
+	  access data from other apps" prompt reappears on every spawn
+	  (measured with the legacy non-prefixed group). Declaring the group in
+	  the host's signature makes it a *member*, so TCC never asks — but
+	  Sequoia only honors that membership when the group ID is prefixed
+	  with the signing Team ID (measured: per-spawn prompts on
+	  group.dev.camillobucciarelli.kdbxKeyVault, zero prompts on the
+	  Team-prefixed group below across repeated third-party-parented
+	  spawns). Hence the dedicated group, distinct from the legacy one the
+	  app shares with the Apple autofill CredentialProviderExtension.
+
+	  Least privilege: ONLY the browser-store group is declared. The host
+	  must not be able to read the credential provider's container, so the
+	  legacy group is deliberately absent.
+
+	  Threat model unchanged: this grants the host nothing it did not
+	  already have pre-Sequoia (any same-user non-sandboxed process could
+	  read the store then). The store keeps 0700/0600 POSIX permissions,
+	  the bearer in bridge.json is only usable with loopback access + the
+	  triple binding (databaseId/cacheGeneration/bridgeGeneration) + an
+	  unlocked vault + an authorized page origin, and the .kdbx vault is
+	  never in this store. Full analysis on
+	  DesktopBrowserAutofillCacheStore.defaultDirectory.
+	-->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>A8QUU5F9G3.dev.camillobucciarelli.kdbxKeyVault.browser</string>
+	</array>
 </dict>
 </plist>
