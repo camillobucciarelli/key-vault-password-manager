@@ -153,6 +153,9 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
                 onRetry: () => context.read<DatabaseUnlockBloc>().add(
                   const RetryBiometricAuthentication(),
                 ),
+                onUseMasterPassword: () => context
+                    .read<DatabaseUnlockBloc>()
+                    .add(const RequestManualUnlockFallback()),
                 errorMessage: state.errorMessage,
               );
             case UnlockPhase.decrypting:

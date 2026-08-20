@@ -15,9 +15,19 @@ class _UnlockLoading extends StatelessWidget {
 /// `KvPillButton`) resolves `KeyVaultColors.dark` roles through the theme
 /// extension instead of duplicating literal hex values.
 class _BiometricGate extends StatelessWidget {
-  const _BiometricGate({required this.onRetry, this.errorMessage});
+  const _BiometricGate({
+    required this.onRetry,
+    required this.onUseMasterPassword,
+    this.errorMessage,
+  });
 
   final VoidCallback onRetry;
+
+  /// Always-available escape hatch to the manual credential form. The
+  /// master password is the primary credential, so hiding it behind a
+  /// failed biometric attempt would only lock users with a broken sensor
+  /// out of their own vault.
+  final VoidCallback onUseMasterPassword;
   final String? errorMessage;
 
   @override
@@ -70,6 +80,11 @@ class _BiometricGate extends StatelessWidget {
                       ],
                       const SizedBox(height: 28),
                       KvPillButton(label: 'Retry', onPressed: onRetry),
+                      const SizedBox(height: 14),
+                      _UnlockCaptionLink(
+                        label: 'Use master password instead',
+                        onTap: onUseMasterPassword,
+                      ),
                     ],
                   ),
                 ),
