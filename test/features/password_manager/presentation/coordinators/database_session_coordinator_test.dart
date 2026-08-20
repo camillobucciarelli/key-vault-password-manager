@@ -506,7 +506,9 @@ void main() {
         expect(result.duplicatePrompt, isNull);
         expect(registryRepository.activeId, 'db-current');
         expect(localDataSource.selectedKeyFilePath, isNull);
-        expect(secureDataSource.password, isNull);
+        // spec-011 FR-3/AC-3: opening a database no longer wipes its keystore
+        // biometric credential; only the in-memory session is reset.
+        expect(secureDataSource.password, 'secret');
         expect(appleAutofillV2Coordinator.clearCallCount, 1);
       },
     );

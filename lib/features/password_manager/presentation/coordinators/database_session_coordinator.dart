@@ -326,13 +326,12 @@ class DatabaseSessionCoordinator {
     await databaseRegistryRepository.upsert(recordToSave);
     await databaseRegistryRepository.setActive(recordToSave.databaseId);
     if (clearCredentials) {
-      // FR-2: opening a database with a fresh session drops any in-memory
-      // secret; FR-4 keys the keystore clear to this database.
+      // FR-2: opening a database with a fresh session drops the in-memory
+      // secret only. FR-3/AC-3: the keystore biometric credential is NOT
+      // cleared here — it is removed solely on disable/delete (FR-5), so
+      // re-selecting a biometric database keeps its biometric unlock.
       masterPasswordSession.clear();
       await databaseSessionRepository.cacheKeyFilePath(null);
-      await databaseSessionRepository.clearMasterPassword(
-        recordToSave.databaseId,
-      );
       await appleAutofillV2Coordinator.clearCredentials();
     }
 
@@ -938,14 +937,12 @@ class DatabaseSessionCoordinator {
   }
 
   Future<void> _clearSessionCredentials() async {
-    // FR-2 (spec 011): dropping the persisted session state also drops the
-    // in-memory secret.
+    // FR-2 (spec 011): a session reset drops the in-memory secret only. The
+    // keystore biometric credential is preserved (removed only on
+    // disable/delete, FR-5, so switching databases keeps biometric unlock —
+    // AC-3/AC-5).
     masterPasswordSession.clear();
     await databaseSessionRepository.cacheKeyFilePath(null);
-    final activeId = (await getActiveDatabaseUseCase())?.databaseId;
-    if (activeId != null) {
-      await databaseSessionRepository.clearMasterPassword(activeId);
-    }
     await appleAutofillV2Coordinator.clearCredentials();
   }
 
@@ -1029,13 +1026,11 @@ class DatabaseSessionCoordinator {
     await databaseRegistryRepository.setActive(recordToSave.databaseId);
 
     if (clearCredentials) {
-      // FR-2/FR-4: fresh session drops the in-memory secret; keystore clear is
-      // keyed to this database.
+      // FR-2: fresh session drops the in-memory secret only. FR-3/AC-3: the
+      // keystore biometric credential is preserved (removed only on
+      // disable/delete, FR-5).
       masterPasswordSession.clear();
       await databaseSessionRepository.cacheKeyFilePath(null);
-      await databaseSessionRepository.clearMasterPassword(
-        recordToSave.databaseId,
-      );
       await appleAutofillV2Coordinator.clearCredentials();
     }
 
@@ -1196,7 +1191,9 @@ class DatabaseSessionCoordinator {
         (existing ??
                 DatabaseSecurityProfile(
                   databaseId: record.databaseId,
-                  biometricProtectionEnabled: true,
+                  // FR-3/FR-7: a database with no prior choice defaults to
+                  // biometrics OFF, so the gate never opens without opt-in.
+                  biometricProtectionEnabled: false,
                 ))
             .copyWith(
               keyFilePath: keyFilePath,

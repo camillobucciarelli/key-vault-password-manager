@@ -2,7 +2,9 @@ class DatabaseSecurityProfile {
   const DatabaseSecurityProfile({
     required this.databaseId,
     this.keyFilePath,
-    this.biometricProtectionEnabled = true,
+    // spec-011 FR-7: absence of an explicit choice is not consent to persist a
+    // secret. A profile only enables biometrics when the user opts in.
+    this.biometricProtectionEnabled = false,
     this.inactivityLockTimeoutSeconds,
     this.updatedAt,
   });

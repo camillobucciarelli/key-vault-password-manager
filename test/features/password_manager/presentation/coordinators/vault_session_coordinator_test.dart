@@ -165,6 +165,46 @@ void main() {
       },
     );
 
+    test(
+      'FR-3 regression: a failed settings update with biometrics OFF never '
+      'writes the in-memory session secret into the keystore',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'vault_session_rollback_off_',
+        );
+        addTearDown(() => tempDir.delete(recursive: true));
+        final oldFile = File('${tempDir.path}/old.kdbx');
+        await oldFile.writeAsBytes(const [1, 2, 3], flush: true);
+        registryRepository.records = [_recordForTest('db-1', oldFile.path)];
+        // A live session secret exists in memory, but biometrics are off and
+        // nothing is stored in the keystore.
+        masterPasswordSession.set('must-not-leak');
+        expect(secureDataSource.password, isNull);
+        vaultKdbxService.shouldThrowOnChangeMasterPassword = true;
+
+        await expectLater(
+          coordinator.updateDatabaseSettings(
+            DatabaseSettingsUpdateRequest(
+              currentDatabasePath: oldFile.path,
+              fileName: 'renamed.kdbx',
+              keyFilePath: null,
+              biometricProtectionEnabled: false,
+              changePassword: true,
+              inactivityLockTimeoutSeconds: null,
+              currentPassword: 'must-not-leak',
+              newPassword: 'new-secret',
+            ),
+          ),
+          throwsA(isA<Exception>()),
+        );
+
+        // The rollback must restore the original (absent) keystore entry, not
+        // deposit the session secret.
+        expect(secureDataSource.password, isNull);
+        expect(secureDataSource.passwords, isEmpty);
+      },
+    );
+
     test('mapping failure rolls database rename back', () async {
       final tempDir = await Directory.systemTemp.createTemp(
         'vault_mapping_rollback_',

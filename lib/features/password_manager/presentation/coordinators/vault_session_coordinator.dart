@@ -196,6 +196,12 @@ class VaultSessionCoordinator {
     // FR-1 (spec 011): the current session credential comes from the in-memory
     // holder, not the keystore, which may not hold it when biometrics are off.
     final storedPassword = masterPasswordSession.value;
+    // FR-3 (spec 011): snapshot the database's actual keystore entry so a
+    // rollback restores exactly what was there — never writes the in-memory
+    // session secret into the keystore ungated.
+    final originalKeystoreSecret = await secureDataSource.getMasterPassword(
+      record.databaseId,
+    );
     var currentPassword = storedPassword;
     var newPassword = storedPassword;
     if (request.changePassword || keyFileChanged) {
@@ -318,7 +324,7 @@ class VaultSessionCoordinator {
         profile: existingProfile,
         databasePath: currentPath,
         keyFilePath: currentKeyFilePath,
-        password: storedPassword,
+        password: originalKeystoreSecret,
       );
       if (mappingMoved) {
         try {

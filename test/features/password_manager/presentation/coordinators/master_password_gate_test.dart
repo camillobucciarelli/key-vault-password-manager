@@ -97,6 +97,47 @@ void main() {
       // The in-memory session secret is still live regardless of the gate.
       expect(masterPasswordSession.value, 'secret');
     });
+
+    test(
+      'a registered database with NO security profile never writes, even '
+      'across repeated unlocks (regression: auto-created profile must not '
+      'default biometrics on)',
+      () async {
+        // Registered record, but no profile in the security repository — the
+        // pre-spec-011 default was `true`, which re-opened the gate on the
+        // second unlock. It must stay closed.
+        registryRepository.records = [
+          DatabaseRecord(
+            databaseId: id,
+            canonicalPath: path,
+            displayName: 'vault.kdbx',
+            sourceType: DatabaseSourceType.local,
+            createdAt: DateTime(2026),
+            updatedAt: DateTime(2026),
+          ),
+        ];
+        registryRepository.activeId = id;
+        // securityRepository.profiles intentionally empty.
+
+        await coordinator.unlockWithManualCredentials(
+          databasePath: path,
+          password: 'secret',
+          keyFilePath: null,
+        );
+        await coordinator.unlockWithManualCredentials(
+          databasePath: path,
+          password: 'secret',
+          keyFilePath: null,
+        );
+
+        expect(sessionRepository.masterPasswords, isEmpty);
+        // The auto-created profile must not silently enable biometrics.
+        expect(
+          securityRepository.profiles[id]?.biometricProtectionEnabled,
+          isFalse,
+        );
+      },
+    );
   });
 
   group('FR-5 erase', () {
