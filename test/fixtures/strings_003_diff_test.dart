@@ -98,6 +98,11 @@ const _approvedSupersededLiterals = <String>{
   // file" inline link shown only when no key file is selected yet;
   // `_KeyFileSelector` is now only built once a key file exists.
   'Select key file',
+  // OAuth env-key rename (refactor/oauth-env-key-names): dart-define keys now
+  // map 1:1 to GCP OAuth client types, so the error copy references the new
+  // key names (GOOGLE_WEB_CLIENT_ID / GOOGLE_IOS_CLIENT_ID).
+  'Android Google Sign-In is not configured. Check GOOGLE_ANDROID_SERVER_CLIENT_ID.',
+  'iOS Google Sign-In is not configured. Check GOOGLE_MOBILE_CLIENT_ID.',
 };
 
 void main() {
