@@ -69,7 +69,10 @@ void main() {
       await tester.pumpWidget(result.widget);
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextFormField), 'kv-test-only-not-a-real-password');
+      await tester.enterText(
+        find.byType(TextFormField),
+        'kv-test-only-not-a-real-password',
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Unlock vault'));
       await tester.pump();
@@ -77,7 +80,10 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(result.harness.unlockUseCase.callCount, 1);
-      expect(result.harness.unlockUseCase.lastPassword, 'kv-test-only-not-a-real-password');
+      expect(
+        result.harness.unlockUseCase.lastPassword,
+        'kv-test-only-not-a-real-password',
+      );
       expect(result.harness.unlockUseCase.lastDatabasePath, path);
     });
 
@@ -102,8 +108,38 @@ void main() {
   });
 
   group('Biometric gate', () {
+    testWidgets('failed authentication does not unlock and offers Retry', (
+      tester,
+    ) async {
+      final result = await pumpableUnlockScreen(
+        databasePath: path,
+        records: records,
+        securityProfiles: const {
+          'db-1': DatabaseSecurityProfile(
+            databaseId: 'db-1',
+            biometricProtectionEnabled: true,
+          ),
+        },
+        biometricAvailable: true,
+        hangBiometricAuthenticate: true,
+      );
+
+      await tester.pumpWidget(result.widget);
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(result.harness.unlockUseCase.callCount, 0);
+      expect(find.text('Retry'), findsOneWidget);
+
+      final blocContext = tester.element(find.byType(Scaffold).first);
+      expect(
+        blocContext.read<DatabaseUnlockBloc>().state.phase,
+        UnlockPhase.biometricGate,
+      );
+    });
+
     testWidgets(
-      'failed authentication does not unlock and offers Retry',
+      '"Use master password instead" escapes the gate to the credential form',
       (tester) async {
         final result = await pumpableUnlockScreen(
           databasePath: path,
@@ -115,20 +151,36 @@ void main() {
             ),
           },
           biometricAvailable: true,
-          hangBiometricAuthenticate: true,
+          biometricAuthenticateResult: false,
         );
+        result.harness.unlockUseCase.hang = true;
 
         await tester.pumpWidget(result.widget);
         await tester.pumpAndSettle();
 
-        expect(tester.takeException(), isNull);
-        expect(result.harness.unlockUseCase.callCount, 0);
-        expect(find.text('Retry'), findsOneWidget);
+        expect(find.text('Use master password instead'), findsOneWidget);
+        await tester.tap(find.text('Use master password instead'));
+        await tester.pumpAndSettle();
 
-        final blocContext = tester.element(find.byType(Scaffold).first);
+        // Manual credential form is now reachable and submits normally.
+        await tester.enterText(find.byType(TextFormField), 'kv-test-only');
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Unlock vault'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+
+        expect(tester.takeException(), isNull);
+        expect(result.harness.unlockUseCase.callCount, 1);
+        expect(result.harness.unlockUseCase.lastPassword, 'kv-test-only');
+
+        // Persisted biometric requirement untouched.
         expect(
-          blocContext.read<DatabaseUnlockBloc>().state.phase,
-          UnlockPhase.biometricGate,
+          result
+              .harness
+              .securityRepository
+              .profiles['db-1']!
+              .biometricProtectionEnabled,
+          isTrue,
         );
       },
     );

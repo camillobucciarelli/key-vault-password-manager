@@ -40,6 +40,12 @@ class DatabaseUnlockState extends Equatable {
   final bool biometricPrompted;
   final bool biometricVerified;
 
+  /// Session-only escape hatch from the biometric gate: the user chose to
+  /// unlock with the master password instead. Never persisted — the
+  /// security profile's `biometricProtectionEnabled` is untouched, so the
+  /// next launch gates on biometrics again.
+  final bool manualFallbackRequested;
+
   /// C-3 typed failure, when the last error was mappable. Null for
   /// non-typed/business errors (still described in [errorMessage]).
   final DatabaseAccessFailure? failure;
@@ -57,6 +63,7 @@ class DatabaseUnlockState extends Equatable {
     this.biometricAvailable = false,
     this.biometricPrompted = false,
     this.biometricVerified = false,
+    this.manualFallbackRequested = false,
     this.failure,
     this.errorMessage,
     this.progress,
@@ -79,6 +86,7 @@ class DatabaseUnlockState extends Equatable {
     bool? biometricAvailable,
     bool? biometricPrompted,
     bool? biometricVerified,
+    bool? manualFallbackRequested,
     DatabaseAccessFailure? failure,
     String? errorMessage,
     double? progress,
@@ -93,6 +101,8 @@ class DatabaseUnlockState extends Equatable {
       biometricAvailable: biometricAvailable ?? this.biometricAvailable,
       biometricPrompted: biometricPrompted ?? this.biometricPrompted,
       biometricVerified: biometricVerified ?? this.biometricVerified,
+      manualFallbackRequested:
+          manualFallbackRequested ?? this.manualFallbackRequested,
       failure: failure ?? (clearError ? null : this.failure),
       errorMessage: errorMessage ?? (clearError ? null : this.errorMessage),
       progress: clearProgress ? null : progress ?? this.progress,
@@ -107,6 +117,7 @@ class DatabaseUnlockState extends Equatable {
     biometricAvailable,
     biometricPrompted,
     biometricVerified,
+    manualFallbackRequested,
     failure,
     errorMessage,
     progress,

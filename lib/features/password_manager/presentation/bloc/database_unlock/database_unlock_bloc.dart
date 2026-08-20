@@ -17,6 +17,7 @@ class DatabaseUnlockBloc
   }) : super(DatabaseUnlockState.initial(databasePath: databasePath)) {
     on<InitializeDatabaseUnlock>(_onInitializeDatabaseUnlock);
     on<RetryBiometricAuthentication>(_onRetryBiometricAuthentication);
+    on<RequestManualUnlockFallback>(_onRequestManualUnlockFallback);
     on<UnlockWithManualCredentials>(_onUnlockWithManualCredentials);
     on<UpdateKeyFilePath>(_onUpdateKeyFilePath);
   }
@@ -124,6 +125,27 @@ class DatabaseUnlockBloc
     if (isOk) {
       await _tryStoredCredentialsUnlock(emit);
     }
+  }
+
+  /// Escapes the biometric gate to the manual credential form. Session-only:
+  /// nothing is persisted, so biometrics gate the next launch again. The
+  /// master password is the primary credential (it derives the KDBX key) —
+  /// this is a convenience opt-out, not a security bypass.
+  void _onRequestManualUnlockFallback(
+    RequestManualUnlockFallback event,
+    Emitter<DatabaseUnlockState> emit,
+  ) {
+    if (state.isDecrypting) {
+      return;
+    }
+    _safeEmit(
+      emit,
+      state.copyWith(
+        phase: UnlockPhase.ready,
+        manualFallbackRequested: true,
+        clearError: true,
+      ),
+    );
   }
 
   Future<void> _onUnlockWithManualCredentials(
@@ -269,7 +291,9 @@ class DatabaseUnlockBloc
   }
 
   bool _requiresBiometricGate() {
-    return state.biometricAvailable && !state.biometricVerified;
+    return state.biometricAvailable &&
+        !state.biometricVerified &&
+        !state.manualFallbackRequested;
   }
 
   /// Wrong password / missing key file stay recoverable in-place (`ready`
@@ -306,8 +330,7 @@ class DatabaseUnlockBloc
       state.copyWith(
         phase: genericPhase,
         clearError: true,
-        errorMessage:
-            fallback ?? 'Unable to complete the requested operation.',
+        errorMessage: fallback ?? 'Unable to complete the requested operation.',
       ),
     );
   }

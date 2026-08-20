@@ -118,8 +118,9 @@ Future<({Widget widget, DatabaseTestHarness harness})> pumpableSelectionScreen({
   harness.securityRepository.profiles.addAll(securityProfiles);
   harness.fileRepository.existingPaths.addAll(existingPaths);
 
-  final bloc = DatabaseSelectionBloc(databaseSessionCoordinator: harness.coordinator)
-    ..add(CheckInitialDatabase());
+  final bloc = DatabaseSelectionBloc(
+    databaseSessionCoordinator: harness.coordinator,
+  )..add(CheckInitialDatabase());
 
   // Mirrors `main.dart`'s `PasswordManagerApp`: the bloc provider wraps the
   // whole `MaterialApp` (above the Navigator), not just `home`, so routes
@@ -153,6 +154,7 @@ Future<({Widget widget, DatabaseTestHarness harness})> pumpableUnlockScreen({
   List<DatabaseRecord> records = const [],
   Map<String, DatabaseSecurityProfile> securityProfiles = const {},
   bool biometricAvailable = false,
+  bool biometricAuthenticateResult = true,
   bool hangBiometricAuthenticate = false,
   ThemeMode themeMode = ThemeMode.light,
 }) async {
@@ -172,6 +174,7 @@ Future<({Widget widget, DatabaseTestHarness harness})> pumpableUnlockScreen({
       databasePath: path,
       biometricDataSource: _FakeBiometricDataSource(
         available: biometricAvailable,
+        authenticateResult: biometricAuthenticateResult,
         hangAuthenticate: hangBiometricAuthenticate,
       ),
       databaseSessionCoordinator: harness.coordinator,
@@ -262,10 +265,12 @@ Future<void> resetDatabaseTestDi() => di.sl.reset();
 class _FakeBiometricDataSource implements BiometricDataSource {
   _FakeBiometricDataSource({
     required this.available,
+    this.authenticateResult = true,
     this.hangAuthenticate = false,
   });
 
   final bool available;
+  final bool authenticateResult;
   final bool hangAuthenticate;
   final Completer<bool> _hangCompleter = Completer<bool>();
 
@@ -274,7 +279,7 @@ class _FakeBiometricDataSource implements BiometricDataSource {
     if (hangAuthenticate) {
       return _hangCompleter.future;
     }
-    return Future.value(true);
+    return Future.value(authenticateResult);
   }
 
   @override

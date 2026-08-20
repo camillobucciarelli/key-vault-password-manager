@@ -16,6 +16,15 @@ class RetryBiometricAuthentication extends DatabaseUnlockEvent {
   const RetryBiometricAuthentication();
 }
 
+/// User opts out of the biometric gate for this session and unlocks with
+/// the master password instead. The master password is the primary
+/// credential (it derives the KDBX key), so this is not a security bypass.
+/// Does NOT alter the persisted `biometricProtectionEnabled` profile flag:
+/// the next launch gates on biometrics again.
+class RequestManualUnlockFallback extends DatabaseUnlockEvent {
+  const RequestManualUnlockFallback();
+}
+
 class UnlockWithManualCredentials extends DatabaseUnlockEvent {
   final String password;
   final String? keyFilePath;
