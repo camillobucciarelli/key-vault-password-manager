@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
-import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
 
 /// 009 / B003 — lifecycle states of a pending generated entry.
 enum PendingGeneratedEntryState { pending, consumed, rejected, expired }
@@ -75,6 +77,20 @@ class DesktopBrowserPendingGenerationService {
   final DateTime Function() _clock;
   final _records = <String, _PendingRecord>{};
   final _random = Random.secure();
+  final _pendingListenable = ValueNotifier<List<PendingGeneratedEntrySnapshot>>(
+    const <PendingGeneratedEntrySnapshot>[],
+  );
+  Timer? _expiryTimer;
+
+  /// 009 / B005 — non-secret view of the currently *pending* records,
+  /// oldest first, for the app UI (vault banner). Snapshots deliberately
+  /// carry no password; the secret still leaves the service only through
+  /// [consume]. Emits on create/consume/reject/clearAll and when a lazy
+  /// expiry is materialized (an internal timer fires at the earliest
+  /// pending `expiresAt`, so expired records disappear without a caller
+  /// poking the service).
+  ValueListenable<List<PendingGeneratedEntrySnapshot>> get pendingListenable =>
+      _pendingListenable;
 
   /// Creates a pending record and returns its opaque id.
   ///
@@ -111,6 +127,7 @@ class DesktopBrowserPendingGenerationService {
       expiresAtEpochMs: now + effectiveTtl.inMilliseconds,
     );
     _records[record.id] = record;
+    _publishPending();
     return record.snapshot();
   }
 
@@ -130,6 +147,7 @@ class DesktopBrowserPendingGenerationService {
     final password = record.password;
     record.state = PendingGeneratedEntryState.consumed;
     record.password = null;
+    _publishPending();
     if (password == null) {
       return null;
     }
@@ -149,6 +167,7 @@ class DesktopBrowserPendingGenerationService {
     }
     record.state = PendingGeneratedEntryState.rejected;
     record.password = null;
+    _publishPending();
     return true;
   }
 
@@ -173,17 +192,54 @@ class DesktopBrowserPendingGenerationService {
       record.password = null;
     }
     _records.clear();
+    _publishPending();
   }
 
   void _expireStale() {
     final now = _clock().millisecondsSinceEpoch;
+    var changed = false;
     for (final record in _records.values) {
       if (record.state == PendingGeneratedEntryState.pending &&
           now >= record.expiresAtEpochMs) {
         record.state = PendingGeneratedEntryState.expired;
         record.password = null;
+        changed = true;
       }
     }
+    if (changed) {
+      _publishPending();
+    }
+  }
+
+  /// Republishes the pending-only snapshot list and (re)arms a one-shot
+  /// timer at the earliest pending expiry so the lazy `_expireStale` gets
+  /// materialized for listeners even when nobody calls into the service.
+  void _publishPending() {
+    final pending = _records.values
+        .where((record) => record.state == PendingGeneratedEntryState.pending)
+        .map((record) => record.snapshot())
+        .toList(growable: false);
+    _pendingListenable.value = pending;
+
+    _expiryTimer?.cancel();
+    _expiryTimer = null;
+    if (pending.isEmpty) {
+      return;
+    }
+    final now = _clock().millisecondsSinceEpoch;
+    final earliest = pending
+        .map((snapshot) => snapshot.expiresAtEpochMs)
+        .reduce(min);
+    final delay = Duration(milliseconds: max(0, earliest - now) + 1);
+    _expiryTimer = Timer(delay, () {
+      _expiryTimer = null;
+      _expireStale();
+      // _expireStale only republishes when something changed; if the
+      // injected clock lags wall time (tests), re-arm for the remainder.
+      if (_pendingListenable.value.isNotEmpty && _expiryTimer == null) {
+        _publishPending();
+      }
+    });
   }
 
   String _opaqueId() {

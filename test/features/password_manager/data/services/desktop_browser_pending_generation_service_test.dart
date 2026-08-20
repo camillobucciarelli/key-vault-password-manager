@@ -167,6 +167,104 @@ void main() {
     });
   });
 
+  group('pendingListenable (B005 watch)', () {
+    test('create/consume/reject/clearAll transitions are reflected', () {
+      final service = DesktopBrowserPendingGenerationService();
+      addTearDown(service.clearAll);
+      final listenable = service.pendingListenable;
+      expect(listenable.value, isEmpty);
+
+      final a = _create(service);
+      expect(listenable.value, hasLength(1));
+      expect(listenable.value.single.id, a.id);
+      expect(listenable.value.single.state, PendingGeneratedEntryState.pending);
+
+      service.consume(a.id, origin: 'https://example.com');
+      expect(listenable.value, isEmpty);
+
+      final b = _create(service);
+      expect(listenable.value, hasLength(1));
+      service.reject(b.id);
+      expect(listenable.value, isEmpty);
+
+      _create(service);
+      _create(service);
+      expect(listenable.value, hasLength(2));
+      service.clearAll();
+      expect(listenable.value, isEmpty);
+    });
+
+    test(
+      'expired records leave the listenable without any caller poke',
+      () async {
+        final service = DesktopBrowserPendingGenerationService();
+        addTearDown(service.clearAll);
+        final snapshot = _create(
+          service,
+          ttl: const Duration(milliseconds: 60),
+        );
+        expect(service.pendingListenable.value, hasLength(1));
+
+        // No find()/pendingCount() poke: the service's own expiry timer must
+        // materialize the lazy expiry for listeners.
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+
+        expect(service.pendingListenable.value, isEmpty);
+        expect(
+          service.find(snapshot.id)!.state,
+          PendingGeneratedEntryState.expired,
+        );
+      },
+    );
+
+    test('two pendings with different TTLs expire in sequence: the timer '
+        're-arms on the survivor', () async {
+      final service = DesktopBrowserPendingGenerationService();
+      addTearDown(service.clearAll);
+      final short = _create(service, ttl: const Duration(milliseconds: 60));
+      final long = _create(
+        service,
+        origin: 'https://other.example',
+        ttl: const Duration(milliseconds: 220),
+      );
+      expect(service.pendingListenable.value, hasLength(2));
+
+      // After the first expiry the listenable must still carry the longer
+      // record — proving the one-shot timer re-armed for the survivor.
+      await Future<void>.delayed(const Duration(milliseconds: 130));
+      expect(service.pendingListenable.value.map((s) => s.id), [long.id]);
+      expect(service.find(short.id)!.state, PendingGeneratedEntryState.expired);
+
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(service.pendingListenable.value, isEmpty);
+      expect(service.find(long.id)!.state, PendingGeneratedEntryState.expired);
+    });
+
+    test('listenable surface never carries the secret', () {
+      final service = DesktopBrowserPendingGenerationService();
+      addTearDown(service.clearAll);
+      final observed = <String>[];
+      service.pendingListenable.addListener(() {
+        for (final snapshot in service.pendingListenable.value) {
+          // Every string reachable from the emitted snapshot.
+          observed.addAll([
+            snapshot.id,
+            snapshot.databaseId,
+            snapshot.cacheGeneration,
+            snapshot.bridgeGeneration,
+            snapshot.origin,
+            snapshot.toString(),
+          ]);
+        }
+      });
+
+      _create(service);
+
+      expect(observed, isNotEmpty);
+      expect(observed.join('\n'), isNot(contains(_generatedValue)));
+    });
+  });
+
   group('coordinator lifecycle hooks', () {
     late Directory directory;
     late DesktopBrowserAutofillCacheStore store;

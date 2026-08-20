@@ -616,6 +616,9 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                                   const SizedBox(
                                     height: _VaultUiTokens.panelGap,
                                   ),
+                                  // 009 / B005: browser-generated pending
+                                  // secret awaiting the app's confirm/save.
+                                  const _PendingGenerationBanner(),
                                   const Expanded(
                                     child: _VaultEntriesCardSection(),
                                   ),

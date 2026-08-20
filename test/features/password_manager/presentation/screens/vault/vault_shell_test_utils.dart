@@ -12,6 +12,7 @@ import 'package:password_manager/core/theme/app_theme.dart';
 import 'package:password_manager/core/theme/theme_cubit.dart';
 import 'package:password_manager/features/password_manager/data/datasources/biometric_data_source.dart';
 import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
+import 'package:password_manager/features/password_manager/data/services/desktop_browser_pending_generation_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_csv_import_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_duplicate_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
@@ -52,6 +53,9 @@ Future<Widget> pumpableVaultShell({
   // Lets a caller inject a spy/fake coordinator (e.g. to count calls) instead
   // of the default always-empty fake.
   VaultSessionCoordinator? vaultSessionCoordinator,
+  // 009 / B005: lets a caller seed pending browser-generated records the
+  // `_PendingGenerationBanner` resolves via `di.sl`.
+  DesktopBrowserPendingGenerationService? pendingGenerationService,
 }) async {
   SharedPreferences.setMockInitialValues({});
   final sharedPreferences = await SharedPreferences.getInstance();
@@ -68,6 +72,10 @@ Future<Widget> pumpableVaultShell({
   );
   di.sl.registerLazySingleton<VaultSessionCoordinator>(
     () => vaultSessionCoordinator ?? _FakeVaultSessionCoordinator(),
+  );
+  // 009 / B005: `_PendingGenerationBanner` resolves this on init.
+  di.sl.registerLazySingleton<DesktopBrowserPendingGenerationService>(
+    () => pendingGenerationService ?? DesktopBrowserPendingGenerationService(),
   );
   // spec-005: `_DuplicateGroupCard`/merge preview and the remote-file
   // picker resolve these directly via `di.sl` (matches production
