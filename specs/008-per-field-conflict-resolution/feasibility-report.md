@@ -946,6 +946,43 @@ correction whose only guard is a single assertion on a counter is not guarded.
 Measured with `--reporter json`; the `expanded` reporter truncates its failure
 list at four and understates these counts.
 
+**This table is now executable (2026-08-20).** The ten mutations are registered
+as `tool/mutations/008_t009_convergence.json` with ids `T009-C1` … `T009-R1`,
+run by the same `tool/mutation_runner.mjs` that owns the spec 009 table — a
+hand-maintained prose table is the drift the runner's own header documents, in
+this very PR's lineage (#37):
+
+```bash
+node tool/mutation_runner.mjs --definitions=tool/mutations/008_t009_convergence.json --check
+```
+
+Latest execution: **14/14 killed, 0 survivors, 0 drift, exit 0.** The JSON file
+is the reference for kill counts from now on; two rows diverge from the prose
+below and each carries its own `$comment` explaining why — `T009-C4` measures
+**6** (not 9) and `T009-N1` measures **8** (not 11), both tighter
+reconstructions of the historical mutants (the A1-M2 class of divergence:
+same property, narrower edit, identical strongest kill). The prose table below
+is retained as the historical record of the review passes, not as the current
+measurement.
+
+##### Fifth-pass closure (2026-08-20) — survivors found by running the runner
+
+Making the table executable is what found these: an independent tester ran
+mutations the prose table never contained, and three properties the model
+*implements* turned out to be properties nothing *held*. Same failure mode as
+A2-M4 in the spec 009 table — asserted in a comment, guarded by nothing.
+
+| # | Severity | Finding | Closure |
+| --- | --- | --- | --- |
+| **M1** | media | `maxMtime` was pinned by nothing: max→min and null-poisoning (`a==null\|\|b==null → null`) both survived 33/33, because every notes scenario used identical mtimes. Min is itself commutative/associative/idempotent, so the semilattice tests are structurally blind to it. | New test `the notes union carries the newest known timestamp, and that timestamp decides a later LWW round against a peer`: divergent known mtimes and mixed known/unknown, asserted on the **outcome** — which value survives the next round, i.e. whether the user's merged text is discarded. Mutations **T009-M1a** (1 kill), **T009-M1b** (1 kill). |
+| **M2** | media | The equal-value branch (`compareFields` deciding which side's field travels) survived "always keep local": every prior equal-value pair carried equal mtimes. Keeping the local timestamp is perspective-dependent — defect C4's class, once more. | New test `equal values with different timestamps carry the newer timestamp, from either perspective`: asserts the carried mtime, manifest commutativity, and the outcome of the next LWW round against a third device. Mutation **T009-M2** (1 kill). |
+| **M3** | bassa | The retry budget of 3 was pinned only by `roundsUsed == 3` — a counter, which this table's own standard rejects as a sole guard. | New test `the retry budget bounds the uploads dispatched, not only a counter`: the observable cost the budget exists to bound (FR-7's own rationale) is uploads per commit session — initial + exactly 3. Mutation **T009-M3** (2 kills: the outcome test and the counter test). T009-C1 grew 7→8 from this test's blast radius. |
+| **L1** | bassa | `allAssociations` claimed "every association" at 4 sides while enumerating 3 of the 5 full parenthesizations (both folds + balanced pairing; Catalan(3)=5). The claim/enumeration mismatch is the exact overclaim shape that hid N1. | The helper now enumerates **every** full parenthesization via recursive split (`allJoins`), for the whole-merge and the notes-union tests: 24 orderings × 5 shapes at 4 operands. The claim and the enumeration are the same statement again. No new mutation — this widens existing guards. |
+
+Test counts: convergence model 33 → **36**, full suite 858 → **861**. T009
+remains `not-run`: the gate closes on PM acceptance, not on the suite
+declaring itself green.
+
 | Mutation | Reverts | Tests killed | Strongest kill |
 | --- | --- | --- | --- |
 | expected base not re-anchored | C1 | **7** | `a writer landing after our write converges in one round` — outcome becomes `staleRemote` |

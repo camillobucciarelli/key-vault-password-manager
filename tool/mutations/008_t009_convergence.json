@@ -1,0 +1,267 @@
+{
+  "$comment": [
+    "Mutation definitions for spec 008 T009 (convergence model validation).",
+    "",
+    "This file makes the mutation table in",
+    "specs/008-per-field-conflict-resolution/feasibility-report.md §'Mutation",
+    "check' EXECUTABLE. That table was hand-maintained prose, which is the exact",
+    "failure mode tool/mutation_runner.mjs documents for spec 009: a prose table",
+    "drifted twice (a stale kill count in PR #37 — the very PR that introduced",
+    "this model). Each row here reverts one correction in the T009 model and the",
+    "runner asserts at least one test that checks an OUTCOME dies.",
+    "",
+    "TARGET IS A TEST FILE, DELIBERATELY. T009 is a Gate 0 model with no lib/",
+    "dependency: the model under mutation lives inside",
+    "sync_merge_convergence_model_test.dart itself (Field, compareValues,",
+    "compareFields, mergeNotes, mergeDocs, CommitSession). Mutating it is",
+    "mutating the model, not the assertions — every `find` below is model code,",
+    "never an `expect`.",
+    "",
+    "`expectedKills` is measured with this runner, never guessed. Where a number",
+    "differs from the feasibility-report table, THIS FILE IS THE REFERENCE and",
+    "the row's own $comment explains the divergence.",
+    "",
+    "Scope limit, same as T009 itself: no deletion/tombstone/attachment",
+    "mutations exist here. That algebra is T009b and is not covered."
+  ],
+  "version": 1,
+  "slices": {
+    "T009": "spec 008 Gate 0 convergence model — FR-7 write-verify-converge, FR-3 total order and notes union"
+  },
+  "suites": {
+    "flutter-convergence-model": {
+      "parser": "flutter-json",
+      "timeoutMs": 600000,
+      "$comment": "The whole blast radius is one file: the model and its 33 property tests are colocated by Gate 0 design (no lib/ dependency).",
+      "command": [
+        "fvm",
+        "flutter",
+        "test",
+        "--reporter",
+        "json",
+        "test/features/password_manager/data/services/sync_merge_convergence_model_test.dart"
+      ]
+    }
+  },
+  "mutations": [
+    {
+      "id": "T009-C1",
+      "expectedKills": 8,
+      "$comment": "7 -> 8 when the M3 closure test landed (2026-08-20): without the re-anchor the session aborts staleRemote on its second step-3 check, so it dispatches 1 upload instead of the budgeted 4 and 'the retry budget bounds the uploads dispatched' dies too. Blast radius only; the property did not change.",
+      "slice": "T009",
+      "suite": "flutter-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_convergence_model_test.dart",
+      "title": "expected base not re-anchored on divergence",
+      "property": "after a divergence round the expected base is the checksum observed at step 5, not the step-1 read; without it every retry aborts staleRemote and the loop never runs twice",
+      "edits": [
+        {
+          "find": "      // 1. Re-anchor the expected base to what we just observed.\n      expectedBase = observed;",
+          "replace": "      // mutation C1: the base stays pinned to the step-1 read"
+        }
+      ]
+    },
+    {
+      "id": "T009-C2",
+      "expectedKills": 2,
+      "slice": "T009",
+      "suite": "flutter-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_convergence_model_test.dart",
+      "title": "semantic short-circuit removed",
+      "property": "a semantically complete union finalizes instead of ping-ponging on byte difference alone; without the manifest arbiter a peer re-serializing the same content burns the whole budget and the outcome becomes unresolved",
+      "edits": [
+        {
+          "find": "      if (manifest(observedContent) == manifest(merged)) {\n        return Outcome.finalized;\n      }",
+          "replace": "      // mutation C2: no semantic arbiter — bytes are the only comparison"
+        }
+      ]
+    },
+    {
+      "id": "T009-C3",
+      "expectedKills": 3,
+      "slice": "T009",
+      "suite": "flutter-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_convergence_model_test.dart",
+      "title": "decision ledger not consulted",
+      "property": "an explicit user decision is replayed after every re-merge and beats LWW/tie-break; without the ledger a newer peer value silently reverses a confirmed choice",
+      "edits": [
+        {
+          "find": "    final decided = ledger[key];",
+          "replace": "    const String? decided = null; // mutation C3: the ledger is never read"
+        }
+      ]
+    },
+    {
+      "id": "T009-C4",
+      "expectedKills": 6,
+      "$comment": "DIVERGES FROM THE FEASIBILITY-REPORT TABLE, WHICH SAYS 9. Same class of divergence as A1-M2 in 009_overlay_autofill.json: this row is a TIGHTER reconstruction of the defect than the historical prose mutant. It mutates only the value tie-break inside compareFields (first operand wins on equal known times or two unknowns), leaving the known-beats-unknown rule intact; the prose mutant also collapsed the unknown-timestamp rule, taking the N3 tests with it. The strongest kill is identical — 'two devices that each keep their own value stop the remote moving across sessions' — and every kill asserts an outcome. Measured with this runner; do not 'correct' this number to match the report, re-run it.",
+      "slice": "T009",
+      "suite": "flutter-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_convergence_model_test.dart",
+      "title": "tie-break becomes 'prefer local'",
+      "property": "the tie-break is a globally deterministic total order over the values; 'prefer local' is perspective-dependent, so two devices that each retain their own candidate flip the remote forever across sessions",
+      "edits": [
+        {
+          "find": "  return compareValues(a.value, b.value);\n}\n\n/// The winning field's own timestamp",
+          "replace": "  return 1; // mutation C4: the first operand (local) always wins the tie\n}\n\n/// The winning field's own timestamp"
+        }
+      ]
+    },
+    {
+      "id": "T009-N1",
+      "expectedKills": 8,
+      "$comment": "DIVERGES FROM THE FEASIBILITY-REPORT TABLE, WHICH SAYS 11. Tighter reconstruction, same as T009-C4: this mutant keeps the deterministic operand order (C4b's fix) and reverts only the union shape to a bare concatenation — the exact N1 defect. The prose mutant's extra kills came from also breaking perspective-independence, which belongs to T009-C4's row. The strongest kill is identical — 'three devices reach the same remote state in any merge order' — plus idempotence, late rejoin and the 4-device associations. Measured with this runner; re-run to verify.",
+      "slice": "T009",
+      "suite": "flutter-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_convergence_model_test.dart",
+      "title": "notes union becomes a fixed-order binary concatenation (reverts C4b and N1)",
+      "property": "the notes merge is an ordered deduplicated union of segments — associative, commutative, idempotent; a fixed-order concatenation is deterministic at two devices and non-associative at three, so manifests diverge, the C2 short-circuit stops firing and user text is duplicated",
+      "edits": [
+        {
+          "find": "  final segments = <String>{\n    ...a.split(notesSeparator),\n    ...b.split(notesSeparator),\n  }..removeWhere((s) => s.isEmpty);\n  final ordered = segments.toList()..sort(compareValues);\n  return ordered.join(notesSeparator);",
+          "replace": "  // mutation N1: deterministic operand order, but a bare concatenation\n  return compareValues(a, b) <= 0\n      ? '$a$notesSeparator$b'\n      : '$b$notesSeparator$a';"
+        }
+      ]
+    },
+    {
+      "id": "T009-C5",
+      "expectedKills": 2,
+      "slice": "T009",
+      "suite": "flutter-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_convergence_model_test.dart",
+      "title": "non-executable read-back finalized",
+      "property": "a step-5 read-back that cannot be executed is ambiguous — neither equal nor different — and is never finalized, on the first read-back and on a later one",
+      "edits": [
+        {
+          "find": "      if (observed == null) return Outcome.ambiguous;",
+          "replace": "      if (observed == null) return Outcome.finalized; // mutation C5"
+        }
+      ]
+    },
+    {
+      "id": "T009-N3",
+      "expectedKills": 2,
+      "slice": "T009",
+      "suite": "flutter-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_convergence_model_test.dart",
+      "title": "unknown timestamp treated as a bare tie",
+      "property": "known beats unknown; treating unknown as a bare tie makes the relation non-transitive, so the merge stops being associative at three sides with mixed known/unknown mtimes",
+      "edits": [
+        {
+          "find": "  if (am != bm) {\n    if (am == null) return -1;\n    if (bm == null) return 1;\n    return am.compareTo(bm);\n  }",
+          "replace": "  // mutation N3: an unknown mtime falls straight through to the value order\n  if (am != null && bm != null && am != bm) {\n    return am.compareTo(bm);\n  }"
+        }
+      ]
+    },
+    {
+      "id": "T009-Q1",
+      "expectedKills": 1,
+      "slice": "T009",
+      "suite": "flutter-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_convergence_model_test.dart",
+      "title": "sentinel separator reverts to plain Markdown '---'",
+      "property": "ordinary user text is a single indivisible segment; with the plain separator a user's own thematic break gets their paragraphs split, interleaved with the peer's text, and legitimately repeated segments deduplicated away",
+      "$comment": "Kills exactly one test, accepted (feasibility report, 3rd pass): the damage is only visible when the user's own text contains the separator, which the sentinel makes unreachable by writing ordinary Markdown. The kill asserts an outcome — text lost — not a counter.",
+      "edits": [
+        {
+          "find": "const String notesSeparator = '\\n\\n---\\u241E---\\n\\n';",
+          "replace": "const String notesSeparator = '\\n\\n---\\n\\n'; // mutation Q1"
+        }
+      ]
+    },
+    {
+      "id": "T009-Q2",
+      "expectedKills": 1,
+      "slice": "T009",
+      "suite": "flutter-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_convergence_model_test.dart",
+      "title": "ledger invariant guard removed — a decision naming neither candidate silently applies",
+      "property": "decided ∈ {local.value, remote.value}; on violation the field returns to review carrying both candidates, never resolved by picking an operand (which would be order-dependent silent data loss)",
+      "$comment": "Kills exactly one test, accepted (feasibility report, 3rd pass): the state is unreachable while FR-4 and the session lifetime of the ledger hold — a system scenario reaching it would mean one of those constraints is already broken. The direct test is the only instrument that can hold the invariant, and it must fail loudly if spec 011 makes the state reachable.",
+      "edits": [
+        {
+          "find": "      if (decided != l.value && decided != r.value) {\n        // Fail safe, not fail silent: the decision does not apply to this pair,\n        // so this is a conflict the user has not decided. Route it to review\n        // rather than picking an operand. Throwing would abort a sync over a\n        // stale ledger entry and lose the merge; reopening review is the path\n        // FR-7 already defines for an undecided conflict and it keeps both\n        // candidates alive.\n        unseen.add(key);\n        continue;\n      }",
+          "replace": "      // mutation Q2: the invariant guard is gone; a stale entry silently\n      // degenerates into 'take whichever side is second'."
+        }
+      ]
+    },
+    {
+      "id": "T009-M1a",
+      "expectedKills": 1,
+      "slice": "T009",
+      "suite": "flutter-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_convergence_model_test.dart",
+      "title": "the notes union carries the OLDEST known timestamp (max → min)",
+      "property": "the union takes the greatest known mtime; carrying the oldest makes the union lose a later LWW round to a peer edit that is older than the union's newest input, discarding merged user text",
+      "$comment": "SURVIVED 33/33 before the M1 closure (tester finding, 2026-08-20): min is also commutative/associative/idempotent, so the semilattice tests cannot see it — only a scenario with DIVERGENT notes mtimes can, and every prior scenario used identical ones. Kills exactly one test, accepted: the kill asserts an outcome (which value survives the next round), and the rule is a single line with a single behaviour.",
+      "edits": [
+        {
+          "find": "  return a >= b ? a : b;",
+          "replace": "  return a <= b ? a : b; // mutation M1a: the oldest timestamp travels"
+        }
+      ]
+    },
+    {
+      "id": "T009-M1b",
+      "expectedKills": 1,
+      "slice": "T009",
+      "suite": "flutter-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_convergence_model_test.dart",
+      "title": "a mixed known/unknown union is null-poisoned",
+      "property": "the union's mtime stays known when any contributing side is known; a null-poisoned union loses the next LWW round to ANY known peer timestamp, however old, because unknown never outranks evidence",
+      "$comment": "SURVIVED 33/33 before the M1 closure (tester finding, 2026-08-20): no prior notes scenario mixed known and unknown mtimes. Kills exactly one test, accepted for the M1a reason.",
+      "edits": [
+        {
+          "find": "  if (a == null) return b;\n  if (b == null) return a;",
+          "replace": "  if (a == null || b == null) return null; // mutation M1b: null poisons the union"
+        }
+      ]
+    },
+    {
+      "id": "T009-M2",
+      "expectedKills": 1,
+      "slice": "T009",
+      "suite": "flutter-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_convergence_model_test.dart",
+      "title": "equal values always keep the local side's timestamp",
+      "property": "on equal values the newer timestamp travels with the field (FR-3: the merged field is itself a member of the ordered set); always keeping the local side is perspective-dependent and makes a third device's older edit beat the field on the wrong perspective",
+      "$comment": "SURVIVED 33/33 before the M2 closure (tester finding, 2026-08-20): every prior equal-value pair carried equal mtimes, so `compareFields` and `always l` were indistinguishable. Kills exactly one test, accepted: the kill asserts both the outcome of the next LWW round and manifest commutativity.",
+      "edits": [
+        {
+          "find": "    if (l.value == r.value) {\n      result[key] = compareFields(l, r) >= 0 ? l : r;\n      continue;\n    }",
+          "replace": "    if (l.value == r.value) {\n      result[key] = l; // mutation M2: the local timestamp always travels\n      continue;\n    }"
+        }
+      ]
+    },
+    {
+      "id": "T009-M3",
+      "expectedKills": 2,
+      "slice": "T009",
+      "suite": "flutter-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_convergence_model_test.dart",
+      "title": "the retry budget is 4, not the declared 3",
+      "property": "FR-7 declares exactly 3 divergence rounds per commit session because each round is a full download/merge/serialize/upload; the pin is the OUTCOME (uploads dispatched: initial + 3) as well as the counter",
+      "$comment": "Tester finding M3 (2026-08-20): the budget was pinned only by `roundsUsed == 3`, a counter, which is what this table's own standard forbids as a sole guard. The closure test counts the uploads the session dispatches — the cost the budget exists to bound — so this mutation now dies on an outcome too.",
+      "edits": [
+        {
+          "find": "    this.budget = 3,",
+          "replace": "    this.budget = 4,"
+        }
+      ]
+    },
+    {
+      "id": "T009-R1",
+      "expectedKills": 2,
+      "slice": "T009",
+      "suite": "flutter-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_convergence_model_test.dart",
+      "title": "compareValues reverts to UTF-16 code units",
+      "property": "the tie-break compares UTF-8 bytes, and no other encoding: UTF-16 sorts a surrogate pair below U+E000..FFFF while the same character's UTF-8 bytes sort above, so the two encodings elect opposite winners on the same unordered pair",
+      "edits": [
+        {
+          "find": "  final ua = utf8.encode(a);\n  final ub = utf8.encode(b);",
+          "replace": "  // mutation R1: UTF-16 code units, the order the spec does not prescribe\n  final ua = a.codeUnits;\n  final ub = b.codeUnits;"
+        }
+      ]
+    }
+  ]
+}

@@ -577,6 +577,44 @@ void main() {
         expect(session.retainedMerged!.containsKey('l'), isTrue);
       },
     );
+
+    test('the retry budget bounds the uploads dispatched, not only a counter', () {
+      // M3. The budget of 3 was pinned only by `roundsUsed == 3` — a counter,
+      // which is exactly what this suite's standard forbids as a sole guard.
+      // The budget exists to bound COST: FR-7's stated rationale is that each
+      // round is a full download, merge, serialize and upload, so the
+      // observable outcome of the budget is how many uploads one commit
+      // session may dispatch. Budget 3 = the initial upload plus at most
+      // three retry uploads; a budget of 4 dispatches a fifth, which this
+      // test refuses.
+      final remote = Remote(doc({'a': const Field('r0', 10)}));
+      var n = 0;
+      var oursDispatched = 0;
+
+      final session = CommitSession(
+        local: doc({'a': const Field('r0', 10), 'l': const Field('L', 11)}),
+        remote: remote,
+        onAfterWrite: () {
+          // Fires once per upload WE dispatch, before the peer overwrites.
+          oursDispatched++;
+          final x = doc({
+            'a': const Field('r0', 10),
+            'peer$n': Field('P$n', 20 + n),
+          });
+          n++;
+          remote.put(serialize(x), x);
+        },
+      );
+
+      expect(session.run(), Outcome.unresolved);
+      expect(
+        oursDispatched,
+        4,
+        reason:
+            'budget 3 = the initial upload plus exactly three retry uploads; '
+            'a fourth divergence round would be a fifth upload',
+      );
+    });
   });
 
   group('T009 property 2 — nothing is lost, under any interleaving', () {
@@ -970,6 +1008,97 @@ void main() {
       expect(fromA.doc['Notes']!.value, contains('note-remote'));
     });
 
+    test('the notes union carries the newest known timestamp, and that '
+        'timestamp decides a later LWW round against a peer', () {
+      // M1. `maxMtime` was pinned by nothing: a union carrying the OLDEST
+      // timestamp — or none at all — passed the whole suite, because every
+      // notes scenario used identical mtimes. The timestamp is not
+      // bookkeeping: FR-3 says the merged field is itself a member of the
+      // ordered set, so a wrong mtime changes which VALUE survives the next
+      // merge round. That outcome is what this test asserts — the later round
+      // is an ordinary LWW merge, modelling a context where this key is not
+      // registered for the union treatment.
+
+      // Divergent known timestamps: the union is as new as its newest input.
+      final union = mergeDocs(
+        doc({'Notes': const Field('alpha', 10)}),
+        doc({'Notes': const Field('bravo', 50)}),
+        notesKeys: const {'Notes'},
+      ).doc;
+      expect(union['Notes']!.mtime, 50);
+
+      // The peer's edit sits between the two inputs (30). Carrying the newest
+      // input (50) the union wins the LWW round; carrying the oldest (10) it
+      // loses, and the user's merged notes — both segments — are gone.
+      final afterPeer = mergeDocs(
+        union,
+        doc({'Notes': const Field('peer', 30)}),
+      ).doc;
+      expect(
+        afterPeer['Notes']!.value,
+        union['Notes']!.value,
+        reason: 'the union (mtime 50) must beat the peer (mtime 30)',
+      );
+      expect(afterPeer['Notes']!.value, contains('alpha'));
+      expect(afterPeer['Notes']!.value, contains('bravo'));
+
+      // Mixed known/unknown: the union stays as new as its known input and
+      // never degrades to unknown — an unknown timestamp loses to ANY known
+      // one, so a null-poisoned union would lose even to a peer at mtime 5.
+      final mixed = mergeDocs(
+        doc({'Notes': const Field('alpha', null)}),
+        doc({'Notes': const Field('bravo', 20)}),
+        notesKeys: const {'Notes'},
+      ).doc;
+      expect(mixed['Notes']!.mtime, 20);
+      final afterOldPeer = mergeDocs(
+        mixed,
+        doc({'Notes': const Field('peer', 5)}),
+      ).doc;
+      expect(
+        afterOldPeer['Notes']!.value,
+        mixed['Notes']!.value,
+        reason:
+            'a known mtime 20 must beat a known mtime 5; a union that lost '
+            'its timestamp would lose this round and the user text with it',
+      );
+
+      // Only when EVERY contributing side is unknown may the union be unknown.
+      final bothUnknown = mergeDocs(
+        doc({'Notes': const Field('alpha', null)}),
+        doc({'Notes': const Field('bravo', null)}),
+        notesKeys: const {'Notes'},
+      ).doc;
+      expect(bothUnknown['Notes']!.mtime, isNull);
+    });
+
+    test('equal values with different timestamps carry the newer timestamp, '
+        'from either perspective', () {
+      // M2. The equal-value branch decides which side's FIELD travels, and
+      // nothing pinned it: always keeping the local side passed the whole
+      // suite, because equal values everywhere carried equal mtimes. Keeping
+      // the older timestamp changes the outcome of the next LWW round, and
+      // keeping "the local one" is perspective-dependent — defect C4's class
+      // in one more disguise.
+      final older = doc({'f': const Field('v', 10)});
+      final newer = doc({'f': const Field('v', 50)});
+
+      final fromA = mergeDocs(older, newer).doc;
+      final fromB = mergeDocs(newer, older).doc;
+      expect(fromA['f']!.mtime, 50);
+      expect(
+        manifest(fromA),
+        manifest(fromB),
+        reason: 'mirrored perspectives must carry the same timestamp',
+      );
+
+      // The outcome the timestamp decides: a third device's edit at mtime 30
+      // loses to the correctly carried 50 and would beat a wrongly kept 10.
+      final third = doc({'f': const Field('third', 30)});
+      expect(mergeDocs(fromA, third).doc['f']!.value, 'v');
+      expect(mergeDocs(third, fromB).doc['f']!.value, 'v');
+    });
+
     test('two devices tied on a field converge instead of ping-ponging', () {
       // A commits, then B commits against A's result. With a perspective-
       // dependent tie-break B would flip the field back and A would flip it
@@ -1281,21 +1410,34 @@ void main() {
       return out;
     }
 
-    /// Every association of [docs] under [mergeOf], as manifests: both folds,
-    /// plus the balanced pairing once there are four operands.
+    /// Every result of joining [items] in the given order under every full
+    /// parenthesization — all Catalan(n-1) binary-tree shapes, not a sample.
+    /// Three operands have 2 shapes; four have 5: ((ab)c)d, (a(bc))d,
+    /// (ab)(cd), a((bc)d) and a(b(cd)). The previous version enumerated the
+    /// two folds plus the balanced pairing — three of the five — while the
+    /// doc comment claimed "every association" (finding L1): the claim and
+    /// the enumeration must be the same statement, which is the rule T009's
+    /// own task text sets after the 2-device overclaim hid N1.
+    List<T> allJoins<T>(List<T> items, T Function(T, T) join) {
+      if (items.length == 1) return [items.first];
+      final out = <T>[];
+      for (var split = 1; split < items.length; split++) {
+        for (final left in allJoins(items.sublist(0, split), join)) {
+          for (final right in allJoins(items.sublist(split), join)) {
+            out.add(join(left, right));
+          }
+        }
+      }
+      return out;
+    }
+
+    /// Every association of [docs] under [mergeOf], as manifests: every
+    /// ordering × every full parenthesization.
     Set<String> allAssociations(List<Doc> docs) {
       final results = <String>{};
       for (final order in permutations(docs)) {
-        results.add(manifest(order.reduce(mergeOf)));
-        results.add(
-          manifest(order.reversed.reduce((acc, d) => mergeOf(d, acc))),
-        );
-        if (order.length == 4) {
-          results.add(
-            manifest(
-              mergeOf(mergeOf(order[0], order[1]), mergeOf(order[2], order[3])),
-            ),
-          );
+        for (final joined in allJoins(order, mergeOf)) {
+          results.add(manifest(joined));
         }
       }
       return results;
@@ -1316,18 +1458,12 @@ void main() {
         mergeNotes(zeta, mergeNotes(alpha, mergeNotes(mike, delta))),
       );
 
-      // And under every ordering of the operands, not just these two shapes.
+      // And under every ordering AND every full parenthesization of the
+      // operands — all five shapes at four operands (L1), not a sample.
       final four = [zeta, alpha, mike, delta];
       final seen = <String>{};
       for (final order in permutations(four)) {
-        seen.add(order.reduce(mergeNotes));
-        seen.add(order.reversed.reduce((acc, s) => mergeNotes(s, acc)));
-        seen.add(
-          mergeNotes(
-            mergeNotes(order[0], order[1]),
-            mergeNotes(order[2], order[3]),
-          ),
-        );
+        seen.addAll(allJoins(order, mergeNotes));
       }
       expect(seen, hasLength(1), reason: 'observed distinct results: $seen');
       expect(seen.single.split(notesSeparator), [alpha, delta, mike, zeta]);
