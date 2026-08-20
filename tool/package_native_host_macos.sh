@@ -155,7 +155,16 @@ install -d -m 0755 "${HOST_DIR}" "${MANIFEST_DIR}"
 lipo -create "${ARM64_HOST}" "${X64_HOST}" -output "${HOST_PATH}"
 lipo "${HOST_PATH}" -verify_arch arm64 x86_64
 chmod 0755 "${HOST_PATH}"
-codesign --force --options runtime --timestamp --sign "${APPLICATION_IDENTITY}" "${HOST_PATH}"
+# Hardened runtime is required for notarization, but it kills Dart AOT
+# binaries at launch (the runtime maps the embedded snapshot as executable
+# memory) unless allow-unsigned-executable-memory is granted. See
+# tool/native_host_macos.entitlements for the rationale.
+HOST_ENTITLEMENTS="${SCRIPT_DIR}/native_host_macos.entitlements"
+[[ -f "${HOST_ENTITLEMENTS}" ]] || fail "Host entitlements file not found: ${HOST_ENTITLEMENTS}"
+plutil -lint "${HOST_ENTITLEMENTS}" || fail "Host entitlements file is invalid: ${HOST_ENTITLEMENTS}"
+codesign --force --options runtime --timestamp \
+  --entitlements "${HOST_ENTITLEMENTS}" \
+  --sign "${APPLICATION_IDENTITY}" "${HOST_PATH}"
 codesign --verify --strict --verbose=2 "${HOST_PATH}"
 install -m 0644 "${MANIFEST}" "${MANIFEST_DIR}/$(basename -- "${MANIFEST}")"
 # AGPL-3.0: ship the license alongside the separately distributed binary.

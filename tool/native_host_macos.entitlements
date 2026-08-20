@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Dart AOT executables map the embedded snapshot as executable memory at
+	  startup; under the hardened runtime that mapping is denied and the
+	  process is killed (SIGKILL) before main() runs. This entitlement is the
+	  documented minimum for Dart/Flutter AOT binaries.
+
+	  Deliberately NOT granted (least privilege — this host handles vault
+	  metadata):
+	  - com.apple.security.cs.allow-jit: only relaxes MAP_JIT mappings; Dart
+	    AOT does not JIT, so it does not fix the snapshot mapping and adds
+	    nothing.
+	  - com.apple.security.cs.disable-library-validation: the host loads no
+	    third-party dylibs/plugins; leaving validation on prevents unsigned
+	    code injection via library planting.
+	-->
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+</dict>
+</plist>
