@@ -159,6 +159,15 @@ chmod 0755 "${HOST_PATH}"
 # binaries at launch (the runtime maps the embedded snapshot as executable
 # memory) unless allow-unsigned-executable-memory is granted. See
 # tool/native_host_macos.entitlements for the rationale.
+#
+# The entitlements also declare com.apple.security.application-groups
+# (Team-ID-prefixed browser-store group only) so the signed host is a group
+# *member* and Sequoia's App Data protection never prompts when it reads the
+# store — Sequoia honors membership only for Team-ID-prefixed groups, which
+# is why the store has its own group instead of the legacy shared one.
+# Notarization accepts application-groups on Developer ID binaries (signed
+# metadata, not a restricted entitlement — no provisioning profile involved).
+# See tool/native_host_macos.entitlements for the full rationale.
 HOST_ENTITLEMENTS="${SCRIPT_DIR}/native_host_macos.entitlements"
 [[ -f "${HOST_ENTITLEMENTS}" ]] || fail "Host entitlements file not found: ${HOST_ENTITLEMENTS}"
 plutil -lint "${HOST_ENTITLEMENTS}" || fail "Host entitlements file is invalid: ${HOST_ENTITLEMENTS}"

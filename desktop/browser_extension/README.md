@@ -145,10 +145,46 @@ terminal commands.
   extension only sees "host unavailable". The packaging script
   (`tool/package_native_host_macos.sh`) keeps the hardened runtime (required
   for notarization) and signs with `tool/native_host_macos.entitlements`.
-- On macOS Sequoia, the host reads the app's Group Container
-  (`group.dev.camillobucciarelli.kdbxKeyVault`) for the metadata cache; TCC
-  may show a one-time access prompt for it. Denying it leaves the host
-  reachable but with no matches.
+- On macOS Sequoia, group containers are covered by "App Data protection": a
+  process reading one without being a member of the group triggers the
+  "would like to access data from other apps" TCC prompt — and because the
+  host is ephemeral (spawned per browser request, <1s lifetime) the grant
+  does not attribute reliably, so the prompt reappears on every spawn
+  (observed with the legacy group). Signature *membership* suppresses the
+  prompt entirely, but Sequoia only honors it for group IDs prefixed with
+  the signing Team ID (observed: per-spawn prompts on the non-prefixed
+  `group.dev.camillobucciarelli.kdbxKeyVault`, zero prompts on the
+  Team-prefixed group across repeated third-party-parented spawns of a
+  Developer-ID-signed probe). The browser store therefore lives in a
+  dedicated Team-ID-prefixed group container,
+  `A8QUU5F9G3.dev.camillobucciarelli.kdbxKeyVault.browser`. Two groups by
+  design: the legacy group stays with the app and the Apple autofill
+  CredentialProviderExtension; the host declares only the browser group
+  (least privilege — it cannot read the credential provider's container).
+  On first bridge start the app deletes the old `browser_v2` store from the
+  legacy container so no stale bearer token is left behind. The production
+  package already signs with `tool/native_host_macos.entitlements`; a
+  locally built host (`tool/build_native_host.sh`) is unsigned and must be
+  re-signed for the promptless path to work in development:
+
+  ```bash
+  codesign --force --options runtime \
+    --entitlements tool/native_host_macos.entitlements \
+    --sign "Developer ID Application: <name> (<TEAM_ID>)" \
+    desktop/native_host/keyvault_native_host
+  ```
+
+  Security analysis (why this does not weaken anything): pre-Sequoia the
+  Group Container never protected this store from other non-sandboxed
+  processes of the same user, so membership restores the pre-Sequoia status
+  quo rather than widening access. The store directory and files are written
+  `0700`/`0600` (same-user POSIX protection, equivalent to any user-level
+  secret store). The bearer token in `bridge.json` is not sufficient to
+  reveal secrets on its own: a caller also needs loopback access to the
+  bridge port, the descriptor's triple binding
+  (`databaseId`/`cacheGeneration`/`bridgeGeneration`) to match the live
+  cache, the vault to be unlocked in the app, and a page origin the reveal
+  policy authorizes. The `.kdbx` vault itself is never in this store.
 
 ## Development install
 
