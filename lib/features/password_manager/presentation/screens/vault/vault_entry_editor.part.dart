@@ -19,13 +19,21 @@ Future<EntryEditResult?> _showEntryDialog(
   BuildContext context, {
   VaultEntry? initial,
   OtpAuthPayload? initialOtpAuth,
+  String? initialTitle,
+  String? initialUrl,
+  bool initialPendingHint = false,
   VaultShellRouter? router,
 }) async {
   return (router ?? VaultShellRouterScope.of(context)).open<EntryEditResult>(
     context: context,
     surface: EntrySurface<EntryEditResult>(
-      builder: (_) =>
-          _EntryDialog(initial: initial, initialOtpAuth: initialOtpAuth),
+      builder: (_) => _EntryDialog(
+        initial: initial,
+        initialOtpAuth: initialOtpAuth,
+        initialTitle: initialTitle,
+        initialUrl: initialUrl,
+        initialPendingHint: initialPendingHint,
+      ),
     ),
   );
 }
@@ -77,10 +85,27 @@ Widget _kvFieldLabel(String label, KeyVaultColors colors) => Padding(
 );
 
 class _EntryDialog extends StatefulWidget {
-  const _EntryDialog({this.initial, this.initialOtpAuth});
+  const _EntryDialog({
+    this.initial,
+    this.initialOtpAuth,
+    this.initialTitle,
+    this.initialUrl,
+    this.initialPendingHint = false,
+  });
 
   final VaultEntry? initial;
   final OtpAuthPayload? initialOtpAuth;
+
+  /// 009 / B005 — new-entry prefills for the pending-generation confirm
+  /// flow. Only used when [initial] is null.
+  final String? initialTitle;
+  final String? initialUrl;
+
+  /// 009 / B005 finding M1 — when true, a caption under the password field
+  /// tells the user the generated password is already filled in the browser
+  /// and an empty field saves it (typing a different one would desync the
+  /// vault from what the site received).
+  final bool initialPendingHint;
 
   @override
   State<_EntryDialog> createState() => _EntryDialogState();
@@ -110,14 +135,18 @@ class _EntryDialogState extends State<_EntryDialog> {
   @override
   void initState() {
     super.initState();
-    _titleController = TextEditingController(text: widget.initial?.title ?? '');
+    _titleController = TextEditingController(
+      text: widget.initial?.title ?? widget.initialTitle ?? '',
+    );
     _usernameController = TextEditingController(
       text: widget.initial?.username ?? widget.initialOtpAuth?.username ?? '',
     );
     _passwordController = TextEditingController(
       text: widget.initial?.password ?? '',
     );
-    _urlController = TextEditingController(text: widget.initial?.url ?? '');
+    _urlController = TextEditingController(
+      text: widget.initial?.url ?? widget.initialUrl ?? '',
+    );
     _notesController = TextEditingController(text: widget.initial?.notes ?? '');
     _otpUriController = TextEditingController(
       text: widget.initial?.otpUri ?? widget.initialOtpAuth?.uri ?? '',
@@ -256,6 +285,7 @@ class _EntryDialogState extends State<_EntryDialog> {
       showCustomFields: _showCustomFields,
       showAttachments: _showAttachments,
       showOtp: _showOtp,
+      showPendingPasswordHint: widget.initialPendingHint,
       customFieldRows: _customFieldRows,
       attachmentPaths: _attachmentPaths,
       onFieldChanged: _markDirty,
@@ -402,6 +432,7 @@ class _EntryEditorForm extends StatelessWidget {
     required this.showCustomFields,
     required this.showAttachments,
     required this.showOtp,
+    this.showPendingPasswordHint = false,
     required this.customFieldRows,
     required this.attachmentPaths,
     required this.onFieldChanged,
@@ -432,6 +463,7 @@ class _EntryEditorForm extends StatelessWidget {
   final bool showCustomFields;
   final bool showAttachments;
   final bool showOtp;
+  final bool showPendingPasswordHint;
   final List<_CustomFieldFormRow> customFieldRows;
   final List<String> attachmentPaths;
   final ValueChanged<String> onFieldChanged;
@@ -506,6 +538,16 @@ class _EntryEditorForm extends StatelessWidget {
             ),
             onChanged: (_) => onFieldChanged('password'),
           ),
+          if (showPendingPasswordHint) ...[
+            const SizedBox(height: 7),
+            Text(
+              'Password already generated and filled in the browser — '
+              'leave empty to save it',
+              style: AppTextStyles.secondary.copyWith(
+                color: colors.textSecondary,
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           _kvFieldLabel('URL', colors),
           TextFormField(
@@ -1340,9 +1382,9 @@ class _CameraDeniedScreen extends StatelessWidget {
                   return KvSecondaryPillButton(
                     label: 'Save the URI',
                     onPressed: trimmed.startsWith('otpauth://')
-                        ? () => VaultOperationScope.of(context).complete(
-                            OtpScanResult(trimmed),
-                          )
+                        ? () => VaultOperationScope.of(
+                            context,
+                          ).complete(OtpScanResult(trimmed))
                         : null,
                   );
                 },

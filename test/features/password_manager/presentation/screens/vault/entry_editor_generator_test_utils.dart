@@ -12,6 +12,7 @@ import 'package:password_manager/core/utils/clipboard_guard.dart';
 import 'package:password_manager/core/theme/theme_cubit.dart';
 import 'package:password_manager/features/password_manager/data/datasources/biometric_data_source.dart';
 import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
+import 'package:password_manager/features/password_manager/data/services/desktop_browser_pending_generation_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_csv_import_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_duplicate_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
@@ -141,6 +142,10 @@ Future<Widget> pumpableEntryScreen({
 
   di.sl.registerLazySingleton<OtpAuthDeepLinkCoordinator>(
     () => OtpAuthDeepLinkCoordinator(),
+  );
+  // 009 / B005: `_PendingGenerationBanner` resolves this on init.
+  di.sl.registerLazySingleton<DesktopBrowserPendingGenerationService>(
+    () => DesktopBrowserPendingGenerationService(),
   );
   // `dispose:` matters here: mirrors the production lazy singleton
   // (password_manager_presentation_di.dart), and lets `resetEntryTestDi()`'s

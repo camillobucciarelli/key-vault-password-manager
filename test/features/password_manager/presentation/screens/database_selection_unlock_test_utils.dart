@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:password_manager/core/theme/app_theme.dart';
 import 'package:password_manager/features/password_manager/data/datasources/biometric_data_source.dart';
+import 'package:password_manager/features/password_manager/data/services/desktop_browser_pending_generation_service.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_security_profile.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/create_database_usecase.dart';
@@ -79,6 +80,11 @@ DatabaseTestHarness _buildHarness() {
   // helper that drives a real unlock success doesn't crash resolving it.
   di.sl.registerLazySingleton<OtpAuthDeepLinkCoordinator>(
     () => OtpAuthDeepLinkCoordinator(),
+  );
+  // 009 / B005: `VaultScreen`'s `_PendingGenerationBanner` resolves this on
+  // init, same reason as the OtpAuthDeepLinkCoordinator above.
+  di.sl.registerLazySingleton<DesktopBrowserPendingGenerationService>(
+    () => DesktopBrowserPendingGenerationService(),
   );
   // `DatabaseSelectionScreen` navigates to `DatabaseUnlockScreen` on any
   // `DatabaseSelectionSuccess` (initial open, Locate match, duplicate
