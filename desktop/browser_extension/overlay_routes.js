@@ -147,6 +147,8 @@ const NATIVE_ERROR_CODES = Object.freeze({
   unsupported_type: "unsupported_capability",
   unsupported_version: "unsupported_capability",
   not_found: "unsupported_capability",
+  // B007: the app behind the host does not declare `/generate-pending`.
+  unsupported_capability: "unsupported_capability",
   // Refusals.
   forbidden: "forbidden",
   strong_match_required: "forbidden",
@@ -326,8 +328,8 @@ const REPORT_MATCH_COUNT_SHAPE = Object.freeze({
   count: { type: "int", min: 0, max: 10000 },
 });
 
-/** The complete content-script allowlist. Three types, no others, ever. */
-const CONTENT_ROUTES = new Set(["bootstrap", "requestMatches", "fill"]);
+/** The complete content-script allowlist. Four types, no others, ever. */
+const CONTENT_ROUTES = new Set(["bootstrap", "requestMatches", "fill", "generate"]);
 
 /** The complete extension-page allowlist. */
 const EXTENSION_PAGE_ROUTES = new Set([
@@ -509,7 +511,9 @@ class OverlayRouter {
         ? "bootstrapResult"
         : type === "requestMatches"
           ? "matchesResult"
-          : "fillResult";
+          : type === "generate"
+            ? "generateResult"
+            : "fillResult";
 
     // A023 — every content request is authorized before any native I/O, and
     // the authoritative frame origin is established there from `sender.url`.
@@ -535,9 +539,9 @@ class OverlayRouter {
       return overlayError(responseType, "unsupported_frame", focusNonce);
     }
 
-    return type === "requestMatches"
-      ? this._requestMatches(message, auth)
-      : this._fill(message, auth);
+    if (type === "requestMatches") return this._requestMatches(message, auth);
+    if (type === "generate") return this._generate(message, auth);
+    return this._fill(message, auth);
   }
 
   /**
@@ -553,11 +557,26 @@ class OverlayRouter {
     const focusNonce = message.focusNonce;
     const origin = auth.sender.origin;
 
-    const response = await this._native("overlayQueryCredentials", {
-      matchPolicy: MATCH_POLICY,
-      url: origin,
-      limit: securityModule.LIMITS.ITEMS,
-    });
+    // B010 — capability discovery rides the SAME query that renders the rows:
+    // `hello` advertises `generatePendingEntryV1` only while the current app
+    // bridge descriptor lists it, so learning it here (not at bootstrap) keeps
+    // the Generate row's state as fresh as the matches it renders next to. A
+    // failed hello is simply "no capability" — never an error for the query.
+    const [helloResponse, response] = await Promise.all([
+      this._native("hello", {}),
+      this._native("overlayQueryCredentials", {
+        matchPolicy: MATCH_POLICY,
+        url: origin,
+        limit: securityModule.LIMITS.ITEMS,
+      }),
+    ]);
+    const helloCapabilities =
+      helloResponse?.ok === true && Array.isArray(helloResponse.data?.capabilities)
+        ? helloResponse.data.capabilities
+        : [];
+    const generateAvailable = helloCapabilities.includes(
+      securityModule.GENERATE_CAPABILITY
+    );
     if (response?.ok !== true) {
       return overlayError("matchesResult", nativeErrorCode(response), focusNonce);
     }
@@ -619,7 +638,25 @@ class OverlayRouter {
         bridgeGeneration: binding.bridgeGeneration,
       },
       items: safeItems,
+      generateAvailable,
     };
+
+    // B010 — a one-shot, sender-bound generate token, minted only while the
+    // capability is advertised and under the same session tuple as the query.
+    if (generateAvailable) {
+      const generateIssued = this.grants.issue({
+        purpose: "generate",
+        tabId: auth.sender.tabId,
+        frameId: auth.sender.frameId,
+        documentId: auth.sender.documentId,
+        origin,
+        focusNonce,
+        sessionBinding: result.sessionBinding,
+        configRevision: auth.config.revision,
+        nowMs: this._now(),
+      });
+      if (generateIssued !== null) result.generateToken = generateIssued.token;
+    }
 
     const entryIds = safeItems
       .filter((item) => item.fillEligible === true)
@@ -661,6 +698,87 @@ class OverlayRouter {
       );
     }
     return result;
+  }
+
+  /**
+   * B010/B011 — explicit generate.
+   *
+   * Same one-shot ordering as `_fill`: the grant is consumed BEFORE the native
+   * request, so a replay loses by construction, and a failure after
+   * consumption never puts the token back — the worker never retries and the
+   * app-owned pending record is never re-requested from here.
+   *
+   * The native payload carries the session tuple and the origin, NOTHING
+   * else: no settings of any kind exist in the request schema or here, so the
+   * app's committed generator settings are the only possible source (B006).
+   * The response's `pendingGenerationId`, `settingsRevision` and expiry are
+   * deliberately never read into the result and never stored: the app owns
+   * the pending record; the extension keeps neither password nor pending id.
+   */
+  async _generate(message, auth) {
+    const focusNonce = message.focusNonce;
+    const origin = auth.sender.origin;
+
+    const consumed = this.grants.consume({
+      purpose: "generate",
+      token: message.generateToken,
+      tabId: auth.sender.tabId,
+      frameId: auth.sender.frameId,
+      documentId: auth.sender.documentId,
+      origin,
+      focusNonce,
+      sessionBinding: message.sessionBinding,
+      configRevision: auth.config.revision,
+      nowMs: this._now(),
+    });
+    if (!consumed.ok) {
+      return overlayError(
+        "generateResult",
+        validationErrorCode(consumed.error),
+        focusNonce
+      );
+    }
+    const grant = consumed.grant;
+
+    const response = await this._native("generatePendingEntry", {
+      origin,
+      expectedDatabaseId: grant.sessionBinding.databaseId,
+      expectedCacheGeneration: grant.sessionBinding.cacheGeneration,
+      expectedBridgeGeneration: grant.sessionBinding.bridgeGeneration,
+    });
+    if (response?.ok !== true) {
+      return overlayError("generateResult", nativeErrorCode(response), focusNonce);
+    }
+
+    const data = response.data;
+    if (!securityModule.isPlainObject(data) || data.origin !== origin) {
+      return overlayError("generateResult", "stale_session", focusNonce);
+    }
+
+    // SR-4 — validate the echoed binding BEFORE the secret is forwarded.
+    const bindingError = securityModule.validateResponseBinding({
+      echoed: data.sessionBinding,
+      expected: grant.sessionBinding,
+    });
+    if (bindingError !== null) {
+      return overlayError("generateResult", bindingError, focusNonce);
+    }
+
+    if (typeof data.password !== "string" || data.password.length === 0) {
+      return overlayError("generateResult", "internal_error", focusNonce);
+    }
+
+    // Built field by field from locals; the native response object itself is
+    // never forwarded. Only the password crosses — no pending id, no expiry,
+    // no settings revision.
+    return {
+      ok: true,
+      type: "generateResult",
+      origin,
+      focusNonce,
+      sessionBinding: { ...grant.sessionBinding },
+      data: { password: data.password },
+    };
   }
 
   /**

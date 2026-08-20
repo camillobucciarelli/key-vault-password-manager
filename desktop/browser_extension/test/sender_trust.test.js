@@ -38,7 +38,12 @@ test("every message type belongs to exactly one route", () => {
   const contentTypes = security.messageTypesForRoute(security.CONTENT_SCRIPT_ROUTE);
 
   assert.deepEqual(extensionTypes.sort(), ["getSiteState", "setSiteState"]);
-  assert.deepEqual(contentTypes.sort(), ["bootstrap", "fill", "requestMatches"]);
+  assert.deepEqual(contentTypes.sort(), [
+    "bootstrap",
+    "fill",
+    "generate",
+    "requestMatches",
+  ]);
 
   for (const type of extensionTypes) {
     assert.ok(!contentTypes.includes(type), `${type} must not be in both routes`);

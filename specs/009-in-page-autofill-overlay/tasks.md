@@ -376,15 +376,15 @@ flutter test \
 
 ## Slice B2 — explicit Generate UI
 
-- [ ] **B010** Add Generate row only when capability exists. Request requires
+- [x] **B010** Add Generate row only when capability exists. Request requires
       current sender-bound focus nonce/token and exact origin; no settings payload.
-- [ ] **B011** On explicit click/Enter, nonce-check response, fill generated secret
+- [x] **B011** On explicit click/Enter, nonce-check response, fill generated secret
       once, best-effort clear extension references, store neither password nor
       pending id, never submit, teardown.
-- [ ] **B012** Test stale/late/replayed generation, disable/navigation during
+- [x] **B012** Test stale/late/replayed generation, disable/navigation during
       request, lock/expiry, no extension storage/DOM/log/global secret, and app
       pending ownership/cleanup.
-- [ ] **B013** Update package README/UI copy to state app ownership, expiry, and
+- [x] **B013** Update package README/UI copy to state app ownership, expiry, and
       save confirmation. Do not claim extension saves or remembers generated
       password.
 
