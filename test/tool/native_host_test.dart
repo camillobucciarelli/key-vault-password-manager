@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -1378,6 +1379,582 @@ void main() {
       _expectNoSecret(response);
     });
   });
+
+  // 009 / B007–B008 — generatePendingEntry.
+  //
+  // GitGuardian note: the test secret is assembled with join() and uses a
+  // neutral name on purpose; no username/password literal pairs appear.
+  group('009 B007/B008 — generatePendingEntry', () {
+    late DesktopBrowserAutofillCacheStore store;
+    late _FakeGenerateBridge bridge;
+
+    setUp(() async {
+      store = await _overlayStore(
+        databaseId: 'db-a',
+        cacheGeneration: 'cache-a',
+        entries: [_overlayEntry()],
+      );
+      bridge = await _FakeGenerateBridge.start();
+      addTearDown(bridge.close);
+      await store.writeBridgeDescriptor(
+        bridge.descriptor(
+          databaseId: 'db-a',
+          cacheGeneration: 'cache-a',
+          bridgeGeneration: 'bridge-a',
+        ),
+      );
+    });
+
+    test('hello advertises the capability only when the app descriptor '
+        'declares it', () async {
+      final advertised = await handleNativeHostRequest({
+        'version': nativeProtocolVersion,
+        'id': 'hello-gen',
+        'type': 'hello',
+      }, store: store);
+      final data = advertised['data']! as Map<String, Object?>;
+      expect(data['capabilities'], contains('generatePendingEntryV1'));
+      expect(data['supportedMessages'], contains('generatePendingEntry'));
+
+      // The host binary alone never advertises it: the capability follows
+      // the app contract, not the host build.
+      expect(nativeHostCapabilities, isNot(contains('generatePendingEntryV1')));
+
+      // Old app: descriptor without the capability field.
+      await store.writeBridgeDescriptor(
+        bridge.descriptor(
+          databaseId: 'db-a',
+          cacheGeneration: 'cache-a',
+          bridgeGeneration: 'bridge-a',
+          appCapabilities: const [],
+        ),
+      );
+      final notAdvertised = await handleNativeHostRequest({
+        'version': nativeProtocolVersion,
+        'id': 'hello-gen-2',
+        'type': 'hello',
+      }, store: store);
+      expect(
+        (notAdvertised['data']! as Map<String, Object?>)['capabilities'],
+        isNot(contains('generatePendingEntryV1')),
+      );
+    });
+
+    test('a malformed appCapabilities field fails closed: no advertisement, '
+        'no generation', () async {
+      final capability = desktopBrowserGeneratePendingCapability;
+      final malformed = <String, Object?>{
+        'not a list': {'x': 1},
+        'oversize list': List<String>.generate(
+          17,
+          (i) => i == 0 ? capability : 'cap-$i',
+        ),
+        'non-string element': <Object?>[capability, 5],
+        'empty element': <Object?>[capability, ''],
+        'oversize element': <Object?>[capability, 'a' * 65],
+      };
+
+      for (final entry in malformed.entries) {
+        await store.bridgeDescriptorFile!.writeAsString(
+          jsonEncode({
+            'version': desktopBrowserAutofillBridgeDescriptorVersion,
+            'port': bridge.server.port,
+            'token': bridge.token,
+            'databaseId': 'db-a',
+            'cacheGeneration': 'cache-a',
+            'bridgeGeneration': 'bridge-a',
+            'createdAtEpochMs': 1,
+            'appCapabilities': entry.value,
+          }),
+        );
+
+        final hello = await handleNativeHostRequest({
+          'version': nativeProtocolVersion,
+          'id': 'hello-malformed',
+          'type': 'hello',
+        }, store: store);
+        expect(
+          (hello['data']! as Map<String, Object?>)['capabilities'],
+          isNot(contains(capability)),
+          reason: entry.key,
+        );
+
+        final response = await _generatePending(store: store);
+        expect(response['ok'], isFalse, reason: entry.key);
+        expect(
+          (response['error']! as Map<String, Object?>)['code'],
+          'unsupported_capability',
+          reason: entry.key,
+        );
+      }
+      expect(bridge.requestCount, 0);
+    });
+
+    test('an old host cannot serve generation at all', () async {
+      // The request type did not exist before this slice, so an old host
+      // answers `unsupported_type` — structural fail-closed, no fallback.
+      expect(_preSlice009MessageTypes, isNot(contains('generatePendingEntry')));
+    });
+
+    test('an old app without the capability returns unsupported_capability, '
+        'never a fallback', () async {
+      await store.writeBridgeDescriptor(
+        bridge.descriptor(
+          databaseId: 'db-a',
+          cacheGeneration: 'cache-a',
+          bridgeGeneration: 'bridge-a',
+          appCapabilities: const [],
+        ),
+      );
+
+      final response = await _generatePending(store: store);
+
+      expect(response['ok'], isFalse);
+      expect(
+        (response['error']! as Map<String, Object?>)['code'],
+        'unsupported_capability',
+      );
+      expect(bridge.requestCount, 0);
+      _expectNoGeneratedSecret(response);
+    });
+
+    test('returns the one-shot secret with expiry, echoed binding and '
+        'settings revision', () async {
+      final response = await _generatePending(store: store);
+
+      expect(response['ok'], isTrue);
+      final data = response['data']! as Map<String, Object?>;
+      expect(data['pendingGenerationId'], 'pending-1');
+      expect(data['password'], _generatedNativeValue);
+      expect(data['settingsRevision'], 7);
+      final expiresAt = data['expiresAtEpochMs']! as int;
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      expect(expiresAt, greaterThan(nowMs));
+      expect(expiresAt, lessThanOrEqualTo(nowMs + 5 * 60 * 1000 + 10000));
+      expect(data['sessionBinding'], {
+        'databaseId': 'db-a',
+        'cacheGeneration': 'cache-a',
+        'bridgeGeneration': 'bridge-a',
+      });
+      // Settings never travel: the app bridge request carried none.
+      expect(jsonEncode(bridge.lastPayload), isNot(contains('settings')));
+      expect(jsonEncode(bridge.lastPayload), isNot(contains('length')));
+    });
+
+    test('a non-default port survives canonicalization end to end', () async {
+      final response = await _generatePending(
+        store: store,
+        origin: 'https://example.com:8443/login?next=/x',
+      );
+
+      expect(response['ok'], isTrue);
+      expect(bridge.lastPayload!['origin'], 'https://example.com:8443');
+      expect(
+        (response['data']! as Map<String, Object?>)['origin'],
+        'https://example.com:8443',
+      );
+    });
+
+    test('malformed requests are invalid_request before any bridge '
+        'call', () async {
+      final cases = <Map<String, Object?>>[
+        {'origin': 'https://example.com'}, // missing expected binding
+        {
+          // forbidden scheme
+          'origin': 'ftp://example.com',
+          'expectedDatabaseId': 'db-a',
+          'expectedCacheGeneration': 'cache-a',
+          'expectedBridgeGeneration': 'bridge-a',
+        },
+        {
+          // extension scheme
+          'origin': 'chrome-extension://abcdefg',
+          'expectedDatabaseId': 'db-a',
+          'expectedCacheGeneration': 'cache-a',
+          'expectedBridgeGeneration': 'bridge-a',
+        },
+        {
+          // settings are app-owned: rejected, not ignored
+          'origin': 'https://example.com',
+          'expectedDatabaseId': 'db-a',
+          'expectedCacheGeneration': 'cache-a',
+          'expectedBridgeGeneration': 'bridge-a',
+          'settings': {'legnth': 4},
+        },
+      ];
+      for (final payload in cases) {
+        final response = await handleNativeHostRequest({
+          'version': nativeProtocolVersion,
+          'id': 'gen-bad',
+          'type': 'generatePendingEntry',
+          'payload': payload,
+        }, store: store);
+        expect(response['ok'], isFalse, reason: jsonEncode(payload));
+        expect(
+          (response['error']! as Map<String, Object?>)['code'],
+          'invalid_request',
+          reason: jsonEncode(payload),
+        );
+      }
+      expect(bridge.requestCount, 0);
+    });
+
+    test('a locked app (no cache) cannot generate', () async {
+      final locked = DesktopBrowserAutofillCacheStore(
+        directory: await Directory.systemTemp.createTemp('kv-gen-locked-'),
+      );
+      final response = await _generatePending(store: locked);
+
+      expect(response['ok'], isFalse);
+      expect(
+        (response['error']! as Map<String, Object?>)['code'],
+        'app_bridge_unavailable',
+      );
+      expect(bridge.requestCount, 0);
+    });
+
+    for (final mismatch in const [
+      'expectedDatabaseId',
+      'expectedCacheGeneration',
+      'expectedBridgeGeneration',
+    ]) {
+      test('$mismatch mismatch is stale_session before the app is '
+          'contacted', () async {
+        final response = await _generatePending(
+          store: store,
+          databaseId: mismatch == 'expectedDatabaseId' ? 'db-other' : 'db-a',
+          cacheGeneration: mismatch == 'expectedCacheGeneration'
+              ? 'other'
+              : 'cache-a',
+          bridgeGeneration: mismatch == 'expectedBridgeGeneration'
+              ? 'other'
+              : 'bridge-a',
+        );
+
+        expect(response['ok'], isFalse);
+        expect(
+          (response['error']! as Map<String, Object?>)['code'],
+          'stale_session',
+        );
+        expect(bridge.requestCount, 0);
+        _expectNoGeneratedSecret(response);
+      });
+    }
+
+    test('a stalled app bridge is app_bridge_timeout, not a hang', () async {
+      bridge.stall = true;
+
+      final response = await _generatePending(store: store);
+
+      expect(response['ok'], isFalse);
+      expect(
+        (response['error']! as Map<String, Object?>)['code'],
+        'app_bridge_timeout',
+      );
+      _expectNoGeneratedSecret(response);
+    });
+
+    test('an oversize password in the app response is refused', () async {
+      bridge.overrideData = (payload, nowMs) => {
+        ..._echoData(payload, nowMs),
+        'password': 'a' * (32 * 1024 + 1),
+      };
+
+      final response = await _generatePending(store: store);
+
+      expect(response['ok'], isFalse);
+      expect(
+        (response['error']! as Map<String, Object?>)['code'],
+        'app_bridge_invalid_response',
+      );
+    });
+
+    test('an oversize app response body is refused at transport '
+        'level', () async {
+      bridge.overrideData = (payload, nowMs) => {
+        ..._echoData(payload, nowMs),
+        'padding': 'b' * (70 * 1024),
+      };
+
+      final response = await _generatePending(store: store);
+
+      expect(response['ok'], isFalse);
+      expect(
+        (response['error']! as Map<String, Object?>)['code'],
+        'app_bridge_error',
+      );
+      _expectNoGeneratedSecret(response);
+    });
+
+    for (final broken in const [
+      'settingsRevision',
+      'expiresAtEpochMs',
+      'pendingGenerationId',
+      'databaseId',
+      'cacheGeneration',
+      'bridgeGeneration',
+    ]) {
+      test('a response with broken $broken is app_bridge_invalid_response '
+          'and drops the secret', () async {
+        bridge.overrideData = (payload, nowMs) => {
+          ..._echoData(payload, nowMs),
+          // Wrong type/ownership per field: revision 0 is not a committed
+          // revision, expiry beyond 5 minutes breaks the pending contract,
+          // and a binding echo that differs is another session's answer.
+          if (broken == 'settingsRevision') 'settingsRevision': 0,
+          if (broken == 'expiresAtEpochMs')
+            'expiresAtEpochMs': nowMs + 10 * 60 * 1000,
+          if (broken == 'pendingGenerationId') 'pendingGenerationId': '',
+          if (broken == 'databaseId') 'databaseId': 'db-other',
+          if (broken == 'cacheGeneration') 'cacheGeneration': 'other',
+          if (broken == 'bridgeGeneration') 'bridgeGeneration': 'other',
+        };
+
+        final response = await _generatePending(store: store);
+
+        expect(response['ok'], isFalse);
+        expect(
+          (response['error']! as Map<String, Object?>)['code'],
+          'app_bridge_invalid_response',
+        );
+        _expectNoGeneratedSecret(response);
+      });
+    }
+
+    test('a vault republish after the app answered is stale_session', () async {
+      final republishing = _RepublishingStore(store);
+      await store.writeBridgeDescriptor(
+        bridge.descriptor(
+          databaseId: 'db-a',
+          cacheGeneration: 'cache-a',
+          bridgeGeneration: 'bridge-a',
+        ),
+      );
+
+      final response = await _generatePending(store: republishing);
+
+      expect(response['ok'], isFalse);
+      expect(
+        (response['error']! as Map<String, Object?>)['code'],
+        'stale_session',
+      );
+      expect(bridge.requestCount, 1);
+      _expectNoGeneratedSecret(response);
+    });
+
+    test('the native host persists and logs nothing: the secret exists only '
+        'in the one-shot response', () async {
+      Future<List<String>> filesUnder(Directory directory) async {
+        return [
+          await for (final f in directory.list(recursive: true))
+            if (f is File) f.path,
+        ];
+      }
+
+      final filesBefore = await filesUnder(store.directory!);
+      final printed = <String>[];
+      final recordedStderr = _RecordingStderr();
+      late Map<String, Object?> response;
+      // stderr is captured through IOOverrides so a `stderr.writeln` added to
+      // the handler would land in the recorder, not the real fd. This is the
+      // runtime check; the primary defence is the static writer inventory
+      // guard, which scans `tool/` and fails on any filesystem writer there
+      // (including one aimed at Directory.systemTemp, which no runtime scan
+      // watches).
+      await IOOverrides.runZoned(
+        () => runZoned(
+          () async {
+            response = await _generatePending(store: store);
+          },
+          zoneSpecification: ZoneSpecification(
+            print: (self, parent, zone, line) => printed.add(line),
+          ),
+        ),
+        stderr: () => recordedStderr,
+      );
+
+      expect(response['ok'], isTrue);
+      // The true secret is searched for on every surface the host can write:
+      // no new file, no existing file containing it, nothing printed.
+      final filesAfter = await filesUnder(store.directory!);
+      expect(filesAfter, unorderedEquals(filesBefore));
+      for (final path in filesAfter) {
+        expect(
+          await File(path).readAsString(),
+          isNot(contains(_generatedNativeValue)),
+          reason: 'secret leaked to ${Uri.file(path).pathSegments.last}',
+        );
+      }
+      expect(printed.join('\n'), isNot(contains(_generatedNativeValue)));
+      expect(
+        recordedStderr.buffer.toString(),
+        isNot(contains(_generatedNativeValue)),
+      );
+    });
+  });
+}
+
+/// Captures everything written to the process `stderr` inside an
+/// [IOOverrides] zone. Only the write surface is implemented; any other use
+/// of the [Stdout] API by the handler under test is itself a violation and
+/// fails loudly.
+class _RecordingStderr implements Stdout {
+  final buffer = StringBuffer();
+
+  @override
+  void write(Object? object) => buffer.write(object);
+
+  @override
+  void writeln([Object? object = '']) => buffer.writeln(object);
+
+  @override
+  void writeAll(Iterable<Object?> objects, [String sep = '']) =>
+      buffer.writeAll(objects, sep);
+
+  @override
+  void writeCharCode(int charCode) => buffer.writeCharCode(charCode);
+
+  @override
+  void add(List<int> data) =>
+      buffer.write(utf8.decode(data, allowMalformed: true));
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('unexpected stderr use: ${invocation.memberName}');
+}
+
+final _generatedNativeValue = ['kv', 'gen', 'native', 'value', '7f2'].join('-');
+
+Future<Map<String, Object?>> _generatePending({
+  required DesktopBrowserAutofillCacheStore store,
+  String origin = 'https://example.com',
+  String databaseId = 'db-a',
+  String cacheGeneration = 'cache-a',
+  String bridgeGeneration = 'bridge-a',
+}) {
+  return handleNativeHostRequest({
+    'version': nativeProtocolVersion,
+    'id': 'generate-1',
+    'type': 'generatePendingEntry',
+    'payload': {
+      'origin': origin,
+      'expectedDatabaseId': databaseId,
+      'expectedCacheGeneration': cacheGeneration,
+      'expectedBridgeGeneration': bridgeGeneration,
+    },
+  }, store: store);
+}
+
+void _expectNoGeneratedSecret(Map<String, Object?> response) {
+  expect(jsonEncode(response), isNot(contains(_generatedNativeValue)));
+}
+
+Map<String, Object?> _echoData(Map<String, Object?> payload, int nowMs) {
+  return {
+    'pendingGenerationId': 'pending-1',
+    'expiresAtEpochMs': nowMs + 4 * 60 * 1000,
+    'databaseId': payload['databaseId'],
+    'cacheGeneration': payload['cacheGeneration'],
+    'bridgeGeneration': payload['bridgeGeneration'],
+    'settingsRevision': 7,
+    'password': _generatedNativeValue,
+  };
+}
+
+/// Fake app bridge implementing `/generate-pending`, echoing the binding the
+/// way the real app does so the host's echo validation runs for real.
+class _FakeGenerateBridge {
+  _FakeGenerateBridge._({required this.server, required this.token}) {
+    server.listen(_handleRequest);
+  }
+
+  static Future<_FakeGenerateBridge> start() async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    return _FakeGenerateBridge._(
+      server: server,
+      token: 'fake-token-fake-token-fake-token-fake-token',
+    );
+  }
+
+  final HttpServer server;
+  final String token;
+  int requestCount = 0;
+  Map<String, Object?>? lastPayload;
+  bool stall = false;
+  Map<String, Object?> Function(Map<String, Object?> payload, int nowMs)?
+  overrideData;
+
+  DesktopBrowserAutofillBridgeDescriptor descriptor({
+    required String databaseId,
+    required String cacheGeneration,
+    required String bridgeGeneration,
+    List<String> appCapabilities = const [
+      desktopBrowserGeneratePendingCapability,
+    ],
+  }) {
+    return DesktopBrowserAutofillBridgeDescriptor(
+      version: desktopBrowserAutofillBridgeDescriptorVersion,
+      port: server.port,
+      token: token,
+      databaseId: databaseId,
+      cacheGeneration: cacheGeneration,
+      bridgeGeneration: bridgeGeneration,
+      createdAtEpochMs: 1,
+      appCapabilities: appCapabilities,
+    );
+  }
+
+  Future<void> close() async {
+    await server.close(force: true);
+  }
+
+  Future<void> _handleRequest(HttpRequest request) async {
+    requestCount += 1;
+    if (stall) {
+      // Never answer; the host's 2-second budget must fire. The server is
+      // force-closed in teardown.
+      return;
+    }
+    request.response.headers.contentType = ContentType.json;
+    if (request.method != 'POST' || request.uri.path != '/generate-pending') {
+      request.response.statusCode = HttpStatus.notFound;
+      request.response.write(
+        jsonEncode({
+          'ok': false,
+          'error': {'code': 'not_found'},
+        }),
+      );
+      await request.response.close();
+      return;
+    }
+    if (request.headers.value(HttpHeaders.authorizationHeader) !=
+        'Bearer $token') {
+      request.response.statusCode = HttpStatus.unauthorized;
+      request.response.write(
+        jsonEncode({
+          'ok': false,
+          'error': {'code': 'unauthorized'},
+        }),
+      );
+      await request.response.close();
+      return;
+    }
+
+    final payload =
+        jsonDecode(await utf8.decoder.bind(request).join())
+            as Map<String, Object?>;
+    lastPayload = payload;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+    request.response.statusCode = HttpStatus.ok;
+    request.response.write(
+      jsonEncode({
+        'ok': true,
+        'data': overrideData?.call(payload, nowMs) ?? _echoData(payload, nowMs),
+      }),
+    );
+    await request.response.close();
+  }
 }
 
 /// The v2 request types that existed before spec 009 Slice A1.

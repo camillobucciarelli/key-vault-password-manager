@@ -104,6 +104,8 @@ void main() {
         'await di.sl<ClipboardGuard>().copy(text);',
         'await secureStorage.delete(key: k);',
         'final f = KdbxFormat().create(credentials, name);',
+        'final pending = pendingGeneration.create(databaseId: databaseId);',
+        'final response = await _client.delete(uri, headers: headers);',
       ]) {
         final scrubbed = line.replaceAll(_nonFilesystem, '');
         expect(
@@ -321,12 +323,29 @@ final _nonFilesystem = RegExp(
   r'Clipboard[A-Za-z]*(>\(\))?\.[A-Za-z_]+\(|'
   r'secureStorage\.delete(Sync)?\(|'
   r'Kdbx[A-Za-z]*\.create(Sync)?\(|'
-  r'KdbxFormat\(\)\.create(Sync)?\(',
+  r'KdbxFormat\(\)\.create(Sync)?\(|'
+  // 009 / B006: `DesktopBrowserPendingGenerationService.create` is a pure
+  // in-memory record constructor — the service touches no file by contract
+  // (and its own tests search the disk for the secret to prove it).
+  r'pendingGeneration[!?]?\.create(Sync)?\(|'
+  // `tool/drive_conditional_spike.dart` issues an HTTP DELETE against the
+  // Drive API through its `http.Client` field — a network call, not a
+  // filesystem mutation. This is the only allowlisted receiver in `tool/`:
+  // anything else that writes there (the native host above all, which must
+  // persist nothing by contract — 009 B008) fails the baseline.
+  r'_client\.delete(Sync)?\(',
 );
 
-/// All of `lib/`: narrowing this to the feature package would let a writer
-/// added to `lib/main.dart` or `lib/injection_container.dart` go unnoticed.
-const _roots = ['lib'];
+/// All of `lib/`, plus `tool/`: narrowing this to the feature package would
+/// let a writer added to `lib/main.dart` or `lib/injection_container.dart` go
+/// unnoticed. `tool/` is included since 009 B1 because the native host
+/// (`tool/native_host.dart` + `tool/native_host_protocol.dart`) handles
+/// revealed and generated secrets and its contract is to persist *nothing*:
+/// a filesystem writer appearing there — even one aimed at
+/// `Directory.systemTemp`, which no runtime test watches — must fail this
+/// baseline. Legitimate non-filesystem receivers in `tool/` are scrubbed
+/// above, one by one, with the reason next to each.
+const _roots = ['lib', 'tool'];
 
 /// Memoized scan, shared by both groups.
 ///

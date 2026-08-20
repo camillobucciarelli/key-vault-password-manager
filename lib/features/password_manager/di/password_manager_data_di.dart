@@ -86,7 +86,13 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
   sl.registerLazySingleton(() => DesktopBrowserAutofillCacheStore());
   sl.registerLazySingleton(() => DesktopBrowserPendingGenerationService());
   sl.registerLazySingleton(
-    () => DesktopBrowserAutofillRevealBridgeService(store: sl(), mapper: sl()),
+    () => DesktopBrowserAutofillRevealBridgeService(
+      store: sl(),
+      mapper: sl(),
+      settingsRepository: sl(),
+      passwordGenerator: sl(),
+      pendingGeneration: sl(),
+    ),
   );
   sl.registerLazySingleton<AppleAutofillV2Client>(
     () => AppleAutofillV2MethodChannelClient(),

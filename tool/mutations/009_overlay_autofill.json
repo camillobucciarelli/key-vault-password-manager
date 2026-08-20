@@ -256,12 +256,20 @@
     },
     {
       "id": "A1-M1",
-      "expectedKills": 6,
+      "expectedKills": 8,
       "slice": "A1",
       "suite": "flutter-overlay-contract",
       "file": "lib/features/password_manager/data/services/browser_exact_origin.dart",
       "title": "exact-origin equality ignores the port",
       "property": "the Dart half of the overlay contract compares the same tuple as overlay_security.js",
+      "$comment": [
+        "Was 6 before Slice B1. B006/B007 route generation origins through the",
+        "same canonicalizer, and two new tests pin the non-default port end to",
+        "end: 'a non-default port is part of the pending record origin' (reveal",
+        "bridge suite) and 'a non-default port survives canonicalization end to",
+        "end' (native host suite). Collapsing the port now also breaks pending",
+        "generation ownership, which is exactly the extra coverage."
+      ],
       "edits": [
         {
           "find": "  final serialized = effectivePort == defaultPort\n      ? '$scheme://$asciiHost'\n      : '$scheme://$asciiHost:$effectivePort';",
