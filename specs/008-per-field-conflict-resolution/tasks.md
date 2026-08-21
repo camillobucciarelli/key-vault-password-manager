@@ -4,7 +4,11 @@ Ordered gates. Later phase cannot start until prior gate exit passes.
 
 ## Phase 0 — Feasibility and report (blocking)
 
-> **Gate 0 is OPEN. T201 and the domain freeze are blocked.**
+> **Gate 0 is CLOSED (2026-08-21). T201 and the domain freeze are unblocked.**
+> T009 passed with executable evidence — 36 tests green and the mutation check
+> at exit 0 (PR #65), re-verified on `main` and accepted by the PM on
+> 2026-08-21. **T009b remains a separate open gate**: it blocks only
+> deletion/tombstone/attachment work, not Gate 0.
 >
 > History: executed 2026-08-13 on `feat/008-merge-gate0`; corrected after
 > independent review 2026-08-14; **B1 closed by live-network measurement
@@ -16,15 +20,16 @@ Ordered gates. Later phase cannot start until prior gate exit passes.
 > counter-probes. Spec 008 FR-7 was rewritten around a storage-agnostic
 > `get` + `put` write-verify-converge cycle that needs no server precondition.
 >
-> **What blocks Gate 0 now is that the replacement cycle is validated by
-> nothing.** The 2026-08-15 close rewrote the Gate 0 exit criterion in the same
+> **What blocked Gate 0 until 2026-08-21 was that the replacement cycle was
+> validated by nothing.** The 2026-08-15 close rewrote the Gate 0 exit criterion in the same
 > commit that declared it met, and the cycle it substituted for B1 is `not-run`.
 > Reading it found three defects that each prevented convergence — no
 > re-anchoring of the expected base on retry, a byte comparison with no semantic
 > arbiter, and a perspective-dependent tie-break — plus four correctness and
 > safety defects. All are corrected in `spec.md`; none was caught by a test.
 >
-> **Gate 0 closes when T009 passes, and on no other condition.**
+> **Gate 0 closes when T009 passes, and on no other condition.** It did, on
+> 2026-08-21.
 >
 > Previously listed as B2 (entry colors) and R2 (entry auto-type): **both
 > closed**. Their values round-trip through the exported `KdbxNode.node`.
@@ -64,7 +69,11 @@ Ordered gates. Later phase cannot start until prior gate exit passes.
       writer inventory, path identity design, artifact schema and per-platform
       `not-run|passed|failed|disabled` status/feature flags. Gate 0 may leave target
       artifacts `not-run` and disabled; Gate 1 produces evidence.
-- [ ] **T009 Convergence model validation** — **the remaining Gate 0 blocker.**
+- [x] **T009 Convergence model validation** — **passed 2026-08-21** (PR #65:
+      36 tests green; `node tool/mutation_runner.mjs
+      --definitions=tool/mutations/008_t009_convergence.json --check` exit 0,
+      0 survivors; re-verified on `main` by the PM the same day). Was the
+      remaining Gate 0 blocker.
       Validate the FR-7 write-verify-converge cycle as a **model**, in memory:
       no network, no filesystem, no KDBX, no `lib/` dependency. Simulate
       devices against a shared bare `get`/`put` remote and assert the properties
@@ -120,15 +129,15 @@ Ordered gates. Later phase cannot start until prior gate exit passes.
       depends on this — FR-4 states that a missing KDBX field or attachment is
       normally a union, not a deletion — so it blocks the deletion work only.
 
-**Gate 0 exit**: **T001–T009** pass. **NOT MET** — T001–T008 have executed
-evidence; **T009 is `not-run` and is the only remaining blocker**. T008 and T009
-are both mandatory before T201/domain freeze. **T009b is not a Gate 0 condition**
-and does not block it; it gates the deletion/attachment work only.
+**Gate 0 exit**: **T001–T009** pass. **MET 2026-08-21** — T001–T008 have
+executed evidence; **T009 passed** (36 tests, mutation check exit 0, PR #65).
+T201/domain freeze are unblocked. **T009b is not a Gate 0 condition** and does
+not block it; it gates the deletion/attachment work only.
 
 A backend's **absent** concurrency capability no longer blocks Gate 0 — it
 selects a lower guarantee tier (`spec.md` §"Guarantee by backend category").
-What blocks Gate 0 is the storage-agnostic cycle that replaced it being
-unvalidated. A fidelity gap still blocks Gate 0. Platform evidence may remain
+What blocked Gate 0 was the storage-agnostic cycle that replaced it being
+unvalidated; T009 now validates it. A fidelity gap would still block Gate 0. Platform evidence may remain
 `not-run` only with target disabled; Gate 1 T111 must pass before that target
 enables.
 
