@@ -116,7 +116,7 @@
     },
     {
       "id": "A0-M2",
-      "expectedKills": 214,
+      "expectedKills": 216,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -1184,7 +1184,7 @@
     },
     {
       "id": "A4-M9",
-      "expectedKills": 33,
+      "expectedKills": 34,
       "slice": "A4",
       "suite": "node-extension",
       "file": "desktop/browser_extension/content_overlay.js",
@@ -1355,7 +1355,7 @@
           "replace": "        if (original !== null) anchor.setAttribute(name, original);"
         }
       ],
-      "expectedKills": 1
+      "expectedKills": 2
     },
     {
       "id": "A5-M9",
