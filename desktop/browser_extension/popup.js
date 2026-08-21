@@ -707,6 +707,35 @@ async function appendOverlayControl() {
   );
 }
 
+/**
+ * macOS grant race: the OS-level permission prompt CLOSES this popup, killing
+ * the continuation below before `setSiteState enable` can be sent — the first
+ * Allow used to leave the site Off. The durable one-shot intent written here
+ * (under the user gesture, BEFORE the request) lets the worker's
+ * `permissions.onAdded` listener finish the enable instead.
+ *
+ * `chrome.storage.session` on purpose: it dies with the browser, and its
+ * default access level (TRUSTED_CONTEXTS) already covers popup + worker while
+ * excluding content scripts — no `setAccessLevel` call needed.
+ */
+function writeEnableIntent(origin, tabId) {
+  return chrome.storage.session
+    .set({
+      [overlaySecurity.OVERLAY_ENABLE_INTENT_KEY]: {
+        origin,
+        tabId,
+        createdAt: Date.now(),
+      },
+    })
+    .catch(() => {});
+}
+
+function clearEnableIntent() {
+  return chrome.storage.session
+    .remove(overlaySecurity.OVERLAY_ENABLE_INTENT_KEY)
+    .catch(() => {});
+}
+
 async function toggleOverlayForSite(state, tabId, origin) {
   if (state === "enabled") {
     overlayRequestDenied = false;
@@ -715,14 +744,25 @@ async function toggleOverlayForSite(state, tabId, origin) {
     return;
   }
 
+  // Not awaited before the request on purpose: `permissions.request` must stay
+  // synchronous with the click gesture. The storage IPC completes long before
+  // the user can answer the prompt, so the onAdded consumer always sees it.
+  void writeEnableIntent(origin, tabId);
   const granted = await requestOverlayPermission(origin);
   if (granted !== true) {
+    // Declined (or the request failed): the intent must not linger for a later
+    // unrelated grant. TTL is the backstop, this is the prompt cleanup.
+    void clearEnableIntent();
     overlayRequestDenied = true;
     void initializePopup();
     return;
   }
   overlayRequestDenied = false;
   await sendOverlayMessage("setSiteState", { tabId, origin, enabled: true });
+  // Popup survived (Linux/Windows): the enable completed here, burn the
+  // intent. If the worker's onAdded path consumed it first, both ran through
+  // the same idempotent enableOrigin — one coherent outcome either way.
+  void clearEnableIntent();
   void initializePopup();
 }
 

@@ -661,6 +661,45 @@ function computeFrameSupport({ frameId, frameOrigin, topOrigin, enabledOrigins }
 
 const OVERLAY_CONFIG_KEY = "overlayConfigV1";
 
+// ---------------------------------------------------------------------------
+// Pending enable intent (macOS grant race).
+//
+// On macOS the OS-level permission prompt CLOSES the popup, killing the
+// continuation that would send `setSiteState enable` — so the first Allow
+// left the site Off. The popup writes this one-shot intent to
+// `chrome.storage.session` UNDER THE USER GESTURE, before
+// `permissions.request`; the worker's `permissions.onAdded` listener consumes
+// it and finishes the enable through the same `enableOrigin` path.
+//
+// `storage.session` on purpose: it dies with the browser, and its default
+// access level (TRUSTED_CONTEXTS) already covers exactly the two writers we
+// want — extension pages (popup) and the service worker — while content
+// scripts never see it. No `setAccessLevel` call is needed or wanted.
+//
+// SECURITY: the ORIGIN in this intent is the only source of the origin the
+// worker enables. It is never derived from the granted permission pattern,
+// because the pattern loses the port (`https://a.com:8443` and
+// `https://a.com` share `https://a.com/*`).
+// ---------------------------------------------------------------------------
+
+const OVERLAY_ENABLE_INTENT_KEY = "overlayEnableIntentV1";
+const ENABLE_INTENT_TTL_MS = 60000;
+
+/**
+ * Strict fail-closed shape check for the stored intent: exactly the three
+ * expected keys, canonical origin, integer tabId and createdAt. Anything else
+ * is garbage the reader must delete and ignore.
+ */
+function validateEnableIntent(value) {
+  const shape = validateExactShape(value, {
+    origin: { type: "origin" },
+    tabId: { type: "int", min: 0 },
+    createdAt: { type: "int", min: 0 },
+  });
+  if (!shape.ok) return shape;
+  return assertNoForbiddenKeys(value);
+}
+
 // A023 — durable monotonic revision floor.
 //
 // Deliberately a SEPARATE storage key from `overlayConfigV1`, because the
@@ -1022,6 +1061,9 @@ const API = {
   FORBIDDEN_KEYS,
   OVERLAY_CONFIG_KEY,
   OVERLAY_REVISION_FLOOR_KEY,
+  OVERLAY_ENABLE_INTENT_KEY,
+  ENABLE_INTENT_TTL_MS,
+  validateEnableIntent,
   revisionFloorOrZero,
   EXTENSION_PAGE_ROUTE,
   CONTENT_SCRIPT_ROUTE,
