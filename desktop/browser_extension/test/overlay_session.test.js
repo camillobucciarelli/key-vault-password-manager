@@ -199,10 +199,34 @@ test("A030: the loading state shows while the query is in flight", async () => {
   };
 
   password.focus(); // no settle: the response is still pending
+  // M13 — the live region is created EMPTY at mount; the text lands one
+  // macrotask later so VoiceOver registers the region before its first
+  // content mutation (see setStatusText in content_overlay.js).
+  assert.equal(statusText(page), "", "region must exist empty at mount");
+  page.flushTimers();
   assert.equal(statusText(page), "Loading KeyVault suggestions…");
   release();
   await page.settle();
   assert.equal(statusText(page), "1 KeyVault suggestions");
+});
+
+test("M13: the live region exists empty at mount and its announcement timer dies with the session", async () => {
+  const { page, password } = await loginPage();
+
+  password.focus(); // synchronous: nothing has been drained yet
+  const status = page.allElements().find((el) => el.id === "kv-status");
+  assert.ok(status, "role=status region must exist immediately at mount");
+  assert.equal(status.getAttribute("role"), "status");
+  assert.equal(status.getAttribute("aria-live"), "polite");
+  assert.equal(status.textContent, "", "region must be created EMPTY");
+  assert.ok(page._timeouts.size > 0, "the announcement must be scheduled");
+
+  // Teardown before the tick: Escape kills the session; the pending
+  // announcement timer must be cancelled with it (no write into a dead
+  // region, no stray timer left behind).
+  await page.pressKey("Escape");
+  assert.equal(page._timeouts.size, 0, "teardown must cancel the timer");
+  assert.equal(status.textContent, "", "no announcement after teardown");
 });
 
 test("A030: every terminal state renders its honest text", async () => {

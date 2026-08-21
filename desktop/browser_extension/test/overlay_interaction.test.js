@@ -130,6 +130,78 @@ test("A035: sandboxed/opaque iframe sources are hint targets, not fill targets",
 });
 
 // ---------------------------------------------------------------------------
+// M7 — the hint mechanism itself: window blur + activeElement, NEVER focusin
+// (the parent document receives no focusin for a child browsing context; the
+// fake models the real Chrome behaviour, measured live).
+// ---------------------------------------------------------------------------
+
+test("M7: no focusin ever fires for an iframe — a document focusin listener stays silent", async () => {
+  const { page } = await loginPage();
+  const iframe = page.document.createElement("iframe");
+  iframe.setAttribute("src", "https://other.example/embedded-login");
+  page.document.body.appendChild(iframe);
+  const focusinTargets = [];
+  page.document.addEventListener("focusin", (event) => {
+    focusinTargets.push(event.target);
+  });
+
+  await page.focus(iframe);
+
+  assert.equal(focusinTargets.length, 0, "the parent must receive no focusin");
+  // The hint rendered anyway — via window blur + activeElement.
+  assert.equal(overlayCount(page), 1);
+  assert.equal(statusText(page), UNSUPPORTED_TEXT);
+});
+
+test("M7: focus moving from an open fill session into a cross-origin iframe swaps to the hint", async () => {
+  const { page, password } = await loginPage();
+  const iframe = page.document.createElement("iframe");
+  iframe.setAttribute("src", "https://other.example/embedded-login");
+  page.document.body.appendChild(iframe);
+
+  await page.focus(password);
+  assert.equal(overlayCount(page), 1, "fill session must be open");
+  assert.notEqual(statusText(page), UNSUPPORTED_TEXT);
+
+  await page.focus(iframe);
+  assert.equal(overlayCount(page), 1, "exactly one overlay: the hint");
+  assert.equal(statusText(page), UNSUPPORTED_TEXT);
+  // The fill session's combobox ARIA was restored on its teardown.
+  assert.equal(password.getAttribute("aria-expanded"), null);
+});
+
+test("M7: a window blur with no iframe active (app/tab switch) changes nothing", async () => {
+  const { page, password } = await loginPage();
+  await page.focus(password);
+  assert.equal(overlayCount(page), 1);
+
+  // The whole browser window loses focus; activeElement is still the input.
+  page.window._invoke(new FakeEvent("blur", { bubbles: false }));
+  await page.settle();
+
+  assert.equal(overlayCount(page), 1, "the session must survive an app switch");
+  assert.notEqual(statusText(page), UNSUPPORTED_TEXT);
+});
+
+test("M7: the one-shot post-blur poll catches an activeElement that settles late", async () => {
+  const { page } = await loginPage();
+  const iframe = page.document.createElement("iframe");
+  iframe.setAttribute("src", "https://other.example/embedded-login");
+  page.document.body.appendChild(iframe);
+
+  // Model an engine where the blur dispatch happens BEFORE activeElement
+  // reads the iframe: blur first, activeElement flips after.
+  page.window._invoke(new FakeEvent("blur", { bubbles: false }));
+  assert.equal(overlayCount(page), 0, "synchronous check must find nothing yet");
+  page.document.activeElement = iframe;
+  await page.settle(); // drains the one-shot poll
+
+  assert.equal(overlayCount(page), 1, "the deferred re-check must show the hint");
+  assert.equal(statusText(page), UNSUPPORTED_TEXT);
+  assert.equal(page.sentOfType("requestMatches").length, 0);
+});
+
+// ---------------------------------------------------------------------------
 // A037 — keyboard.
 // ---------------------------------------------------------------------------
 

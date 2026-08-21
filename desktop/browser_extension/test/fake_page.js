@@ -583,6 +583,20 @@ class FakePage {
     }
   }
 
+  /**
+   * Run every due zero-delay timeout WITHOUT awaiting in-flight sendMessage
+   * responses — the observation point between "scheduled" and "announced"
+   * that the M13 live-region tests (and any gated-response test) need, since
+   * `settle()` would block on a deliberately gated response.
+   */
+  flushTimers() {
+    while (this._timeouts.size > 0) {
+      const next = this._timeouts.entries().next().value;
+      this._timeouts.delete(next[0]);
+      next[1]();
+    }
+  }
+
   /** Deliver a runtime message to every live listener, then settle. */
   async deliver(message) {
     const delivered = this._toRealm(
@@ -596,16 +610,38 @@ class FakePage {
 
   // -- DOM driving ----------------------------------------------------------
 
-  /** `focusout` at the old element, then `focusin` at the new one. */
+  /**
+   * `focusout` at the old element, then `focusin` at the new one.
+   *
+   * IFRAME FIDELITY (M7 — 6th fake/real divergence, measured live in real
+   * Chrome): focus entering a child browsing context delivers NO `focusin`
+   * to the parent document. The parent observes only (a) `focusout`/blur at
+   * the previously focused element with a null relatedTarget, (b) a window
+   * `blur` event, and (c) `document.activeElement` reading the iframe
+   * ELEMENT. The old fake delivered `focusin` at the iframe element — the
+   * convenient behaviour, not the real one — which made the cross-origin
+   * hint pass against a mechanism Chrome never fires.
+   */
   _moveFocus(next) {
     const prev = this.document.activeElement;
     if (prev === next) return;
     this.document.activeElement = next;
+    const intoFrame = next != null && next.tagName === "IFRAME";
     if (prev && prev !== this.document.body) {
       this._propagate(
         prev,
-        new FakeEvent("focusout", { bubbles: true, composed: true, relatedTarget: next })
+        new FakeEvent("focusout", {
+          bubbles: true,
+          composed: true,
+          relatedTarget: intoFrame ? null : next,
+        })
       );
+    }
+    if (intoFrame) {
+      // Parent loses focus to the child browsing context: window blur, no
+      // focusin anywhere in this document.
+      this.window._invoke(new FakeEvent("blur", { bubbles: false }));
+      return;
     }
     if (next && next !== this.document.body) {
       this._propagate(

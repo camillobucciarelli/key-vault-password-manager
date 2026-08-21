@@ -202,7 +202,9 @@
   /**
    * A035/SR-7 — "where the top frame can detect iframe focus, show an
    * unsupported state directing manual copy from the app". Focus entering an
-   * iframe fires `focusin` at the iframe ELEMENT in this document. A frame
+   * iframe is detected via window `blur` + `document.activeElement` (M7 —
+   * the parent never receives `focusin` for a child browsing context). This
+   * predicate classifies the active iframe ELEMENT. A frame
    * whose `src` canonicalizes to THIS document's own origin is skipped: a
    * same-origin child carries its own injected instance and renders its own
    * overlay. Everything else — cross-origin, sandboxed, `data:`, srcdoc,
@@ -260,6 +262,9 @@
     clearInterval(s.watchdogId);
     if (s.blurTimerId !== 0) clearTimeout(s.blurTimerId);
     s.blurTimerId = 0;
+    // M13 — a pending live-region announcement dies with the session.
+    if (s.statusTimerId !== 0) clearTimeout(s.statusTimerId);
+    s.statusTimerId = 0;
     const anchor = s.anchorEl;
     if (anchor != null) {
       // A036 — restore EVERY ARIA attribute this session touched to exactly
@@ -303,24 +308,87 @@
     while (el.firstChild) el.firstChild.remove();
   };
 
+  /**
+   * M13 — VoiceOver/WebKit only announce a `role=status` live region whose
+   * EMPTY element existed in the accessibility tree BEFORE its first content
+   * mutation. The region is therefore created empty at overlay mount
+   * (buildOverlay) and every text update lands one macrotask later, so AT
+   * registers the region first and then observes a content change it will
+   * announce. Definitive verification is manual (VoiceOver); this create-
+   * empty-then-mutate-later timing pattern is the documented WebKit/VO fix.
+   * One timer per session, cancelled by the next write and by teardown.
+   */
+  const setStatusText = (text) => {
+    if (session === null || session.statusEl === null) return;
+    const s = session;
+    if (s.statusTimerId !== 0) clearTimeout(s.statusTimerId);
+    s.statusTimerId = setTimeout(() => {
+      s.statusTimerId = 0;
+      if (session !== s || s.statusEl === null) return;
+      s.statusEl.textContent = text;
+    }, 0);
+  };
+
   // A039 — the visual contract, static and local. Light is the base; dark,
   // forced-colors (system colors only, no authored contrast), and reduced
   // motion (no transition) are media-query overrides, so the browser — never
   // this script — decides which applies. Sized to the geometry fallback below.
+  //
+  // 009 polish — aligned to the app design system (lib/core/theme). Every
+  // value below is a verbatim copy of an app token, never a computed one:
+  //   surfaces   KeyVaultColors.light/dark ground  #f9f4ed / #2e2b25
+  //   text       AppColors.text #201e1d / neutral100 #f9f4ed (62% secondary)
+  //   divider    AppColors.divider rgba(32,30,29,0.16) / 22% neutral100
+  //   selection  attentionTint accent-200 #ffe1d0 (+ selectionBorder
+  //              accent-400 #f6a06b inset bar); dark accent-800 #643312 with
+  //              attentionText accent-200 and accent-300 #ffc6a5 bar
+  //   action     KvPillButton: actionFill accent-300 #ffc6a5, actionText
+  //              accent-900 #402310, AppRadii.pill 999
+  //   link       linkText accent-800 #643312 / accent-300 #ffc6a5 (the
+  //              Generate row is an ACTION, visually distinct from matches)
+  //   radius     AppRadii.rowNested 16
+  //   type       AppTextStyles rowTitle 15/600 · body 13.5/1.45 ·
+  //              secondary 12.5/1.4 — system font stack only: no webfont,
+  //              no external asset, zero network (CSP).
+  //   shadow     tokens.css --shadow-md 0 3px 10px 16% neutral-900
   const OVERLAY_CSS = [
     ".kv-overlay{box-sizing:border-box;width:320px;max-height:240px;overflow-y:auto;",
-    "font:13px/1.4 system-ui,sans-serif;background:#ffffff;color:#1a1a1a;",
-    "border:1px solid #c8c8c8;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.25);",
+    "font:400 13.5px/1.45 system-ui,sans-serif;background:#f9f4ed;color:#201e1d;",
+    "border:1px solid rgba(32,30,29,0.16);border-radius:16px;",
+    "box-shadow:0 3px 10px rgba(46,43,37,0.16);padding:4px 0;",
     "transition:opacity 120ms ease;}",
+    ".kv-overlay #kv-status{padding:8px 14px 4px;font-size:12.5px;line-height:1.4;color:#665f53;}",
     ".kv-overlay button{display:block;width:100%;text-align:left;background:inherit;",
-    "color:inherit;border:0;font:inherit;padding:6px 10px;}",
-    '.kv-overlay [role="option"][aria-selected="true"]{background:#dce6f7;}',
-    "@media (prefers-color-scheme: dark){.kv-overlay{background:#202124;color:#e8eaed;",
-    "border-color:#5f6368;}",
-    '.kv-overlay [role="option"][aria-selected="true"]{background:#3c4043;}}',
+    "color:inherit;border:0;font:inherit;padding:7px 14px;cursor:pointer;}",
+    ".kv-overlay button:disabled{cursor:default;}",
+    '.kv-overlay [role="option"] span{display:block;}',
+    '.kv-overlay [role="option"] span:first-child{font-size:15px;font-weight:600;line-height:1.25;}',
+    '.kv-overlay [role="option"] span:last-child{font-size:12.5px;line-height:1.4;color:#665f53;}',
+    '.kv-overlay [role="option"][aria-selected="true"]{background:#ffe1d0;',
+    "box-shadow:inset 2px 0 0 #f6a06b;}",
+    ".kv-overlay #kv-retry{display:inline-block;width:auto;margin:6px 14px 10px;padding:6px 14px;",
+    "background:#ffc6a5;color:#402310;border-radius:999px;font-size:12.5px;font-weight:600;}",
+    ".kv-overlay #kv-generate{border-top:1px solid rgba(32,30,29,0.16);margin-top:4px;",
+    "padding:9px 14px 10px;color:#643312;font-weight:600;}",
+    '.kv-overlay #kv-generate[aria-selected="true"]{background:#ffe1d0;box-shadow:inset 2px 0 0 #f6a06b;}',
+    ".kv-overlay #kv-generate:disabled{color:#665f53;font-weight:400;}",
+    "@media (prefers-color-scheme: dark){.kv-overlay{background:#2e2b25;color:#f9f4ed;",
+    "border-color:rgba(249,244,237,0.22);}",
+    ".kv-overlay #kv-status{color:rgba(249,244,237,0.62);}",
+    '.kv-overlay [role="option"] span:last-child{color:rgba(249,244,237,0.62);}',
+    '.kv-overlay [role="option"][aria-selected="true"]{background:#643312;color:#ffe1d0;',
+    "box-shadow:inset 2px 0 0 #ffc6a5;}",
+    ".kv-overlay #kv-generate{border-top-color:rgba(249,244,237,0.22);color:#ffc6a5;}",
+    '.kv-overlay #kv-generate[aria-selected="true"]{background:#643312;color:#ffe1d0;box-shadow:inset 2px 0 0 #ffc6a5;}',
+    ".kv-overlay #kv-generate:disabled{color:rgba(249,244,237,0.62);}}",
     "@media (forced-colors: active){.kv-overlay{background:Canvas;color:CanvasText;",
     "border-color:CanvasText;box-shadow:none;}",
-    '.kv-overlay [role="option"][aria-selected="true"]{background:Highlight;color:HighlightText;}}',
+    '.kv-overlay #kv-status,.kv-overlay [role="option"] span:last-child{color:CanvasText;}',
+    '.kv-overlay [role="option"][aria-selected="true"]{background:Highlight;color:HighlightText;box-shadow:none;}',
+    ".kv-overlay #kv-retry{background:ButtonFace;color:ButtonText;border:1px solid ButtonText;}",
+    ".kv-overlay #kv-generate{color:LinkText;border-top-color:CanvasText;}",
+    '.kv-overlay #kv-generate[aria-selected="true"]{background:Highlight;color:HighlightText;box-shadow:none;}',
+    ".kv-overlay #kv-generate:disabled{color:GrayText;}}",
     "@media (prefers-reduced-motion: reduce){.kv-overlay{transition:none;}}",
   ].join("");
 
@@ -479,7 +547,7 @@
   /** Status text + optional retry control. Rows are rendered separately. */
   const renderState = (code) => {
     if (session === null) return;
-    session.statusEl.textContent = STATE_TEXT[code] ?? STATE_TEXT.stale_session;
+    setStatusText(STATE_TEXT[code] ?? STATE_TEXT.stale_session);
     if (code !== "matches") clearChildren(session.listEl);
 
     const wantRetry = code === "stale_session";
@@ -533,7 +601,7 @@
     if (onGenerate) {
       session.listEl.removeAttribute("aria-activedescendant");
       if (announce) {
-        session.statusEl.textContent = `${GENERATE_ACTIVE_TEXT}, ${index + 1} of ${itemCount + 1}`;
+        setStatusText(`${GENERATE_ACTIVE_TEXT}, ${index + 1} of ${itemCount + 1}`);
       }
       return;
     }
@@ -544,7 +612,7 @@
     session.listEl.setAttribute("aria-activedescendant", `kv-option-${index}`);
     if (announce) {
       const entry = session.items[index];
-      session.statusEl.textContent = `${entry.title}, ${index + 1} of ${itemCount}`;
+      setStatusText(`${entry.title}, ${index + 1} of ${itemCount}`);
     }
   };
 
@@ -696,7 +764,7 @@
       return;
     }
     renderState("matches");
-    session.statusEl.textContent = `${session.items.length} KeyVault suggestions`;
+    setStatusText(`${session.items.length} KeyVault suggestions`);
     renderItems();
   };
 
@@ -1046,6 +1114,7 @@
       generating: false,
       pendingAction: false,
       blurTimerId: 0,
+      statusTimerId: 0,
       savedAria: new Map(),
       expiresAtEpochMs: Date.now() + SESSION_TTL_MS,
       watchdogId: 0,
@@ -1097,11 +1166,56 @@
     const fieldInfo = classifyField(target);
     if (fieldInfo !== null) {
       startSession(target, fieldInfo, "fill");
-      return;
     }
-    if (instanceMode === "supported" && isFrameHintTarget(target)) {
-      startSession(target, null, "hint");
+    // NOTE (M7): no iframe branch here. Focus entering a child browsing
+    // context does NOT fire `focusin` in the parent document in real Chrome
+    // (measured live — 6th fake/real divergence); the cross-origin hint is
+    // driven by the window `blur` path below instead.
+  };
+
+  /**
+   * M7 — cross-origin iframe hint. When focus enters a child browsing
+   * context, this document receives NO `focusin`; the only parent-side
+   * signals are a window `blur` with `document.activeElement` already (or
+   * shortly after) reading the iframe ELEMENT. On window blur, check the
+   * active element synchronously and once more one macrotask later (some
+   * engines settle activeElement after the blur dispatch); if it is a
+   * detectable non-same-origin iframe, render the display-only hint session
+   * (A035 semantics unchanged: no query, no fill, manual copy from the app).
+   * The hint tears down through the normal paths when focus returns to the
+   * top document (focusin), the page hides, or the TTL watchdog fires.
+   * KNOWN LIMIT: focus moving directly between two iframes fires no second
+   * top-window blur, so the hint stays anchored to the first — cosmetic
+   * only, no authorization is derived from it.
+   */
+  const maybeStartFrameHint = () => {
+    if (instanceMode !== "supported") return false;
+    const active = document.activeElement;
+    if (active == null) return false;
+    if (session !== null && session.anchorEl === active) return true;
+    if (!isFrameHintTarget(active)) return false;
+    teardownSession();
+    startSession(active, null, "hint");
+    return true;
+  };
+
+  /** One-shot post-blur re-check; owned by the instance, not the session. */
+  let hintPollTimerId = 0;
+
+  const clearHintPoll = () => {
+    if (hintPollTimerId !== 0) {
+      clearTimeout(hintPollTimerId);
+      hintPollTimerId = 0;
     }
+  };
+
+  const onWindowBlur = () => {
+    if (maybeStartFrameHint()) return;
+    clearHintPoll();
+    hintPollTimerId = setTimeout(() => {
+      hintPollTimerId = 0;
+      maybeStartFrameHint();
+    }, 0);
   };
 
   const onFocusOut = (event) => {
@@ -1138,10 +1252,14 @@
     document.addEventListener("focusout", onFocusOut, { signal });
     document.addEventListener("visibilitychange", onVisibilityChange, { signal });
     window.addEventListener("pagehide", onPageHide, { signal });
+    // M7 — the only reliable parent-side signal for focus entering a child
+    // browsing context (see maybeStartFrameHint).
+    window.addEventListener("blur", onWindowBlur, { signal });
   };
 
   const deactivate = () => {
     teardownSession();
+    clearHintPoll();
     if (instanceAbort !== null) {
       instanceAbort.abort();
       instanceAbort = null;
