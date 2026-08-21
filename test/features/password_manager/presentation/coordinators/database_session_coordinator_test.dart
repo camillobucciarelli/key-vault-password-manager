@@ -143,8 +143,7 @@ void main() {
         );
       });
 
-      test('unlockWithManualCredentials populates the holder and still writes '
-          'the keystore (Slice 1 transport parity)', () async {
+      test('unlockWithManualCredentials populates the holder', () async {
         await stubbedCoordinator.unlockWithManualCredentials(
           databasePath: '/tmp/db.kdbx',
           password: 'pw',
@@ -152,9 +151,6 @@ void main() {
         );
 
         expect(sessionSecretHolder.read(), 'pw');
-        // Slice 1 invariant: the keystore write is unchanged (gating is
-        // Slice 2).
-        expect(secureDataSource.password, 'pw');
       });
 
       test('unlockWithManualCredentials failure clears the holder', () async {
@@ -177,7 +173,9 @@ void main() {
         'unlockWithStoredCredentials with no stored password and no key '
         'file fails with the locked error without attempting an unlock',
         () async {
-          secureDataSource.password = null;
+          registryRepository.records = [
+            _record(id: 'db-test', path: '/tmp/db.kdbx'),
+          ];
 
           await expectLater(
             stubbedCoordinator.unlockWithStoredCredentials(
@@ -197,7 +195,9 @@ void main() {
       test('unlockWithStoredCredentials with no stored password but a key '
           'file still unlocks with an empty password (key-file-only '
           'vault)', () async {
-        secureDataSource.password = null;
+        registryRepository.records = [
+          _record(id: 'db-test', path: '/tmp/db.kdbx'),
+        ];
         final keyFile = File('${tempDir.path}/vault.key');
         await keyFile.writeAsBytes(const [1, 2, 3], flush: true);
 
@@ -214,8 +214,11 @@ void main() {
       });
 
       test('unlockWithStoredCredentials success populates the holder from the '
-          'stored password', () async {
-        secureDataSource.password = 'stored-pw';
+          'stored per-database password', () async {
+        registryRepository.records = [
+          _record(id: 'db-test', path: '/tmp/db.kdbx'),
+        ];
+        secureDataSource.passwords['db-test'] = 'stored-pw';
 
         await stubbedCoordinator.unlockWithStoredCredentials(
           databasePath: '/tmp/db.kdbx',
@@ -224,13 +227,16 @@ void main() {
 
         expect(unlockUseCase.lastPassword, 'stored-pw');
         expect(sessionSecretHolder.read(), 'stored-pw');
-        // Biometric-path keystore read is unchanged in Slice 1.
-        expect(secureDataSource.password, 'stored-pw');
+        // The persistent biometric credential is untouched by a read.
+        expect(secureDataSource.passwords['db-test'], 'stored-pw');
       });
 
       test('unlockWithStoredCredentials failure clears the holder', () async {
         sessionSecretHolder.set('stale');
-        secureDataSource.password = 'stored-pw';
+        registryRepository.records = [
+          _record(id: 'db-test', path: '/tmp/db.kdbx'),
+        ];
+        secureDataSource.passwords['db-test'] = 'stored-pw';
         unlockUseCase.error = const InvalidCredentialsFailure();
 
         await expectLater(
@@ -242,6 +248,280 @@ void main() {
         );
 
         expect(sessionSecretHolder.hasSecret, isFalse);
+      });
+    });
+
+    group('spec-011 Slice 2 keystore gating (FR-3/FR-4/FR-5)', () {
+      late _StubUnlockDatabaseUseCase unlockUseCase;
+      late DatabaseSessionCoordinator gatedCoordinator;
+
+      DatabaseSessionCoordinator buildCoordinator({
+        CreateDatabaseUseCase? createDatabaseUseCase,
+      }) {
+        return DatabaseSessionCoordinator(
+          sessionSecretHolder: sessionSecretHolder,
+          databaseFileRepository: databaseImportService,
+          databaseSessionRepository: DatabaseSessionRepositoryImpl(
+            localDataSource: localDataSource,
+            secureDataSource: secureDataSource,
+          ),
+          databaseRegistryRepository: registryRepository,
+          databaseSecurityRepository: securityRepository,
+          getActiveDatabaseUseCase: GetActiveDatabaseUseCase(
+            registryRepository,
+          ),
+          resolveDatabaseDuplicateUseCase: ResolveDatabaseDuplicateUseCase(
+            registryRepository,
+          ),
+          databaseSyncRepository: syncRepository,
+          unlockDatabaseUseCase: unlockUseCase,
+          createDatabaseUseCase:
+              createDatabaseUseCase ??
+              CreateDatabaseUseCase(
+                databaseFileRepository: databaseImportService,
+              ),
+          appleAutofillV2Coordinator: appleAutofillV2Coordinator,
+        );
+      }
+
+      setUp(() {
+        unlockUseCase = _StubUnlockDatabaseUseCase();
+        gatedCoordinator = buildCoordinator();
+      });
+
+      test('FR-3: manual unlock persists the credential under the database '
+          'key when biometric protection is enabled', () async {
+        registryRepository.records = [
+          _record(id: 'db-on', path: '/tmp/db.kdbx'),
+        ];
+        securityRepository.profiles['db-on'] = const DatabaseSecurityProfile(
+          databaseId: 'db-on',
+          biometricProtectionEnabled: true,
+        );
+
+        await gatedCoordinator.unlockWithManualCredentials(
+          databasePath: '/tmp/db.kdbx',
+          password: 'pw',
+          keyFilePath: null,
+        );
+
+        expect(secureDataSource.passwords, {'db-on': 'pw'});
+      });
+
+      test('FR-3: manual unlock writes nothing when biometric protection is '
+          'disabled', () async {
+        registryRepository.records = [
+          _record(id: 'db-off', path: '/tmp/db.kdbx'),
+        ];
+        securityRepository.profiles['db-off'] = const DatabaseSecurityProfile(
+          databaseId: 'db-off',
+          biometricProtectionEnabled: false,
+        );
+
+        await gatedCoordinator.unlockWithManualCredentials(
+          databasePath: '/tmp/db.kdbx',
+          password: 'pw',
+          keyFilePath: null,
+        );
+
+        expect(secureDataSource.passwords, isEmpty);
+        expect(sessionSecretHolder.read(), 'pw');
+      });
+
+      test('FR-3/FR-7: manual unlock of a database without a security '
+          'profile writes nothing (absent flag is not consent)', () async {
+        registryRepository.records = [
+          _record(id: 'db-none', path: '/tmp/db.kdbx'),
+        ];
+
+        await gatedCoordinator.unlockWithManualCredentials(
+          databasePath: '/tmp/db.kdbx',
+          password: 'pw',
+          keyFilePath: null,
+        );
+
+        expect(secureDataSource.passwords, isEmpty);
+        expect(
+          securityRepository.profiles.values.single.biometricProtectionEnabled,
+          isFalse,
+          reason: 'the implicitly created profile must default to false',
+        );
+      });
+
+      test('FR-3: createNewDatabase persists the credential only when created '
+          'with biometric protection enabled', () async {
+        final createdPath = '${tempDir.path}/databases/created.kdbx';
+        final creatingCoordinator = buildCoordinator(
+          createDatabaseUseCase: _StubCreateDatabaseUseCase(
+            databaseFileRepository: databaseImportService,
+            databasePath: createdPath,
+          ),
+        );
+
+        final result = await creatingCoordinator.createNewDatabase(
+          databaseFileName: 'created.kdbx',
+          password: 'new-pw',
+          biometricProtectionEnabled: true,
+          generateKeyFile: false,
+        );
+
+        expect(result.status, DatabaseSessionStatus.success);
+        final createdId = registryRepository.records
+            .firstWhere((record) => record.canonicalPath == createdPath)
+            .databaseId;
+        expect(secureDataSource.passwords, {createdId: 'new-pw'});
+        expect(sessionSecretHolder.read(), 'new-pw');
+      });
+
+      test('FR-3: createNewDatabase writes nothing when biometric protection '
+          'is off at creation', () async {
+        final createdPath = '${tempDir.path}/databases/created.kdbx';
+        final creatingCoordinator = buildCoordinator(
+          createDatabaseUseCase: _StubCreateDatabaseUseCase(
+            databaseFileRepository: databaseImportService,
+            databasePath: createdPath,
+          ),
+        );
+
+        final result = await creatingCoordinator.createNewDatabase(
+          databaseFileName: 'created.kdbx',
+          password: 'new-pw',
+          biometricProtectionEnabled: false,
+          generateKeyFile: false,
+        );
+
+        expect(result.status, DatabaseSessionStatus.success);
+        expect(secureDataSource.passwords, isEmpty);
+        expect(sessionSecretHolder.read(), 'new-pw');
+      });
+
+      test('FR-3: import rollback restores the session secret without ever '
+          'touching the keystore', () async {
+        final incomingFile = File('${tempDir.path}/incoming/new.kdbx');
+        await incomingFile.parent.create(recursive: true);
+        await incomingFile.writeAsBytes(<int>[
+          0x03,
+          0xD9,
+          0xA2,
+          0x9A,
+          0x67,
+          0xFB,
+          0x4B,
+          0xB5,
+          ...utf8.encode('rollback-fixture'),
+        ], flush: true);
+        sessionSecretHolder.set('original-secret');
+        secureDataSource.passwords['db-a'] = 'a-secret';
+        registryRepository.failNextUpsert = true;
+
+        await expectLater(
+          gatedCoordinator.selectExistingDatabase(
+            fileName: 'new.kdbx',
+            selectedPath: incomingFile.path,
+          ),
+          throwsException,
+        );
+
+        // Both flag states are covered by the same invariant: the commit
+        // transaction never reads or writes the keystore, so rollback
+        // leaves every stored credential exactly as it was.
+        expect(secureDataSource.passwords, {'db-a': 'a-secret'});
+        expect(sessionSecretHolder.read(), 'original-secret');
+      });
+
+      test('FR-4: a biometric unlock reads only the entry of the database '
+          'being unlocked', () async {
+        registryRepository.records = [
+          _record(id: 'db-a', path: '/tmp/a.kdbx'),
+          _record(id: 'db-b', path: '/tmp/b.kdbx'),
+        ];
+        secureDataSource.passwords['db-a'] = 'pw-a';
+        secureDataSource.passwords['db-b'] = 'pw-b';
+
+        await gatedCoordinator.unlockWithStoredCredentials(
+          databasePath: '/tmp/a.kdbx',
+          keyFilePath: null,
+        );
+
+        expect(unlockUseCase.lastPassword, 'pw-a');
+      });
+
+      test('FR-4: a database with no entry fails the stored unlock even when '
+          'another database has one', () async {
+        registryRepository.records = [
+          _record(id: 'db-a', path: '/tmp/a.kdbx'),
+          _record(id: 'db-b', path: '/tmp/b.kdbx'),
+        ];
+        secureDataSource.passwords['db-b'] = 'pw-b';
+
+        await expectLater(
+          gatedCoordinator.unlockWithStoredCredentials(
+            databasePath: '/tmp/a.kdbx',
+            keyFilePath: null,
+          ),
+          throwsA(isA<InvalidCredentialsFailure>()),
+        );
+
+        expect(unlockUseCase.calls, 0);
+        expect(secureDataSource.passwords, {'db-b': 'pw-b'});
+      });
+
+      test('FR-4: hasStoredMasterPassword answers per database', () async {
+        registryRepository.records = [
+          _record(id: 'db-a', path: '/tmp/a.kdbx'),
+          _record(id: 'db-b', path: '/tmp/b.kdbx'),
+        ];
+        secureDataSource.passwords['db-a'] = 'pw-a';
+
+        expect(
+          await gatedCoordinator.hasStoredMasterPassword(
+            databasePath: '/tmp/a.kdbx',
+          ),
+          isTrue,
+        );
+        expect(
+          await gatedCoordinator.hasStoredMasterPassword(
+            databasePath: '/tmp/b.kdbx',
+          ),
+          isFalse,
+        );
+      });
+
+      test('FR-5: disabling biometric protection erases the stored '
+          'credential in the same operation', () async {
+        registryRepository.records = [_record(id: 'db-a', path: '/tmp/a.kdbx')];
+        securityRepository.profiles['db-a'] = const DatabaseSecurityProfile(
+          databaseId: 'db-a',
+          biometricProtectionEnabled: true,
+        );
+        secureDataSource.passwords['db-a'] = 'pw-a';
+
+        await gatedCoordinator.updateBiometricProtection(
+          databasePath: '/tmp/a.kdbx',
+          enabled: false,
+        );
+
+        expect(
+          securityRepository.profiles['db-a']!.biometricProtectionEnabled,
+          isFalse,
+        );
+        expect(secureDataSource.passwords, isEmpty);
+      });
+
+      test('FR-5: enabling biometric protection on the (locked) unlock '
+          'screen persists only the profile, never a credential', () async {
+        registryRepository.records = [_record(id: 'db-a', path: '/tmp/a.kdbx')];
+
+        await gatedCoordinator.updateBiometricProtection(
+          databasePath: '/tmp/a.kdbx',
+          enabled: true,
+        );
+
+        expect(
+          securityRepository.profiles['db-a']!.biometricProtectionEnabled,
+          isTrue,
+        );
+        expect(secureDataSource.passwords, isEmpty);
       });
     });
 
@@ -649,7 +929,7 @@ void main() {
             updatedAt: DateTime(2026),
           ),
         ];
-        secureDataSource.password = 'secret';
+        secureDataSource.passwords['db-other'] = 'secret';
         localDataSource.selectedKeyFilePath = '/tmp/key.key';
 
         final result = await coordinator.openRecentDatabase(currentPath);
@@ -659,7 +939,9 @@ void main() {
         expect(result.duplicatePrompt, isNull);
         expect(registryRepository.activeId, 'db-current');
         expect(localDataSource.selectedKeyFilePath, isNull);
-        expect(secureDataSource.password, isNull);
+        // spec-011 Slice 2: switching database never erases another
+        // database's persistent biometric credential (FR-4/FR-5).
+        expect(secureDataSource.passwords['db-other'], 'secret');
         expect(appleAutofillV2Coordinator.clearCallCount, 1);
       },
     );
@@ -682,7 +964,7 @@ void main() {
         keyFilePath: '/tmp/key.key',
       );
       localDataSource.selectedKeyFilePath = '/tmp/key.key';
-      secureDataSource.password = 'secret';
+      secureDataSource.passwords['db-current'] = 'secret';
 
       final result = await coordinator.removeRecentDatabase(
         path: currentPath,
@@ -693,7 +975,9 @@ void main() {
       expect(registryRepository.records, isEmpty);
       expect(securityRepository.profiles, isEmpty);
       expect(localDataSource.selectedKeyFilePath, isNull);
-      expect(secureDataSource.password, isNull);
+      // spec-011 FR-5: unregistering deletes the database's stored
+      // credential.
+      expect(secureDataSource.passwords, isEmpty);
       expect(appleAutofillV2Coordinator.clearCallCount, 1);
     });
 
@@ -843,7 +1127,7 @@ void main() {
         );
         registryRepository.activeId = 'db-previous-active';
         localDataSource.selectedKeyFilePath = '/tmp/previous.key';
-        secureDataSource.password = 'previous-secret';
+        secureDataSource.passwords['db-previous-active'] = 'previous-secret';
 
         // Full pre-call snapshot so the "zero mutations" claim is
         // checked exhaustively, not just for the fields the happy path
@@ -859,7 +1143,9 @@ void main() {
           syncRepository.mappings,
         );
         final selectedKeyPathBefore = localDataSource.selectedKeyFilePath;
-        final passwordBefore = secureDataSource.password;
+        final passwordsBefore = Map<String, String>.of(
+          secureDataSource.passwords,
+        );
 
         final result = await coordinator.locateMissingDatabase(
           databaseId: 'db-1',
@@ -879,7 +1165,7 @@ void main() {
         expect(securityRepository.profiles, profilesBefore);
         expect(syncRepository.mappings, mappingsBefore);
         expect(localDataSource.selectedKeyFilePath, selectedKeyPathBefore);
-        expect(secureDataSource.password, passwordBefore);
+        expect(secureDataSource.passwords, passwordsBefore);
       });
 
       test('a legacy item with no stored hash accepts a valid selection '
@@ -934,7 +1220,7 @@ void main() {
         ];
         registryRepository.activeId = 'db-active';
         localDataSource.selectedKeyFilePath = activeKeyPath;
-        secureDataSource.password = 'active-secret';
+        secureDataSource.passwords['db-active'] = 'active-secret';
         securityRepository.profiles['db-active'] =
             const DatabaseSecurityProfile(
               databaseId: 'db-active',
@@ -978,7 +1264,7 @@ void main() {
         expect(registryRepository.records.single.databaseId, 'db-active');
         expect(registryRepository.activeId, 'db-active');
         expect(localDataSource.selectedKeyFilePath, activeKeyPath);
-        expect(secureDataSource.password, 'active-secret');
+        expect(secureDataSource.passwords['db-active'], 'active-secret');
         expect(
           securityRepository.profiles['db-active']?.keyFilePath,
           activeKeyPath,
@@ -1072,6 +1358,23 @@ class _FailingCreateDatabaseUseCase extends CreateDatabaseUseCase {
   }
 }
 
+class _StubCreateDatabaseUseCase extends CreateDatabaseUseCase {
+  _StubCreateDatabaseUseCase({
+    required super.databaseFileRepository,
+    required this.databasePath,
+  });
+
+  final String databasePath;
+
+  @override
+  Future<CreateDatabaseResult?> call(CreateDatabaseRequest request) async {
+    return CreateDatabaseResult(
+      databasePath: databasePath,
+      fileHash: 'created-hash',
+    );
+  }
+}
+
 class _FakePathProvider extends PathProviderPlatform
     with MockPlatformInterfaceMixin {
   _FakePathProvider(this.basePath);
@@ -1106,6 +1409,7 @@ class _FakeLocalDataSource implements LocalDataSource {
 class _FakeRegistryRepository implements DatabaseRegistryRepository {
   List<DatabaseRecord> records = [];
   String? activeId;
+  bool failNextUpsert = false;
 
   @override
   Future<DatabaseRecord?> findByHash(String fileHash) async {
@@ -1160,6 +1464,10 @@ class _FakeRegistryRepository implements DatabaseRegistryRepository {
 
   @override
   Future<void> upsert(DatabaseRecord record) async {
+    if (failNextUpsert) {
+      failNextUpsert = false;
+      throw Exception('Simulated registry upsert failure.');
+    }
     records = [
       ...records.where((item) => item.databaseId != record.databaseId),
       record,
@@ -1188,19 +1496,21 @@ class _FakeSecurityRepository implements DatabaseSecurityRepository {
 }
 
 class _FakeSecureDataSource implements SecureDataSource {
-  String? password;
+  /// spec-011 FR-4: one entry per database id.
+  final Map<String, String> passwords = {};
 
   @override
-  Future<void> clearMasterPassword() async {
-    password = null;
+  Future<void> clearMasterPassword(String databaseId) async {
+    passwords.remove(databaseId);
   }
 
   @override
-  Future<String?> getMasterPassword() async => password;
+  Future<String?> getMasterPassword(String databaseId) async =>
+      passwords[databaseId];
 
   @override
-  Future<void> saveMasterPassword(String password) async {
-    this.password = password;
+  Future<void> saveMasterPassword(String databaseId, String password) async {
+    passwords[databaseId] = password;
   }
 }
 

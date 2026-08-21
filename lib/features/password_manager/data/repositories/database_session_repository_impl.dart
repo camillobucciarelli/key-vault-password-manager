@@ -22,12 +22,14 @@ class DatabaseSessionRepositoryImpl implements DatabaseSessionRepository {
       localDataSource.cacheKeyFilePath(path);
 
   @override
-  Future<void> saveMasterPassword(String password) =>
-      secureDataSource.saveMasterPassword(password);
+  Future<void> saveMasterPassword(String databaseId, String password) =>
+      secureDataSource.saveMasterPassword(databaseId, password);
 
   @override
-  Future<String?> getMasterPassword() => secureDataSource.getMasterPassword();
+  Future<String?> getMasterPassword(String databaseId) =>
+      secureDataSource.getMasterPassword(databaseId);
 
   @override
-  Future<void> clearMasterPassword() => secureDataSource.clearMasterPassword();
+  Future<void> clearMasterPassword(String databaseId) =>
+      secureDataSource.clearMasterPassword(databaseId);
 }

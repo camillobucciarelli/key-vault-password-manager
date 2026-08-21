@@ -26,17 +26,23 @@ void main() {
       expect(await repository.getCachedKeyFilePath(), isNull);
     });
 
-    test('composes secure data source for the master password', () async {
-      expect(await repository.getMasterPassword(), isNull);
+    test('composes secure data source for the per-database master password '
+        '(spec-011 FR-4)', () async {
+      expect(await repository.getMasterPassword('db-a'), isNull);
 
-      await repository.saveMasterPassword('kv-test-only-not-a-real-password');
-      expect(
-        await repository.getMasterPassword(),
+      await repository.saveMasterPassword(
+        'db-a',
         'kv-test-only-not-a-real-password',
       );
+      expect(
+        await repository.getMasterPassword('db-a'),
+        'kv-test-only-not-a-real-password',
+      );
+      // Another database never sees this entry.
+      expect(await repository.getMasterPassword('db-b'), isNull);
 
-      await repository.clearMasterPassword();
-      expect(await repository.getMasterPassword(), isNull);
+      await repository.clearMasterPassword('db-a');
+      expect(await repository.getMasterPassword('db-a'), isNull);
     });
   });
 }
@@ -63,18 +69,19 @@ class _FakeLocalDataSource implements LocalDataSource {
 }
 
 class _FakeSecureDataSource implements SecureDataSource {
-  String? password;
+  final Map<String, String> passwords = {};
 
   @override
-  Future<void> clearMasterPassword() async {
-    password = null;
+  Future<void> clearMasterPassword(String databaseId) async {
+    passwords.remove(databaseId);
   }
 
   @override
-  Future<String?> getMasterPassword() async => password;
+  Future<String?> getMasterPassword(String databaseId) async =>
+      passwords[databaseId];
 
   @override
-  Future<void> saveMasterPassword(String password) async {
-    this.password = password;
+  Future<void> saveMasterPassword(String databaseId, String password) async {
+    passwords[databaseId] = password;
   }
 }

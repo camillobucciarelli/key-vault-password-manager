@@ -2,7 +2,9 @@ class DatabaseSecurityProfile {
   const DatabaseSecurityProfile({
     required this.databaseId,
     this.keyFilePath,
-    this.biometricProtectionEnabled = true,
+    // spec-011 FR-7: persisting the master password requires explicit
+    // consent, so the implicit default is always `false`.
+    this.biometricProtectionEnabled = false,
     this.inactivityLockTimeoutSeconds,
     this.updatedAt,
   });

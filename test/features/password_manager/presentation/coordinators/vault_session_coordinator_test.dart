@@ -82,15 +82,16 @@ void main() {
       });
 
       test('handleAppDetached clears the session secret without touching the '
-          'keystore (Slice 1)', () {
+          'keystore', () {
         sessionSecretHolder.set('secret');
-        secureDataSource.password = 'secret';
+        secureDataSource.passwords['db-1'] = 'secret';
 
         coordinator.handleAppDetached();
 
         expect(sessionSecretHolder.hasSecret, isFalse);
-        // Slice 1 invariant: keystore behaviour unchanged on detached.
-        expect(secureDataSource.password, 'secret');
+        // The persistent biometric credential must survive termination
+        // (spec-011 AC-3).
+        expect(secureDataSource.passwords['db-1'], 'secret');
         expect(
           sessionSecretHolder.read,
           throwsA(isA<SessionSecretMissingError>()),
@@ -116,7 +117,6 @@ void main() {
         final databasePath = '${tempDir.path}/vault.kdbx';
         await File(databasePath).writeAsBytes(const [1, 2, 3], flush: true);
         registryRepository.records = [_recordForTest('db-1', databasePath)];
-        secureDataSource.password = 'old-secret';
         sessionSecretHolder.set('old-secret');
 
         await coordinator.updateDatabaseSettings(
@@ -133,6 +133,102 @@ void main() {
         );
 
         expect(sessionSecretHolder.read(), 'new-secret');
+      });
+    });
+
+    group('spec-011 Slice 2 keystore gating (FR-3/FR-5)', () {
+      late Directory tempDir;
+      late String databasePath;
+
+      setUp(() async {
+        tempDir = await Directory.systemTemp.createTemp('vault_gating_test_');
+        addTearDown(() => tempDir.delete(recursive: true));
+        databasePath = '${tempDir.path}/vault.kdbx';
+        await File(databasePath).writeAsBytes(const [1, 2, 3], flush: true);
+        registryRepository.records = [_recordForTest('db-1', databasePath)];
+      });
+
+      DatabaseSettingsUpdateRequest changePasswordRequest({
+        required bool biometricProtectionEnabled,
+      }) => DatabaseSettingsUpdateRequest(
+        currentDatabasePath: databasePath,
+        fileName: 'vault.kdbx',
+        keyFilePath: null,
+        biometricProtectionEnabled: biometricProtectionEnabled,
+        changePassword: true,
+        inactivityLockTimeoutSeconds: null,
+        currentPassword: 'old-secret',
+        newPassword: 'new-secret',
+      );
+
+      test('FR-3: master password change persists the new credential when '
+          'biometric protection is enabled', () async {
+        sessionSecretHolder.set('old-secret');
+
+        await coordinator.updateDatabaseSettings(
+          changePasswordRequest(biometricProtectionEnabled: true),
+        );
+
+        expect(secureDataSource.passwords, {'db-1': 'new-secret'});
+        expect(sessionSecretHolder.read(), 'new-secret');
+      });
+
+      test('FR-3/FR-5: master password change with biometric protection '
+          'disabled writes nothing and erases any stale entry', () async {
+        sessionSecretHolder.set('old-secret');
+        secureDataSource.passwords['db-1'] = 'stale-secret';
+
+        await coordinator.updateDatabaseSettings(
+          changePasswordRequest(biometricProtectionEnabled: false),
+        );
+
+        expect(secureDataSource.passwords, isEmpty);
+        expect(sessionSecretHolder.read(), 'new-secret');
+      });
+
+      test('FR-5: disabling biometric protection in settings erases the '
+          'stored credential in the same operation', () async {
+        securityRepository.profiles['db-1'] = const DatabaseSecurityProfile(
+          databaseId: 'db-1',
+          biometricProtectionEnabled: true,
+        );
+        secureDataSource.passwords['db-1'] = 'secret';
+        sessionSecretHolder.set('secret');
+
+        await coordinator.updateDatabaseSettings(
+          DatabaseSettingsUpdateRequest(
+            currentDatabasePath: databasePath,
+            fileName: 'vault.kdbx',
+            keyFilePath: null,
+            biometricProtectionEnabled: false,
+            changePassword: false,
+            inactivityLockTimeoutSeconds: null,
+          ),
+        );
+
+        expect(
+          securityRepository.profiles['db-1']!.biometricProtectionEnabled,
+          isFalse,
+        );
+        expect(secureDataSource.passwords, isEmpty);
+      });
+
+      test('FR-3: enabling biometric protection in settings persists the '
+          'current session secret', () async {
+        sessionSecretHolder.set('secret');
+
+        await coordinator.updateDatabaseSettings(
+          DatabaseSettingsUpdateRequest(
+            currentDatabasePath: databasePath,
+            fileName: 'vault.kdbx',
+            keyFilePath: null,
+            biometricProtectionEnabled: true,
+            changePassword: false,
+            inactivityLockTimeoutSeconds: null,
+          ),
+        );
+
+        expect(secureDataSource.passwords, {'db-1': 'secret'});
       });
     });
 
@@ -159,7 +255,7 @@ void main() {
             updatedAt: DateTime.now(),
           ),
         ];
-        secureDataSource.password = 'secret';
+        sessionSecretHolder.set('secret');
 
         final result = await coordinator.updateDatabaseSettings(
           DatabaseSettingsUpdateRequest(
@@ -188,6 +284,9 @@ void main() {
         expect(vaultKdbxService.currentPassword, 'secret');
         expect(vaultKdbxService.newPassword, 'secret');
         expect(vaultKdbxService.finalizeCount, 1);
+        // spec-011 FR-3: biometric protection enabled ⇒ the credential is
+        // persisted under the database's own key.
+        expect(secureDataSource.passwords, {'db-1': 'secret'});
       },
     );
 
@@ -240,7 +339,7 @@ void main() {
         ]);
         expect(localDataSource.selectedKeyFilePath, isNull);
         expect(securityRepository.profiles['db-1'], isNull);
-        expect(secureDataSource.password, isNull);
+        expect(secureDataSource.passwords, isEmpty);
       },
     );
 
@@ -252,7 +351,7 @@ void main() {
       final oldFile = File('${tempDir.path}/old.kdbx');
       await oldFile.writeAsBytes(const [1]);
       registryRepository.records = [_recordForTest('db-1', oldFile.path)];
-      secureDataSource.password = 'secret';
+      sessionSecretHolder.set('secret');
       syncRepository.failNextMove = true;
 
       await expectLater(
@@ -288,7 +387,7 @@ void main() {
         ),
       ];
       localDataSource.selectedKeyFilePath = '/tmp/current.key';
-      secureDataSource.password = '';
+      sessionSecretHolder.set('');
 
       await expectLater(
         coordinator.updateDatabaseSettings(
@@ -325,9 +424,13 @@ void main() {
         securityRepository.profiles['db-1'] = DatabaseSecurityProfile(
           databaseId: 'db-1',
           keyFilePath: currentKey,
+          // spec-011 FR-3: rollback must re-establish the keystore entry
+          // because this profile had biometric protection enabled.
+          biometricProtectionEnabled: true,
         );
         localDataSource.selectedKeyFilePath = currentKey;
-        secureDataSource.password = 'old-secret';
+        sessionSecretHolder.set('old-secret');
+        secureDataSource.passwords['db-1'] = 'old-secret';
         securityRepository.failNextSave = true;
 
         await expectLater(
@@ -347,7 +450,8 @@ void main() {
         );
 
         expect(vaultKdbxService.rollbackCount, 1);
-        expect(secureDataSource.password, 'old-secret');
+        expect(secureDataSource.passwords, {'db-1': 'old-secret'});
+        expect(sessionSecretHolder.read(), 'old-secret');
         expect(localDataSource.selectedKeyFilePath, currentKey);
         expect(securityRepository.profiles['db-1']!.keyFilePath, currentKey);
         expect(await File(pendingKey).exists(), isTrue);
@@ -357,7 +461,7 @@ void main() {
     test('secure storage failure rolls back credential transaction', () async {
       const databasePath = '/tmp/vault.kdbx';
       registryRepository.records = [_recordForTest('db-1', databasePath)];
-      secureDataSource.password = 'old-secret';
+      sessionSecretHolder.set('old-secret');
       secureDataSource.failNextSave = true;
 
       await expectLater(
@@ -377,7 +481,10 @@ void main() {
       );
 
       expect(vaultKdbxService.rollbackCount, 1);
-      expect(secureDataSource.password, 'old-secret');
+      // No profile existed before, so the restore leaves no credential
+      // behind and re-establishes the old session secret in memory.
+      expect(secureDataSource.passwords, isEmpty);
+      expect(sessionSecretHolder.read(), 'old-secret');
     });
 
     test('profile failure reopens with old credentials, not new', () async {
@@ -388,7 +495,7 @@ void main() {
       final databasePath = '${tempDir.path}/vault.kdbx';
       await _createTestDatabase(databasePath, 'old-secret');
       registryRepository.records = [_recordForTest('db-1', databasePath)];
-      secureDataSource.password = 'old-secret';
+      sessionSecretHolder.set('old-secret');
       securityRepository.failNextSave = true;
       final realService = VaultKdbxService();
       coordinator = VaultSessionCoordinator(
@@ -451,7 +558,7 @@ void main() {
         'old-secret',
       );
       registryRepository.records = [_recordForTest('db-1', databasePath)];
-      secureDataSource.password = 'old-secret';
+      sessionSecretHolder.set('old-secret');
       final realService = VaultKdbxService();
       coordinator = VaultSessionCoordinator(
         sessionSecretHolder: sessionSecretHolder,
@@ -527,7 +634,7 @@ void main() {
       final databasePath = '${tempDir.path}/vault.kdbx';
       await File(databasePath).writeAsBytes(const [1, 2, 3]);
       registryRepository.records = [_recordForTest('db-1', databasePath)];
-      secureDataSource.password = 'secret';
+      sessionSecretHolder.set('secret');
 
       await coordinator.updateDatabaseSettings(
         DatabaseSettingsUpdateRequest(
@@ -567,26 +674,31 @@ void main() {
       expect(await coordinator.getPersistedKeyFilePath('/tmp/a.kdbx'), shared);
     });
 
-    test('changeDatabase clears the selected key file, active database, and '
-        'master password', () async {
+    test('changeDatabase clears the selected key file and active database '
+        'but keeps the stored biometric credential (spec-011)', () async {
       localDataSource.selectedKeyFilePath = '/tmp/a.key';
-      secureDataSource.password = 'secret';
+      secureDataSource.passwords['db-1'] = 'secret';
+      sessionSecretHolder.set('secret');
       registryRepository.activeId = 'db-1';
 
       await coordinator.changeDatabase(currentDatabasePath: '/tmp/a.kdbx');
 
       expect(localDataSource.selectedKeyFilePath, isNull);
-      expect(secureDataSource.password, isNull);
+      expect(secureDataSource.passwords['db-1'], 'secret');
+      expect(sessionSecretHolder.hasSecret, isFalse);
       expect(registryRepository.activeId, isNull);
       expect(appleAutofillV2Coordinator.clearCallCount, 1);
     });
 
-    test('lockVault clears Apple autofill credentials', () async {
-      secureDataSource.password = 'secret';
+    test('lockVault clears Apple autofill credentials but keeps the stored '
+        'biometric credential (spec-011)', () async {
+      secureDataSource.passwords['db-1'] = 'secret';
+      sessionSecretHolder.set('secret');
 
       await coordinator.lockVault(currentDatabasePath: '/tmp/a.kdbx');
 
-      expect(secureDataSource.password, isNull);
+      expect(secureDataSource.passwords['db-1'], 'secret');
+      expect(sessionSecretHolder.hasSecret, isFalse);
       expect(appleAutofillV2Coordinator.clearCallCount, 1);
     });
 
@@ -750,24 +862,26 @@ class _FakeSecurityRepository implements DatabaseSecurityRepository {
 }
 
 class _FakeSecureDataSource implements SecureDataSource {
-  String? password;
+  /// spec-011 FR-4: one entry per database id.
+  final Map<String, String> passwords = {};
   bool failNextSave = false;
 
   @override
-  Future<void> clearMasterPassword() async {
-    password = null;
+  Future<void> clearMasterPassword(String databaseId) async {
+    passwords.remove(databaseId);
   }
 
   @override
-  Future<String?> getMasterPassword() async => password;
+  Future<String?> getMasterPassword(String databaseId) async =>
+      passwords[databaseId];
 
   @override
-  Future<void> saveMasterPassword(String password) async {
+  Future<void> saveMasterPassword(String databaseId, String password) async {
     if (failNextSave) {
       failNextSave = false;
       throw Exception('Secure storage write failed.');
     }
-    this.password = password;
+    passwords[databaseId] = password;
   }
 }
 

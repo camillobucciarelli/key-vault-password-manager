@@ -115,9 +115,12 @@ class DatabaseSessionCoordinator {
   final UnlockDatabaseUseCase unlockDatabaseUseCase;
   final CreateDatabaseUseCase createDatabaseUseCase;
 
-  /// spec-011 FR-1: in-memory session secret. Slice 1 keeps every keystore
-  /// write/read identical and only mirrors the secret here so `VaultBloc`
-  /// no longer reads `SecureDataSource`.
+  /// spec-011 FR-1: in-memory session secret — the only transport for the
+  /// master password across the BLoC boundary. Slice 2 (FR-3/FR-4/FR-5):
+  /// the keystore holds only the per-database biometric credential, written
+  /// exclusively when `biometricProtectionEnabled` is `true` for that
+  /// database, and deleted when the flag is turned off or the database is
+  /// unregistered.
   final SessionSecretHolder sessionSecretHolder;
   final AppleAutofillV2CoordinatorContract appleAutofillV2Coordinator;
 
@@ -137,7 +140,9 @@ class DatabaseSessionCoordinator {
       );
     }
 
-    final path = validActivePath ?? (items.length == 1 ? items.first.canonicalPath : null);
+    final path =
+        validActivePath ??
+        (items.length == 1 ? items.first.canonicalPath : null);
 
     if (path == null || path.isEmpty) {
       return DatabaseSelectionSessionResult(
@@ -330,10 +335,7 @@ class DatabaseSessionCoordinator {
     await databaseRegistryRepository.upsert(recordToSave);
     await databaseRegistryRepository.setActive(recordToSave.databaseId);
     if (clearCredentials) {
-      sessionSecretHolder.clear();
-      await databaseSessionRepository.cacheKeyFilePath(null);
-      await databaseSessionRepository.clearMasterPassword();
-      await appleAutofillV2Coordinator.clearCredentials();
+      await _clearSessionCredentials();
     }
 
     return DatabaseSelectionSessionResult(
@@ -465,7 +467,11 @@ class DatabaseSessionCoordinator {
     final originalActive = await getActiveDatabaseUseCase();
     final originalKeyFilePath = await databaseSessionRepository
         .getCachedKeyFilePath();
-    final originalPassword = await databaseSessionRepository.getMasterPassword();
+    // spec-011 FR-3/Slice 2: the keystore is no longer the session
+    // transport, so rollback only restores the in-memory session secret.
+    final originalSessionSecret = sessionSecretHolder.hasSecret
+        ? sessionSecretHolder.read()
+        : null;
     final commit = await databaseFileRepository.commitStagedDatabase(
       staged,
       targetPath: targetPath,
@@ -499,6 +505,11 @@ class DatabaseSessionCoordinator {
       if (originalRecord != null &&
           originalRecord.fileHash != staged.imported.fileHash) {
         await databaseSecurityRepository.removeProfile(
+          originalRecord.databaseId,
+        );
+        // spec-011 FR-5: dropping the security profile drops the stored
+        // biometric credential with it.
+        await databaseSessionRepository.clearMasterPassword(
           originalRecord.databaseId,
         );
       }
@@ -553,12 +564,13 @@ class DatabaseSessionCoordinator {
       } catch (_) {}
       try {
         await databaseSessionRepository.cacheKeyFilePath(originalKeyFilePath);
-        if (originalPassword == null) {
+        // spec-011 FR-3/Slice 2: rollback restores only the in-memory
+        // session secret; the per-database biometric credential was never
+        // touched by this transaction.
+        if (originalSessionSecret == null) {
           sessionSecretHolder.clear();
-          await databaseSessionRepository.clearMasterPassword();
         } else {
-          sessionSecretHolder.set(originalPassword);
-          await databaseSessionRepository.saveMasterPassword(originalPassword);
+          sessionSecretHolder.set(originalSessionSecret);
         }
       } catch (_) {}
       rethrow;
@@ -608,7 +620,17 @@ class DatabaseSessionCoordinator {
         biometricProtectionEnabled: biometricProtectionEnabled,
       );
       sessionSecretHolder.set(password);
-      await databaseSessionRepository.saveMasterPassword(password);
+      // spec-011 FR-3: persist the biometric credential only when the user
+      // enabled biometric protection for this database at creation.
+      if (biometricProtectionEnabled) {
+        final record = await _findRecordByPath(result.path!);
+        if (record != null) {
+          await databaseSessionRepository.saveMasterPassword(
+            record.databaseId,
+            password,
+          );
+        }
+      }
       await databaseSessionRepository.cacheKeyFilePath(created.keyFilePath);
     }
 
@@ -664,7 +686,6 @@ class DatabaseSessionCoordinator {
         _containsPath([activeRecord.canonicalPath], trimmed)) {
       sessionSecretHolder.clear();
       await databaseSessionRepository.cacheKeyFilePath(null);
-      await databaseSessionRepository.clearMasterPassword();
       await databaseRegistryRepository.setActive(null);
     }
 
@@ -798,6 +819,14 @@ class DatabaseSessionCoordinator {
               updatedAt: DateTime.now(),
             );
     await databaseSecurityRepository.saveProfile(profile);
+    if (!enabled) {
+      // spec-011 FR-5: turning biometric protection off deletes the stored
+      // credential in the same operation that persists the profile.
+      await databaseSessionRepository.clearMasterPassword(record.databaseId);
+    }
+    // Enabling writes nothing here: this runs on the (locked) unlock
+    // screen, where no session secret exists. The credential is persisted
+    // at the next manual unlock via the FR-3 gate.
   }
 
   Future<void> unlockWithManualCredentials({
@@ -820,7 +849,15 @@ class DatabaseSessionCoordinator {
     }
     sessionSecretHolder.set(password);
     await databaseSessionRepository.cacheKeyFilePath(persistedKeyFilePath);
-    await databaseSessionRepository.saveMasterPassword(password);
+    // spec-011 FR-3: persist the biometric credential only when biometric
+    // protection is enabled for this database, under its own key (FR-4).
+    final record = await _findRecordByPath(databasePath);
+    if (record != null && await _biometricEnabledFor(record.databaseId)) {
+      await databaseSessionRepository.saveMasterPassword(
+        record.databaseId,
+        password,
+      );
+    }
     await _saveSecurityProfile(
       path: databasePath,
       keyFilePath: persistedKeyFilePath,
@@ -828,11 +865,21 @@ class DatabaseSessionCoordinator {
     );
   }
 
+  Future<bool> _biometricEnabledFor(String databaseId) async {
+    final profile = await databaseSecurityRepository.getProfile(databaseId);
+    return profile?.biometricProtectionEnabled ?? false;
+  }
+
   Future<void> unlockWithStoredCredentials({
     required String databasePath,
     required String? keyFilePath,
   }) async {
-    final storedPassword = await databaseSessionRepository.getMasterPassword();
+    // spec-011 FR-4: a biometric unlock reads only the entry of the
+    // database being unlocked, never another database's credential.
+    final record = await _findRecordByPath(databasePath);
+    final storedPassword = record == null
+        ? null
+        : await databaseSessionRepository.getMasterPassword(record.databaseId);
     // spec-011 FR-2: no silent empty-string fallback. An empty password is
     // only a deliberate credential when a key file is part of the unlock.
     if (storedPassword == null && keyFilePath == null) {
@@ -853,8 +900,14 @@ class DatabaseSessionCoordinator {
     sessionSecretHolder.set(effectivePassword);
   }
 
-  Future<bool> hasStoredMasterPassword() async {
-    final value = await databaseSessionRepository.getMasterPassword();
+  Future<bool> hasStoredMasterPassword({required String databasePath}) async {
+    final record = await _findRecordByPath(databasePath);
+    if (record == null) {
+      return false;
+    }
+    final value = await databaseSessionRepository.getMasterPassword(
+      record.databaseId,
+    );
     return value != null && value.isNotEmpty;
   }
 
@@ -872,10 +925,12 @@ class DatabaseSessionCoordinator {
     return protectedPaths;
   }
 
+  /// spec-011 Slice 2: clears only session-scoped state. The per-database
+  /// biometric credential is deliberately persistent (FR-4) and is removed
+  /// solely by FR-5 (flag turned off, database removed/unregistered).
   Future<void> _clearSessionCredentials() async {
     sessionSecretHolder.clear();
     await databaseSessionRepository.cacheKeyFilePath(null);
-    await databaseSessionRepository.clearMasterPassword();
     await appleAutofillV2Coordinator.clearCredentials();
   }
 
@@ -935,6 +990,11 @@ class DatabaseSessionCoordinator {
       await databaseSecurityRepository.removeProfile(
         existingPathRecord.databaseId,
       );
+      // spec-011 FR-5: dropping the security profile drops the stored
+      // biometric credential with it.
+      await databaseSessionRepository.clearMasterPassword(
+        existingPathRecord.databaseId,
+      );
     }
 
     final useExisting =
@@ -959,10 +1019,7 @@ class DatabaseSessionCoordinator {
     await databaseRegistryRepository.setActive(recordToSave.databaseId);
 
     if (clearCredentials) {
-      sessionSecretHolder.clear();
-      await databaseSessionRepository.cacheKeyFilePath(null);
-      await databaseSessionRepository.clearMasterPassword();
-      await appleAutofillV2Coordinator.clearCredentials();
+      await _clearSessionCredentials();
     }
 
     return DatabaseSelectionSessionResult(
@@ -1120,9 +1177,11 @@ class DatabaseSessionCoordinator {
     );
     final profile =
         (existing ??
+                // spec-011 FR-7: a profile created implicitly never enables
+                // biometric persistence.
                 DatabaseSecurityProfile(
                   databaseId: record.databaseId,
-                  biometricProtectionEnabled: true,
+                  biometricProtectionEnabled: false,
                 ))
             .copyWith(
               keyFilePath: keyFilePath,
@@ -1141,6 +1200,9 @@ class DatabaseSessionCoordinator {
       return;
     }
     await databaseSecurityRepository.removeProfile(record.databaseId);
+    // spec-011 FR-5: unregistering a database deletes its stored
+    // biometric credential.
+    await databaseSessionRepository.clearMasterPassword(record.databaseId);
     await databaseRegistryRepository.remove(record.databaseId);
   }
 
