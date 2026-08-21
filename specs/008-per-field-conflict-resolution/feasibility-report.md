@@ -1,13 +1,20 @@
 # 008 — Feasibility report
 
 **Report task**: T008
-**Current status**: Gate 0 **OPEN**. The 2026-08-15 close was **reverted** on
+**Current status**: Gate 0 **CLOSED 2026-08-21**. T009 passed — 36 tests green
+and `node tool/mutation_runner.mjs
+--definitions=tool/mutations/008_t009_convergence.json --check` exit 0, 0
+survivors (PR #65) — re-verified on `main` and accepted by the PM on
+2026-08-21. **T201 and the domain freeze are unblocked.** T009b remains a
+separate open gate blocking only deletion/tombstone/attachment work. Feature
+stays disabled on every platform, on the platform-atomicity rows.
+
+**History**: the 2026-08-15 close was **reverted** on
 independent review 2026-08-15. B1 remains measured and `failed`, and it is
 correctly no longer a blocker — but the mechanism that replaced it, the FR-7
 write-verify-converge cycle, is itself `not-run`, and the close was declared in
 the same commit that rewrote the exit criterion. Gate 0 now closes on **T009**,
-the model validation of that cycle. **T201 and the domain freeze stay blocked.**
-Feature stays disabled on every platform, on the platform-atomicity rows.
+the model validation of that cycle — which it now has done.
 **Safety rule**: `not-run`, `failed` or `disabled` never enables feature
 
 This file is authoritative Gate 0/Gate 1 record. Update rows with command, commit,
@@ -135,7 +142,11 @@ the package must be declared rather than used transitively.
 
 ## Gate 0 verdict
 
-**OPEN. The 2026-08-15 close is reverted.** T001–T008 have executed evidence, and
+**CLOSED 2026-08-21.** T009 passed: 36 tests green and the mutation check at
+exit 0, 0 survivors (PR #65), re-verified on `main` and accepted by the PM.
+The text below is the historical record of why the gate stayed open until then.
+
+**OPEN (2026-08-15 – 2026-08-21). The 2026-08-15 close is reverted.** T001–T008 have executed evidence, and
 T005 was genuinely closed by the live-network re-spike recorded below. Gate 0
 nonetheless does not close, for three reasons established by the 2026-08-15
 review:
@@ -204,7 +215,7 @@ explicitly before T301:
 | Drive server-enforced conditional update | **`failed`** | live-network spike 2026-08-15, `tool/drive_conditional_spike.dart` | **B1**, measured. No CAS on Drive v3. **Not blocking** — FR-7 no longer requires it |
 | Drive `versionHistory` | **`not-run`** | none — documentation only | **Demoted 2026-08-15.** Previously `passed` on the strength of Drive's documented revisions API. Spec 010's own rules forbid that: *"Documentation alone is not a declaration"* and *"when a behaviour is uncertain, the capability is absent"*. Retention, `keepRevisionForever`, the pinned-revision ceiling and quota impact are all unmeasured. Drive therefore declares `versionHistory` **absent** |
 | Drive backend guarantee tier | **`not-run`** | derived from the two rows above | **Bare**, pending the revisions spike: no `conditionalWrite`, no declared `versionHistory`. Spec 010 category **Ricostruibile**, down from Recuperabile. Restored to Versioned/Recuperabile only when a live revisions spike passes |
-| Storage-agnostic write-verify-converge cycle — model validation | **`not-run`** | **T009**, `sync_merge_convergence_model_test.dart` | **This is the Gate 0 blocker.** The FR-7 rewrite of 2026-08-15 was accepted as a direction and corrected on review; it is validated by nothing. Gate 0 closes when this row passes. **Scope: additions only** — no tombstone, no `fieldDeletionConflict`, no attachment; see §"What T009 does not cover" |
+| Storage-agnostic write-verify-converge cycle — model validation | **`passed`** 2026-08-21 | **T009**, `sync_merge_convergence_model_test.dart` (36 tests) + `tool/mutations/008_t009_convergence.json` (`--check` exit 0, 0 survivors) | **Was the Gate 0 blocker; closed 2026-08-21, PR #65.** **Scope: additions only** — no tombstone, no `fieldDeletionConflict`, no attachment; see §"What T009 does not cover" |
 | Deletion convergence — model validation | **`not-run`** | **T009b**, not started | **Separate gate, not a Gate 0 condition.** T009's grow-only union is no evidence about removal, and is the wrong structure for it. Must pass before deletion, tombstone or attachment behaviour enters the implementation |
 | Storage-agnostic write-verify-converge cycle — production implementation | `not-run` | FR-7 as corrected 2026-08-15 | implementation + integration tests are T4xx, after Gate 0 |
 | Ambiguous transport outcome classification | `passed` | `conditional update` (10 tests) | client-side rules only, fake transport |
@@ -213,9 +224,9 @@ explicitly before T301:
 | Platform artifact schema recorded | `passed` | `harness schema` (17 tests) | schema only; **no platform evidence** |
 
 Gate 0 closes when **T001–T009** evidence is complete and every unresolved target
-platform remains disabled. **That condition is not met.** T001–T008 all have
-executed evidence and B1 has a measured result, but T009 is `not-run` and the
-mechanism that replaced B1 rests on it. **T201/domain freeze remains blocked.**
+platform remains disabled. **That condition is MET as of 2026-08-21**: T001–T008
+all have executed evidence, B1 has a measured result, and T009 is `passed`
+(36 tests, mutation check exit 0, PR #65). **T201/domain freeze are unblocked.**
 No platform is enabled.
 
 ## KDBX support matrix
@@ -811,7 +822,9 @@ One correction was made beyond the review's list, from the same root cause as C4
 
 ### T009 — convergence model validation
 
-The new Gate 0 item, and the only one still open. Status **`not-run`**.
+The last Gate 0 item to close. Status **`passed` 2026-08-21** — PR #65: 36
+tests green; mutation check exit 0, 0 survivors; re-verified on `main` and
+accepted by the PM.
 
 Artifact:
 `test/features/password_manager/data/services/sync_merge_convergence_model_test.dart`.
@@ -836,7 +849,8 @@ Interleaved concurrency at three or more writers is **not** enumerated.
 | 6 | A non-executable verification is classified ambiguous, never finalized | first and later read-back | C5 |
 | 7 | The merge is associative, commutative and idempotent | all orderings and associations at 3 and 4 sides, known and unknown timestamps | N1, N3 |
 
-Gate 0 closes when these pass. Nothing else remains open in Gate 0.
+Gate 0 closes when these pass. Nothing else remains open in Gate 0. They
+passed, and the gate closed on 2026-08-21.
 
 #### What T009 does not cover — deletions are a separate gate
 
@@ -981,7 +995,7 @@ A2-M4 in the spec 009 table — asserted in a comment, guarded by nothing.
 
 Test counts: convergence model 33 → **36**, full suite 858 → **861**. T009
 remains `not-run`: the gate closes on PM acceptance, not on the suite
-declaring itself green.
+declaring itself green. *(Accepted by the PM 2026-08-21; see Sign-off.)*
 
 | Mutation | Reverts | Tests killed | Strongest kill |
 | --- | --- | --- | --- |
@@ -1094,4 +1108,6 @@ closing them is Gate 1 work, outside the Phase 0 scope.
 | Gate 0 amendment review (2nd pass) | `failed` | independent review | 2026-08-15 | C1, C2, C3, C5, C6, C7 and C4b confirmed corrected; 010 validated. **One blocking defect: N1**, the notes concatenation is not associative, found by running the model at three devices. Three specification gaps N2–N4. The T009 enumeration was 2 devices while the report claimed adversarial multi-device coverage — the overclaim that hid N1. |
 | Gate 0 amendment review (3rd pass) | `validated with risk` | independent review | 2026-08-15 | N1 confirmed closed by execution, the mutation table reproduced 7/7 independently, both strengthened guards confirmed strong, the semilattice claim held over 20 000 randomized trials. Three closures required, all applied here: **Q1** the `\n\n---\n\n` disclosure under-declared a second, data-loss damage and the separator is now a sentinel; **Q2** the ledger Case Q is now guarded by an asserted invariant instead of being merely unreachable; **Q3** T009's silence on deletions is declared and gated as T009b. |
 | Gate 0 T009 convergence model | `not-run` | — | — | **The remaining Gate 0 blocker.** 33 model assertions pass and every correction is mutation-guarded, but the status stays `not-run` until the PM accepts the gate: a suite declaring itself green is the failure mode this row exists to prevent. Gate 0 closes when this is accepted and on no other condition. **Scope: additions only** — deletions are T009b and are not covered. |
+| Gate 0 T009 convergence model | `passed` | PM | 2026-08-21 | **Accepted.** 36 tests green on `main` (PR #65); `node tool/mutation_runner.mjs --definitions=tool/mutations/008_t009_convergence.json --check` exit 0, 0 survivors, re-verified by the PM on 2026-08-21. **Scope: additions only** — deletions are T009b and are not covered. |
+| Gate 0 close | `passed` | PM | 2026-08-21 | **T001–T009 all passed; Gate 0 CLOSED.** T201 and the domain freeze are unblocked. T009b remains open and gates only deletion/tombstone/attachment work. |
 | Gate 1 writer/mutex/platform evidence | `not-run` | — | — | All platforms disabled |
