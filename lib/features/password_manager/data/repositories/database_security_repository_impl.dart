@@ -47,8 +47,9 @@ DatabaseSecurityProfile _profileFromMap(
     map['keyFilePath'] as String?,
     documentsRoot,
   ),
+  // spec-011 FR-7: an absent flag is never consent to persist a secret.
   biometricProtectionEnabled:
-      map['biometricProtectionEnabled'] as bool? ?? true,
+      map['biometricProtectionEnabled'] as bool? ?? false,
   inactivityLockTimeoutSeconds: map['inactivityLockTimeoutSeconds'] as int?,
   updatedAt: map['updatedAt'] == null
       ? null

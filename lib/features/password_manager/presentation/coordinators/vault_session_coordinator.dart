@@ -100,23 +100,27 @@ class VaultSessionCoordinator {
     return protectedPaths;
   }
 
+  /// spec-011 Slice 2: switching database drops only session-scoped state.
+  /// The per-database biometric credential is deliberately persistent
+  /// (FR-4) and is removed solely by FR-5 (flag off, database removed).
   Future<void> changeDatabase({required String currentDatabasePath}) async {
     sessionSecretHolder.clear();
     await appleAutofillV2Coordinator.clearCredentials();
     await localDataSource.cacheKeyFilePath(null);
-    await secureDataSource.clearMasterPassword();
     await databaseRegistryRepository.setActive(null);
   }
 
+  /// spec-011 Slice 2: locking drops the in-memory session secret; the
+  /// stored biometric credential (if any) stays so a biometric unlock of
+  /// the same database keeps working.
   Future<void> lockVault({required String currentDatabasePath}) async {
     sessionSecretHolder.clear();
     await appleAutofillV2Coordinator.clearCredentials();
-    await secureDataSource.clearMasterPassword();
   }
 
   /// spec-011 FR-2: on `AppLifecycleState.detached` only the in-memory
-  /// session secret is dropped. Keystore contents are deliberately left
-  /// untouched in Slice 1 (biometric unlock still reads them on restart).
+  /// session secret is dropped. The keystore holds at most the per-database
+  /// biometric credential, which must survive termination (AC-3).
   void handleAppDetached() {
     sessionSecretHolder.clear();
   }
@@ -199,7 +203,11 @@ class VaultSessionCoordinator {
       }
     }
 
-    final storedPassword = await secureDataSource.getMasterPassword();
+    // spec-011: the session secret holder — not the keystore — is the
+    // source of the current vault password.
+    final storedPassword = sessionSecretHolder.hasSecret
+        ? sessionSecretHolder.read()
+        : null;
     var currentPassword = storedPassword;
     var newPassword = storedPassword;
     if (request.changePassword || keyFileChanged) {
@@ -274,7 +282,19 @@ class VaultSessionCoordinator {
 
       if (request.changePassword) {
         sessionSecretHolder.set(newPassword!);
-        await secureDataSource.saveMasterPassword(newPassword);
+      }
+      // spec-011 FR-3/FR-5: the keystore mirrors the biometric flag being
+      // persisted in this same operation — enabled writes the (possibly
+      // new) password under the database's own key, disabled deletes it.
+      if (request.biometricProtectionEnabled) {
+        if (newPassword != null) {
+          await secureDataSource.saveMasterPassword(
+            record.databaseId,
+            newPassword,
+          );
+        }
+      } else {
+        await secureDataSource.clearMasterPassword(record.databaseId);
       }
       await databaseRegistryRepository.upsert(
         record.copyWith(
@@ -352,10 +372,16 @@ class VaultSessionCoordinator {
     try {
       if (password == null) {
         sessionSecretHolder.clear();
-        await secureDataSource.clearMasterPassword();
       } else {
         sessionSecretHolder.set(password);
-        await secureDataSource.saveMasterPassword(password);
+      }
+      // spec-011 FR-3: re-establish the keystore entry only when the
+      // restored profile has biometric protection enabled (FR-5 keeps it
+      // erased otherwise).
+      if (password != null && (profile?.biometricProtectionEnabled ?? false)) {
+        await secureDataSource.saveMasterPassword(record.databaseId, password);
+      } else {
+        await secureDataSource.clearMasterPassword(record.databaseId);
       }
     } catch (_) {}
   }
