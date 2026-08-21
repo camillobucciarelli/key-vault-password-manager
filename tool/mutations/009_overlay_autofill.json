@@ -54,6 +54,7 @@
     "    replay, route collapse and binding trust now also kill the new",
     "    content-side tests. Blast radius only.",
     "",
+    "  * A0-M1, A0-M2, A0-M4, A3-M1, A2-M15, A2-M16, WITH THE PENDING-INTENT FIX. The Node suite went from 337 to 347 tests. Measured post-merge with the #75 polish suite: 352 tests total (342 polish + 10 intent); A0-M2 re-pinned at 223, the union of both branches' growth, re-measured by the runner rather than summed by hand (overlay_enable_intent.test.js: the macOS grant race where the permission prompt closes the popup). None of these mutations was weakened — broken canonicalization, route collapse, the re-enabled onAdded sweep and the order-sensitive readback now also kill the intent-path tests, which drive permissions.request, onAdded and enableOrigin end to end. Blast radius only.",
     "The general rule: a number in a PR body was true once and is now unowned;",
     "a number in this file is re-measured on every run and fails the build when",
     "it drifts. Do not 'correct' this file to match a PR — re-run the runner.",
@@ -101,7 +102,7 @@
   "mutations": [
     {
       "id": "A0-M1",
-      "expectedKills": 46,
+      "expectedKills": 47,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -116,7 +117,7 @@
     },
     {
       "id": "A0-M2",
-      "expectedKills": 216,
+      "expectedKills": 223,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -147,7 +148,7 @@
     },
     {
       "id": "A0-M4",
-      "expectedKills": 9,
+      "expectedKills": 12,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -645,7 +646,7 @@
     },
     {
       "id": "A3-M1",
-      "expectedKills": 66,
+      "expectedKills": 67,
       "slice": "A3",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_routes.js",
@@ -987,7 +988,7 @@
     },
     {
       "id": "A2-M15",
-      "expectedKills": 2,
+      "expectedKills": 9,
       "slice": "A2",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_lifecycle.js",
@@ -1018,7 +1019,7 @@
     },
     {
       "id": "A2-M16",
-      "expectedKills": 69,
+      "expectedKills": 79,
       "slice": "A2",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_lifecycle.js",
@@ -1037,6 +1038,64 @@
         {
           "find": "    // Key-order-insensitive on purpose: Chrome's `get` returns keys sorted\n    // alphabetically (see `canonicalJson`). Any truncated, altered, extra or\n    // reordered-array value still throws.\n    if (canonicalJson(readback) !== canonicalJson(next)) {",
           "replace": "    if (JSON.stringify(readback) !== JSON.stringify(next)) { // mutation: order-sensitive readback compare"
+        }
+      ]
+    },
+    {
+      "id": "A2-M17",
+      "expectedKills": 1,
+      "slice": "A2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "the onAdded intent path enables an origin derived from the granted pattern",
+      "property": "the origin enabled by consumeEnableIntent comes ONLY from the intent the popup wrote under the user gesture — never derived from the granted permission pattern, which loses the port (https://a.com:8443 and https://a.com share https://a.com/*), so a pattern-derived origin would authorize a DIFFERENT origin than the one the user opted in",
+      "$comment": [
+        "THE property of the macOS pending-intent fix (user-confirmed UX bug:",
+        "the permission prompt closes the popup on macOS, so the popup's own",
+        "setSiteState never arrives and the first Allow left the site Off).",
+        "Killed by the port-survival test in overlay_enable_intent.test.js,",
+        "which writes an intent for https://example.com:8443, grants the",
+        "port-less pattern, and asserts the enabled origin keeps the port."
+      ],
+      "edits": [
+        {
+          "find": "    return this.enableOrigin({ origin: raw.origin, tabId: raw.tabId });",
+          "replace": "    return this.enableOrigin({ origin: pattern.slice(0, -2), tabId: raw.tabId }); // mutation: origin derived from the granted pattern"
+        }
+      ]
+    },
+    {
+      "id": "A2-M18",
+      "expectedKills": 6,
+      "slice": "A2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "the pending enable intent is not burned before use",
+      "property": "the intent is ONE-SHOT, deleted before any validation or enable (like the focus-grant tokens): an unburned intent survives its first consumption and a later onAdded replays the enable the user did not repeat",
+      "$comment": [
+        "Killed by the replay test (disable, grant again, assert no re-enable)",
+        "and by every 'intent is deleted' assertion in",
+        "overlay_enable_intent.test.js (race, expired, garbage, mismatch)."
+      ],
+      "edits": [
+        {
+          "find": "    try {\n      await this._browser.storage.session.remove(key);\n    } catch (_) {\n      // Cannot prove one-shot-ness — refuse rather than risk replay.\n      return { ok: false, error: \"intent_not_burned\" };\n    }\n",
+          "replace": ""
+        }
+      ]
+    },
+    {
+      "id": "A2-M19",
+      "expectedKills": 2,
+      "slice": "A2",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/overlay_lifecycle.js",
+      "title": "the pending enable intent TTL is ignored",
+      "property": "an intent older than ENABLE_INTENT_TTL_MS (or dated in the future) is only deleted, never acted on — without the TTL a stale intent left by a failed flow enables a site from a gesture the user gave long ago",
+      "edits": [
+        {
+          "find": "    const age = now - raw.createdAt;\n    if (!(age >= 0 && age <= securityModule.ENABLE_INTENT_TTL_MS)) {\n      return { ok: false, error: \"expired_intent\" };\n    }\n",
+          "replace": ""
         }
       ]
     },

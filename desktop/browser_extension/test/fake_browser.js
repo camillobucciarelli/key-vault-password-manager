@@ -34,6 +34,15 @@ function sortKeysDeep(value) {
 class FakeBrowser {
   constructor({ storage = {}, granted = [], tabs = [] } = {}) {
     this.store = { ...storage };
+    /**
+     * `chrome.storage.session` model. In-memory for the lifetime of THIS fake
+     * instance — exactly Chrome's semantics (dies with the browser session,
+     * survives worker restarts, which the tests model as a new
+     * OverlayLifecycle against the same fake). Default access level is
+     * TRUSTED_CONTEXTS: popup and worker both read/write it, content scripts
+     * never do — the harness gives content-script code no handle to it.
+     */
+    this.sessionStore = {};
     this.granted = new Set(granted);
     this.registered = new Map();
     this.tabList = tabs.map((tab) => ({ ...tab }));
@@ -92,6 +101,29 @@ class FakeBrowser {
           self.calls.push("storage.set");
           self._lastOpWasSet = true;
           Object.assign(self.store, JSON.parse(JSON.stringify(values)));
+        },
+      },
+      session: {
+        async get(key) {
+          const keys = Array.isArray(key) ? key : [key];
+          const result = {};
+          for (const entry of keys) {
+            if (Object.prototype.hasOwnProperty.call(self.sessionStore, entry)) {
+              result[entry] = sortKeysDeep(
+                JSON.parse(JSON.stringify(self.sessionStore[entry]))
+              );
+            }
+          }
+          return result;
+        },
+        async set(values) {
+          self.calls.push("storage.session.set");
+          Object.assign(self.sessionStore, JSON.parse(JSON.stringify(values)));
+        },
+        async remove(key) {
+          self.calls.push("storage.session.remove");
+          const keys = Array.isArray(key) ? key : [key];
+          for (const entry of keys) delete self.sessionStore[entry];
         },
       },
     };

@@ -575,6 +575,64 @@ class OverlayLifecycle {
     });
   }
 
+  /**
+   * macOS grant race — consume the popup's pending enable intent.
+   *
+   * Called by the `permissions.onAdded` listener AFTER its
+   * `reconcile({ prunePermissions: false })`. On macOS the permission prompt
+   * closes the popup, so the popup's own `setSiteState enable` never arrives;
+   * this path finishes the enable from the intent the popup wrote to
+   * `storage.session` under the user gesture, before the request.
+   *
+   * Security invariants, in order:
+   *   - ONE-SHOT: the intent is deleted before any use, like the focus-grant
+   *     tokens. A delete that fails aborts — acting on an unburned intent is
+   *     a replay.
+   *   - FAIL-CLOSED SHAPE: garbage is deleted and ignored
+   *     (`validateEnableIntent`, exact keys, canonical origin).
+   *   - TTL: an intent older than `ENABLE_INTENT_TTL_MS` (or from the future)
+   *     is only deleted, never acted on.
+   *   - The ORIGIN comes ONLY from the intent. It is never derived from the
+   *     granted pattern, which loses the port. The grant event must instead
+   *     cover exactly the pattern the intent's origin derives — a grant the
+   *     user accepted for some other site enables nothing.
+   *   - The enable goes through the same `enableOrigin` (permission re-check,
+   *     single commit, registration) as the popup path. No new path. It is
+   *     idempotent, so popup-survives platforms where both complete still
+   *     produce one coherent outcome.
+   *
+   * No intent stored → `no_intent`, behaviour identical to before this fix.
+   */
+  async consumeEnableIntent({ grantedOrigins = [], now = Date.now() } = {}) {
+    const key = securityModule.OVERLAY_ENABLE_INTENT_KEY;
+    let raw;
+    try {
+      const stored = await this._browser.storage.session.get([key]);
+      raw = stored?.[key];
+    } catch (_) {
+      return { ok: false, error: "intent_unreadable" };
+    }
+    if (raw === undefined) return { ok: false, error: "no_intent" };
+    try {
+      await this._browser.storage.session.remove(key);
+    } catch (_) {
+      // Cannot prove one-shot-ness — refuse rather than risk replay.
+      return { ok: false, error: "intent_not_burned" };
+    }
+    if (!securityModule.validateEnableIntent(raw).ok) {
+      return { ok: false, error: "invalid_intent" };
+    }
+    const age = now - raw.createdAt;
+    if (!(age >= 0 && age <= securityModule.ENABLE_INTENT_TTL_MS)) {
+      return { ok: false, error: "expired_intent" };
+    }
+    const pattern = securityModule.permissionPatternForOrigin(raw.origin);
+    if (pattern === null || !grantedOrigins.includes(pattern)) {
+      return { ok: false, error: "pattern_mismatch" };
+    }
+    return this.enableOrigin({ origin: raw.origin, tabId: raw.tabId });
+  }
+
   // -------------------------------------------------------------------------
   // A019/SR-8 — crash-consistent disable.
   // -------------------------------------------------------------------------
