@@ -216,7 +216,7 @@ explicitly before T301:
 | Drive `versionHistory` | **`not-run`** | none — documentation only | **Demoted 2026-08-15.** Previously `passed` on the strength of Drive's documented revisions API. Spec 010's own rules forbid that: *"Documentation alone is not a declaration"* and *"when a behaviour is uncertain, the capability is absent"*. Retention, `keepRevisionForever`, the pinned-revision ceiling and quota impact are all unmeasured. Drive therefore declares `versionHistory` **absent** |
 | Drive backend guarantee tier | **`not-run`** | derived from the two rows above | **Bare**, pending the revisions spike: no `conditionalWrite`, no declared `versionHistory`. Spec 010 category **Ricostruibile**, down from Recuperabile. Restored to Versioned/Recuperabile only when a live revisions spike passes |
 | Storage-agnostic write-verify-converge cycle — model validation | **`passed`** 2026-08-21 | **T009**, `sync_merge_convergence_model_test.dart` (36 tests) + `tool/mutations/008_t009_convergence.json` (`--check` exit 0, 0 survivors) | **Was the Gate 0 blocker; closed 2026-08-21, PR #65.** **Scope: additions only** — no tombstone, no `fieldDeletionConflict`, no attachment; see §"What T009 does not cover" |
-| Deletion convergence — model validation | **`not-run`** | **T009b**, not started | **Separate gate, not a Gate 0 condition.** T009's grow-only union is no evidence about removal, and is the wrong structure for it. Must pass before deletion, tombstone or attachment behaviour enters the implementation |
+| Deletion convergence — model validation | **executed 2026-08-22, pending PM acceptance** | **T009b**, `sync_merge_deletion_convergence_model_test.dart` (18 tests) + `tool/mutations/008_t009b_deletion_convergence.json` (14 mutations, `--check` exit 0, 0 survivors) | **Separate gate, not a Gate 0 condition.** Structure: tombstone with a clock, not a 2P-Set — see §"T009b — deletion convergence model". Gates deletion/tombstone/attachment work; closes only on PM acceptance |
 | Storage-agnostic write-verify-converge cycle — production implementation | `not-run` | FR-7 as corrected 2026-08-15 | implementation + integration tests are T4xx, after Gate 0 |
 | Ambiguous transport outcome classification | `passed` | `conditional update` (10 tests) | client-side rules only, fake transport |
 | Writer/path inventory reconciled | `passed` | `inventory baseline` (13 tests) | 14 writer files; 6 gaps vs FR-8 |
@@ -890,6 +890,127 @@ deletion, tombstone, `fieldDeletionConflict` or attachment behaviour enters the
 implementation, and it requires: a model that expresses deletion evidence, a
 demonstration that the chosen structure is a semilattice over both add and
 remove, and a mutation check of the same standard applied to T009.
+
+### T009b — deletion convergence model
+
+Executed 2026-08-22. Status: **pending PM acceptance** — the gate closes only
+when the PM accepts this evidence, per the T009 precedent; a suite declaring
+itself green is the failure mode the status row exists to prevent.
+
+Artifact:
+`test/features/password_manager/data/services/sync_merge_deletion_convergence_model_test.dart`
+(18 tests). In memory only — no network, no filesystem, no KDBX, no `lib/`
+dependency. It imports the T009 model for `Field`, `compareFields` and
+`Outcome`, so the live-value order is the one T009 proved, not a second one.
+
+#### Structure chosen: tombstone with a clock, not a 2P-Set
+
+The spec decides this, not taste:
+
+- FR-5 **Keep** "emits live record and removes/neutralizes matching tombstone"
+  — Keep is an *un-delete*. A 2P-Set makes removal permanent (an element once
+  removed can never re-enter), so it cannot express Keep at all.
+- FR-5 "Tombstoned both sides: remain deleted; **preserve newest supported
+  deletion data**" — tombstones carry data ordered by recency; the join of two
+  tombstones is the max of their clocks. A 2P-Set removal carries nothing to
+  order.
+- FR-4's deletion-evidence rows distinguish "missing with a proven deletion
+  marker" from plain absence; the marker *is* the tombstone.
+
+Every record/field/attachment key is a pair of monotone evidence components,
+`(live: Field?, tomb: clock?)`. The join is pointwise — live by FR-3's total
+order, tombstone by max clock, absence the identity of both — so the product is
+a join-semilattice, proved by enumeration (every ordering × every full
+parenthesization at 3 and 4 devices, states mixing live-only, tombstone-only,
+live+tombstone, unknown mtime, zero-byte value and one-sided keys).
+Classification (`live` / `deleted` / `deletionConflict`) and the Keep/Delete
+decisions are a pure view over the joined evidence: the evidence converges in
+any order, therefore the view does. Records, custom fields and attachments
+share this one algebra; the FR-4 rows and FR-5 rules are asserted separately
+against it, zero-byte-attachment presence included.
+
+An undecided `deletionConflict` routes to review on **every** round, first
+included — FR-5 says "explicit Keep/Delete required" where FR-3 defines an
+automatic policy for values. **Delete** retains the tombstone (that retention
+is the whole anti-resurrection argument, asserted as an outcome); **Keep**
+re-emits the live field carrying the tombstone's clock so the neutralization
+dominates on every device.
+
+#### Specification gaps found while modelling
+
+Documented and resolved with the most conservative (data-preserving) reading —
+not invented around. Each is a candidate spec.md amendment for the PM:
+
+| # | Gap | Conservative reading modelled |
+| --- | --- | --- |
+| **G1** | FR-5 defines a "matching" tombstone by identity (UUID) only; it does not say whether a tombstone **older** than a later live edit still forces a `deletionConflict`. | A tombstone matches only when **strictly newer** than the live side's known mtime; an edit at or after the deletion clock supersedes it — proof of life after the delete. The superseded tombstone is retained in the evidence, never forgotten. |
+| **G2** | FR-5 does not say how Keep's "neutralization" survives a merge against a peer that still holds the tombstone. Dropping it locally lets the peer re-introduce it and reopen the conflict forever. | Keep re-emits the live field carrying the tombstone's clock as its mtime, so under G1 the tombstone is non-matching on every device, deterministically; the tombstone evidence is retained (the join stays monotone). |
+| **G3** | The equal-clock case (tombstone clock == live mtime) is unspecified. | Not matching — the tie breaks toward preservation, FR-4's own default, and G2's neutralization relies on it. |
+| **G4** | FR-7's decision ledger is session-scoped, so a Keep/Delete decision does **not** propagate to peers. | Each device holding the conflicting state must decide too (its session returns to review). The **evidence** converges regardless; only the explicit resolution is per-device. Asserted, not hidden, in the resurrection tests. |
+
+Two stale-ledger guards of T009's Case Q class are modelled and asserted: a
+Delete recorded against a tombstone that a newer edit superseded, and a Keep
+recorded for a value no longer live anywhere, both reopen review instead of
+silently applying.
+
+#### Mutation check (executable)
+
+The table is executable, same standard and runner as T009:
+
+```bash
+node tool/mutation_runner.mjs --definitions=tool/mutations/008_t009b_deletion_convergence.json --check
+```
+
+Run 2026-08-22 (re-run after the adversarial pass, below): **exit 0, 0
+survivors, 0 drift.** `expectedKills` measured with the runner, never guessed.
+Rows killing exactly one test carry a `$comment` in the definitions file
+explaining acceptance, per the T009 convention.
+
+| id | mutation | kills |
+| --- | --- | --- |
+| T009b-D1 | tombstone join carries the oldest deletion clock (max → min) | 2 |
+| T009b-D2 | tombstone join keeps the first operand (perspective-dependent) | 3 |
+| T009b-D3 | absence annihilates the live side instead of being the join identity | 6 |
+| T009b-D4 | an equal-clock tombstone still matches (`>` → `>=`) | 2 |
+| T009b-D5 | an unknown mtime supersedes the tombstone | 1 |
+| T009b-D6 | a matching tombstone classifies as deleted instead of `deletionConflict` | 9 |
+| T009b-D7 | Keep does not neutralize — the live field keeps its old mtime | 2 |
+| T009b-D8 | Delete erases the tombstone along with the record | 3 |
+| T009b-D9 | the decision ledger is never read | 6 |
+| T009b-D10 | an empty value is treated as absent | 1 |
+| T009b-D11 | the stale-Delete guard removed — a superseded Delete silently keeps | 1 |
+| T009b-D12 | the stale-Keep guard removed — a Keep with no live value silently no-ops | 1 |
+| T009b-D13 | Keep stamps the kept field one tick newer than the tombstone clock | 1 |
+| T009b-D14 | the manifest omits the deletion evidence | 1 |
+
+#### Adversarial tester pass (2026-08-22)
+
+An adversarial mutation pass against the original 12-row table found **two
+survivors** — properties the model's own comments declared but no test pinned.
+Both are the "declared in prose, enforced by nothing" failure this gate exists
+to refuse, both are closed by a new test and registered as executable
+mutations, and three existing rows grew kills from the new tests' blast radius
+(D6 8→9, D7 1→2, D9 5→6 — re-measured, properties unchanged):
+
+| # | Severity | Survivor | Closure |
+| --- | --- | --- | --- |
+| **F1** | media | `resolveKeep` stamping `tomb + 1` instead of the tombstone's clock survived 16/16. The G2 comment claimed "bumping to the tombstone's clock invents no new time" and nothing asserted it: a fabricated newer mtime ties — and by the value order can beat — a **genuine** peer edit at clock+1, silently discarding real user data. | New test `Keep re-emits the live field AT the tombstone clock — never a newer, invented time`: pins `mtime == tomb` on Keep's output and asserts the outcome — the genuine edit at clock+1 wins the next LWW round. Mutation **T009b-D13** (1 kill). |
+| **F2** | alta | `delManifest` with the tombstone component removed survived 16/16. Two states differing only in deletion evidence became manifest-equal, so `DelCommitSession`'s semantic short-circuit finalized **without writing the newest deletion data** — the N4 silent-finalization class, on the deletion channel. | New test `a tombstone-only divergence is a REAL divergence`: drives a tombstone-only difference through the full commit cycle and asserts the divergence round executes (`roundsUsed == 1`) and the tombstone reaches the remote; premise guard asserts the two manifests differ. Mutation **T009b-D14** (1 kill). |
+
+Both mutants were additionally verified killed by hand (apply, run, restore by
+copy, restore verified byte-identical) before being registered in the table.
+
+Scope limit, stated to avoid the N1-class overclaim: the enumeration is the
+T009 one — 2 injection points across 2 concurrent writers, plus sequential
+scenarios at 3 and 4 devices over every ordering and association. Interleaved
+concurrency at three or more writers is not enumerated. Recycle-bin moves are
+not distinguished from permanent tombstones in this model (FR-5 keeps them
+distinct); the model expresses one kind of deletion evidence, and the
+recycle-bin distinction is an adapter concern gated by T30x, not an algebraic
+one. FR-5's last rule — an unclassifiable state returns `unsupportedKdbxData`,
+never guess or resurrect — is likewise not modelled: it is a pre-diff adapter
+rejection (T304/T305), not a merge outcome, so no state in this model reaches
+it by construction.
 
 ### Second-pass review (2026-08-15)
 

@@ -116,7 +116,7 @@ Ordered gates. Later phase cannot start until prior gate exit passes.
       This task exists because C1, C2 and C4 were found by reading a document,
       and N1 by running the model at a device count the suite did not cover.
       Convergence must be **executable**, not argued in prose.
-- [ ] **T009b Deletion convergence model** — **a separate gate, not part of
+- [x] **T009b Deletion convergence model** — **a separate gate, not part of
       Gate 0.** Extend the convergence model to express deletion evidence and
       prove that the chosen structure converges over **both** add and remove:
       associative, commutative and idempotent, at 3 and 4 devices, mutation-
@@ -128,6 +128,23 @@ Ordered gates. Later phase cannot start until prior gate exit passes.
       therefore says nothing about removal. Nothing in the current design
       depends on this — FR-4 states that a missing KDBX field or attachment is
       normally a union, not a deletion — so it blocks the deletion work only.
+      **Executed 2026-08-22 — pending PM acceptance.** Structure chosen:
+      **tombstone with a clock** (LWW-element-set family), not a 2P-Set —
+      FR-5's Keep is an un-delete, which a 2P-Set cannot express, and FR-5's
+      "preserve newest supported deletion data" is a max-clock join. Evidence:
+      `test/features/password_manager/data/services/sync_merge_deletion_convergence_model_test.dart`
+      (18 tests: semilattice over add+remove at 3 and 4 devices, every
+      ordering × every full parenthesization; FR-4 presence/deletion rows
+      including zero-byte attachments; resurrection, delete-vs-edit, repeated
+      delete, Keep/Delete convergence) and
+      `tool/mutations/008_t009b_deletion_convergence.json` (14 mutations,
+      `--check` exit 0, 0 survivors, 0 drift; two of them close survivors an
+      adversarial tester pass found against the first table — F1/F2 in
+      `feasibility-report.md` §"Adversarial tester pass"). Four spec gaps found and
+      resolved conservatively — G1–G4, recorded in
+      `feasibility-report.md` §"T009b". **The gate closes only when the PM
+      accepts this evidence**, per the T009 precedent: a suite declaring
+      itself green is the failure mode the status row exists to prevent.
 
 **Gate 0 exit**: **T001–T009** pass. **MET 2026-08-21** — T001–T008 have
 executed evidence; **T009 passed** (36 tests, mutation check exit 0, PR #65).

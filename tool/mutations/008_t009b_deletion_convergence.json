@@ -1,0 +1,259 @@
+{
+  "$comment": [
+    "Mutation definitions for spec 008 T009b (deletion convergence model).",
+    "",
+    "Same standard as tool/mutations/008_t009_convergence.json: each row",
+    "reverts one rule of the T009b deletion model and the runner asserts at",
+    "least one test that checks an OUTCOME dies. TARGET IS A TEST FILE,",
+    "DELIBERATELY — the model under mutation lives inside",
+    "sync_merge_deletion_convergence_model_test.dart itself (joinLive,",
+    "joinTomb, tombMatches, classOf, resolveKeep, resolveDelete,",
+    "mergeDeletionDocs). Every `find` below is model code, never an `expect`.",
+    "",
+    "The file imports sync_merge_convergence_model_test.dart for Field,",
+    "compareFields and Outcome; those shared rules are guarded by the T009",
+    "table and are NOT re-mutated here.",
+    "",
+    "`expectedKills` is measured with this runner, never guessed."
+  ],
+  "version": 1,
+  "slices": {
+    "T009b": "spec 008 deletion convergence model — FR-4 fieldDeletionConflict rows, FR-5 tombstones/record deletion, Keep/Delete decisions"
+  },
+  "suites": {
+    "flutter-deletion-convergence-model": {
+      "parser": "flutter-json",
+      "timeoutMs": 600000,
+      "$comment": "The whole blast radius is one file: the deletion model and its 18 property tests are colocated, same Gate design as T009 (no lib/ dependency).",
+      "command": [
+        "fvm",
+        "flutter",
+        "test",
+        "--reporter",
+        "json",
+        "test/features/password_manager/data/services/sync_merge_deletion_convergence_model_test.dart"
+      ]
+    }
+  },
+  "mutations": [
+    {
+      "id": "T009b-D1",
+      "expectedKills": 2,
+      "slice": "T009b",
+      "suite": "flutter-deletion-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_deletion_convergence_model_test.dart",
+      "title": "tombstone join carries the OLDEST deletion clock (max -> min)",
+      "property": "FR-5: tombstoned both sides preserves the NEWEST supported deletion data; min is also a semilattice, so only an outcome test on divergent clocks can see it (T009's M1a lesson)",
+      "edits": [
+        {
+          "find": "int? joinTomb(int? a, int? b) {\n  if (a == null) return b;\n  if (b == null) return a;\n  return a >= b ? a : b;\n}",
+          "replace": "int? joinTomb(int? a, int? b) {\n  if (a == null) return b;\n  if (b == null) return a;\n  return a <= b ? a : b; // mutation D1: the oldest deletion clock travels\n}"
+        }
+      ]
+    },
+    {
+      "id": "T009b-D2",
+      "expectedKills": 3,
+      "slice": "T009b",
+      "suite": "flutter-deletion-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_deletion_convergence_model_test.dart",
+      "title": "tombstone join keeps the first operand (perspective-dependent)",
+      "property": "the tombstone join must be commutative; keeping the first operand is 'prefer local' relocated into the deletion evidence — defect C4's class",
+      "edits": [
+        {
+          "find": "int? joinTomb(int? a, int? b) {\n  if (a == null) return b;\n  if (b == null) return a;\n  return a >= b ? a : b;\n}",
+          "replace": "int? joinTomb(int? a, int? b) {\n  if (a == null) return b;\n  if (b == null) return a;\n  return a; // mutation D2: the first operand always wins\n}"
+        }
+      ]
+    },
+    {
+      "id": "T009b-D3",
+      "expectedKills": 6,
+      "slice": "T009b",
+      "suite": "flutter-deletion-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_deletion_convergence_model_test.dart",
+      "title": "absence annihilates the live side instead of being the join identity",
+      "property": "FR-4: a missing side is an automatic union, never a deletion; if absence annihilates, every one-sided record is silently dropped by the next merge",
+      "edits": [
+        {
+          "find": "Field? joinLive(Field? a, Field? b) {\n  if (a == null) return b;",
+          "replace": "Field? joinLive(Field? a, Field? b) {\n  if (a == null) return null; // mutation D3: absence deletes"
+        }
+      ]
+    },
+    {
+      "id": "T009b-D4",
+      "expectedKills": 2,
+      "slice": "T009b",
+      "suite": "flutter-deletion-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_deletion_convergence_model_test.dart",
+      "title": "a tombstone at the same clock as the live mtime still matches (> -> >=)",
+      "property": "gaps G2/G3: Keep's neutralization re-emits the live field AT the tombstone's clock, so 'matching' must be strict or the neutralized state re-conflicts on every peer forever",
+      "edits": [
+        {
+          "find": "  return tomb > mtime;",
+          "replace": "  return tomb >= mtime; // mutation D4: the equal-clock tie matches"
+        }
+      ]
+    },
+    {
+      "id": "T009b-D5",
+      "expectedKills": 1,
+      "$comment": "Kills exactly one test, accepted: the rule is a single line with a single behaviour (unknown mtime vs tombstone) and the kill asserts an outcome — whether the deleted record silently resurrects on no evidence.",
+      "slice": "T009b",
+      "suite": "flutter-deletion-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_deletion_convergence_model_test.dart",
+      "title": "an unknown mtime supersedes the tombstone",
+      "property": "gap G1 / FR-3: unknown carries no evidence; treating it as proof of life resurrects a deleted record on the weakest possible evidence, silently",
+      "edits": [
+        {
+          "find": "  if (mtime == null) return true;",
+          "replace": "  if (mtime == null) return false; // mutation D5: unknown outranks evidence"
+        }
+      ]
+    },
+    {
+      "id": "T009b-D6",
+      "expectedKills": 9,
+      "slice": "T009b",
+      "suite": "flutter-deletion-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_deletion_convergence_model_test.dart",
+      "title": "a matching tombstone classifies as deleted instead of deletionConflict",
+      "property": "FR-4/FR-5: live + matching tombstone is an explicit-decision conflict with default preserve; auto-classifying it deleted resolves a deletion by policy, which FR-5 forbids",
+      "edits": [
+        {
+          "find": "  return tombMatches(s) ? RecClass.deletionConflict : RecClass.live;",
+          "replace": "  return tombMatches(s) ? RecClass.deleted : RecClass.live; // mutation D6"
+        }
+      ],
+      "$comment": "8 -> 9 when the D13 closure test landed (tester pass, 2026-08-22): under this mutant the keep scenario's initial live+matching-tombstone state classifies deleted, so the Keep ledger entry hits the stale-Keep guard and the new test's merge returns review. Blast radius only; the property did not change."
+    },
+    {
+      "id": "T009b-D7",
+      "expectedKills": 2,
+      "$comment": "1 -> 2 when the D13 closure test landed: the new test pins the kept field's mtime directly, which a no-op Keep also fails. Blast radius only.",
+      "slice": "T009b",
+      "suite": "flutter-deletion-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_deletion_convergence_model_test.dart",
+      "title": "Keep does not neutralize — the live field keeps its old mtime",
+      "property": "gap G2 / FR-5: Keep must 'remove/neutralize the matching tombstone' in a way that dominates on every device; a local-only keep leaves the peer's retained tombstone matching, so the conflict reopens on the next merge",
+      "edits": [
+        {
+          "find": "RecState resolveKeep(RecState s) =>\n    RecState(live: Field(s.live!.value, s.tomb), tomb: s.tomb);",
+          "replace": "RecState resolveKeep(RecState s) => s; // mutation D7: keep is a local no-op"
+        }
+      ]
+    },
+    {
+      "id": "T009b-D8",
+      "expectedKills": 3,
+      "slice": "T009b",
+      "suite": "flutter-deletion-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_deletion_convergence_model_test.dart",
+      "title": "Delete erases the tombstone along with the record",
+      "property": "FR-5: Delete 'retains valid tombstone' — the retained tombstone IS the convergence argument; without it a peer that still holds the live value silently resurrects the record",
+      "edits": [
+        {
+          "find": "RecState resolveDelete(RecState s) => RecState(tomb: s.tomb);",
+          "replace": "RecState resolveDelete(RecState s) => const RecState(); // mutation D8"
+        }
+      ]
+    },
+    {
+      "id": "T009b-D9",
+      "expectedKills": 6,
+      "slice": "T009b",
+      "suite": "flutter-deletion-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_deletion_convergence_model_test.dart",
+      "title": "the decision ledger is never read",
+      "property": "an explicit Keep/Delete decision is replayed on every merge; without the ledger every deletionConflict re-enters review forever and no delete ever converges",
+      "edits": [
+        {
+          "find": "    final decided = ledger[key];",
+          "replace": "    const String? decided = null; // mutation D9: the ledger is never read"
+        }
+      ],
+      "$comment": "5 -> 6 when the D13 closure test landed: its Keep is applied through the ledger, which this mutant never reads. Blast radius only."
+    },
+    {
+      "id": "T009b-D10",
+      "expectedKills": 1,
+      "$comment": "Kills exactly one test, accepted: FR-4's empty-counts-as-present rule has exactly one observable, asserted as an outcome (the empty field survives the union and deleting it still needs evidence).",
+      "slice": "T009b",
+      "suite": "flutter-deletion-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_deletion_convergence_model_test.dart",
+      "title": "an empty value is treated as absent",
+      "property": "FR-4: empty string / zero-byte attachment counts as PRESENT; presence is independent from value, so an empty live field is a union member and deleting it still requires evidence",
+      "edits": [
+        {
+          "find": "RecClass classOf(RecState s) {\n  final live = s.live;\n  if (live == null) {",
+          "replace": "RecClass classOf(RecState s) {\n  final live = s.live;\n  if (live == null || live.value.isEmpty) { // mutation D10"
+        }
+      ]
+    },
+    {
+      "id": "T009b-D11",
+      "expectedKills": 1,
+      "$comment": "Kills exactly one test, accepted for the T009-Q2 reason: the state is only reachable through a stale ledger entry, and the guard's only instrument is the direct test. The kill asserts the outcome — review reopens instead of a silent wrong resolution.",
+      "slice": "T009b",
+      "suite": "flutter-deletion-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_deletion_convergence_model_test.dart",
+      "title": "the stale-Delete guard is removed — a superseded Delete silently keeps",
+      "property": "a Delete recorded against a tombstone that a newer edit superseded no longer names the state on the table; applying nothing silently (instead of reopening review) drops the user's explicit decision without a symptom — T009's Case Q, in the deletion ledger",
+      "edits": [
+        {
+          "find": "    } else if (decided == deleteDecision &&\n        cls == RecClass.live &&\n        state.tomb != null) {",
+          "replace": "    } else if (false) { // mutation D11: the stale-Delete guard is gone"
+        }
+      ]
+    },
+    {
+      "id": "T009b-D12",
+      "expectedKills": 1,
+      "$comment": "Kills exactly one test, accepted for the T009-Q2 reason, mirrored for Keep.",
+      "slice": "T009b",
+      "suite": "flutter-deletion-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_deletion_convergence_model_test.dart",
+      "title": "the stale-Keep guard is removed — a Keep with no live value silently no-ops",
+      "property": "a Keep recorded for a value that is no longer live anywhere would silently stay deleted, dropping an explicit preservation decision without a symptom",
+      "edits": [
+        {
+          "find": "    } else if (decided == keepDecision && cls == RecClass.deleted) {",
+          "replace": "    } else if (false) { // mutation D12: the stale-Keep guard is gone"
+        }
+      ]
+    },
+    {
+      "id": "T009b-D13",
+      "expectedKills": 1,
+      "$comment": "Tester finding F1 (adversarial pass, 2026-08-22): SURVIVED the original 12-row table. The G2 doc-comment claimed 'bumping to the tombstone's clock invents no new time' and nothing pinned it — a Keep stamping tomb+1 fabricates evidence newer than the deletion and silently beats a genuine peer edit made at that clock. Kills exactly one test, accepted: the rule is a single expression with a single behaviour and the kill asserts the outcome — which value survives the next LWW round.",
+      "slice": "T009b",
+      "suite": "flutter-deletion-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_deletion_convergence_model_test.dart",
+      "title": "Keep stamps the kept field one tick NEWER than the tombstone clock",
+      "property": "gap G2: Keep re-emits the live field AT the tombstone's clock, exactly — a fabricated newer mtime ties (and, by the value order, can beat) a genuine peer edit at clock+1, discarding real user data for a timestamp nobody set",
+      "edits": [
+        {
+          "find": "RecState resolveKeep(RecState s) =>\n    RecState(live: Field(s.live!.value, s.tomb), tomb: s.tomb);",
+          "replace": "RecState resolveKeep(RecState s) =>\n    RecState(live: Field(s.live!.value, s.tomb! + 1), tomb: s.tomb); // mutation D13"
+        }
+      ]
+    },
+    {
+      "id": "T009b-D14",
+      "expectedKills": 1,
+      "$comment": "Tester finding F2 (adversarial pass, 2026-08-22): SURVIVED the original 12-row table. With the tombstone omitted from the manifest, two states differing only in deletion evidence are manifest-equal, so DelCommitSession's semantic short-circuit finalizes without re-writing the newest deletion data — the N4 silent-finalization class, on the deletion channel this gate exists to protect. Kills exactly one test, accepted: the kill runs the full commit cycle and asserts the outcome — roundsUsed 1 and the deletion data reaching the remote.",
+      "slice": "T009b",
+      "suite": "flutter-deletion-convergence-model",
+      "file": "test/features/password_manager/data/services/sync_merge_deletion_convergence_model_test.dart",
+      "title": "the manifest omits the deletion evidence",
+      "property": "N4 extended to deletion: every semantic component omitted from the manifest is one on which a real divergence is finalized in silence; the tombstone is IN the manifest so a tombstone-only difference is a divergence, never a semantic equality",
+      "edits": [
+        {
+          "find": "        return '$k=live:$live|tomb:${s.tomb ?? '-'}';",
+          "replace": "        return '$k=live:$live'; // mutation D14: deletion evidence is not semantic"
+        }
+      ]
+    }
+  ]
+}
