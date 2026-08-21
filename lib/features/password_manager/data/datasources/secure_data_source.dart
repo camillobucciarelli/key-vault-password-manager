@@ -7,6 +7,12 @@ abstract class SecureDataSource {
   Future<void> saveMasterPassword(String databaseId, String password);
   Future<String?> getMasterPassword(String databaseId);
   Future<void> clearMasterPassword(String databaseId);
+
+  /// spec-011 FR-6: deletes the legacy global `'MASTER_PASSWORD'` entry.
+  /// Called unconditionally at every startup — deleting an absent key is a
+  /// no-op, so no persisted "migrated" flag is needed. The value is never
+  /// copied to a per-database entry because it cannot be attributed to one.
+  Future<void> deleteLegacyMasterPassword();
 }
 
 class SecureDataSourceImpl implements SecureDataSource {
@@ -44,5 +50,10 @@ class SecureDataSourceImpl implements SecureDataSource {
   @override
   Future<void> clearMasterPassword(String databaseId) async {
     await secureStorage.delete(key: masterPasswordKey(databaseId));
+  }
+
+  @override
+  Future<void> deleteLegacyMasterPassword() async {
+    await secureStorage.delete(key: legacyMasterPasswordKey);
   }
 }

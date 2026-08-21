@@ -3,7 +3,7 @@
 **Application:** KeyVault Password Manager
 **Data controller:** Camillo Bucciarelli
 **Contact:** bucciarelli.camillo92@gmail.com
-**Last updated:** 2026-08-15
+**Last updated:** 2026-08-21
 
 ## Summary
 
@@ -16,7 +16,7 @@ server and receives no data from your device, ever.
 | Data | Where | Purpose |
 |---|---|---|
 | Vault contents (entries, passwords, notes, TOTP secrets) | Encrypted `.kdbx` file in a location you choose | The core function of the application |
-| Master password, while a vault is unlocked | Platform keystore (Apple Keychain, Android Keystore, OS secure store on desktop) | Re-unlocking the vault, including with biometrics. Removed when you lock the vault or switch database. |
+| Master password, only if you enable biometric unlock for a database | Platform keystore (Apple Keychain, Android Keystore, OS secure store on desktop), in an entry scoped to that database | Serving a biometric unlock of that same database. Removed immediately when you disable biometric unlock. Without biometric unlock the master password is never written to the keystore; it exists only in memory while the vault is unlocked. |
 | Google OAuth tokens, only if you enable cloud sync | Platform keystore | Authenticating to your own cloud storage |
 | Preferences (theme, selected database path) | Application preferences storage | Restoring your settings |
 
