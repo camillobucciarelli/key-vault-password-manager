@@ -19,6 +19,7 @@ import 'package:password_manager/features/password_manager/domain/repositories/d
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/vault_session_coordinator.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
 
 void main() {
   group('VaultSessionCoordinator', () {
@@ -29,6 +30,7 @@ void main() {
     late _FakeSecureDataSource secureDataSource;
     late _FakeVaultKdbxService vaultKdbxService;
     late _FakeAppleAutofillV2Coordinator appleAutofillV2Coordinator;
+    late SessionSecretHolder sessionSecretHolder;
     late VaultSessionCoordinator coordinator;
 
     setUp(() {
@@ -39,7 +41,9 @@ void main() {
       secureDataSource = _FakeSecureDataSource();
       vaultKdbxService = _FakeVaultKdbxService();
       appleAutofillV2Coordinator = _FakeAppleAutofillV2Coordinator();
+      sessionSecretHolder = SessionSecretHolder();
       coordinator = VaultSessionCoordinator(
+        sessionSecretHolder: sessionSecretHolder,
         localDataSource: localDataSource,
         databaseRegistryRepository: registryRepository,
         databaseSecurityRepository: securityRepository,
@@ -48,6 +52,88 @@ void main() {
         vaultKdbxService: vaultKdbxService,
         appleAutofillV2Coordinator: appleAutofillV2Coordinator,
       );
+    });
+
+    group('spec-011 FR-2 session secret lifetime', () {
+      test('lockVault clears the session secret', () async {
+        sessionSecretHolder.set('secret');
+
+        await coordinator.lockVault(currentDatabasePath: '/tmp/vault.kdbx');
+
+        expect(sessionSecretHolder.hasSecret, isFalse);
+        expect(
+          sessionSecretHolder.read,
+          throwsA(isA<SessionSecretMissingError>()),
+        );
+      });
+
+      test('changeDatabase clears the session secret', () async {
+        sessionSecretHolder.set('secret');
+
+        await coordinator.changeDatabase(
+          currentDatabasePath: '/tmp/vault.kdbx',
+        );
+
+        expect(sessionSecretHolder.hasSecret, isFalse);
+        expect(
+          sessionSecretHolder.read,
+          throwsA(isA<SessionSecretMissingError>()),
+        );
+      });
+
+      test('handleAppDetached clears the session secret without touching the '
+          'keystore (Slice 1)', () {
+        sessionSecretHolder.set('secret');
+        secureDataSource.password = 'secret';
+
+        coordinator.handleAppDetached();
+
+        expect(sessionSecretHolder.hasSecret, isFalse);
+        // Slice 1 invariant: keystore behaviour unchanged on detached.
+        expect(secureDataSource.password, 'secret');
+        expect(
+          sessionSecretHolder.read,
+          throwsA(isA<SessionSecretMissingError>()),
+        );
+      });
+
+      test('a vault operation after clearing fails with the locked error, '
+          'never an empty string', () {
+        sessionSecretHolder.set('secret');
+        sessionSecretHolder.clear();
+
+        expect(
+          sessionSecretHolder.read,
+          throwsA(isA<SessionSecretMissingError>()),
+        );
+      });
+
+      test('password change updates the session secret', () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'vault_session_secret_test_',
+        );
+        addTearDown(() => tempDir.delete(recursive: true));
+        final databasePath = '${tempDir.path}/vault.kdbx';
+        await File(databasePath).writeAsBytes(const [1, 2, 3], flush: true);
+        registryRepository.records = [_recordForTest('db-1', databasePath)];
+        secureDataSource.password = 'old-secret';
+        sessionSecretHolder.set('old-secret');
+
+        await coordinator.updateDatabaseSettings(
+          DatabaseSettingsUpdateRequest(
+            currentDatabasePath: databasePath,
+            fileName: 'vault.kdbx',
+            keyFilePath: null,
+            biometricProtectionEnabled: false,
+            changePassword: true,
+            inactivityLockTimeoutSeconds: null,
+            currentPassword: 'old-secret',
+            newPassword: 'new-secret',
+          ),
+        );
+
+        expect(sessionSecretHolder.read(), 'new-secret');
+      });
     });
 
     test(
@@ -306,6 +392,7 @@ void main() {
       securityRepository.failNextSave = true;
       final realService = VaultKdbxService();
       coordinator = VaultSessionCoordinator(
+        sessionSecretHolder: sessionSecretHolder,
         localDataSource: localDataSource,
         databaseRegistryRepository: registryRepository,
         databaseSecurityRepository: securityRepository,
@@ -367,6 +454,7 @@ void main() {
       secureDataSource.password = 'old-secret';
       final realService = VaultKdbxService();
       coordinator = VaultSessionCoordinator(
+        sessionSecretHolder: sessionSecretHolder,
         localDataSource: localDataSource,
         databaseRegistryRepository: registryRepository,
         databaseSecurityRepository: securityRepository,

@@ -5,7 +5,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:loggy/loggy.dart';
 import 'package:stream_transform/stream_transform.dart';
 
-import '../../../data/datasources/secure_data_source.dart';
 import '../../../data/services/vault_csv_import_service.dart';
 import '../../../data/services/vault_duplicate_service.dart';
 import '../../../data/services/vault_kdbx_service.dart';
@@ -18,6 +17,7 @@ import '../../../domain/models/vault_group.dart';
 import '../../../domain/models/vault_snapshot.dart';
 import '../../../domain/services/vault_health_service.dart';
 import '../../coordinators/apple_autofill_v2_coordinator.dart';
+import '../../coordinators/session_secret_holder.dart';
 import 'vault_event.dart';
 import 'vault_state.dart';
 
@@ -25,7 +25,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   VaultBloc({
     required String databasePath,
     required this.getSelectedKeyFilePath,
-    required this.secureDataSource,
+    required this.sessionSecretHolder,
     required this.vaultKdbxService,
     required this.vaultCsvImportService,
     required this.vaultDuplicateService,
@@ -103,7 +103,11 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   }
 
   final Future<String?> Function() getSelectedKeyFilePath;
-  final SecureDataSource secureDataSource;
+
+  /// spec-011 FR-1: the session secret comes from the coordinator-owned
+  /// in-memory holder, never from `SecureDataSource`. Not part of any
+  /// state/props and never logged (constitution principle I).
+  final SessionSecretHolder sessionSecretHolder;
   final VaultKdbxService vaultKdbxService;
   final VaultCsvImportService vaultCsvImportService;
   final VaultDuplicateService vaultDuplicateService;
@@ -116,6 +120,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   /// a fixed `now` and get a deterministic score.
   final DateTime Function() now;
 
+  // Cached copy of the session secret: it survives a holder clear and is
+  // only safe because lock/switch dispose this bloc (spec-011 tester note).
   String _password = '';
   String? _keyFilePath;
   String? _lastRegularGroupId;
@@ -145,7 +151,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   ) async {
     _safeEmit(emit, state.copyWith(isLoading: true, clearError: true));
     try {
-      _password = await secureDataSource.getMasterPassword() ?? '';
+      // spec-011 FR-2: an absent session secret throws
+      // (SessionSecretMissingError) and lands in the locked-state error
+      // below — never a silent empty-string fallback.
+      _password = sessionSecretHolder.read();
       _keyFilePath = await getSelectedKeyFilePath();
       await _preloadDriveStateFromLocalMapping(emit);
       await _reload(emit);

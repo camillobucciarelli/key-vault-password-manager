@@ -10,6 +10,7 @@ import 'package:password_manager/features/password_manager/data/repositories/dat
 import 'package:password_manager/features/password_manager/data/services/database_import_service.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_security_profile.dart';
+import 'package:password_manager/features/password_manager/domain/errors/database_access_failure.dart';
 import 'package:password_manager/features/password_manager/domain/models/apple_autofill_v2_models.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_dedup_result.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_selection_item.dart';
@@ -29,11 +30,32 @@ import 'package:password_manager/features/password_manager/domain/usecases/valid
 import 'package:password_manager/features/password_manager/presentation/bloc/database_selection/database_selection_event.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/database_session_coordinator.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 List<String> _paths(List<DatabaseSelectionItem> items) =>
     items.map((item) => item.canonicalPath).toList(growable: false);
+
+class _StubUnlockDatabaseUseCase extends UnlockDatabaseUseCase {
+  Object? error;
+  int calls = 0;
+  String? lastPassword;
+
+  @override
+  Future<void> call({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+  }) async {
+    calls += 1;
+    lastPassword = password;
+    final pending = error;
+    if (pending != null) {
+      throw pending;
+    }
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -48,6 +70,7 @@ void main() {
     late _FakeAppleAutofillV2Coordinator appleAutofillV2Coordinator;
     late DatabaseImportService databaseImportService;
     late DatabaseSessionCoordinator coordinator;
+    late SessionSecretHolder sessionSecretHolder;
 
     setUp(() async {
       tempDir = await Directory.systemTemp.createTemp('db_session_test_');
@@ -59,11 +82,13 @@ void main() {
       syncRepository = _FakeSyncRepository();
       secureDataSource = _FakeSecureDataSource();
       appleAutofillV2Coordinator = _FakeAppleAutofillV2Coordinator();
+      sessionSecretHolder = SessionSecretHolder();
       databaseImportService = DatabaseImportService(
         validateDatabaseUseCase: ValidateDatabaseUseCase(),
       );
 
       coordinator = DatabaseSessionCoordinator(
+        sessionSecretHolder: sessionSecretHolder,
         databaseFileRepository: databaseImportService,
         databaseSessionRepository: DatabaseSessionRepositoryImpl(
           localDataSource: localDataSource,
@@ -86,6 +111,138 @@ void main() {
 
     tearDown(() async {
       await tempDir.delete(recursive: true);
+    });
+
+    group('spec-011 session secret (FR-1/FR-2)', () {
+      late _StubUnlockDatabaseUseCase unlockUseCase;
+      late DatabaseSessionCoordinator stubbedCoordinator;
+
+      setUp(() {
+        unlockUseCase = _StubUnlockDatabaseUseCase();
+        stubbedCoordinator = DatabaseSessionCoordinator(
+          sessionSecretHolder: sessionSecretHolder,
+          databaseFileRepository: databaseImportService,
+          databaseSessionRepository: DatabaseSessionRepositoryImpl(
+            localDataSource: localDataSource,
+            secureDataSource: secureDataSource,
+          ),
+          databaseRegistryRepository: registryRepository,
+          databaseSecurityRepository: securityRepository,
+          getActiveDatabaseUseCase: GetActiveDatabaseUseCase(
+            registryRepository,
+          ),
+          resolveDatabaseDuplicateUseCase: ResolveDatabaseDuplicateUseCase(
+            registryRepository,
+          ),
+          databaseSyncRepository: syncRepository,
+          unlockDatabaseUseCase: unlockUseCase,
+          createDatabaseUseCase: CreateDatabaseUseCase(
+            databaseFileRepository: databaseImportService,
+          ),
+          appleAutofillV2Coordinator: appleAutofillV2Coordinator,
+        );
+      });
+
+      test('unlockWithManualCredentials populates the holder and still writes '
+          'the keystore (Slice 1 transport parity)', () async {
+        await stubbedCoordinator.unlockWithManualCredentials(
+          databasePath: '/tmp/db.kdbx',
+          password: 'pw',
+          keyFilePath: null,
+        );
+
+        expect(sessionSecretHolder.read(), 'pw');
+        // Slice 1 invariant: the keystore write is unchanged (gating is
+        // Slice 2).
+        expect(secureDataSource.password, 'pw');
+      });
+
+      test('unlockWithManualCredentials failure clears the holder', () async {
+        sessionSecretHolder.set('stale');
+        unlockUseCase.error = const InvalidCredentialsFailure();
+
+        await expectLater(
+          stubbedCoordinator.unlockWithManualCredentials(
+            databasePath: '/tmp/db.kdbx',
+            password: 'wrong',
+            keyFilePath: null,
+          ),
+          throwsA(isA<InvalidCredentialsFailure>()),
+        );
+
+        expect(sessionSecretHolder.hasSecret, isFalse);
+      });
+
+      test(
+        'unlockWithStoredCredentials with no stored password and no key '
+        'file fails with the locked error without attempting an unlock',
+        () async {
+          secureDataSource.password = null;
+
+          await expectLater(
+            stubbedCoordinator.unlockWithStoredCredentials(
+              databasePath: '/tmp/db.kdbx',
+              keyFilePath: null,
+            ),
+            throwsA(isA<InvalidCredentialsFailure>()),
+          );
+
+          // The removed `?? ''` fallback must not resurface as an
+          // empty-password unlock attempt.
+          expect(unlockUseCase.calls, 0);
+          expect(sessionSecretHolder.hasSecret, isFalse);
+        },
+      );
+
+      test('unlockWithStoredCredentials with no stored password but a key '
+          'file still unlocks with an empty password (key-file-only '
+          'vault)', () async {
+        secureDataSource.password = null;
+        final keyFile = File('${tempDir.path}/vault.key');
+        await keyFile.writeAsBytes(const [1, 2, 3], flush: true);
+
+        await stubbedCoordinator.unlockWithStoredCredentials(
+          databasePath: '/tmp/db.kdbx',
+          keyFilePath: keyFile.path,
+        );
+
+        // The FR-2 guard must not fire when a key file is part of the
+        // unlock: '' is the deliberate composite credential here.
+        expect(unlockUseCase.calls, 1);
+        expect(unlockUseCase.lastPassword, '');
+        expect(sessionSecretHolder.read(), '');
+      });
+
+      test('unlockWithStoredCredentials success populates the holder from the '
+          'stored password', () async {
+        secureDataSource.password = 'stored-pw';
+
+        await stubbedCoordinator.unlockWithStoredCredentials(
+          databasePath: '/tmp/db.kdbx',
+          keyFilePath: null,
+        );
+
+        expect(unlockUseCase.lastPassword, 'stored-pw');
+        expect(sessionSecretHolder.read(), 'stored-pw');
+        // Biometric-path keystore read is unchanged in Slice 1.
+        expect(secureDataSource.password, 'stored-pw');
+      });
+
+      test('unlockWithStoredCredentials failure clears the holder', () async {
+        sessionSecretHolder.set('stale');
+        secureDataSource.password = 'stored-pw';
+        unlockUseCase.error = const InvalidCredentialsFailure();
+
+        await expectLater(
+          stubbedCoordinator.unlockWithStoredCredentials(
+            databasePath: '/tmp/db.kdbx',
+            keyFilePath: null,
+          ),
+          throwsA(isA<InvalidCredentialsFailure>()),
+        );
+
+        expect(sessionSecretHolder.hasSecret, isFalse);
+      });
     });
 
     test(
@@ -785,6 +942,7 @@ void main() {
             ).copyWith(keyFilePath: activeKeyPath);
 
         final failingCoordinator = DatabaseSessionCoordinator(
+          sessionSecretHolder: sessionSecretHolder,
           databaseFileRepository: databaseImportService,
           databaseSessionRepository: DatabaseSessionRepositoryImpl(
             localDataSource: localDataSource,

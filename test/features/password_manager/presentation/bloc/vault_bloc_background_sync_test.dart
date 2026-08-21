@@ -3,7 +3,7 @@ import 'dart:io' show SocketException;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_csv_import_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_duplicate_service.dart';
@@ -346,6 +346,45 @@ void main() {
 
       expect(kdbx.updateCallCount, 0);
       expect(appleAutofill.lastClearedPendingIds, [pending.id]);
+    });
+  });
+
+  group('InitializeVault — session secret (spec-011 FR-1/FR-2)', () {
+    test('an absent session secret fails with the locked-state error and '
+        'never opens the vault with an empty password', () async {
+      final repo = _FakeSyncRepo();
+      final kdbx = _FakeVaultKdbxService();
+      // Holder deliberately left empty: session is locked.
+      final bloc = _makeBloc(
+        repo,
+        kdbx,
+        sessionSecretHolder: SessionSecretHolder(),
+      );
+      addTearDown(bloc.close);
+
+      bloc.add(const InitializeVault());
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(bloc.state.errorMessage, 'Unable to load vault credentials.');
+      expect(bloc.state.isLoading, isFalse);
+      expect(kdbx.loadCallCount, 0);
+    });
+
+    test('a populated session secret is used to load the vault', () async {
+      final repo = _FakeSyncRepo();
+      final kdbx = _FakeVaultKdbxService();
+      final bloc = _makeBloc(
+        repo,
+        kdbx,
+        sessionSecretHolder: SessionSecretHolder()..set('pw'),
+      );
+      addTearDown(bloc.close);
+
+      bloc.add(const InitializeVault());
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(bloc.state.errorMessage, isNull);
+      expect(kdbx.loadCallCount, greaterThanOrEqualTo(1));
     });
   });
 
@@ -703,15 +742,6 @@ VaultSnapshot _snapshotReplacingEntry(
 
 // --- Fakes ---
 
-class _FakeSecureDataSource implements SecureDataSource {
-  @override
-  Future<String?> getMasterPassword() async => '';
-  @override
-  Future<void> saveMasterPassword(String p) async {}
-  @override
-  Future<void> clearMasterPassword() async {}
-}
-
 class _FakeVaultKdbxService implements VaultKdbxService {
   _FakeVaultKdbxService({List<String>? operations})
     : operations = operations ?? <String>[];
@@ -879,11 +909,13 @@ VaultBloc _makeBloc(
   _FakeVaultKdbxService kdbx, {
   AppleAutofillV2CoordinatorContract appleAutofillV2Coordinator =
       const NoopAppleAutofillV2Coordinator(),
+  SessionSecretHolder? sessionSecretHolder,
 }) {
   return VaultBloc(
     databasePath: _kDbPath,
     getSelectedKeyFilePath: () async => null,
-    secureDataSource: _FakeSecureDataSource(),
+    sessionSecretHolder:
+        sessionSecretHolder ?? (SessionSecretHolder()..set('')),
     vaultKdbxService: kdbx,
     vaultCsvImportService: VaultCsvImportService(),
     vaultDuplicateService: VaultDuplicateService(),
