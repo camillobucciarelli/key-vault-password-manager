@@ -23,6 +23,7 @@ import '../../domain/usecases/get_active_database_usecase.dart';
 import '../../domain/usecases/resolve_database_duplicate_usecase.dart';
 import '../../domain/usecases/unlock_database_usecase.dart';
 import 'apple_autofill_v2_coordinator.dart';
+import 'session_secret_holder.dart';
 
 enum DatabaseSessionStatus {
   success,
@@ -100,6 +101,7 @@ class DatabaseSessionCoordinator {
     required this.resolveDatabaseDuplicateUseCase,
     required this.unlockDatabaseUseCase,
     required this.createDatabaseUseCase,
+    required this.sessionSecretHolder,
     this.appleAutofillV2Coordinator = const NoopAppleAutofillV2Coordinator(),
   });
 
@@ -112,6 +114,11 @@ class DatabaseSessionCoordinator {
   final ResolveDatabaseDuplicateUseCase resolveDatabaseDuplicateUseCase;
   final UnlockDatabaseUseCase unlockDatabaseUseCase;
   final CreateDatabaseUseCase createDatabaseUseCase;
+
+  /// spec-011 FR-1: in-memory session secret. Slice 1 keeps every keystore
+  /// write/read identical and only mirrors the secret here so `VaultBloc`
+  /// no longer reads `SecureDataSource`.
+  final SessionSecretHolder sessionSecretHolder;
   final AppleAutofillV2CoordinatorContract appleAutofillV2Coordinator;
 
   Future<DatabaseSelectionSessionResult> checkInitialDatabase() async {
@@ -323,6 +330,7 @@ class DatabaseSessionCoordinator {
     await databaseRegistryRepository.upsert(recordToSave);
     await databaseRegistryRepository.setActive(recordToSave.databaseId);
     if (clearCredentials) {
+      sessionSecretHolder.clear();
       await databaseSessionRepository.cacheKeyFilePath(null);
       await databaseSessionRepository.clearMasterPassword();
       await appleAutofillV2Coordinator.clearCredentials();
@@ -546,8 +554,10 @@ class DatabaseSessionCoordinator {
       try {
         await databaseSessionRepository.cacheKeyFilePath(originalKeyFilePath);
         if (originalPassword == null) {
+          sessionSecretHolder.clear();
           await databaseSessionRepository.clearMasterPassword();
         } else {
+          sessionSecretHolder.set(originalPassword);
           await databaseSessionRepository.saveMasterPassword(originalPassword);
         }
       } catch (_) {}
@@ -597,6 +607,7 @@ class DatabaseSessionCoordinator {
         keyFilePath: created.keyFilePath,
         biometricProtectionEnabled: biometricProtectionEnabled,
       );
+      sessionSecretHolder.set(password);
       await databaseSessionRepository.saveMasterPassword(password);
       await databaseSessionRepository.cacheKeyFilePath(created.keyFilePath);
     }
@@ -651,6 +662,7 @@ class DatabaseSessionCoordinator {
     final activeRecord = await getActiveDatabaseUseCase();
     if (activeRecord != null &&
         _containsPath([activeRecord.canonicalPath], trimmed)) {
+      sessionSecretHolder.clear();
       await databaseSessionRepository.cacheKeyFilePath(null);
       await databaseSessionRepository.clearMasterPassword();
       await databaseRegistryRepository.setActive(null);
@@ -795,11 +807,18 @@ class DatabaseSessionCoordinator {
   }) async {
     final persistedKeyFilePath = await databaseFileRepository
         .ensureManagedKeyFilePath(keyFilePath);
-    await unlockDatabaseUseCase(
-      databasePath: databasePath,
-      password: password,
-      keyFilePath: persistedKeyFilePath,
-    );
+    try {
+      await unlockDatabaseUseCase(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: persistedKeyFilePath,
+      );
+    } catch (_) {
+      // spec-011 FR-2: unlock failure never leaves a stale session secret.
+      sessionSecretHolder.clear();
+      rethrow;
+    }
+    sessionSecretHolder.set(password);
     await databaseSessionRepository.cacheKeyFilePath(persistedKeyFilePath);
     await databaseSessionRepository.saveMasterPassword(password);
     await _saveSecurityProfile(
@@ -813,13 +832,25 @@ class DatabaseSessionCoordinator {
     required String databasePath,
     required String? keyFilePath,
   }) async {
-    final storedPassword =
-        await databaseSessionRepository.getMasterPassword() ?? '';
-    await unlockDatabaseUseCase(
-      databasePath: databasePath,
-      password: storedPassword,
-      keyFilePath: keyFilePath,
-    );
+    final storedPassword = await databaseSessionRepository.getMasterPassword();
+    // spec-011 FR-2: no silent empty-string fallback. An empty password is
+    // only a deliberate credential when a key file is part of the unlock.
+    if (storedPassword == null && keyFilePath == null) {
+      sessionSecretHolder.clear();
+      throw const InvalidCredentialsFailure();
+    }
+    final effectivePassword = storedPassword ?? '';
+    try {
+      await unlockDatabaseUseCase(
+        databasePath: databasePath,
+        password: effectivePassword,
+        keyFilePath: keyFilePath,
+      );
+    } catch (_) {
+      sessionSecretHolder.clear();
+      rethrow;
+    }
+    sessionSecretHolder.set(effectivePassword);
   }
 
   Future<bool> hasStoredMasterPassword() async {
@@ -842,6 +873,7 @@ class DatabaseSessionCoordinator {
   }
 
   Future<void> _clearSessionCredentials() async {
+    sessionSecretHolder.clear();
     await databaseSessionRepository.cacheKeyFilePath(null);
     await databaseSessionRepository.clearMasterPassword();
     await appleAutofillV2Coordinator.clearCredentials();
@@ -927,6 +959,7 @@ class DatabaseSessionCoordinator {
     await databaseRegistryRepository.setActive(recordToSave.databaseId);
 
     if (clearCredentials) {
+      sessionSecretHolder.clear();
       await databaseSessionRepository.cacheKeyFilePath(null);
       await databaseSessionRepository.clearMasterPassword();
       await appleAutofillV2Coordinator.clearCredentials();

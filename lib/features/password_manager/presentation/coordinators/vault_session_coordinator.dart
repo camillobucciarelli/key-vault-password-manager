@@ -13,6 +13,7 @@ import '../../domain/repositories/database_security_repository.dart';
 import '../../domain/repositories/database_sync_repository.dart';
 import '../../../../core/utils/mobile_file_storage.dart';
 import 'apple_autofill_v2_coordinator.dart';
+import 'session_secret_holder.dart';
 
 class DatabaseSettingsUpdateRequest {
   const DatabaseSettingsUpdateRequest({
@@ -54,6 +55,7 @@ class VaultSessionCoordinator {
     required this.secureDataSource,
     required this.databaseSyncRepository,
     required this.vaultKdbxService,
+    required this.sessionSecretHolder,
     this.appleAutofillV2Coordinator = const NoopAppleAutofillV2Coordinator(),
   });
 
@@ -63,6 +65,10 @@ class VaultSessionCoordinator {
   final SecureDataSource secureDataSource;
   final DatabaseSyncRepository databaseSyncRepository;
   final VaultKdbxService vaultKdbxService;
+
+  /// spec-011 FR-1/FR-2: in-memory session secret, cleared on lock, database
+  /// switch and app termination. Keystore behaviour is unchanged in Slice 1.
+  final SessionSecretHolder sessionSecretHolder;
   final AppleAutofillV2CoordinatorContract appleAutofillV2Coordinator;
 
   Future<String?> getSelectedKeyFilePath() {
@@ -95,6 +101,7 @@ class VaultSessionCoordinator {
   }
 
   Future<void> changeDatabase({required String currentDatabasePath}) async {
+    sessionSecretHolder.clear();
     await appleAutofillV2Coordinator.clearCredentials();
     await localDataSource.cacheKeyFilePath(null);
     await secureDataSource.clearMasterPassword();
@@ -102,8 +109,16 @@ class VaultSessionCoordinator {
   }
 
   Future<void> lockVault({required String currentDatabasePath}) async {
+    sessionSecretHolder.clear();
     await appleAutofillV2Coordinator.clearCredentials();
     await secureDataSource.clearMasterPassword();
+  }
+
+  /// spec-011 FR-2: on `AppLifecycleState.detached` only the in-memory
+  /// session secret is dropped. Keystore contents are deliberately left
+  /// untouched in Slice 1 (biometric unlock still reads them on restart).
+  void handleAppDetached() {
+    sessionSecretHolder.clear();
   }
 
   Future<bool> getBiometricProtectionEnabledForPath({
@@ -258,7 +273,8 @@ class VaultSessionCoordinator {
       }
 
       if (request.changePassword) {
-        await secureDataSource.saveMasterPassword(newPassword!);
+        sessionSecretHolder.set(newPassword!);
+        await secureDataSource.saveMasterPassword(newPassword);
       }
       await databaseRegistryRepository.upsert(
         record.copyWith(
@@ -335,8 +351,10 @@ class VaultSessionCoordinator {
     } catch (_) {}
     try {
       if (password == null) {
+        sessionSecretHolder.clear();
         await secureDataSource.clearMasterPassword();
       } else {
+        sessionSecretHolder.set(password);
         await secureDataSource.saveMasterPassword(password);
       }
     } catch (_) {}

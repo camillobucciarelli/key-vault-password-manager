@@ -11,7 +11,7 @@ import 'package:password_manager/core/theme/app_theme.dart';
 import 'package:password_manager/core/utils/clipboard_guard.dart';
 import 'package:password_manager/core/theme/theme_cubit.dart';
 import 'package:password_manager/features/password_manager/data/datasources/biometric_data_source.dart';
-import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
 import 'package:password_manager/features/password_manager/data/services/desktop_browser_pending_generation_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_csv_import_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_duplicate_service.dart';
@@ -173,7 +173,7 @@ Future<Widget> pumpableEntryScreen({
     (path, _) => VaultBloc(
       databasePath: path,
       getSelectedKeyFilePath: () async => null,
-      secureDataSource: _FakeSecureDataSource(),
+      sessionSecretHolder: SessionSecretHolder()..set(''),
       vaultKdbxService: _FakeVaultKdbxService(resolvedHarness),
       vaultCsvImportService: VaultCsvImportService(),
       vaultDuplicateService: VaultDuplicateService(),
@@ -195,17 +195,6 @@ Future<Widget> pumpableEntryScreen({
 }
 
 Future<void> resetEntryTestDi() => di.sl.reset();
-
-class _FakeSecureDataSource implements SecureDataSource {
-  @override
-  Future<String?> getMasterPassword() async => '';
-
-  @override
-  Future<void> saveMasterPassword(String password) async {}
-
-  @override
-  Future<void> clearMasterPassword() async {}
-}
 
 class _FakeVaultKdbxService implements VaultKdbxService {
   _FakeVaultKdbxService(this.harness);

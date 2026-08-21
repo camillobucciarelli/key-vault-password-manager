@@ -320,6 +320,9 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
         _onAppResumed();
         break;
       case AppLifecycleState.detached:
+        // spec-011 FR-2: process termination drops the in-memory session
+        // secret. Keystore contents are untouched in Slice 1.
+        di.sl<VaultSessionCoordinator>().handleAppDetached();
         break;
     }
   }
