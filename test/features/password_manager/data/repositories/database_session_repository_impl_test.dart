@@ -69,6 +69,9 @@ class _FakeLocalDataSource implements LocalDataSource {
 }
 
 class _FakeSecureDataSource implements SecureDataSource {
+  @override
+  Future<void> deleteLegacyMasterPassword() async {}
+
   final Map<String, String> passwords = {};
 
   @override

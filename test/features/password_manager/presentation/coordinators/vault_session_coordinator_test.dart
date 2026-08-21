@@ -862,6 +862,9 @@ class _FakeSecurityRepository implements DatabaseSecurityRepository {
 }
 
 class _FakeSecureDataSource implements SecureDataSource {
+  @override
+  Future<void> deleteLegacyMasterPassword() async {}
+
   /// spec-011 FR-4: one entry per database id.
   final Map<String, String> passwords = {};
   bool failNextSave = false;
