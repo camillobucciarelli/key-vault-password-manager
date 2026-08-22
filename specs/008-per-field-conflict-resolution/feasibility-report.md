@@ -956,6 +956,47 @@ implementation, and it requires: a model that expresses deletion evidence, a
 demonstration that the chosen structure is a semilattice over both add and
 remove, and a mutation check of the same standard applied to T009.
 
+#### Where the T301 adapter's evidence does NOT line up with T009's model
+
+Recorded 2026-08-22 when T301/T304-T307 landed, on tester review of the first
+slice. The adapter supplies the presence evidence T009 takes as given, so any
+place the two disagree is a place the proof does not reach the implementation.
+Three were found. The first is fixed; the other two are **open limits** and are
+listed here so nobody reads "T009 passed" as covering them.
+
+1. **Key space — fixed in T301.** T009 keys a document by a case-sensitive
+   `Map<String, …>`. KDBX does not: `KdbxKey` compares on `key.toLowerCase()`
+   (kdbx 2.5.0, `kdbx_entry.dart:58-71`) and both `_strings` and `_binaries` are
+   keyed by it, so `Custom_Totp` and `custom_totp` are one field. The first
+   adapter draft re-keyed on the verbatim spelling, which reported a real value
+   conflict as two automatic one-sided unions — bypassing FR-4's review — and
+   proposed a union that collapses onto one key on write, losing a value in
+   silence and non-deterministically. The adapter now matches on the canonical
+   key and carries both verbatim spellings as payload. **T009's model remains
+   case-sensitive**, so the model's key space is still not KDBX's; the
+   implementation is correct against KDBX, not against the model.
+2. **No per-field modification time — OPEN, blocks T401a.** T009's `Field` is
+   `(value, mtime)` and FR-3's total order consumes that `mtime`. **KDBX has no
+   per-field time.** `KdbxTimes` lives on `KdbxObject`, so the finest granularity
+   available is one `lastModificationTime` per *entry*. Every field of an entry
+   would therefore carry the same timestamp, and FR-3's rules 1 and 2 (known
+   beats unknown, then newer wins) can never discriminate two fields of the same
+   entry: **every intra-entry field conflict falls through to rule 3**, the
+   UTF-8 value comparison, in a block. That is not a bug in rule 3 — it is
+   deterministic and convergent — but it means the LWW behaviour FR-3 describes
+   is, in practice, entry-level, and the "newer field wins" reading of the spec
+   is not implementable on KDBX. The adapter emits **no timestamp at all** today
+   rather than emitting an entry time dressed up as a field time. **T401a must
+   decide this explicitly** before implementing the comparator; see `tasks.md`.
+3. **Protection status is outside the T009 proof — OPEN, low risk.** The adapter
+   treats a plain→protected change at equal text as a `fieldConflict`, on the
+   FR-1 grounds that protected/plain status is preserved semantics. T009's
+   `Field` has no protection dimension, so the commutativity and associativity
+   results say nothing about that dimension. It is a two-valued flag compared by
+   equality and never merged, so it cannot reorder anything — but that is an
+   argument, and an argument is what T009 exists to replace. To be folded into
+   the model when T401a extends it.
+
 ### T009b — deletion convergence model
 
 Executed 2026-08-22. Status: **pending PM acceptance** — the gate closes only

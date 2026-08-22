@@ -24,7 +24,7 @@ void main() {
   final root = _findProjectRoot();
 
   test('every registered merge domain file exists', () {
-    for (final relative in mergeModuleFiles) {
+    for (final relative in mergeRegisteredFiles) {
       expect(
         File(p.join(root, relative)).existsSync(),
         isTrue,
@@ -69,18 +69,39 @@ void main() {
       '(a new merge file cannot escape the gates)', () {
     final unregistered = <String, Set<String>>{};
 
+    // The name pattern alone was not enough once Phase 3 landed: none of the
+    // adapter's own types match it (`KdbxMergeAdapter`, `KdbxPresenceDiff`,
+    // `KdbxFieldPresent` all have no `\bMerge[A-Z]` or `SyncMerge` boundary),
+    // so a file could name the type that carries decrypted plaintext and count
+    // as "not participating in the merge contract". The membership rule is
+    // therefore also derived from the SYMBOLS the registered files declare —
+    // no hand-maintained second list, so it cannot drift from the code.
+    final declaredSymbols = <String>{
+      for (final relative in mergeRegisteredFiles)
+        ..._declaredTopLevelNames(p.join(root, relative)),
+    };
+    final symbolPattern = RegExp(
+      r'\b(' + declaredSymbols.map(RegExp.escape).join('|') + r')\b',
+    );
+
     for (final entry in _dartFilesUnder(p.join(root, 'lib'))) {
       final relative = p.relative(entry.path, from: root).replaceAll(r'\', '/');
-      if (mergeModuleFiles.contains(relative)) continue;
+      if (mergeRegisteredFiles.contains(relative)) continue;
 
-      final hits = mergeIdentifierPattern
-          .allMatches(entry.readAsStringSync())
-          .map((m) => m.group(0)!)
-          .where(
-            (id) =>
-                !(nonSpec008MergeIdentifiers[id]?.contains(relative) ?? false),
-          )
-          .toSet();
+      final source = entry.readAsStringSync();
+      final hits =
+          <String>{
+                ...mergeIdentifierPattern
+                    .allMatches(source)
+                    .map((m) => m.group(0)!),
+                ...symbolPattern.allMatches(source).map((m) => m.group(0)!),
+              }
+              .where(
+                (id) =>
+                    !(nonSpec008MergeIdentifiers[id]?.contains(relative) ??
+                        false),
+              )
+              .toSet();
 
       if (hits.isNotEmpty) unregistered[relative] = hits;
     }
@@ -174,6 +195,85 @@ void main() {
     );
   });
 
+  test('the data-layer merge implementation lives in data/ (N7, mirrored)', () {
+    // Same reasoning as the domain rule above, in the other direction: a
+    // `domain/` file registered into the data bucket would be exempted from
+    // every redaction rule by a one-line list edit.
+    for (final relative in mergeDataImplementationFiles) {
+      expect(
+        relative,
+        startsWith('lib/features/password_manager/data/'),
+        reason:
+            '$relative is registered as a data-layer merge file but does not '
+            'live under data/. The data bucket is an exemption from the '
+            'redaction rules; it must not be reachable from domain/.',
+      );
+    }
+  });
+
+  test('no domain or presentation file reaches the data-layer merge '
+      'implementation, transitively (T303 boundary)', () {
+    // The adapter owns KdbxFile, Credentials, decrypted values and attachment
+    // bytes.
+    //
+    // This used to match DIRECT imports by basename, and that was launderable
+    // in two lines: `data/reexport.dart` containing only
+    // `export 'kdbx_merge_adapter.dart';`, plus a domain file importing the
+    // re-export. No direct import, no basename match, analyzer clean — and
+    // `KdbxFieldPresent.semanticValue`, which is decrypted plaintext, readable
+    // from `domain/`. One indirection defeated the whole check.
+    //
+    // So the check is now over the TRANSITIVE closure of the import/export
+    // graph: it asks "can this file reach the adapter at all", which is the
+    // question the boundary is actually about. Any chain length, any file name.
+    final reaching = _filesReaching(root, mergeDataImplementationFiles.toSet());
+    final offenders = <String>[];
+
+    for (final relative in reaching) {
+      if (mergeDataImplementationFiles.contains(relative)) continue;
+      final segments = p.split(relative);
+      if (segments.contains('domain') || segments.contains('presentation')) {
+        offenders.add(relative);
+      }
+    }
+
+    expect(
+      offenders,
+      isEmpty,
+      reason:
+          'These domain/presentation files can reach the data-layer merge '
+          'implementation through some chain of imports or exports, so they '
+          'can name its types and read decrypted values (T303):\n'
+          '${offenders.map((o) => '  - $o').join('\n')}',
+    );
+  });
+
+  test('the data-layer merge implementation imports no presentation code', () {
+    final offenders = <String>[];
+
+    for (final relative in mergeDataImplementationFiles) {
+      for (final rawUri in importsOf(p.join(root, relative))) {
+        final resolved = rawUri.startsWith('package:password_manager/')
+            ? 'lib/${rawUri.split('/').skip(1).join('/')}'
+            : rawUri.startsWith('package:') || rawUri.startsWith('dart:')
+            ? null
+            : p
+                  .relative(
+                    p.normalize(
+                      p.join(p.dirname(p.join(root, relative)), rawUri),
+                    ),
+                    from: root,
+                  )
+                  .replaceAll(r'\', '/');
+        if (resolved != null && p.split(resolved).contains('presentation')) {
+          offenders.add('$relative -> $rawUri');
+        }
+      }
+    }
+
+    expect(offenders, isEmpty, reason: offenders.join('\n'));
+  });
+
   test(
     'Gate 2 is not jumped: no data implementation and no DI binding exists',
     () {
@@ -183,7 +283,7 @@ void main() {
         final relative = p
             .relative(entry.path, from: root)
             .replaceAll(r'\', '/');
-        if (mergeModuleFiles.contains(relative)) continue;
+        if (mergeRegisteredFiles.contains(relative)) continue;
         final source = entry.readAsStringSync();
         for (final typeName in phase3TypeNames) {
           if (source.contains(typeName)) offenders.add('$relative: $typeName');
@@ -199,6 +299,93 @@ void main() {
       );
     },
   );
+}
+
+/// Every `lib/` file that can reach one of [targets] by following import and
+/// export directives, to any depth. Includes [targets] themselves.
+///
+/// Export edges are followed for the same reason imports are: a re-export makes
+/// the target's declarations nameable from the re-exporting library, which is
+/// precisely the laundering path this replaced.
+Set<String> _filesReaching(String root, Set<String> targets) {
+  // Forward edges file -> its direct import/export targets, then invert.
+  final reachedBy = <String, Set<String>>{};
+  for (final entry in _dartFilesUnder(p.join(root, 'lib'))) {
+    final relative = p.relative(entry.path, from: root).replaceAll(r'\', '/');
+    for (final rawUri in importsOf(entry.path)) {
+      final resolved = _resolveLibUri(root, relative, rawUri);
+      if (resolved != null) {
+        (reachedBy[resolved] ??= <String>{}).add(relative);
+      }
+    }
+  }
+
+  final closure = <String>{...targets};
+  final queue = [...targets];
+  while (queue.isNotEmpty) {
+    for (final importer in reachedBy[queue.removeLast()] ?? const <String>{}) {
+      if (closure.add(importer)) queue.add(importer);
+    }
+  }
+  return closure;
+}
+
+/// Resolves a directive URI to a project-relative `lib/` path, or null when it
+/// points outside the project (`dart:`, another package).
+String? _resolveLibUri(String root, String fromRelative, String rawUri) {
+  if (rawUri.startsWith('dart:')) return null;
+  if (rawUri.startsWith('package:')) {
+    if (!rawUri.startsWith('package:password_manager/')) return null;
+    return 'lib/${rawUri.split('/').skip(1).join('/')}';
+  }
+  return p
+      .relative(
+        p.normalize(p.join(p.dirname(p.join(root, fromRelative)), rawUri)),
+        from: root,
+      )
+      .replaceAll(r'\', '/');
+}
+
+/// Public top-level names a file declares — every kind, including the ones
+/// `declaredTypeNames` deliberately skips, because this drives a completeness
+/// check and a completeness check that enumerates what it knows is the hole
+/// this module has already been bitten by twice.
+Set<String> _declaredTopLevelNames(String path) {
+  final unit = parseString(
+    content: File(path).readAsStringSync(),
+    path: path,
+  ).unit;
+  final names = <String>{};
+  for (final declaration in unit.declarations) {
+    switch (declaration) {
+      case ClassDeclaration():
+        names.add(declaration.namePart.typeName.lexeme);
+      case EnumDeclaration():
+        names.add(declaration.namePart.typeName.lexeme);
+      case ExtensionTypeDeclaration():
+        names.add(declaration.primaryConstructor.typeName.lexeme);
+      case MixinDeclaration():
+        names.add(declaration.name.lexeme);
+      case GenericTypeAlias():
+        names.add(declaration.name.lexeme);
+      case ExtensionDeclaration():
+        final name = declaration.name?.lexeme;
+        if (name != null) names.add(name);
+      case FunctionDeclaration():
+        names.add(declaration.name.lexeme);
+      case TopLevelVariableDeclaration():
+        for (final variable in declaration.variables.variables) {
+          names.add(variable.name.lexeme);
+        }
+      default:
+        throw StateError(
+          'Unhandled top-level declaration ${declaration.runtimeType} in '
+          '$path. This walker refuses what it cannot evaluate: add a case '
+          'before using the construct in a registered merge file.',
+        );
+    }
+  }
+  return names..removeWhere((name) => name.startsWith('_'));
 }
 
 Iterable<File> _dartFilesUnder(String directory) => Directory(directory)
