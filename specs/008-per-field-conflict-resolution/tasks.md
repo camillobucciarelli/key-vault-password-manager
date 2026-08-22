@@ -461,6 +461,17 @@ UUID/lineage, presence, deletion, shortcut, secret boundary and DI tests pass.
       field time. See `feasibility-report.md` §"Where the T301 adapter's
       evidence does NOT line up with T009's model". T401a must also extend the
       model to cover the protection dimension the adapter compares.
+      **Third open item from T301: `KdbxFieldDiff.keySpellingDiverges`.** The
+      adapter emits it and nothing reads it today, so T401a must treat it
+      deliberately rather than discover it. It cannot be deferred again: KDBX
+      admits exactly one key, so even the `identical` case — equal values,
+      different spelling, e.g. local `Custom_Totp` vs remote `custom_totp` —
+      forces the apply step to pick one. The three candidates are already
+      analysed and two are ruled out: "keep local" is perspective-dependent and
+      forbidden by FR-3; promoting it to a conflict contradicts FR-4's
+      "present, equal → identical" row by asking the user about values that
+      agree; FR-3's deterministic UTF-8 order is probably right but needs the
+      comparator this task builds, which is why the decision lives here.
 - [ ] **T401b Sticky decision ledger** — record explicit user decisions keyed by
       object UUID plus field key/attachment name, re-apply after every re-merge
       ahead of LWW/tie-break/shortcuts, and return the session to review when a
