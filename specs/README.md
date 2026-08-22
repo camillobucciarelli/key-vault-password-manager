@@ -60,6 +60,21 @@ carries dark acceptance criteria.
    that violates constitution principle I and blocks the accurate privacy claim
    required for store submission.
 
+## Roadmap board
+
+Development status is mirrored to a GitHub Projects v2 board: one issue per
+spec, labelled `spec`, its body a copy of that spec's `tasks.md` checklist.
+`tool/sync_spec_project.sh` derives everything from this directory and runs on
+every push to `main` that touches `specs/**`
+(`.github/workflows/spec-project-sync.yml`). Status is `Done` when every task
+box is ticked, `In Progress` when some are, `Todo` otherwise; a `Done` spec's
+issue is closed automatically.
+
+Tick the boxes in `tasks.md` — the issue body is regenerated and hand edits to
+it are lost. One-time setup: repo variable `SPEC_PROJECT_NUMBER` (the board
+number) and secret `PROJECTS_TOKEN` (a fine-grained PAT with Projects
+read/write; the default `GITHUB_TOKEN` cannot write user-level projects).
+
 ## Definition of done, every spec
 
 - `flutter analyze` clean, targeted tests green, then `flutter test` green before

@@ -1,5 +1,9 @@
 # Repository Guidelines
 
+`CLAUDE.md` is a symlink to this file — one set of instructions for every agent. Edit this file.
+
+A cross-platform Flutter password manager (Android, iOS, macOS, Windows, Linux, web) storing vaults in the KeePass `.kdbx` format, with Android/Apple autofill integration and a desktop browser autofill bridge.
+
 ## Project Structure & Module Organization
 
 Cross-feature infrastructure lives in `lib/core/`. Keep one Password Manager feature under `lib/features/password_manager/{data,domain,presentation,di}`; do not split cloud sync, autofill, or vault workflows into new top-level features without an approved spec.
@@ -11,6 +15,32 @@ Domain repository/port contracts define application-required behavior; data impl
 DI uses `get_it`, split across `lib/core/di/core_di.dart` and `lib/features/password_manager/di/*.dart`, assembled by `lib/injection_container.dart`. `data/services/vault_kdbx_service.dart` owns semantic KDBX parsing/edits. Approved raw-byte replacement, import, and sync writers remain in data services/orchestrator paths under shared `DatabasePathMutex`, backup, and safe-writer invariants; never bypass those protections or imply every vault write routes through `VaultKdbxService`.
 
 Cloud sync is currently hard-coded to Google Drive. [Spec 010](specs/010-multi-cloud-storage/spec.md) plans one provider-neutral storage port, a sole Google data adapter, remote identity as `(providerId, remoteFileId)`, typed safe errors, and direct DI without a registry. Do not describe that refactor as implemented until its tasks land. Its deferred provider evidence/single-file constraints remain normative outside the immediate Google-only DoD. Autofill has two live paths: Apple (`apple_autofill_v2_coordinator.dart` + `ios/CredentialProviderExtension`, `macos/CredentialProviderExtension`) and desktop browsers (`desktop_browser_autofill_*.dart` + `desktop/native_host/` + `desktop/browser_extension/`). The native messaging protocol is Dart in `tool/native_host_protocol.dart`, entry point `tool/native_host.dart`.
+
+## Architecture Map
+
+| BLoC | Responsibility |
+|------|----------------|
+| `DatabaseSelectionBloc` | Entry point — selects/creates/removes databases, handles Google Drive file picking |
+| `DatabaseUnlockBloc` | Unlocks a selected `.kdbx` file with password/key file/biometrics |
+| `VaultBloc` | All vault operations once unlocked — CRUD entries/groups, search, sync, attachments, CSV import |
+
+Coordinators: `DatabaseSessionCoordinator` (import/dedup/creation/unlock), `VaultSessionCoordinator` (lock/change-database/update-settings), `OtpAuthDeepLinkCoordinator` (`otpauth://` deep links, initialized in `main.dart`).
+
+Autofill fans out from one Dart contract, `AppleAutofillV2CoordinatorContract` (the name is historical — it covers Android too), via `CompositeAutofillV2Coordinator` in `password_manager_presentation_di.dart`:
+
+- **Native** (`AppleAutofillV2Coordinator`) publishes credentials over the `dev.camillobucciarelli.keyvault/apple_autofill_v2` method channel. Native sides are Swift in `ios/CredentialProviderExtension/` and `macos/CredentialProviderExtension/` (`SharedAutofillStore`), Kotlin in `android/app/src/main/kotlin/.../autofill/` (`KeyVaultAutofillService`, `AndroidAutofillV2Channel`, `AutofillPickerActivity`). No `flutter_autofill_service` package is used.
+- **Desktop browsers** (`DesktopBrowserAutofillCoordinator`) writes an on-disk metadata cache (`desktop_browser_autofill_cache.dart`) plus a reveal bridge (`desktop_browser_autofill_reveal_bridge_service.dart`).
+
+Both directions carry pending associations (site ↔ entry links created from the native UI) back into the vault.
+
+Sync: `DatabaseSyncOrchestrator` + `GoogleDriveApiService` + `DriveAuthService`. Auth uses PKCE on desktop (`DesktopOAuthPkceService`) and `google_sign_in` on mobile; checksums, timestamps and mappings live in `SyncMetadataDataSource`.
+
+Key files:
+
+- `lib/main.dart` — single entry point: logging setup, `di.init()`, otpauth deep-link coordinator, `runApp`
+- `lib/core/theme/` — `AppTheme` + `ThemeCubit`
+- `lib/core/utils/mobile_file_storage.dart` — sandboxed file I/O on mobile (iOS/Android keep databases in app-internal directories)
+- `presentation/screens/vault_screen.dart` — assembler only: imports plus ten `part` directives pointing at `presentation/screens/vault/*.part.dart` (`vault_shell`, `vault_navigation`, `vault_entries`, `vault_entries_details`, `vault_dialogs`, `vault_duplicates`, `vault_recycle_bin`, …). Add vault UI to the matching part file, never to `vault_screen.dart`.
 
 ## Build, Test, and Development Commands
 
@@ -66,6 +96,20 @@ Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `ci:`), s
 ## Agent Instructions
 
 Per `.github/copilot-instructions.md`: if `graphify-out/GRAPH_REPORT.md` exists, read it before answering structural questions about the repo.
+
+## Spec Task Tracking
+
+When you finish work that completes a task in a `specs/NNN-*/tasks.md` file, tick that task's box (`- [ ]` → `- [x]`) in the same change that lands the work. This is not bookkeeping: `tasks.md` is the sole source of the roadmap board (Projects v2 #2), and `.github/workflows/spec-project-sync.yml` derives each spec's issue body and Status from those boxes on every push to `main`. An untouched box means the board reports the work as not done.
+
+Tick a box only when that task's own acceptance criteria are met and its tests pass. Never edit the generated issue body or move a card by hand — the next sync overwrites both. To resync without a push: `PROJECT_NUMBER=2 PROJECT_OWNER=camillobucciarelli tool/sync_spec_project.sh`.
+
+The same duty covers every other spec edit, not just ticking boxes: adding or removing a spec, renaming one, adding, deleting, reordering or rewording tasks. The board must end up consistent with `specs/` in the same change, so keep the shapes the sync depends on:
+
+- `specs/NNN-slug/spec.md` — first line is `# <id> — <Title>`; the id (`001`, `007A`) is the issue's identity. Changing the id orphans the existing issue and creates a second one; change the title freely, never the id.
+- `tasks.md` — task lines start at column 0 as `- [ ]` / `- [x]`; continuation lines are indented. Anything else is invisible to the sync.
+- A spec with no `tasks.md` shows as `Todo` with an explanatory body — expected for drafts.
+
+After a spec change, run the script (command above) or the `Spec project sync` workflow via `workflow_dispatch`, and report the resulting board state. Do not leave `specs/` and the board disagreeing.
 
 ## Agent Branch Workflow
 
