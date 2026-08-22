@@ -33,6 +33,7 @@ class SyncMergeAstGate {
   SyncMergeAstGate({
     required this.safeStoredTypes,
     required this.safeReturnedTypes,
+    required this.allowedSupertypes,
     required this.allowedStringMembers,
     required this.allowedPrivateStaticTypes,
     required this.secretishName,
@@ -46,6 +47,14 @@ class SyncMergeAstGate {
 
   /// Types a method may return. Includes the transient types.
   final Set<String> safeReturnedTypes;
+
+  /// Supertypes a strict-bucket declaration may extend, implement or mix in.
+  ///
+  /// `judgeUnit` walks *declared* members; an inherited surface is never
+  /// declared anywhere in the module, so `implements Map<String, String>` used
+  /// to hand every holder the whole `Map` API unjudged (H3). Same geometry as
+  /// the extension hole, arriving through inheritance instead.
+  final Set<String> allowedSupertypes;
 
   /// `Class.member` pairs allowed to be a `String`.
   final Set<String> allowedStringMembers;
@@ -127,6 +136,15 @@ class SyncMergeAstGate {
     for (final declaration in unit.declarations) {
       switch (declaration) {
         case ClassDeclaration():
+          if (strict) {
+            _judgeSupertypes(
+              file,
+              declaration.namePart.typeName.lexeme,
+              extended: declaration.extendsClause?.superclass,
+              implemented: declaration.implementsClause?.interfaces,
+              mixed: declaration.withClause?.mixinTypes,
+            );
+          }
           _judgeMembers(
             file,
             declaration.namePart.typeName.lexeme,
@@ -137,6 +155,14 @@ class SyncMergeAstGate {
         case EnumDeclaration():
           // An enum has constructors, fields, getters and methods. The module
           // declares eight of them straight onto the port surface.
+          if (strict) {
+            _judgeSupertypes(
+              file,
+              declaration.namePart.typeName.lexeme,
+              implemented: declaration.implementsClause?.interfaces,
+              mixed: declaration.withClause?.mixinTypes,
+            );
+          }
           _judgeMembers(
             file,
             declaration.namePart.typeName.lexeme,
@@ -145,6 +171,13 @@ class SyncMergeAstGate {
             strict: strict,
           );
         case MixinDeclaration():
+          if (strict) {
+            _judgeSupertypes(
+              file,
+              declaration.name.lexeme,
+              implemented: declaration.implementsClause?.interfaces,
+            );
+          }
           _judgeMembers(
             file,
             declaration.name.lexeme,
@@ -166,6 +199,11 @@ class SyncMergeAstGate {
         case ExtensionTypeDeclaration():
           final name = declaration.primaryConstructor.typeName.lexeme;
           if (strict) {
+            _judgeSupertypes(
+              file,
+              name,
+              implemented: declaration.implementsClause?.interfaces,
+            );
             // The representation parameter IS the stored state.
             for (final parameter
                 in declaration.primaryConstructor.formalParameters.parameters) {
@@ -239,10 +277,18 @@ class SyncMergeAstGate {
     for (final member in members) {
       switch (member) {
         case ConstructorDeclaration():
-          final name = member.name?.lexeme;
-          if (name != null &&
-              (name.startsWith('from') || name.contains('Json'))) {
-            _fail(file, '$owner.$name is a deserializer');
+          final ctorName = member.name?.lexeme;
+          if (ctorName != null &&
+              (ctorName.startsWith('from') || ctorName.contains('Json'))) {
+            _fail(file, '$owner.$ctorName is a deserializer');
+          }
+          if (strict) {
+            _judgeParameters(
+              file: file,
+              owner: '$owner.${ctorName ?? 'new'}',
+              parameters: member.parameters.parameters,
+              typeParams: typeParams,
+            );
           }
         case FieldDeclaration():
           if (!strict) break;
@@ -285,8 +331,11 @@ class SyncMergeAstGate {
   }) {
     final name = method.name.lexeme;
 
-    if (name == 'toString') return; // separately required to be redacted
-    if (name == 'props' || name == 'hashCode') return;
+    if (method.isGetter && (name == 'props' || name == 'hashCode')) return;
+    if (method.isGetter && name == 'runtimeType') return;
+    if (!method.isGetter && name == 'toString') {
+      return; // separately required to be a redacted constant
+    }
 
     if (method.isGetter) {
       if (!strict) return;
@@ -319,7 +368,7 @@ class SyncMergeAstGate {
     }
 
     // Ordinary method: judged by RETURN TYPE, so a serialization or telemetry
-    // channel is caught whatever it is called.
+    // channel is caught whatever it is called...
     _judgeType(
       file,
       '$owner.$name',
@@ -328,6 +377,99 @@ class SyncMergeAstGate {
       typeParams: typeParams,
       allowString: false,
     );
+
+    // ...and by PARAMETER TYPE, which is the only direction a credential can
+    // travel INTO the domain. T303: "Password, key-file path/bytes, KDBX
+    // types, plaintext store and preconditions never cross port."
+    if (strict) {
+      _judgeParameters(
+        file: file,
+        owner: owner,
+        parameters: method.parameters?.parameters ?? const [],
+        typeParams: typeParams,
+        member: name,
+      );
+    }
+  }
+
+  /// Judges an inbound parameter list in a stored position.
+  ///
+  /// Initializing formals (`this.x`) and super formals are skipped: the field
+  /// they bind to is judged where it is declared, and judging them again would
+  /// report the same violation twice under a worse name.
+  void _judgeParameters({
+    required String file,
+    required String owner,
+    required List<FormalParameter> parameters,
+    required Set<String> typeParams,
+    String? member,
+  }) {
+    for (final parameter in parameters) {
+      if (parameter is FieldFormalParameter ||
+          parameter is SuperFormalParameter) {
+        continue;
+      }
+      // Old-style function-typed formal (`MergeChoice gamma(int i)`): the AST
+      // reports its RETURN type in `parameter.type`, so a suffix returning a
+      // safe type would slip through as that safe type while actually being a
+      // callable capability handle. Found by probing this fix, not by review.
+      if (parameter.functionTypedSuffix != null) {
+        _fail(
+          file,
+          '${member == null ? owner : '$owner.$member'}'
+          '(${parameter.name?.lexeme ?? '_'}) (parameter) is a function-typed '
+          'formal; a callable parameter is a capability handle whatever it '
+          'returns',
+        );
+        continue;
+      }
+
+      final label = member == null
+          ? '$owner(${parameter.name?.lexeme ?? '_'})'
+          : '$owner.$member(${parameter.name?.lexeme ?? '_'})';
+      _judgeType(
+        file,
+        '$label (parameter)',
+        _parameterType(parameter),
+        position: TypePosition.stored,
+        typeParams: typeParams,
+        allowString: false,
+      );
+      final name = parameter.name?.lexeme;
+      if (name != null && secretishName.hasMatch(name)) {
+        _fail(file, '$label (parameter) has a secret-bearing name');
+      }
+    }
+  }
+
+  void _judgeSupertypes(
+    String file,
+    String owner, {
+    NamedType? extended,
+    List<NamedType>? implemented,
+    List<NamedType>? mixed,
+  }) {
+    void check(NamedType? supertype, String relation) {
+      if (supertype == null) return;
+      final name = supertype.name.lexeme;
+      if (allowedSupertypes.contains(name) && supertype.typeArguments == null) {
+        return;
+      }
+      _fail(
+        file,
+        '$owner $relation "${supertype.toSource()}", whose inherited surface '
+        'this judge never sees. Only judged module types and the approved '
+        'bases may be inherited from.',
+      );
+    }
+
+    check(extended, 'extends');
+    for (final type in implemented ?? const <NamedType>[]) {
+      check(type, 'implements');
+    }
+    for (final type in mixed ?? const <NamedType>[]) {
+      check(type, 'mixes in');
+    }
   }
 
   void _judgeStoredMember({
@@ -437,11 +579,34 @@ class SyncMergeAstGate {
         if (position == TypePosition.returned && name == 'void') return;
 
         if (typeParams.contains(name)) {
-          if (position == TypePosition.returned) return;
+          // A bare type parameter is an "anything" channel. It is tolerated
+          // only where it cannot be reached from outside the library: a
+          // PRIVATE method's return. `_readGuarded<T>(T? field) => ...` in the
+          // transient library is the one such member, and every public member
+          // that calls it has its own return type judged.
+          if (position == TypePosition.returned && where.contains('._')) {
+            return;
+          }
           _fail(
             file,
-            '$where is the bare type parameter "$name"; a stored member typed '
-            'by a type parameter can hold anything',
+            '$where is the bare type parameter "$name"; it can carry anything, '
+            'including plaintext',
+          );
+          return;
+        }
+
+        // Order matters for the MESSAGE, not for the verdict: both are
+        // refusals. A parameterised type the judge cannot decompose is
+        // refused for IGNORANCE, and saying "unsafe type
+        // Map<MergeDecisionId, MergeChoice>" would be wrong and would invite
+        // the next reader to loosen the gate. The refusal is deliberate
+        // over-closure; the message has to say which kind it is.
+        if (args.isNotEmpty) {
+          _fail(
+            file,
+            '$where parameterises "$name", which the judge does not know how '
+            'to unwrap. This is a refusal for ignorance, not a claim that the '
+            'type is unsafe — add a rule for "$name" if it belongs here.',
           );
           return;
         }
@@ -450,14 +615,10 @@ class SyncMergeAstGate {
             ? safeStoredTypes
             : safeReturnedTypes;
         if (!allowed.contains(name)) {
-          _fail(file, '$where has unsafe type "${type.toSource()}"');
-          return;
-        }
-        if (args.isNotEmpty) {
           _fail(
             file,
-            '$where parameterises "$name", which the judge does not know how '
-            'to unwrap',
+            '$where has type "${type.toSource()}", which is not in the safe '
+            'set',
           );
         }
 

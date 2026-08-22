@@ -350,6 +350,20 @@ structural rather than another enumeration: a deliberately harmless
 `unhandled top-level construct (ClassTypeAliasImpl)` — it leaks nothing and is
 rejected purely for being unrecognised.
 
+**Round 4** accepted the design: 13 constructs thrown at the judge, none passed,
+all seven round-3 escapes still dead, no hole of the same family remaining. Four
+point rules were added, the first two sharing one root — the judge governed the
+port's outbound surface and not its inbound one: **H1** method parameters and
+**H4** constructor parameters are now judged (T303 forbids a password, key-file
+path or plaintext handle crossing the port, and inbound is the only direction
+one can); **H18b** a method named `props` was skipped before the `isGetter`
+check, smuggling a serializer onto the port's error object; **H3** inherited
+surface (`extends`/`implements`/`with`/`on`) is judged for the strict buckets;
+**H2** a bare type parameter is refused in a return position except for private
+methods. An own probe of six inbound parameter shapes with neutral names found a
+residual: an old-style function-typed formal is reported by the AST via its
+return type, so a callable returning a safe type passed — now refused outright.
+
 **The gate closes on PM acceptance of this evidence, not on the suite declaring
 itself green** — the T009/T009b precedent.
 

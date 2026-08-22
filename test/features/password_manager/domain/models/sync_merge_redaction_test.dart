@@ -97,6 +97,9 @@ void main() {
   SyncMergeAstGate newGate() => SyncMergeAstGate(
     safeStoredTypes: safeStoredTypes(),
     safeReturnedTypes: safeReturnedTypes(),
+    // `Equatable` is the redaction-bearing base; `Exception` is a marker
+    // interface with no members. Everything else must be a judged module type.
+    allowedSupertypes: {'Equatable', 'Exception', ...safeStoredTypes()},
     allowedStringMembers: _allowedStringMembers,
     allowedPrivateStaticTypes: _allowedPrivateStaticTypes,
     secretishName: _secretishName,

@@ -767,6 +767,43 @@ secret-bearing name and no serializer. It fails, with
 that alias is a leak; it fails purely because it is unrecognised, which is the
 property the previous two rounds lacked.
 
+**Round 4 — independent tester, design accepted.** Thirteen constructs were
+thrown at the judge — class alias, mixin, extension type, extension, typedef,
+enum, `external`, `noSuchMethod`, bare `Function`, operators, positional and
+named records, generic bounds, `covariant` — and **none passed**: each was
+either judged correctly or stopped by the fail-closed `default`. All seven
+round-3 escapes stayed dead, and the `ClassTypeAlias` probe was verified
+genuine. The verdict was explicit that no hole of the same family remained;
+what follows is refinement, not a fourth repetition.
+
+Four rules were missing, and the first two share one root: the judge governed
+the port's **outbound** surface thoroughly and its **inbound** surface not at
+all.
+
+| # | Gap | Closure | Re-verified |
+| --- | --- | --- | --- |
+| **H1** | Ordinary methods were judged by return type only, so the port accepted `submitCredentials(String masterPassword, String keyFilePath, MergeDisplaySide plaintextHandle, Map<String, String> uuidMap, void Function(String) plaintextSink)`. T303 says the exact opposite, and inbound is the *only* direction a credential can enter the domain. The machinery already existed thirty lines above — setters were judged by parameter type. | Method parameters judged in a stored position; initializing and super formals skipped, since the field they bind to is judged where it is declared. | Killed, 10 violations. |
+| **H4** | Constructors were checked for a `from*`/`*Json*` name and nothing else, so `factory MergeProbe4.of(String masterPassword, String canonicalPath)` and `const MergeProbe4.wired(void Function(String) plaintextSink)` passed. | Same parameter judgement. | Killed, 6 violations. |
+| **H18b** | `if (name == 'props' \|\| name == 'hashCode') return;` ran *before* the `isGetter` check, so on a class with no inherited conflict — `SyncMergeFailure` does not extend `Equatable` — a **method** named `props` was skipped: `Map<String, dynamic> props(String masterPassword)`, a serializer on the port's error object. F4 bypassed by a name. | The skip is conditional on `isGetter`. | Killed. |
+| **H3** | `judgeUnit` walked declared members and never the inherited surface, so `abstract class MergeLeakySurface extends Equatable implements Map<String, String>` handed every holder the whole `Map` API, unjudged. Same geometry as the extension hole, arriving through inheritance. | `extends`/`implements`/`with`/`on` clauses judged for buckets 1 and 3 against an allowlist of judged module types plus `Equatable` and `Exception`. | Killed. |
+| **H2** | A bare type parameter was allowed in a return position, so `T pull<T>()` passed. | Refused — **except** for a private method's return. The tester's note that no module member needs the allowance is not quite right: `_readGuarded<T>(T? field)` in the transient library does. Private is sound as a boundary, because a private member is unreachable outside its library and every public caller has its own return type judged. Scoped rather than removed, and the scoping is documented at the check. | n/a |
+| **messages** | The `NamedType` fallback collapsed "name not in the safe set" and "container the judge cannot decompose" into one wording, so `Map<MergeDecisionId, MergeChoice>` was reported as an *unsafe type* when it is merely unrecognised — an invitation for the next reader to conclude the gate is broken and loosen it. | The two are worded separately, and the ignorance case says so in as many words. The over-closure itself is unchanged and deliberate. | n/a |
+
+**Own probe, and what it found.** Six inbound parameter shapes the tester had
+not tried — a bare generic `T`, a `String Function(int)`, an old-style
+function-typed formal, a `covariant Object`, an optional named parameter with a
+default, and a nullable `Map` — all given **neutral names** (`alpha`…`zeta`) so
+the secret-name regex could not be what caught them. All six were refused on
+type alone.
+
+The old-style function-typed formal was refused for the *wrong reason*: the AST
+reports such a parameter's **return** type in `parameter.type`, so
+`String gamma(int i)` was caught only because that return type happened to be
+`String`. A second probe, `MergeChoice gamma(int i)` — a callable handle
+returning a perfectly safe type — **passed**. That is now closed by refusing any
+parameter carrying a function-typed suffix, whatever it returns. Found by
+probing the fix rather than by reading it.
+
 Minor follow-ups tracked, not implemented: **F7** (`withChoice` throws
 `ArgumentError` while the port declares `SyncMergeFailure` its only error — the
 port comment now states the distinction; the total-variant option stays open),
