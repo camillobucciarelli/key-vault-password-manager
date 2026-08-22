@@ -40,9 +40,15 @@ class SafeVaultBackupUnavailableException implements Exception {
   /// The flow that was stopped, as passed to [SafeVaultFileWriter.write].
   final String operation;
 
-  /// OS-level reason, WITHOUT any path: the constructor is fed through
-  /// `_osReasonSafe`, which strips absolute-path-shaped tokens rather than
-  /// trusting `strerror` to contain none.
+  /// OS-level reason for the refusal, e.g. `Operation not permitted`.
+  ///
+  /// The caller's path is never interpolated into it, and `_osReasonSafe`
+  /// additionally strips absolute-path-shaped tokens out of the OS message.
+  /// That is a backstop, NOT a general guarantee of a path-free string: a
+  /// quoted, parenthesized, tilde, relative or bare-filename path is
+  /// indistinguishable from an ordinary word, so no regex can promise this in
+  /// the abstract. What holds in practice is that `strerror` and
+  /// `FormatMessage` return a fixed errno phrase with no path in it at all.
   final String osReason;
 
   @override
@@ -131,8 +137,14 @@ class SafeVaultFileIo {
   ///   that is a symlink can only have been planted (#45/#46).
   /// - **macOS** — `~/Documents`, shared with every other app and the
   ///   picker's default location. UNLESS the app sandbox is on, where it
-  ///   becomes `~/Library/Containers/<id>/Data/Documents`; the `Containers`
-  ///   segment is the marker for that.
+  ///   becomes `~/Library/Containers/<id>/Data/Documents`; a `Containers`
+  ///   segment DIRECTLY under a `Library` one is the marker for that. The
+  ///   pair is required, not just `Containers`: a user whose home happens to
+  ///   hold a directory named `Containers` would otherwise get a perimeter
+  ///   over their real `~/Documents` — the same bug, for that one user.
+  ///   Matching is case-sensitive on purpose: `path_provider` returns the
+  ///   canonical spelling of a path the OS itself creates, so a fold would
+  ///   only widen the marker for no gain.
   /// - **Linux** — `xdg.getUserDirectory('DOCUMENTS')`, i.e. `~/Documents`.
   /// - **Windows** — `WindowsKnownFolder.Documents`, i.e.
   ///   `C:\Users\<user>\Documents`.
@@ -147,7 +159,9 @@ class SafeVaultFileIo {
       case 'android':
         return true;
       case 'macos':
-        return p.split(root).contains('Containers');
+        final segments = p.split(root);
+        final marker = segments.indexOf('Containers');
+        return marker > 0 && segments[marker - 1] == 'Library';
       default:
         return false;
     }
@@ -693,11 +707,13 @@ class SafeVaultFileWriter {
 
   /// [_osReason] with any absolute-path-shaped token replaced by `<path>`.
   ///
-  /// `strerror`/`FormatMessage` messages carry no path today, so this is
-  /// belt-and-braces — but [SafeVaultBackupUnavailableException] promises a
-  /// path-free message to a UI/log surface, and a promise kept by the OS
-  /// rather than by the code is not kept. Only tokens that START a path are
-  /// stripped, so "Input/output error" survives intact.
+  /// `strerror`/`FormatMessage` messages carry no path today, so this is a
+  /// backstop for the day one of them (or a fake IO) does. Only tokens that
+  /// START an absolute path are stripped, so "Input/output error" survives
+  /// intact — and, by the same token, a quoted/relative/tilde/UNC path or a
+  /// bare filename would NOT be stripped: those are indistinguishable from
+  /// ordinary words. See [SafeVaultBackupUnavailableException.osReason] for
+  /// what is actually guaranteed.
   static String _osReasonSafe(Object error) =>
       _osReason(error).replaceAll(_absolutePathToken, '<path>');
 

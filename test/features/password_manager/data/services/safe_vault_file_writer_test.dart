@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/data/services/safe_vault_file_writer.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 // =============================================================================
 // spec 008 Gate 1 — T108 (collision-safe backup) and T110 (failure injection).
@@ -15,6 +17,8 @@ import 'package:path/path.dart' as p;
 // =============================================================================
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   late Directory tempDir;
 
   setUp(() async {
@@ -936,9 +940,60 @@ void main() {
         isTrue,
       );
       expect(classify('/Users/u/Documents', 'macos'), isFalse);
+      // LOW-1: the marker is the `Library/Containers` PAIR. A home that
+      // happens to hold a directory named `Containers` must not switch the
+      // perimeter on over the user's real ~/Documents.
+      expect(classify('/Users/Containers/Documents', 'macos'), isFalse);
+      expect(classify('/Containers/x/Documents', 'macos'), isFalse);
       // Linux `xdg DOCUMENTS` and the Windows known folder are the USER's.
       expect(classify('/home/u/Documents', 'linux'), isFalse);
       expect(classify(r'C:\Users\u\Documents', 'windows'), isFalse);
+    });
+
+    test('MEDIUM-1 composition: the PRODUCTION seam applies the '
+        'classification, not just the pure function', () async {
+      // Every other test here replaces `appDirectoryRoot()` with a fake, so
+      // dropping the classification INSIDE it — i.e. reintroducing FINDING-1
+      // verbatim — survived the whole suite. This is the only test that runs
+      // the real seam over a real path_provider answer.
+      final original = PathProviderPlatform.instance;
+      addTearDown(() => PathProviderPlatform.instance = original);
+
+      // Shape of the USER's documents directory: what Linux, Windows and
+      // unsandboxed macOS actually return.
+      final userDocuments = await Directory(
+        p.join(tempDir.path, 'home', 'Documents'),
+      ).create(recursive: true);
+      PathProviderPlatform.instance = _FixedPathProvider(userDocuments.path);
+
+      expect(
+        await const SafeVaultFileIo().appDirectoryRoot(),
+        isNull,
+        reason:
+            'the production seam handed back a USER directory as the '
+            'app-private perimeter — FINDING-1, on ${Platform.operatingSystem}',
+      );
+
+      // ...and the positive half, on the one host that can express it.
+      final container = await Directory(
+        p.join(
+          tempDir.path,
+          'Library',
+          'Containers',
+          'com.x',
+          'Data',
+          'Documents',
+        ),
+      ).create(recursive: true);
+      PathProviderPlatform.instance = _FixedPathProvider(container.path);
+
+      expect(
+        await const SafeVaultFileIo().appDirectoryRoot(),
+        Platform.isMacOS ? container.path : isNull,
+        reason:
+            'a sandboxed macOS container must be a perimeter; every other '
+            'host has no documents-based perimeter at all',
+      );
     });
 
     test('DESKTOP REPRO: ~/Documents/vault.kdbx -> ~/Dropbox/vault.kdbx is '
@@ -1249,6 +1304,19 @@ void main() {
       expect(await target.readAsBytes(), [7, 7]);
     });
   });
+}
+
+/// Stands in for `path_provider` so the PRODUCTION [SafeVaultFileIo
+/// .appDirectoryRoot] can be exercised end to end (MEDIUM-1). Same harness
+/// as `mobile_file_storage_guard_qa_test.dart`.
+class _FixedPathProvider extends PathProviderPlatform
+    with MockPlatformInterfaceMixin {
+  _FixedPathProvider(this.basePath);
+
+  final String basePath;
+
+  @override
+  Future<String?> getApplicationDocumentsPath() async => basePath;
 }
 
 /// Reports a fixed app-private perimeter; `null` stands in for "no
