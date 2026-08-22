@@ -36,6 +36,201 @@ jobs:
       # Goldens remain a local pre-push check per AGENTS.md.
       - run: flutter test $(find test -name '*_test.dart' ! -path 'test/goldens/*')
 
+  # Windows is the only supported platform whose filesystem semantics the code
+  # actually depends on AND that no PR check has ever exercised: `release.yml`
+  # builds on `windows-2022`, but that runs after merge, so a Windows-only
+  # divergence is found by a release, not by a review. What this job is looking
+  # for, concretely:
+  #   - `File.rename` onto a target another handle has open fails with
+  #     ERROR_ACCESS_DENIED on Windows where POSIX `rename(2)` succeeds. That is
+  #     the exact primitive `SafeVaultFileWriter` uses for its atomic replace.
+  #   - `\` as separator, and case-insensitive path comparison, which
+  #     `PortablePath` containment folds on.
+  #   - `SafeVaultFileWriter` classifies Windows as "never app-private" and so
+  #     resolves symlinks there, a branch nothing else runs.
+  # Same runner label as the release job on purpose: a green PR here should mean
+  # the release build's host agrees.
+  test-windows:
+    runs-on: windows-2022
+    # NON-BLOCKING FOR NOW, deliberately and temporarily. This job has never run
+    # against this codebase, so its first failures are as likely to be CI
+    # environment artifacts as real defects, and a brand-new required check that
+    # is red on arrival is a check that gets bypassed (same reasoning as the
+    # mutation `--check` note below). The point is to make the failures VISIBLE,
+    # not to ignore them: the step summary below names every Windows-only result
+    # explicitly. Flip this to blocking once the job has been green across a few
+    # PRs — that is a follow-up, not an open-ended exemption.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - run: flutter pub get
+
+      # Three QA suites build a `/var`→`/private/var`-style divergence with
+      # `Link.create`. On Windows that needs SeCreateSymbolicLinkPrivilege,
+      # which normally means Developer Mode or an elevated shell — and the
+      # runner-images docs make no promise either way. So we MEASURE it here
+      # instead of assuming, and the answer drives the two steps below.
+      #
+      # MEASURED ANSWER, run 32596328624 on windows-2022: SYMLINK_CAPABLE=true.
+      # GitHub-hosted Windows runners CAN create symlinks, so all three suites
+      # really do run here. The probe stays anyway: it is what makes that a
+      # fact rather than an assumption, and it is what turns a future runner
+      # image change into an explicit "NOT RUN" report instead of a mystery.
+      - name: Probe whether this runner can create symlinks
+        id: symlink
+        shell: bash
+        run: |
+          cat > "${RUNNER_TEMP}/symlink_probe.dart" <<'DART'
+          import 'dart:io';
+
+          void main() {
+            final root = Directory.systemTemp.createTempSync('symlink_probe_');
+            try {
+              final target = Directory('${root.path}/target')..createSync();
+              Link('${root.path}/link').createSync(target.path);
+              print('SYMLINK_CAPABLE=true');
+            } catch (error) {
+              print('SYMLINK_CAPABLE=false');
+              print('reason: $error');
+            } finally {
+              root.deleteSync(recursive: true);
+            }
+          }
+          DART
+          dart "${RUNNER_TEMP}/symlink_probe.dart" | tee "${RUNNER_TEMP}/probe.txt"
+          if grep -q 'SYMLINK_CAPABLE=true' "${RUNNER_TEMP}/probe.txt"; then
+            echo "capable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "capable=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # QUARANTINE. The first Windows run (32596328624) produced 22 failures in
+      # 8 files. Every one was diagnosed as a POSIX assumption baked into the
+      # TEST, not a Windows defect in the app — see the PR description for the
+      # per-file analysis. They are excluded here, by name and with a reason,
+      # rather than "fixed" by editing assertions, because rewriting a test to
+      # be green on a platform is how a real divergence gets buried.
+      #
+      # This list is meant to shrink. Each entry is a follow-up: port the
+      # fixture to `p.join`/`p.equals`, or mark the case POSIX-only in the test
+      # itself. Nothing here is a permanent exemption, and the step summary
+      # reprints the whole list on every run so it cannot rot unseen.
+      #
+      # The three symlink QA suites are NOT quarantined — they pass on Windows
+      # (the probe says the runner can create symlinks). They run in their own
+      # step below purely so their outcome is legible on its own.
+      - name: Flutter test (Windows)
+        id: suite
+        shell: bash
+        run: |
+          # path<TAB>reason
+          quarantine=$(cat <<'LIST'
+          test/core/utils/portable_path_case_test.dart	The "case-sensitive filesystem" group sets debugFoldsCaseOverride=false, but package:path's Windows context compares case-insensitively on its own, so the unfolded p.isWithin branch matches first and the override cannot express a case-sensitive volume here.
+          test/core/utils/portable_path_case_adversarial_test.dart	Same override limitation, plus a case that encodes the synthetic path /A/B/Vault.KDBX: on the runner D:\a really exists (the workspace root), so resolveSymbolicLinksSync correctly canonicalises A to its on-disk spelling a.
+          test/features/password_manager/data/portable_path_serialization_test.dart	The legacy fixture hand-writes JSON with an interpolated path; a Windows path makes "C:\Users\..." an invalid JSON escape. Production encodes with jsonEncode and is unaffected.
+          test/features/password_manager/data/services/browser_setup_service_test.dart	Asserts the macOS/Linux installer command string while running on a Windows host; p.join then yields backslashes. Unreachable in production, where the target platform is always the host platform.
+          test/features/password_manager/data/services/database_writer_inventory_test.dart	Meta-test: walks lib/ and compares against hard-coded "lib/..." keys, which the walk spells with backslashes on Windows.
+          test/features/password_manager/data/services/safe_vault_file_writer_test.dart	The fault-injection harness is POSIX-errno-coded. It injects errno 1 (EPERM) for "sandbox refusal" and errno 5 (EIO) as the negative control; on Windows the permission check looks for error 5 (ERROR_ACCESS_DENIED), so both assertions invert. See the PR description — this leaves the Windows branch untested and is the most substantive finding here.
+          test/features/password_manager/presentation/coordinators/database_session_coordinator_test.dart	Fixtures build expected paths with string interpolation ("$dir/x.kdbx") and POSIX literals ("/tmp/shared.key") while production normalises separators.
+          test/features/password_manager/presentation/coordinators/vault_session_coordinator_test.dart	Same fixture shape as database_session_coordinator_test.dart.
+          LIST
+          )
+
+          excluded=()
+          while IFS=$'\t' read -r path _; do
+            [ -n "$path" ] || continue
+            [ -f "$path" ] || { echo "Quarantine lists a missing file: $path"; exit 1; }
+            excluded+=(! -path "$path")
+          done <<< "$quarantine"
+
+          mapfile -t suites < <(
+            find test -name '*_test.dart' \
+              ! -path 'test/goldens/*' \
+              ! -path 'test/features/password_manager/data/portable_path_symlink_qa_test.dart' \
+              ! -path 'test/core/utils/mobile_file_storage_guard_qa_test.dart' \
+              ! -path 'test/core/utils/mobile_file_storage_guard_bypass_qa_test.dart' \
+              "${excluded[@]}"
+          )
+          (( ${#suites[@]} > 0 )) || { echo "No test files matched"; exit 1; }
+
+          {
+            echo "### Windows suite: quarantined files"
+            echo
+            echo "Excluded from this run because the TEST assumes POSIX, not"
+            echo "because Windows was verified. Each is a follow-up, not an exemption."
+            echo
+            while IFS=$'\t' read -r path reason; do
+              [ -n "$path" ] || continue
+              echo "- \`$path\` — $reason"
+            done <<< "$quarantine"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          flutter test "${suites[@]}"
+
+      # RESULT on windows-2022 (run 32597088754): 34 passed, 1 failed. The
+      # symlink machinery itself is fine on Windows; the single failure is
+      #   portable_path_symlink_qa_test.dart
+      #   "case-different documents root stays absolute on a case-sensitive
+      #    filesystem"
+      # which is the SAME root cause as the two quarantined portable_path_case
+      # files: `debugFoldsCaseOverride = false` disables PortablePath's own
+      # fold, but `package:path`'s Windows context still compares
+      # case-insensitively, so `p.isWithin` matches before the override is
+      # consulted. The case-sensitive-volume scenario is simply not
+      # expressible on Windows through that switch.
+      #
+      # Deliberately NOT quarantined: excluding the file to go green would
+      # drop 34 passing tests, including the three DEFECT guards this suite
+      # exists for, to hide one case whose cause is already understood. One
+      # named red is worth more than a silent gap. Marking that single case
+      # POSIX-only in the test is the follow-up, and it is the precondition
+      # for flipping this job to blocking.
+      - name: Flutter test (symlink QA suites)
+        # `always()` so a failure in the step above cannot turn this into a
+        # skip. A skipped step reads as "fine" at a glance, and these three
+        # suites are precisely the ones whose Windows status we are here to
+        # establish — they must report their own result either way.
+        if: always() && steps.symlink.outputs.capable == 'true'
+        shell: bash
+        run: |
+          flutter test \
+            test/features/password_manager/data/portable_path_symlink_qa_test.dart \
+            test/core/utils/mobile_file_storage_guard_qa_test.dart \
+            test/core/utils/mobile_file_storage_guard_bypass_qa_test.dart
+
+      # A test that did not run must never look like a test that passed. When
+      # the probe says this runner cannot create symlinks, the step above is
+      # skipped and this one states exactly which suites went unverified, as a
+      # warning annotation on the job — not as a silent green tick.
+      - name: Report unrun symlink QA suites
+        if: always() && steps.symlink.outputs.capable != 'true'
+        shell: bash
+        run: |
+          echo "::warning title=Symlink QA suites NOT RUN on Windows::\
+          This runner cannot create symlinks (no SeCreateSymbolicLinkPrivilege / \
+          Developer Mode), so portable_path_symlink_qa, \
+          mobile_file_storage_guard_qa and mobile_file_storage_guard_bypass_qa \
+          were skipped. They are UNVERIFIED on Windows, not passing."
+          {
+            echo "### Windows: symlink QA suites NOT RUN"
+            echo
+            echo "\`Link.create\` is unavailable on this runner. Probe output:"
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/probe.txt"
+            echo '```'
+            echo
+            echo "Unverified on Windows:"
+            echo "- \`test/features/password_manager/data/portable_path_symlink_qa_test.dart\`"
+            echo "- \`test/core/utils/mobile_file_storage_guard_qa_test.dart\`"
+            echo "- \`test/core/utils/mobile_file_storage_guard_bypass_qa_test.dart\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # Separate from the Flutter jobs on purpose: these checks share no toolchain
   # with them, so a failure here names the extension directly instead of hiding
   # inside a red `test` job, and it does not wait on `flutter pub get`.
