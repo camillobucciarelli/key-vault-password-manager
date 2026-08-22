@@ -175,9 +175,14 @@ function assertNoSecretIn(text, label) {
 }
 
 function optionRow(page) {
+  // Shadow rows only: the A040 light fallback options are role=option too,
+  // but carry GENERIC labels and are scanned separately below.
   const row = page
     .allElements()
-    .find((el) => el.getAttribute("role") === "option");
+    .find(
+      (el) =>
+        el.getAttribute("role") === "option" && el.id.startsWith("kv-option-")
+    );
   assert.ok(row, "expected a rendered match row");
   return row;
 }
@@ -191,6 +196,69 @@ test("A032: the rendered match surface contains neither password nor username", 
   // The row rendered from the real worker's real metadata answer.
   assert.equal(optionRow(stack.page).textContent, "Exampleexample.com");
   assertNoSecretIn(observableSurfaces(stack), "after metadata render");
+});
+
+// A040 — the extended A032 scan: entry TITLES and services (not only
+// secrets) must never appear in the LIGHT DOM. The light fallback listbox
+// lives in the page tree, so anything written there is page-readable; it may
+// carry indices and static labels only. Canaries are distinctive and
+// runtime-assembled (GitGuardian).
+const A040_TITLE_CANARY = ["a040", "title", "canary"].join("-");
+const A040_SERVICE_CANARY = ["a040", "service", "canary"].join("-");
+
+test("A040/A032: entry titles, services, and entry ids never appear in the light DOM", async () => {
+  const stack = await fullStack();
+  stack.native.items[0].title = A040_TITLE_CANARY;
+  stack.native.items[0].displayService = A040_SERVICE_CANARY;
+  await stack.page.focus(stack.password);
+
+  // Sanity: the metadata really rendered — inside the shadow.
+  assert.equal(
+    optionRow(stack.page).textContent,
+    `${A040_TITLE_CANARY}${A040_SERVICE_CANARY}`
+  );
+
+  // The light DOM (page tree, shadow roots excluded) holds NONE of it: no
+  // title, no service, no entry id, no secret — before AND after moving the
+  // selection (the sync writes aria-selected/activedescendant, never text).
+  for (const pass of ["initial", "after ArrowDown"]) {
+    const light = stack.page.captureLightDomState();
+    assert.ok(!light.includes(A040_TITLE_CANARY), `${pass}: title in light DOM`);
+    assert.ok(!light.includes(A040_SERVICE_CANARY), `${pass}: service in light DOM`);
+    assert.ok(!light.includes("entry-1"), `${pass}: entry id in light DOM`);
+    assertNoSecretIn(light, `${pass}: light DOM`);
+    await stack.page.pressKey("ArrowDown");
+  }
+});
+
+test("A040 security: a page-synthetic click on a light option yields no fill message and no secret anywhere", async () => {
+  // The tester's live exfiltration repro, permanent: page code reaches the
+  // light option (it IS page DOM) and dispatches a synthetic click. Without
+  // the isTrusted guard this produced a REAL fill message through the REAL
+  // dispatcher and the credential landed in the input with zero user
+  // gesture. The guard must keep every surface clean.
+  const { FakeEvent } = require("./fake_page.js");
+  const stack = await fullStack();
+  await stack.page.focus(stack.password);
+  const lightOption = stack.page
+    .allElements()
+    .find((el) => el.id === "kv-light-option-0");
+  assert.ok(lightOption, "the light option exists — and is page-reachable");
+
+  lightOption.dispatchEvent(
+    new FakeEvent("click", { bubbles: true, cancelable: true, composed: true })
+  );
+  stack.page._propagate(
+    lightOption,
+    new FakeEvent("keydown", { bubbles: true, cancelable: true, composed: true, key: "Enter" })
+  );
+  await stack.page.settle();
+
+  assert.equal(stack.page.sentOfType("fill").length, 0, "no fill message may be sent");
+  assert.equal(stack.password.value, "", "no secret may reach the input");
+  assert.equal(stack.username.value, "");
+  assertNoSecretIn(observableSurfaces(stack), "after synthetic activation");
+  assert.equal(stack.page.overlayHosts().length, 1, "the session is untouched");
 });
 
 test("A032: after an explicit fill the secret exists in the input values and in no other captured surface", async () => {

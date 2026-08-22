@@ -336,6 +336,7 @@ test("A038: pointer-down inside the overlay preserves the anchor focus and marks
     bubbles: true,
     cancelable: true,
     composed: true,
+    isTrusted: true, // a REAL pointer press — the adversarial (untrusted) case is A040
   });
   page._propagate(row, mousedown);
 
@@ -353,16 +354,17 @@ test("A038: a deferred outside blur cannot remove the row before the click lands
   handlers.fill = (m) => fillResult(m, { password: FILL_VALUE_P });
   const row = optionRows(page)[0];
 
-  const mousedown = new FakeEvent("mousedown", { bubbles: true, cancelable: true, composed: true });
+  // A real pointer sequence (trusted) interleaved with a spurious focusout.
+  const mousedown = new FakeEvent("mousedown", { bubbles: true, cancelable: true, composed: true, isTrusted: true });
   page._propagate(row, mousedown);
   page._propagate(
     pwInput,
-    new FakeEvent("focusout", { bubbles: true, composed: true })
+    new FakeEvent("focusout", { bubbles: true, composed: true, isTrusted: true })
   );
   assert.equal(row.isConnected, true, "the deferred blur must not remove the row mid-pointer");
 
-  page._propagate(row, new FakeEvent("mouseup", { bubbles: true, composed: true }));
-  page._propagate(row, new FakeEvent("click", { bubbles: true, cancelable: true, composed: true }));
+  page._propagate(row, new FakeEvent("mouseup", { bubbles: true, composed: true, isTrusted: true }));
+  page._propagate(row, new FakeEvent("click", { bubbles: true, cancelable: true, composed: true, isTrusted: true }));
   await page.settle();
 
   assert.equal(pwInput.value, FILL_VALUE_P, "the click must win the race");
@@ -382,7 +384,7 @@ test("A038: a teardown broadcast wins over a pending pointer action", async () =
 
   page._propagate(
     row,
-    new FakeEvent("mousedown", { bubbles: true, cancelable: true, composed: true })
+    new FakeEvent("mousedown", { bubbles: true, cancelable: true, composed: true, isTrusted: true })
   );
 
   // The broadcast lands mid-pointer; revalidation still approves the origin,
@@ -398,10 +400,10 @@ test("A038: a teardown broadcast wins over a pending pointer action", async () =
   // The click that follows hits a dead row: no fill request, no message of
   // any kind, no secret in the input.
   const sentBefore = page.sent.length; // bootstrap + matches + revalidation
-  page._propagate(row, new FakeEvent("mouseup", { bubbles: true, composed: true }));
+  page._propagate(row, new FakeEvent("mouseup", { bubbles: true, composed: true, isTrusted: true }));
   page._propagate(
     row,
-    new FakeEvent("click", { bubbles: true, cancelable: true, composed: true })
+    new FakeEvent("click", { bubbles: true, cancelable: true, composed: true, isTrusted: true })
   );
   await page.settle();
 

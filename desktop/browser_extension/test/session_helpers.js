@@ -157,12 +157,30 @@ function statusText(page) {
   return status ? status.textContent : null;
 }
 
+/** The SHADOW metadata rows (A029). Excludes the A040 light fallback. */
 function optionRows(page) {
-  return page.allElements().filter((el) => el.getAttribute("role") === "option");
+  return page
+    .allElements()
+    .filter(
+      (el) =>
+        el.getAttribute("role") === "option" && el.id.startsWith("kv-option-")
+    );
 }
 
+/** The SHADOW listbox (`#kv-list`). Excludes the A040 light fallback. */
 function listboxEl(page) {
-  return page.allElements().find((el) => el.getAttribute("role") === "listbox");
+  return page.allElements().find((el) => el.id === "kv-list");
+}
+
+/** A040 — the light-DOM fallback listbox, or undefined. */
+function lightListboxEl(page) {
+  return page.allElements().find((el) => el.id === "kv-light-listbox");
+}
+
+/** A040 — the GENERIC light options, in DOM order. */
+function lightOptions(page) {
+  const listbox = lightListboxEl(page);
+  return listbox ? [...listbox.childNodes] : [];
 }
 
 function overlayCount(page) {
@@ -182,5 +200,7 @@ module.exports = {
   statusText,
   optionRows,
   listboxEl,
+  lightListboxEl,
+  lightOptions,
   overlayCount,
 };
