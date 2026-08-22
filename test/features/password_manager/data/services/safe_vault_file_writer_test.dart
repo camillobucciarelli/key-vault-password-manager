@@ -39,9 +39,17 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 // -----------------------------------------------------------------------------
 
 /// The OS error a genuine permission refusal carries on the host platform.
-OSError _permissionDeniedOsError() => Platform.isWindows
+///
+/// POSIX has TWO spellings and production accepts both, so the harness must be
+/// able to produce both: [alt] selects `EACCES` (13) instead of `EPERM` (1).
+/// Without a live `EACCES` site, deleting `code == 13` from the production
+/// check survives the whole file. Windows has a single code, so [alt] is a
+/// no-op there and the Windows branch stays asserted either way.
+OSError _permissionDeniedOsError({bool alt = false}) => Platform.isWindows
     ? const OSError('Access is denied', 5) // ERROR_ACCESS_DENIED
-    : const OSError('Operation not permitted', 1); // EPERM
+    : (alt
+          ? const OSError('Permission denied', 13) // EACCES
+          : const OSError('Operation not permitted', 1)); // EPERM
 
 /// The `strerror`-style text of [_permissionDeniedOsError], for assertions on
 /// the reason the writer surfaces.
@@ -49,11 +57,18 @@ String get _permissionDeniedReason => _permissionDeniedOsError().message;
 
 /// An OS error that is emphatically NOT a permission refusal on the host.
 ///
-/// The negative control. POSIX `EIO` cannot serve on Windows because its number
-/// (5) IS `ERROR_ACCESS_DENIED` there; `ERROR_NOT_READY` (21) is the Windows
-/// stand-in. Neither value is in the permission set of either platform.
+/// The negative control, and deliberately the ADJACENT class rather than an
+/// arbitrary one: `ERROR_SHARING_VIOLATION` is what Windows raises when another
+/// handle holds the file — the exact situation the T109 group below builds, and
+/// the one a careless widening of the permission check would swallow. POSIX
+/// `EIO` cannot serve on Windows because its number (5) IS
+/// `ERROR_ACCESS_DENIED` there. Neither value is in the permission set of
+/// either platform.
 OSError _nonPermissionOsError() => Platform.isWindows
-    ? const OSError('The device is not ready', 21) // ERROR_NOT_READY
+    ? const OSError(
+        'The process cannot access the file',
+        32,
+      ) // SHARING_VIOLATION
     : const OSError('Input/output error', 5); // EIO
 
 void main() {
@@ -1227,6 +1242,33 @@ void main() {
       );
     });
 
+    test('the OTHER permission errno is a hard stop too', () async {
+      // POSIX reports a refused sibling as EPERM or EACCES depending on the
+      // cause, and production accepts both. The rest of this file injects only
+      // the first, so deleting `code == 13` from `_isPermissionDenied` used to
+      // survive the entire suite: the raw FileSystemException would escape
+      // instead of the typed hard stop, and the sync error path would go back
+      // to logging a verbatim vault path. On Windows there is one refusal code,
+      // so this asserts the same live branch as its sibling test.
+      final writer = SafeVaultFileWriter(
+        io: _FaultyIo(_Fault.backupPermissionDeniedAlt),
+      );
+      final target = await targetFile(const [1, 2, 3]);
+
+      await expectLater(
+        writer.write(
+          targetPath: target.path,
+          bytes: Uint8List.fromList(const [9, 9]),
+          backupExistingTarget: true,
+          operation: 'sync replace from remote',
+        ),
+        throwsA(isA<SafeVaultBackupUnavailableException>()),
+      );
+
+      expect(await target.readAsBytes(), [1, 2, 3]);
+      expect(backupsIn(tempDir), isEmpty);
+    });
+
     test('the typed error never carries the verbatim vault path', () async {
       // AGENTS.md: paths are logged as a shape. The sync error path logs the
       // exception object, so its `toString` is the leak surface.
@@ -1352,20 +1394,28 @@ void main() {
   // thing the fault seam cannot stand in for, because it is not an injected
   // error: it is the real kernel refusing a real `rename`. `SafeVaultFileWriter`
   // replaces the target with exactly one `rename`, and Win32 `MoveFileEx` onto
-  // an open target can fail with ERROR_ACCESS_DENIED where POSIX `rename(2)`
-  // succeeds silently — the vault held open by a second app instance, or by an
-  // antivirus mid-scan, is the everyday shape of that.
+  // a target opened WITHOUT `FILE_SHARE_DELETE` fails with ERROR_ACCESS_DENIED
+  // where POSIX `rename(2)` succeeds silently.
   //
-  // NOT skipped on either family, and not asserted per-platform either. The
-  // contract the writer actually promises is the same on both:
+  // What the open handle stands in for: a second instance of this app holding
+  // the vault, or any tool that opened the file without sharing delete. NOT a
+  // well-behaved antivirus — a correct scanner opens with `FILE_SHARE_DELETE`
+  // precisely so it does not block renames, so this test is STRICTER than a
+  // well-behaved AV, not weaker. That makes it a good guard, but it should not
+  // be quoted as proof that AV interference is covered.
   //
-  //     the target is its old content, complete, or the new content, complete.
+  // The per-platform outcome is ASSERTED, not merely tolerated. An earlier
+  // version accepted either branch, which made it self-fulfilling: if Windows
+  // ever stopped refusing — a Dart share-mode change, ReFS, a different runner
+  // image — it would take the `replaced` branch and stay green, and the
+  // divergence this whole job exists to detect would vanish without ever
+  // producing a red. The `RENAME_PROBE` line below is a convenience for reading
+  // the log, never the signal.
   //
-  // So both outcomes are legal and the test pins the invariant plus the
-  // consequence of whichever branch ran — replaced ⇒ new bytes and no stray
-  // temp; refused ⇒ the error propagates AND the old vault is byte-for-byte
-  // intact. A platform that silently truncated, or that swallowed the refusal
-  // and reported success, fails here regardless of which one it is.
+  // The invariant on top of that is the same on both families and is checked in
+  // both branches: the target is its old content, complete, or the new content,
+  // complete. A platform that silently truncated, or that swallowed the refusal
+  // and reported success, fails here regardless of which branch it took.
   // ===========================================================================
   group('T109 replace while another handle holds the vault open', () {
     /// Runs [body] with a second read handle open on [file], and closes it
@@ -1382,7 +1432,8 @@ void main() {
       }
     }
 
-    test('the vault is either fully replaced or left fully intact', () async {
+    test('the replace takes this platform\'s branch, and the vault survives '
+        'either way', () async {
       final writer = SafeVaultFileWriter();
       final target = await targetFile(const [1, 2, 3, 4]);
       final newBytes = Uint8List.fromList(const [9, 9, 9, 9, 9, 9]);
@@ -1396,14 +1447,29 @@ void main() {
         }
       });
 
-      // Printed, not asserted: which branch a platform takes is exactly the
-      // thing this job exists to observe, and an outcome that is only implied
-      // by a green tick is an outcome nobody can quote. Same shape as
-      // `GUARD_PROBE` in mobile_file_storage_guard_qa_test.dart.
+      // A convenience for reading the log, NOT the signal — the assertion
+      // below is. Same shape as `GUARD_PROBE` in
+      // mobile_file_storage_guard_qa_test.dart.
       // ignore: avoid_print
       print(
         'RENAME_PROBE platform=${Platform.operatingSystem} '
         'replaced=$replaced osError=${error?.osError}',
+      );
+
+      expect(
+        replaced,
+        Platform.isWindows ? isFalse : isTrue,
+        reason: Platform.isWindows
+            ? 'Windows must REFUSE a rename onto a target another handle holds '
+                  'open (ERROR_ACCESS_DENIED). Observing a successful replace '
+                  'here means the platform divergence this job exists to catch '
+                  'has changed shape — check whether Dart now opens with '
+                  'FILE_SHARE_DELETE, or whether the runner filesystem changed. '
+                  'Do not relax this to accept both outcomes: that is what made '
+                  'the test self-fulfilling. Observed: ${error?.osError}'
+            : 'POSIX rename(2) replaces a target that other handles hold open, '
+                  'so the save must SUCCEED here. A refusal on POSIX would be a '
+                  'real regression in the writer. Observed: ${error?.osError}',
       );
 
       final after = await target.readAsBytes();
@@ -1434,37 +1500,6 @@ void main() {
         ),
         isEmpty,
         reason: 'the temp must be cleaned up on both paths',
-      );
-    });
-
-    test('a refused replace still reports failure to the caller', () async {
-      // The half of the contract that a silent-success bug would break: if the
-      // rename cannot happen, `write` must NOT return normally, because callers
-      // treat a normal return as "the vault now holds these bytes" and drop the
-      // in-memory copy.
-      final writer = SafeVaultFileWriter();
-      final target = await targetFile(const [1, 2, 3, 4]);
-
-      final outcome = await withOpenHandle(target, () async {
-        try {
-          await writer.write(
-            targetPath: target.path,
-            bytes: Uint8List.fromList(const [5, 5]),
-          );
-          return 'returned-normally';
-        } on FileSystemException {
-          return 'threw';
-        }
-      });
-
-      final onDisk = await target.readAsBytes();
-      expect(
-        outcome == 'threw' ? const [1, 2, 3, 4] : const [5, 5],
-        onDisk,
-        reason:
-            'Outcome and disk state must agree: a normal return means the new '
-            'bytes are there, a throw means the old ones still are. '
-            'Observed outcome: $outcome.',
       );
     });
 
@@ -1518,7 +1553,10 @@ void main() {
         expect(_permissionDeniedOsError().errorCode, 5); // ERROR_ACCESS_DENIED
         expect(_nonPermissionOsError().errorCode, isNot(5));
       } else {
-        expect(_permissionDeniedOsError().errorCode, anyOf(1, 13)); // EPERM
+        // BOTH spellings, named individually. `anyOf(1, 13)` used to pass
+        // against a helper hard-coded to 1, so this axis could not fail.
+        expect(_permissionDeniedOsError().errorCode, 1); // EPERM
+        expect(_permissionDeniedOsError(alt: true).errorCode, 13); // EACCES
         expect(_nonPermissionOsError().errorCode, isNot(anyOf(1, 13)));
       }
     });
@@ -1688,6 +1726,7 @@ enum _Fault {
   backupCreate,
   backupIoError,
   backupPermissionDenied,
+  backupPermissionDeniedAlt,
   backupPermissionDeniedWithPathInMessage,
   sourceReadPermissionDenied,
   backupWrite,
@@ -1734,6 +1773,16 @@ class _FaultyIo extends _RecordingIo {
         ),
       );
     }
+    if (fault == _Fault.backupPermissionDeniedAlt && _isBackup(path)) {
+      // The SECOND POSIX spelling of a refusal. Keeps `code == 13` in the
+      // production check killable; on Windows this is the same code 5 as
+      // above, so the live branch is asserted there too.
+      throw FileSystemException(
+        'injected: sandbox refuses the sibling backup (alt errno)',
+        'backup',
+        _permissionDeniedOsError(alt: true),
+      );
+    }
     if (fault == _Fault.backupPermissionDenied && _isBackup(path)) {
       // MEDIUM-2: the sandbox refuses the backup sibling exactly as it
       // refuses the temp one — same shape as `tempPermissionDenied`.
@@ -1744,7 +1793,9 @@ class _FaultyIo extends _RecordingIo {
       );
     }
     if (fault == _Fault.tempPermissionDenied && path.endsWith('.tmp')) {
-      // Shape of a macOS-sandbox refusal on a sibling path: EACCES.
+      // Shape of a macOS-sandbox refusal on a sibling path. Uses the host's
+      // primary refusal code (EPERM on POSIX, ERROR_ACCESS_DENIED on Windows);
+      // the EACCES spelling is exercised by `backupPermissionDeniedAlt`.
       throw FileSystemException(
         'injected: sandbox refuses the sibling temp',
         'temp',

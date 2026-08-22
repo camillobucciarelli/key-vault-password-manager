@@ -58,6 +58,19 @@ void main() {
       );
     });
 
+    // COVERAGE NOTE (F4). The two cases below are what caught the host-separator
+    // defect in `_defaultInstallScriptDisplayPath` / `_displayPath`: they render
+    // for a NON-host platform via `platformOverride`, so the bug only shows up
+    // where the host separator differs from the rendered one — i.e. only on the
+    // Windows CI job. On Linux and macOS these assertions pass either way, so a
+    // regression would be invisible here and a Windows runner outage would take
+    // the coverage with it silently.
+    //
+    // Accepted rather than worked around: `test-windows` is a blocking job, so
+    // the coverage is not optional in practice. Revisit if that ever changes, or
+    // close it properly by asserting the separator against `platform` instead of
+    // against a literal.
+
     test('generates macOS Chrome installer command', () async {
       final root = await _fakeProjectRoot(scriptName: 'install_host_macos.sh');
       addTearDown(() => root.delete(recursive: true));
