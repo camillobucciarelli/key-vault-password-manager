@@ -378,11 +378,11 @@ itself green** — the T009/T009b precedent.
       decisions, serialize, reopen, validate the manifest — lands with the tasks
       whose tests exercise it, T308 and T309, rather than shipping untested
       vault-mutating code ahead of them.)*
-- [ ] **T302 `data/repositories/sync_merge_repository_impl.dart`** — implement
+- [x] **T302 `data/repositories/sync_merge_repository_impl.dart`** — implement
       already-compiling T204 port; resolve credentials internally and own private
       session store with `KdbxFile`, plaintext, UUID maps, paths, checksums/tokens
       and generation.
-- [ ] **T302a Opaque id minting** — the data layer mints `MergeSessionId` and
+- [x] **T302a Opaque id minting** — the data layer mints `MergeSessionId` and
       `MergeDecisionId` tokens from a CSPRNG (`Random.secure()`) with **at least
       128 bits of entropy**, never derived from any input: not the canonical
       path, object UUID, field key, attachment name, checksum, credential or any
@@ -396,7 +396,7 @@ itself green** — the T009/T009b precedent.
       itself 32 lowercase hex, so `'ms-' + md5(path)` is accepted — measured by
       the Phase 2 tester (F5). The frozen contract now says so, and the
       guarantee lives here, where there is code to enforce it.
-- [ ] **T303 Secret boundary** — port returns only domain models. Password,
+- [x] **T303 Secret boundary** — port returns only domain models. Password,
       key-file path/bytes, KDBX types, plaintext store and preconditions never
       cross port. Dispose store on cancel/lock/invalidate/completion.
 - [x] **T304 Pre-diff UUID validation** — per side, require globally unique non-nil
@@ -411,17 +411,81 @@ itself green** — the T009/T009b precedent.
 - [x] **T307 Presence/UUID tests** — all T304 failures plus same entry UUID with
       local-only/remote-only custom fields and attachments, empty-vs-missing,
       zero-byte-vs-missing, protection flags and equal-name/different bytes.
-- [ ] **T308 Shortcut/deletion tests** — Prefer local/remote never choose missing/
+- [x] **T308 Shortcut/deletion tests** — Prefer local/remote never choose missing/
       null; all one-sided data survives; deletion requires explicit evidence and
       keep/delete choice; no ambiguous resurrection.
-- [ ] **T309 Password+key-file candidate reopen** — semantic manifest matches
+- [x] **T309 Password+key-file candidate reopen** — semantic manifest matches
       expected result and unrelated metadata/history/icons/settings survive.
-- [ ] **T310 DI after contract+implementation compile** — bind T302 in data DI and
+- [x] **T310 DI after contract+implementation compile** — bind T302 in data DI and
       T205 use cases in domain DI; no presentation dependency on data
       implementation. Run analyze after registrations.
 
 **Gate 3 exit**: implementation compiles against domain contract; fidelity,
 UUID/lineage, presence, deletion, shortcut, secret boundary and DI tests pass.
+
+**Phase 3 slice 2 executed 2026-08-22** on `feat/008-t302-t310-merge-repository`
+(T302, T302a, T303, T308, T309, T310). `flutter analyze` clean, `flutter test`
+green (1264 tests). What landed beyond the six task lines, and why:
+
+- the **mutating half of T301** — record-level FR-5 evidence, decision apply,
+  one-sided record import, candidate serialization and the FR-1 reopen/manifest
+  parity gate (`kdbx_semantic_manifest.dart`). T308 and T309 are not assertable
+  without it; slice 1 deferred it for exactly that reason.
+- **recycle-bin membership is re-derived from the tree.** Deleting an entry in
+  this app MOVES it to the bin, so the record stays shared and its fields keep
+  diffing, while the bin group appears as an ordinary one-sided group. Neither
+  fact is visible in the adapter's UUID sets.
+- **no write, no mutex.** `commit` returns `MergeRejected(platformDisabled)` and
+  `recoverPending` reports `none`: the FR-7 cycle is T401-T410 and Gate 1 T111's
+  per-platform artifacts are still `not-run`. Nothing in this slice touches the
+  filesystem, so nothing routes through `DatabasePathMutex` — the anti-nesting
+  audit is trivially satisfied and the Gate 1 routing guard's `maxDepth == 1`
+  is unchanged.
+- **registry**: `SyncMergeRepositoryImpl` removed from `phase3TypeNames`; a
+  fifth bucket, `mergeCompositionRootFiles`, makes the DI modules a *barrier*
+  in the T303 transitive-reachability check, guarded by an assertion that they
+  export nothing.
+
+Frozen-contract insufficiency found and **resolved by amendment** (PM-ratified,
+`data-model.md` D16): one new code, `mergePreconditionFailed`, for an unknown
+database id and for a database with no remote mapping. A missing local database
+file deliberately stays `staleLocal` — its user-facing remedy is correct for an
+absent file too.
+
+**Validated in two rounds.** Round 1 (independent tester): **NOT VALIDATED**,
+three HIGH. The code was right; the mechanisms meant to keep it right were not.
+All closed, each re-verified by replaying the tester's own mutant:
+
+- **HIGH-3** `buildCandidateBytes` was re-callable on a session `applyMerge` had
+  already consumed. In debug a raw `AssertionError` crossed the port; **in
+  release the assertion is compiled out** and the candidate carried two objects
+  with the same UUID — the FR-2 violation, introduced by the merge. Closed by
+  consuming the session before applying, and by re-running `validatePair` on the
+  candidate, which is the layer that still works with assertions off. Both
+  verified: `dart run` (asserts off) reproduces `DUPLICATE_UUIDS=true` on the
+  unfixed path and `OUTPUT_REVALIDATION=refused unsupportedKdbxData` with the
+  fix.
+- **HIGH-2** the FR-1 parity gate had no test: deleting `serializeCandidate`
+  left the suite green. Closed with both branches — a candidate that does not
+  reopen, and one that reopens while its **manifest** does not survive.
+- **HIGH-1** the DI barrier checked only for `export`; a `typedef` and a public
+  factory carried decrypted plaintext into `presentation/` with `analyze` clean.
+  Closed by bounding the exemption by construction: a barrier declares the two
+  `register*Dependencies` functions, private declarations, and nothing else at
+  all.
+- **MEDIUM-1** FR-2's "nothing before the guards" is now asserted on the source
+  order inside `startReview`. **MEDIUM-2** the T302a source test was passable by
+  an LCG that never writes the word `Random`; the assertion moved to the body of
+  `_mintToken`. **MEDIUM-3** the tombstone clock re-stamp had no coverage.
+- Added on request: **end-to-end commutativity** (FR-3), the bridge from T009's
+  model to the implementation.
+
+Two dimensions are **not** commutative yet, each pinned by its own executable
+assertion rather than hidden: **sibling order** (each device appends its imports
+to the end of the target group — needs FR-3's total order, T401a) and **entry
+history** (KDBX history is a per-replica edit log; FR-1 says preserve, nothing
+says merge). Both matter to FR-7 step 5, which arbitrates on the canonical
+manifest. Reported as T401/T401a input.
 
 ## Phase 4 — Preconditions, commit and remote recovery
 

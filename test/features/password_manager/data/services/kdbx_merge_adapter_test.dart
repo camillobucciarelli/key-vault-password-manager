@@ -985,6 +985,343 @@ void main() {
   });
 
   // ===========================================================================
+  // T308 — FR-5 record-level deletion evidence.
+  //
+  // The whole group exists because of one fact about this app: deleting an
+  // entry MOVES IT TO THE RECYCLE BIN. So the "deleted" record is still a live
+  // object in the KDBX tree — shared with the other side, with fields that keep
+  // diffing — and the bin group shows up as an ordinary one-sided group. The
+  // presence sets say nothing about any of it, which is why bin membership is
+  // re-derived from the tree here rather than read off a UUID difference.
+  // ===========================================================================
+  group('T308 record deletion evidence', () {
+    KdbxRecordDiff recordFor(KdbxPresenceDiff diff, String uuid) =>
+        diff.recordDiffs.singleWhere((r) => r.objectUuid == uuid);
+
+    KdbxPresenceDiff run(KdbxFile local, KdbxFile remote) => adapter
+        .diffPresence(adapter.validatePair(local: local, remote: remote));
+
+    test('an entry binned on one side and live on the other is a deletion '
+        'conflict, not a shared record with field conflicts', () {
+      final pair = _replicaPair(credentials);
+      // Diverge the fields too: without the bin, this pair would produce a
+      // perfectly ordinary field conflict, which is exactly the failure mode —
+      // the user would be asked to pick a username for a record they deleted.
+      _sharedEntry(
+        pair.local,
+      ).setString(KdbxKeyCommon.USER_NAME, PlainValue('changed-locally'));
+      KdbxDao(pair.remote).deleteEntry(_sharedEntry(pair.remote));
+
+      final diff = run(pair.local, pair.remote);
+      final record = recordFor(diff, _sharedEntryUuid);
+
+      expect(
+        record.classification,
+        KdbxRecordClassification.recordDeletionConflict,
+      );
+      expect(record.local.evidence, KdbxRecordEvidence.live);
+      expect(record.remote.evidence, KdbxRecordEvidence.recycled);
+      expect(
+        diff.fieldDiffs.where((d) => d.entryUuid == _sharedEntryUuid),
+        isEmpty,
+        reason:
+            'the existence of the record is what is being decided; its fields '
+            'are not a separate question',
+      );
+      expect(diff.deletionConflicts, hasLength(1));
+    });
+
+    test('the recycle-bin GROUP is an ordinary one-sided union, not a deleted '
+        'record', () {
+      // The bin is a container the other side has never seen. Preserving it is
+      // FR-1; classifying it as deleted would drop everything inside it.
+      final pair = _replicaPair(credentials);
+      KdbxDao(pair.remote).deleteEntry(_sharedEntry(pair.remote));
+      final binUuid = pair.remote.recycleBin!.uuid.uuid;
+
+      final diff = run(pair.local, pair.remote);
+
+      expect(
+        recordFor(diff, binUuid).classification,
+        KdbxRecordClassification.recordRemoteOnly,
+      );
+      expect(diff.remoteOnlyGroupUuids, contains(binUuid));
+    });
+
+    test('binned on BOTH sides is deleted, and asks the user nothing', () {
+      final pair = _replicaPair(credentials);
+      KdbxDao(pair.local).deleteEntry(_sharedEntry(pair.local));
+      KdbxDao(pair.remote).deleteEntry(_sharedEntry(pair.remote));
+
+      final diff = run(pair.local, pair.remote);
+
+      expect(
+        recordFor(diff, _sharedEntryUuid).classification,
+        KdbxRecordClassification.recordDeleted,
+      );
+      expect(diff.deletionConflicts, isEmpty);
+    });
+
+    test('a permanent tombstone NEWER than the live side is a deletion '
+        'conflict', () {
+      final pair = _replicaPair(credentials);
+      _sharedEntry(
+        pair.local,
+      ).times.lastModificationTime.set(DateTime.utc(2020));
+      KdbxDao(pair.remote).deletePermanently(_sharedEntry(pair.remote));
+
+      final record = recordFor(run(pair.local, pair.remote), _sharedEntryUuid);
+      expect(
+        record.classification,
+        KdbxRecordClassification.recordDeletionConflict,
+      );
+      expect(record.remote.evidence, KdbxRecordEvidence.tombstoned);
+    });
+
+    test('a tombstone OLDER than the live side is superseded: the record is a '
+        'one-sided union, not a deletion (T009b G1)', () {
+      // Proof of life after the delete. The data-preserving reading, and the
+      // one the deletion-convergence model was validated against — a tombstone
+      // that outranked a later edit would delete work the user did after it.
+      final pair = _replicaPair(credentials);
+      KdbxDao(pair.remote).deletePermanently(_sharedEntry(pair.remote));
+      _sharedEntry(
+        pair.local,
+      ).times.lastModificationTime.set(DateTime.utc(2099));
+
+      final record = recordFor(run(pair.local, pair.remote), _sharedEntryUuid);
+      expect(record.classification, KdbxRecordClassification.recordLocalOnly);
+      expect(record.remote.evidence, KdbxRecordEvidence.tombstoned);
+    });
+
+    test('an EQUAL clock breaks toward preservation (T009b G3)', () {
+      final pair = _replicaPair(credentials);
+      KdbxDao(pair.remote).deletePermanently(_sharedEntry(pair.remote));
+      // ignore: invalid_use_of_visible_for_testing_member
+      final deletedAt = pair.remote.body.deletedObjects.single.deletionTime
+          .get()!;
+      _sharedEntry(pair.local).times.lastModificationTime.set(deletedAt);
+
+      expect(
+        recordFor(
+          run(pair.local, pair.remote),
+          _sharedEntryUuid,
+        ).classification,
+        KdbxRecordClassification.recordLocalOnly,
+        reason: 'the tie must not delete; G2 relies on exactly this',
+      );
+    });
+
+    test(
+      'plain absence is never deletion evidence, whatever the clocks say',
+      () {
+        final pair = _replicaPair(credentials);
+        final localOnly = KdbxEntry.create(
+          pair.local,
+          pair.local.body.rootGroup,
+        )..forceSetUuid(KdbxUuid.random());
+        pair.local.body.rootGroup.addEntry(localOnly);
+        localOnly.times.lastModificationTime.set(DateTime.utc(2000));
+
+        final diff = run(pair.local, pair.remote);
+        expect(
+          recordFor(diff, localOnly.uuid.uuid).classification,
+          KdbxRecordClassification.recordLocalOnly,
+        );
+        expect(diff.deletionConflicts, isEmpty);
+      },
+    );
+
+    test('the classification set is closed, so a new member cannot arrive '
+        'without a decision about what it means', () {
+      expect(KdbxRecordClassification.values, hasLength(5));
+      expect(KdbxRecordEvidence.values, hasLength(4));
+    });
+  });
+
+  // ===========================================================================
+  // T309 / FR-1 — the serialization-parity gate.
+  //
+  // This group exists because the gate had no test at all: deleting
+  // `serializeCandidate` outright left the whole suite green, so the last
+  // defence before the bytes that will replace a vault was indistinguishable
+  // from a no-op. Both of its refusal branches are exercised here — the reopen
+  // that fails, and the reopen that succeeds while the MANIFEST does not
+  // survive, which is the half a credentials test can never reach.
+  // ===========================================================================
+  group('T309 serialization parity gate', () {
+    test('a candidate that does not reopen with the given credentials is '
+        'serializationParityFailed', () async {
+      final candidate = _buildSide(credentials);
+
+      await expectLater(
+        adapter.serializeCandidate(
+          candidate: candidate,
+          credentials: Credentials(ProtectedValue.fromString('other-pw')),
+        ),
+        _failsWith(MergeFailureCode.serializationParityFailed),
+      );
+    });
+
+    test('a candidate that reopens but whose MANIFEST does not survive is '
+        'also serializationParityFailed', () async {
+      // The failure a credentials check can never see: the file opens
+      // perfectly and its CONTENT changed in transit.
+      //
+      // The vehicle is the one path that produces a null `StringValue`, which
+      // this adapter's own documentation calls out: `KdbxEntry.renameKey` with
+      // an absent `oldKey` writes `_strings[newKey] = null` with no guard
+      // (kdbx 2.5.0). In memory that key holds null; serialized it becomes
+      // `<Value/>` and reads back as a present EMPTY string. So a buggy apply
+      // step that renamed a key that was not there would invent a field out of
+      // nothing, the vault would open, and only the manifest comparison would
+      // notice. FR-4 spends a whole row on empty-versus-missing precisely
+      // because the two are not the same thing.
+      final candidate = _buildSide(credentials);
+      _sharedEntry(candidate).renameKey(KdbxKey('Absent'), KdbxKey('Ghost'));
+
+      // It really does open — so the credentials branch cannot be what
+      // rejects it, and this test cannot pass for the previous test's reason.
+      final bytes = Uint8List.fromList(await candidate.save());
+      final reopened = await KdbxFormat().read(bytes, credentials);
+      expect(
+        _sharedEntry(candidate).getString(KdbxKey('Ghost')),
+        isNull,
+        reason: 'in memory the key holds a null StringValue',
+      );
+      expect(
+        reopened.body.rootGroup
+            .getAllEntries()
+            .firstWhere((e) => e.uuid.uuid == _sharedEntryUuid)
+            .getString(KdbxKey('Ghost'))
+            ?.getText(),
+        '',
+        reason: 'on disk it is a present empty string — a different fact',
+      );
+
+      await expectLater(
+        adapter.serializeCandidate(
+          candidate: candidate,
+          credentials: credentials,
+        ),
+        _failsWith(MergeFailureCode.serializationParityFailed),
+      );
+    });
+
+    test(
+      'a consistent candidate passes and returns bytes that reopen',
+      () async {
+        // The positive control: without it the two refusals above would also
+        // pass on a gate that refused everything.
+        final candidate = _buildSide(credentials);
+
+        final bytes = await adapter.serializeCandidate(
+          candidate: candidate,
+          credentials: credentials,
+        );
+        final reopened = await KdbxFormat().read(bytes, credentials);
+        expect(reopened.body.rootGroup.uuid, candidate.body.rootGroup.uuid);
+      },
+    );
+  });
+
+  // ===========================================================================
+  // FR-5 — deletion evidence survives the merge with its own clock.
+  // ===========================================================================
+  group('FR-5 tombstone clock preservation', () {
+    test('a tombstone copied from the other side keeps its ORIGINAL deletion '
+        'time, never the current clock', () async {
+      // `KdbxReadWriteContext.addDeletedObject` declares a `now` parameter and
+      // drops it, so every tombstone it emits is stamped with the current
+      // clock. Re-stamping a COPIED tombstone is a data-loss defect, not a
+      // cosmetic one: under T009b's G1 a tombstone matches when it is strictly
+      // newer than the live mtime, so an inflated clock makes the tombstone
+      // outrank edits a peer legitimately made after the deletion.
+      final pair = _replicaPair(credentials);
+      final orphan = KdbxUuid.random();
+      final past = DateTime.utc(2001, 2, 3, 4, 5, 6);
+      pair.remote.ctx.addDeletedObject(orphan);
+      // ignore: invalid_use_of_visible_for_testing_member
+      pair.remote.body.deletedObjects
+          .firstWhere((o) => o.uuid == orphan)
+          .deletionTime
+          .set(past);
+
+      final validated = adapter.validatePair(
+        local: pair.local,
+        remote: pair.remote,
+      );
+      final candidate = adapter.applyMerge(
+        pair: validated,
+        diff: adapter.diffPresence(validated),
+        resolution: KdbxMergeResolution(),
+      );
+
+      expect(tombstonesOf(candidate)[orphan.uuid], past);
+      expect(
+        tombstonesOf(candidate)[orphan.uuid],
+        isNot(
+          isA<DateTime>().having((t) => t.year, 'year', DateTime.now().year),
+        ),
+      );
+    });
+  });
+
+  // ===========================================================================
+  // FR-3 — the both-sides notes union. Not a concatenation.
+  // ===========================================================================
+  group('FR-3 notes segment union', () {
+    test('the sentinel leaves ordinary user text intact — a typed thematic '
+        'break is NOT a segment boundary', () {
+      const userText = 'Zeta recovery codes\n\n---\n\nAlpha backup email';
+      final merged = notesSegmentUnion(userText, 'Mike says rotate quarterly');
+
+      // With a plain `---` separator the peer's sentence would be sorted INTO
+      // the middle of a note the user wrote as one block.
+      expect(merged, contains(userText));
+      expect(merged.split(mergeNotesSeparator), hasLength(2));
+    });
+
+    test('a segment the user legitimately repeated is not deduplicated away, '
+        'because ordinary text is one atom', () {
+      const userText = 'TODO\n\n---\n\nrotate key\n\n---\n\nTODO';
+      expect(notesSegmentUnion(userText, 'zzz'), contains(userText));
+    });
+
+    test('the union is commutative, associative and idempotent', () {
+      const a = 'zeta';
+      const b = 'alpha';
+      const c = 'mike';
+
+      expect(notesSegmentUnion(a, b), notesSegmentUnion(b, a));
+      expect(
+        notesSegmentUnion(notesSegmentUnion(a, b), c),
+        notesSegmentUnion(a, notesSegmentUnion(b, c)),
+      );
+      final once = notesSegmentUnion(a, b);
+      expect(notesSegmentUnion(once, a), once);
+      expect(notesSegmentUnion(once, once), once);
+    });
+
+    test('segments sort by UTF-8 bytes, not by UTF-16 code units', () {
+      // An astral character's surrogate pair sorts BELOW U+E000..FFFF in
+      // UTF-16 and ABOVE it in UTF-8. Two devices disagreeing on the encoding
+      // would order the merged notes differently and never converge.
+      const astral = '\u{10400}';
+      const bmp = '\uE000';
+      expect(compareUtf8Bytes(astral, bmp), greaterThan(0));
+      expect(
+        astral.codeUnits.first.compareTo(bmp.codeUnits.first),
+        lessThan(0),
+      );
+      expect(notesSegmentUnion(astral, bmp).split(mergeNotesSeparator), [
+        bmp,
+        astral,
+      ]);
+    });
+  });
+
+  // ===========================================================================
   // Coherence with the T009/T009b convergence models.
   //
   // Those models prove the merge converges GIVEN a presence model in which

@@ -1,43 +1,54 @@
-// spec-008 T301/T304/T305/T306 — the production KDBX <-> merge-model adapter.
+// spec-008 T301/T304/T305/T306/T308/T309 — the production KDBX <-> merge-model
+// adapter.
 //
-// **What this file is.** The data-layer bridge that reads two `.kdbx` sides and
-// produces the evidence a per-field diff is computed from. It is the promotion
-// of the Gate 0 spike helpers (`_validateSide`, `_crossSideKindMismatch`,
-// `_lineageMatches` in `vault_kdbx_service_test.dart`) from test-only code into
-// production code, with the typed refusals the frozen domain contract defines.
+// **What this file is.** The data-layer bridge that reads two `.kdbx` sides,
+// produces the evidence a per-field and per-record diff is computed from, and
+// — since slice 2 — applies the resolved decisions and serializes the merge
+// candidate. It is the promotion of the Gate 0 spike helpers (`_validateSide`,
+// `_crossSideKindMismatch`, `_lineageMatches` in `vault_kdbx_service_test.dart`)
+// from test-only code into production code, with the typed refusals the frozen
+// domain contract defines.
 //
 // **What this file is NOT, and why.**
 //
-//   * It **never writes**. No filesystem access at all: the caller hands over
-//     bytes. There is therefore no `withDatabaseLock` and no
+//   * It **never touches the filesystem**. The caller hands over bytes and gets
+//     bytes back. There is therefore no `withDatabaseLock` and no
 //     `SafeVaultFileWriter` call here, and Gate 1's writer-routing guard has
-//     nothing to route — the adapter is read-only by construction, which is a
-//     stronger statement than "it takes the mutex". The merge commit that does
-//     write (T403) is a separate, later task and routes through both.
-//   * It does **not** serialize, apply decisions or import one-sided objects.
-//     Those are the mutating halves of T301 and land with the tests that can
-//     actually exercise them (T308 shortcut/deletion, T309 candidate reopen).
-//     Shipping untested vault-mutating code is the one thing worse than
-//     shipping it late.
+//     nothing to route — building a candidate in memory is not a write, which
+//     is a stronger statement than "it takes the mutex". The merge commit that
+//     does write the candidate to disk (T403) is a separate, later task and
+//     routes through both.
 //   * It does **not** call `KdbxFile.merge`. That method is marked unfinished
 //     upstream and is forbidden by the spec; a source scan in
-//     `vault_kdbx_service_test.dart` enforces it over this file too.
+//     `vault_kdbx_service_test.dart` enforces it over this file too. The record
+//     import below is written against `cloneInto`/`forceSetUuid` instead, which
+//     is what the Gate 0 T003 spike proved.
 //
-// **Secret boundary (T303 is Phase 3 slice 2, but nothing here may pre-empt
-// it).** `Credentials`, `KdbxFile`, decrypted string values and attachment
-// bytes are legitimate in `data/` and illegitimate anywhere else. Nothing in
-// this file is reachable from `domain/` or `presentation/` — enforced by
-// `sync_merge_domain_architecture_test.dart`. The diff model below deliberately
-// carries an attachment's **digest and length**, never its bytes: the diff only
-// needs to classify, and a model that carried plaintext would be one refactor
-// away from a log line.
+// **Secret boundary (T303).** `Credentials`, `KdbxFile`, decrypted string
+// values and attachment bytes are legitimate in `data/` and illegitimate
+// anywhere else. Nothing in this file is reachable from `domain/` or
+// `presentation/` — enforced by `sync_merge_domain_architecture_test.dart`. The
+// diff model below deliberately carries an attachment's **digest and length**,
+// never its bytes: the diff only needs to classify, and a model that carried
+// plaintext would be one refactor away from a log line.
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:kdbx/kdbx.dart';
+// Gate 0 recorded that the primitives a full-fidelity adapter needs sit outside
+// `package:kdbx/kdbx.dart`'s export surface. `cloneInto` copies an entry —
+// strings, binaries, custom data, times and history — across files, and
+// `forceSetUuid` is what keeps the imported object's identity, which is the
+// whole point of a UUID-matched merge.
+// ignore: implementation_imports
+import 'package:kdbx/src/kdbx_entry.dart' show KdbxEntryInternal;
+// ignore: implementation_imports
+import 'package:kdbx/src/kdbx_object.dart' show KdbxObjectInternal;
 
 import '../../domain/models/sync_merge_models.dart';
 import '../../domain/repositories/sync_merge_repository.dart';
+import 'kdbx_semantic_manifest.dart';
 
 /// What kind of object a live UUID denotes. FR-2 requires a UUID that appears
 /// on both sides to denote the same kind on both.
@@ -263,34 +274,163 @@ final class KdbxFieldDiff {
   String toString() => 'KdbxFieldDiff(<redacted>)';
 }
 
-/// The read-only evidence a diff is computed from: which records are one-sided,
-/// and how every field of every shared entry classifies.
+/// What one side knows about one object, re-derived from that side's tree and
+/// `DeletedObjects` list.
 ///
-/// Record-level *deletion* evidence (recycle bin, `DeletedObjects`) is not
-/// interpreted here — FR-5 and T308. Recycle-binned objects are live objects
-/// in the KDBX tree and therefore appear in these sets like any other.
+/// **Why this has to be re-derived rather than read off the presence sets.**
+/// Deleting an entry in this app moves it to the recycle bin. A recycle-binned
+/// object is still a *live object in the KDBX tree*: it appears in
+/// `getAllGroupsAndEntries`, it is shared with the other side, and its fields
+/// keep diffing as though nothing happened. Meanwhile the recycle-bin group
+/// itself shows up as an ordinary one-sided group on whichever side created it.
+/// Neither fact is deletion evidence, and neither is visible in a UUID set — so
+/// bin membership is computed here by walking down from `KdbxFile.recycleBin`,
+/// and permanent deletion is read from the `DeletedObjects` tombstone list.
+enum KdbxRecordEvidence {
+  /// Live in the tree, outside the recycle bin.
+  live,
+
+  /// Live in the tree, inside the recycle bin subtree (a move-to-bin).
+  recycled,
+
+  /// Absent from the tree with a matching `DeletedObjects` tombstone.
+  tombstoned,
+
+  /// Absent from the tree with no tombstone. FR-4: **not** deletion evidence.
+  absent,
+}
+
+/// One side's evidence about one object.
+final class KdbxRecordSide {
+  const KdbxRecordSide({
+    required this.evidence,
+    this.modifiedAtUtc,
+    this.deletedAtUtc,
+  });
+
+  const KdbxRecordSide.absent()
+    : evidence = KdbxRecordEvidence.absent,
+      modifiedAtUtc = null,
+      deletedAtUtc = null;
+
+  final KdbxRecordEvidence evidence;
+
+  /// KDBX `LastModificationTime` where the object is live on this side.
+  final DateTime? modifiedAtUtc;
+
+  /// Tombstone `DeletionTime` where this side holds one.
+  final DateTime? deletedAtUtc;
+
+  bool get isLiveSomewhere =>
+      evidence == KdbxRecordEvidence.live ||
+      evidence == KdbxRecordEvidence.recycled;
+
+  @override
+  String toString() => 'KdbxRecordSide(${evidence.name})';
+}
+
+/// FR-5's record-level classification of one object across the two sides.
+enum KdbxRecordClassification {
+  /// Live and un-binned on both sides: the ordinary shared record, and the
+  /// only classification whose fields are diffed.
+  sharedLive,
+
+  /// Live on the local side, no evidence at all on the remote: automatic union.
+  recordLocalOnly,
+
+  /// Live on the remote side, no evidence at all on the local: automatic union.
+  recordRemoteOnly,
+
+  /// Live one side, deleted (binned or tombstoned) on the other. FR-5 requires
+  /// an explicit keep/delete; the default is keep.
+  recordDeletionConflict,
+
+  /// Deleted on both sides. Stays deleted; the tombstone/bin evidence of both
+  /// sides is preserved.
+  recordDeleted,
+}
+
+/// One object's record-level evidence across both sides.
+final class KdbxRecordDiff {
+  const KdbxRecordDiff({
+    required this.objectUuid,
+    required this.objectKind,
+    required this.local,
+    required this.remote,
+    required this.classification,
+  });
+
+  final String objectUuid;
+  final KdbxMergeObjectKind objectKind;
+  final KdbxRecordSide local;
+  final KdbxRecordSide remote;
+  final KdbxRecordClassification classification;
+
+  @override
+  String toString() => 'KdbxRecordDiff(<redacted>)';
+}
+
+/// The read-only evidence a diff is computed from: how every object classifies
+/// at record level (FR-5), and how every field of every shared live entry
+/// classifies at field level (FR-4).
 final class KdbxPresenceDiff {
   KdbxPresenceDiff({
-    required Set<String> localOnlyEntryUuids,
-    required Set<String> remoteOnlyEntryUuids,
-    required Set<String> localOnlyGroupUuids,
-    required Set<String> remoteOnlyGroupUuids,
+    required List<KdbxRecordDiff> recordDiffs,
     required List<KdbxFieldDiff> fieldDiffs,
-  }) : localOnlyEntryUuids = Set.unmodifiable(localOnlyEntryUuids),
-       remoteOnlyEntryUuids = Set.unmodifiable(remoteOnlyEntryUuids),
-       localOnlyGroupUuids = Set.unmodifiable(localOnlyGroupUuids),
-       remoteOnlyGroupUuids = Set.unmodifiable(remoteOnlyGroupUuids),
+  }) : recordDiffs = List.unmodifiable(recordDiffs),
        fieldDiffs = List.unmodifiable(fieldDiffs);
 
-  final Set<String> localOnlyEntryUuids;
-  final Set<String> remoteOnlyEntryUuids;
-  final Set<String> localOnlyGroupUuids;
-  final Set<String> remoteOnlyGroupUuids;
+  /// Every object live on at least one side, sorted by UUID so two devices
+  /// produce the same evidence in the same order.
+  ///
+  /// An object tombstoned on both sides and live on neither is deliberately
+  /// **not** here: it carries no decision and has no fields. Its tombstones are
+  /// still unioned when the candidate is built (FR-5 "preserve newest supported
+  /// deletion data").
+  final List<KdbxRecordDiff> recordDiffs;
 
-  /// Only fields of entries present on **both** sides. A one-sided entry's
-  /// fields are not a field-level decision: the whole record is an automatic
-  /// union member.
+  /// Only fields of entries [KdbxRecordClassification.sharedLive] on both
+  /// sides. A one-sided entry's fields are not a field-level decision — the
+  /// whole record is an automatic union member — and neither are the fields of
+  /// a record whose *existence* is being decided.
   final List<KdbxFieldDiff> fieldDiffs;
+
+  Set<String> _uuidsWhere(
+    KdbxRecordClassification classification,
+    KdbxMergeObjectKind kind,
+  ) => {
+    for (final record in recordDiffs)
+      if (record.classification == classification && record.objectKind == kind)
+        record.objectUuid,
+  };
+
+  Set<String> get localOnlyEntryUuids => _uuidsWhere(
+    KdbxRecordClassification.recordLocalOnly,
+    KdbxMergeObjectKind.entry,
+  );
+
+  Set<String> get remoteOnlyEntryUuids => _uuidsWhere(
+    KdbxRecordClassification.recordRemoteOnly,
+    KdbxMergeObjectKind.entry,
+  );
+
+  Set<String> get localOnlyGroupUuids => _uuidsWhere(
+    KdbxRecordClassification.recordLocalOnly,
+    KdbxMergeObjectKind.group,
+  );
+
+  Set<String> get remoteOnlyGroupUuids => _uuidsWhere(
+    KdbxRecordClassification.recordRemoteOnly,
+    KdbxMergeObjectKind.group,
+  );
+
+  /// FR-5 record-level decisions the user must answer.
+  List<KdbxRecordDiff> get deletionConflicts => [
+    for (final record in recordDiffs)
+      if (record.classification ==
+          KdbxRecordClassification.recordDeletionConflict)
+        record,
+  ];
 
   /// FR-4 one-sided field count for the redacted review summary.
   int get oneSidedFieldCount => fieldDiffs
@@ -303,6 +443,97 @@ final class KdbxPresenceDiff {
 
   @override
   String toString() => 'KdbxPresenceDiff(<redacted>)';
+}
+
+/// Addresses one field of one entry, the way the diff matches it.
+typedef KdbxFieldRef = ({
+  String entryUuid,
+  KdbxMergeFieldKind fieldKind,
+  String canonicalKey,
+});
+
+KdbxFieldRef kdbxFieldRefOf(KdbxFieldDiff diff) => (
+  entryUuid: diff.entryUuid,
+  fieldKind: diff.fieldKind,
+  canonicalKey: diff.canonicalKey,
+);
+
+/// The resolved answers the candidate is built from — data-private, and the
+/// only thing the domain's redacted decisions are translated into.
+final class KdbxMergeResolution {
+  KdbxMergeResolution({
+    Map<KdbxFieldRef, MergeChoice> fieldChoices = const {},
+    Map<String, MergeChoice> recordChoices = const {},
+  }) : _fieldChoices = Map.unmodifiable(fieldChoices),
+       _recordChoices = Map.unmodifiable(recordChoices);
+
+  final Map<KdbxFieldRef, MergeChoice> _fieldChoices;
+  final Map<String, MergeChoice> _recordChoices;
+
+  /// A conflict with no recorded answer is a programming error, not a merge
+  /// outcome: every conflict carries a computed default from the moment the
+  /// review is created, so an absent entry means the resolution was not built
+  /// from the session's own decisions.
+  MergeChoice fieldChoiceFor(KdbxFieldDiff diff) {
+    final choice = _fieldChoices[kdbxFieldRefOf(diff)];
+    if (choice == null) {
+      throw StateError('no recorded choice for a field conflict');
+    }
+    return choice;
+  }
+
+  /// FR-5's default is **keep**, so an unanswered deletion conflict preserves.
+  /// An unattended session can never delete.
+  MergeChoice recordChoiceFor(String objectUuid) =>
+      _recordChoices[objectUuid] ?? MergeChoice.keep;
+
+  @override
+  String toString() => 'KdbxMergeResolution(<redacted>)';
+}
+
+/// FR-3's Notes separator. **Not** a plain Markdown thematic break: it carries
+/// `U+241E SYMBOL FOR RECORD SEPARATOR` between two rules, so ordinary user
+/// text — including a `---` the user typed themselves — splits into exactly one
+/// segment and can be neither interleaved nor deduplicated against itself.
+const mergeNotesSeparator = '\n\n---\u241E---\n\n';
+
+/// FR-3's `bothNotes`: an **ordered, deduplicated union of segments**, not a
+/// concatenation.
+///
+/// A concatenation with a merely fixed operand order is deterministic and still
+/// not associative, so three devices merging in different orders hold different
+/// Notes, the FR-7 semantic short-circuit stops firing and the next round
+/// duplicates text the user wrote. The set union sorted by one fixed comparator
+/// is associative, commutative and idempotent.
+String notesSegmentUnion(String local, String remote) {
+  final segments = {
+    ...local.split(mergeNotesSeparator),
+    ...remote.split(mergeNotesSeparator),
+  }.where((segment) => segment.isNotEmpty).toList()..sort(compareUtf8Bytes);
+  return segments.join(mergeNotesSeparator);
+}
+
+/// FR-3's value order: unsigned lexicographic over **UTF-8** bytes, shortest is
+/// smaller on a common prefix.
+///
+/// The encoding is UTF-8 and no other. A Dart `String`'s `codeUnits` are
+/// UTF-16, which sorts an astral character's surrogate pair *below* the BMP
+/// range `U+E000..FFFF` while its UTF-8 bytes and its code point sort *above*:
+/// two devices disagreeing on the encoding elect opposite winners, and the
+/// tie-break's whole purpose is that they do not.
+///
+/// T401a owns the full tie-break (timestamps first, then this). This function
+/// is the value half, needed here because [notesSegmentUnion] must sort by the
+/// *same* comparator — a segment order that drifted from the tie-break order
+/// would make two devices agree on every field and disagree on the notes.
+int compareUtf8Bytes(String a, String b) {
+  final left = utf8.encode(a);
+  final right = utf8.encode(b);
+  final shared = left.length < right.length ? left.length : right.length;
+  for (var i = 0; i < shared; i++) {
+    if (left[i] != right[i]) return left[i] - right[i];
+  }
+  return left.length - right.length;
 }
 
 /// One validated side: the open file plus its live-object UUID index.
@@ -436,38 +667,551 @@ class KdbxMergeAdapter {
     return KdbxMergePair._(localSide, remoteSide);
   }
 
-  /// FR-4's presence diff over a validated pair.
+  /// FR-4/FR-5's presence diff over a validated pair.
   ///
-  /// Records are matched by KDBX UUID, never by title or path (FR-3). Fields of
-  /// an entry present on both sides are classified one by one; a `missing` side
-  /// with no deletion evidence is an automatic union member and never a delete.
+  /// Records are matched by KDBX UUID, never by title or path (FR-3). Record
+  /// evidence is re-derived per side from the tree (bin membership) and the
+  /// `DeletedObjects` list (tombstones) — see [KdbxRecordEvidence] for why the
+  /// UUID sets alone cannot say it. Fields are classified only for records live
+  /// and un-binned on both sides; a `missing` side with no deletion evidence is
+  /// an automatic union member and never a delete.
   KdbxPresenceDiff diffPresence(KdbxMergePair pair) {
-    final localEntries = _entriesByUuid(pair.local.file);
-    final remoteEntries = _entriesByUuid(pair.remote.file);
-    final localGroups = _groupUuids(pair.local.file);
-    final remoteGroups = _groupUuids(pair.remote.file);
+    final local = _sideEvidence(pair.local);
+    final remote = _sideEvidence(pair.remote);
 
+    final recordDiffs = <KdbxRecordDiff>[];
     final fieldDiffs = <KdbxFieldDiff>[];
-    for (final uuid in localEntries.keys) {
-      final remoteEntry = remoteEntries[uuid];
-      if (remoteEntry == null) continue;
-      fieldDiffs.addAll(_diffEntry(uuid, localEntries[uuid]!, remoteEntry));
+
+    // Sorted so two devices emit the same evidence in the same order; FR-3's
+    // convergence argument depends on it.
+    final uuids = {...local.objects.keys, ...remote.objects.keys}.toList()
+      ..sort();
+
+    for (final uuid in uuids) {
+      final localObject = local.objects[uuid];
+      final remoteObject = remote.objects[uuid];
+      final localSide = local.sideFor(uuid);
+      final remoteSide = remote.sideFor(uuid);
+      final classification = _classifyRecord(localSide, remoteSide);
+
+      recordDiffs.add(
+        KdbxRecordDiff(
+          objectUuid: uuid,
+          objectKind: (localObject ?? remoteObject!) is KdbxGroup
+              ? KdbxMergeObjectKind.group
+              : KdbxMergeObjectKind.entry,
+          local: localSide,
+          remote: remoteSide,
+          classification: classification,
+        ),
+      );
+
+      if (classification != KdbxRecordClassification.sharedLive) continue;
+      if (localObject is! KdbxEntry || remoteObject is! KdbxEntry) continue;
+      fieldDiffs.addAll(_diffEntry(uuid, localObject, remoteObject));
     }
 
-    return KdbxPresenceDiff(
-      localOnlyEntryUuids: localEntries.keys.toSet().difference(
-        remoteEntries.keys.toSet(),
-      ),
-      remoteOnlyEntryUuids: remoteEntries.keys.toSet().difference(
-        localEntries.keys.toSet(),
-      ),
-      localOnlyGroupUuids: localGroups.difference(remoteGroups),
-      remoteOnlyGroupUuids: remoteGroups.difference(localGroups),
-      fieldDiffs: fieldDiffs,
-    );
+    return KdbxPresenceDiff(recordDiffs: recordDiffs, fieldDiffs: fieldDiffs);
+  }
+
+  /// Applies [resolution] to the **local** side of [pair] and returns it as the
+  /// merge candidate.
+  ///
+  /// **Why the local file is the base.** FR-1 forbids rebuilding a database
+  /// from a lossy projection, and the cheapest way to keep every construct the
+  /// library supports — header, KDF, metadata, settings, custom icons, history,
+  /// tombstones, recycle-bin settings — is to never destroy the object that
+  /// already holds them. So the candidate *is* the opened local file, mutated
+  /// in place. Two consequences, stated rather than discovered later:
+  ///
+  ///   * the pair is consumed by this call. `pair.local.file` is no longer the
+  ///     local side afterwards, and the caller must not diff it again;
+  ///   * nothing is written anywhere. The candidate lives in memory until
+  ///     [serializeCandidate] turns it into bytes and T403 writes those bytes
+  ///     under the mutex through `SafeVaultFileWriter`.
+  ///
+  /// What is applied, in this order and for these reasons:
+  ///
+  ///   1. **remote-only groups**, in pre-order so a parent exists before its
+  ///      child needs it;
+  ///   2. **remote-only entries**, which need their parent group to exist;
+  ///   3. **fields of shared live entries** — automatic unions for the
+  ///      one-sided rows, the resolved choice for the conflicts;
+  ///   4. **record deletion decisions**, which move objects in and out of the
+  ///      tree and must therefore run after the imports that may have created
+  ///      them;
+  ///   5. **tombstone union**, last, so it can see the final tree and skip any
+  ///      UUID a Keep decision has just brought back to life.
+  KdbxFile applyMerge({
+    required KdbxMergePair pair,
+    required KdbxPresenceDiff diff,
+    required KdbxMergeResolution resolution,
+  }) {
+    final local = pair.local.file;
+    final remote = pair.remote.file;
+
+    for (final record in diff.recordDiffs) {
+      if (record.classification != KdbxRecordClassification.recordRemoteOnly) {
+        continue;
+      }
+      if (record.objectKind != KdbxMergeObjectKind.group) continue;
+      _importGroup(local: local, remote: remote, groupUuid: record.objectUuid);
+    }
+    for (final record in diff.recordDiffs) {
+      if (record.classification != KdbxRecordClassification.recordRemoteOnly) {
+        continue;
+      }
+      if (record.objectKind != KdbxMergeObjectKind.entry) continue;
+      _importEntry(local: local, remote: remote, entryUuid: record.objectUuid);
+    }
+
+    for (final field in diff.fieldDiffs) {
+      _applyField(
+        local: local,
+        remote: remote,
+        field: field,
+        resolution: resolution,
+      );
+    }
+
+    for (final record in diff.deletionConflicts) {
+      _applyRecordDecision(
+        local: local,
+        remote: remote,
+        record: record,
+        choice: resolution.recordChoiceFor(record.objectUuid),
+      );
+    }
+
+    _unionTombstones(local: local, remote: remote);
+    return local;
+  }
+
+  /// FR-1's serialization parity gate: serialize the candidate, reopen it with
+  /// the **original credentials**, and refuse unless the reopened file carries
+  /// the same canonical semantic manifest.
+  ///
+  /// The comparison is semantic and never on bytes: salts, IVs and the master
+  /// seed are redrawn on every save, so two serializations of one file are
+  /// never byte-equal and a byte check would refuse every candidate. A
+  /// mismatch is [MergeFailureCode.serializationParityFailed] — the candidate
+  /// is discarded and no target is touched.
+  Future<Uint8List> serializeCandidate({
+    required KdbxFile candidate,
+    required Credentials credentials,
+  }) async {
+    final expected = kdbxSemanticManifest(candidate);
+    final bytes = Uint8List.fromList(await candidate.save());
+
+    final KdbxFile reopened;
+    try {
+      reopened = await KdbxFormat().read(bytes, credentials);
+    } on Object {
+      throw const SyncMergeFailure(MergeFailureCode.serializationParityFailed);
+    }
+    if (kdbxManifestDigest(kdbxSemanticManifest(reopened)) !=
+        kdbxManifestDigest(expected)) {
+      throw const SyncMergeFailure(MergeFailureCode.serializationParityFailed);
+    }
+    return bytes;
   }
 
   // ------------------------------------------------------------------ private
+
+  void _importGroup({
+    required KdbxFile local,
+    required KdbxFile remote,
+    required String groupUuid,
+  }) {
+    final source = _groupByUuid(remote, groupUuid);
+    if (source == null) return;
+    final parentUuid = source.parent?.uuid.uuid;
+    // A remote-only ROOT group is impossible: lineage was verified, so the two
+    // roots share a UUID and the root is never one-sided.
+    final parent = parentUuid == null
+        ? local.body.rootGroup
+        : _groupByUuid(local, parentUuid) ?? local.body.rootGroup;
+
+    final imported = KdbxGroup.create(
+      ctx: local.ctx,
+      parent: parent,
+      name: source.name.get(),
+    );
+    parent.addGroup(imported);
+    // Graft the source's own XML rather than copying a hand-written list of
+    // fields: `KdbxNode.node` holds every construct the library models AND the
+    // ones it does not, so a field nobody remembered is carried anyway. The
+    // container elements are excluded because `toXml` regenerates them from
+    // the live child lists, and `Times` because it is a separate `KdbxNode`
+    // with its own element.
+    _graftChildren(
+      from: source,
+      to: imported,
+      skip: const {'Group', 'Entry', 'Times'},
+    );
+    _graftChildren(from: source.times, to: imported.times);
+    imported.forceSetUuid(source.uuid);
+    _copyCustomIcon(local: local, remote: remote, object: imported);
+  }
+
+  void _importEntry({
+    required KdbxFile local,
+    required KdbxFile remote,
+    required String entryUuid,
+  }) {
+    final source = _entryByUuid(remote, entryUuid);
+    if (source == null) return;
+    final parentUuid = source.parent?.uuid.uuid;
+    final parent = parentUuid == null
+        ? local.body.rootGroup
+        : _groupByUuid(local, parentUuid) ?? local.body.rootGroup;
+
+    // `cloneInto` is the Gate 0 T003 primitive: it carries strings, binaries
+    // (re-registered in the target file's binary pool), custom data, times,
+    // colors, tags, override URL, icons and history.
+    final imported = source.cloneInto(parent);
+    // ...but not the constructs the library does not model. Gate 0 found
+    // exactly one on an entry: `AutoType`. Grafting it keeps the auto-type
+    // sequence and window associations of an imported record.
+    _graftChildren(from: source, to: imported, only: const {'AutoType'});
+    _copyCustomIcon(local: local, remote: remote, object: imported);
+  }
+
+  void _copyCustomIcon({
+    required KdbxFile local,
+    required KdbxFile remote,
+    required KdbxObject object,
+  }) {
+    final iconUuid = object.customIconUuid.get();
+    if (iconUuid == null) return;
+    if (local.body.meta.customIcons.containsKey(iconUuid)) return;
+    final icon = remote.body.meta.customIcons[iconUuid];
+    if (icon != null) local.body.meta.addCustomIcon(icon);
+  }
+
+  void _applyField({
+    required KdbxFile local,
+    required KdbxFile remote,
+    required KdbxFieldDiff field,
+    required KdbxMergeResolution resolution,
+  }) {
+    final localEntry = _entryByUuid(local, field.entryUuid);
+    final remoteEntry = _entryByUuid(remote, field.entryUuid);
+    if (localEntry == null || remoteEntry == null) return;
+
+    switch (field.classification) {
+      case KdbxFieldClassification.identical:
+      case KdbxFieldClassification.fieldLocalOnly:
+        // Already in the candidate; FR-4 preserves it with no decision.
+        return;
+      case KdbxFieldClassification.fieldRemoteOnly:
+        _takeRemote(localEntry, remoteEntry, field);
+        return;
+      case KdbxFieldClassification.fieldConflict:
+        final choice = resolution.fieldChoiceFor(field);
+        switch (choice) {
+          case MergeChoice.local:
+            return;
+          case MergeChoice.remote:
+            _takeRemote(localEntry, remoteEntry, field);
+            return;
+          case MergeChoice.bothNotes:
+            localEntry.setString(
+              KdbxKey(field.localKey ?? field.remoteKey!),
+              PlainValue(
+                notesSegmentUnion(
+                  localEntry.getString(KdbxKey(field.localKey!))?.getText() ??
+                      '',
+                  remoteEntry.getString(KdbxKey(field.remoteKey!))?.getText() ??
+                      '',
+                ),
+              ),
+            );
+            return;
+          case MergeChoice.keep:
+          case MergeChoice.delete:
+            // Unrepresentable: `RedactedMergeDecision` refuses keep/delete on a
+            // value conflict, so reaching here means the resolution was built
+            // outside the domain invariants.
+            throw StateError('keep/delete is not a value-conflict choice');
+        }
+    }
+  }
+
+  /// Copies the remote side of one field onto the candidate.
+  ///
+  /// The **local** key spelling wins where both sides have one, because KDBX
+  /// matches keys case-insensitively and keeps the spelling already stored:
+  /// writing the remote spelling would resolve onto the same key anyway. Where
+  /// only the remote side has the field, its spelling is preserved verbatim
+  /// (FR-1).
+  void _takeRemote(
+    KdbxEntry localEntry,
+    KdbxEntry remoteEntry,
+    KdbxFieldDiff field,
+  ) {
+    final targetKey = KdbxKey(field.localKey ?? field.remoteKey!);
+    final sourceKey = KdbxKey(field.remoteKey!);
+
+    switch (field.fieldKind) {
+      case KdbxMergeFieldKind.string:
+        localEntry.setString(targetKey, remoteEntry.getString(sourceKey));
+      case KdbxMergeFieldKind.attachment:
+        final binary = remoteEntry.getBinary(sourceKey);
+        if (binary == null) return;
+        if (localEntry.getBinary(targetKey) != null) {
+          // `createBinary` uniquifies a colliding name, which would silently
+          // produce `doc1.pdf` beside `doc.pdf` instead of replacing it.
+          localEntry.removeBinary(targetKey);
+        }
+        localEntry.createBinary(
+          isProtected: binary.isProtected,
+          name: targetKey.key,
+          bytes: binary.value,
+        );
+    }
+  }
+
+  /// FR-5 Keep/Delete on one record.
+  void _applyRecordDecision({
+    required KdbxFile local,
+    required KdbxFile remote,
+    required KdbxRecordDiff record,
+    required MergeChoice choice,
+  }) {
+    switch (choice) {
+      case MergeChoice.keep:
+        _applyKeep(local: local, remote: remote, record: record);
+      case MergeChoice.delete:
+        _applyDelete(local: local, record: record);
+      case MergeChoice.local:
+      case MergeChoice.remote:
+      case MergeChoice.bothNotes:
+        throw StateError('a deletion conflict is answered keep/delete only');
+    }
+  }
+
+  void _applyKeep({
+    required KdbxFile local,
+    required KdbxFile remote,
+    required KdbxRecordDiff record,
+  }) {
+    final uuid = record.objectUuid;
+    var object = _objectByUuid(local, uuid);
+
+    if (object == null) {
+      // Tombstoned locally, live remotely: import it back.
+      if (record.objectKind == KdbxMergeObjectKind.group) {
+        _importGroup(local: local, remote: remote, groupUuid: uuid);
+      } else {
+        _importEntry(local: local, remote: remote, entryUuid: uuid);
+      }
+      object = _objectByUuid(local, uuid);
+    } else if (record.local.evidence == KdbxRecordEvidence.recycled) {
+      // Binned locally, live remotely: put it back where the live side has it.
+      final remoteParentUuid = _objectByUuid(remote, uuid)?.parent?.uuid.uuid;
+      final target = remoteParentUuid == null
+          ? local.body.rootGroup
+          : _groupByUuid(local, remoteParentUuid) ?? local.body.rootGroup;
+      KdbxDao(local).move(object, target);
+    }
+    if (object == null) return;
+
+    // FR-5: Keep "removes/neutralizes matching tombstone". T009b gap G2: simply
+    // dropping the tombstone locally lets a peer that still holds it
+    // re-introduce the conflict on the next sync, forever. So the live object
+    // is also re-stamped at the tombstone's own clock, which under G1/G3 makes
+    // the tombstone non-matching on *every* device, deterministically — while
+    // the tombstone evidence stays retained wherever it exists, so the join
+    // remains monotone.
+    final deletedAt = record.local.deletedAtUtc ?? record.remote.deletedAtUtc;
+    if (deletedAt != null) {
+      object.times.lastModificationTime.set(deletedAt);
+    }
+    _removeTombstone(local, uuid);
+  }
+
+  void _applyDelete({required KdbxFile local, required KdbxRecordDiff record}) {
+    final object = _objectByUuid(local, record.objectUuid);
+    if (object != null && object.parent != null) {
+      // `deletePermanently` removes the object and emits the tombstone in one
+      // step, for the object and — on a group — for everything under it.
+      KdbxDao(local).deletePermanently(object);
+      return;
+    }
+    if (!tombstonesOf(local).containsKey(record.objectUuid)) {
+      _addTombstone(
+        local,
+        record.objectUuid,
+        record.remote.deletedAtUtc ?? record.local.deletedAtUtc,
+      );
+    }
+  }
+
+  /// Emits a tombstone carrying [deletedAt].
+  ///
+  /// `KdbxReadWriteContext.addDeletedObject` declares a `now` parameter and
+  /// then **drops it** (kdbx 2.5.0, `kdbx_format.dart:119`: it calls
+  /// `KdbxDeletedObject.create(this, uuid)` without forwarding it), so every
+  /// tombstone it emits is stamped with the current clock. That silently
+  /// rewrites the deletion time of a tombstone copied from the other side,
+  /// which is the one piece of data FR-5's "preserve newest supported deletion
+  /// data" is about, and which T009b's G1 uses to decide whether a tombstone
+  /// still matches. The clock is therefore re-applied on the object the call
+  /// just appended.
+  void _addTombstone(KdbxFile file, String uuid, DateTime? deletedAt) {
+    file.ctx.addDeletedObject(KdbxUuid(uuid));
+    if (deletedAt == null) return;
+    // ignore: invalid_use_of_visible_for_testing_member
+    final emitted = file.body.deletedObjects.lastWhere(
+      (o) => o.uuid.uuid == uuid,
+    );
+    emitted.deletionTime.set(deletedAt);
+  }
+
+  /// FR-5 "preserve newest supported deletion data": every tombstone the remote
+  /// holds and the candidate does not is carried over — unless the UUID is live
+  /// in the candidate, which is what a Keep decision or a one-sided union just
+  /// established.
+  void _unionTombstones({required KdbxFile local, required KdbxFile remote}) {
+    final existing = tombstonesOf(local);
+    final live = {
+      for (final object in local.body.rootGroup.getAllGroupsAndEntries())
+        object.uuid.uuid,
+    };
+    tombstonesOf(remote).forEach((uuid, deletedAt) {
+      if (existing.containsKey(uuid) || live.contains(uuid)) return;
+      _addTombstone(local, uuid, deletedAt);
+    });
+  }
+
+  void _removeTombstone(KdbxFile file, String uuid) {
+    // ignore: invalid_use_of_visible_for_testing_member
+    file.body.deletedObjects.removeWhere((o) => o.uuid.uuid == uuid);
+  }
+
+  /// Copies element children of [from]'s XML into [to]'s, replacing same-named
+  /// ones.
+  ///
+  /// Takes the `KdbxNode`s rather than the `XmlElement`s so that `xml` does not
+  /// become a direct dependency of this package: it is kdbx's own transitive
+  /// dependency, and `KdbxNode.node` is a public, exported member, so the
+  /// elements are reachable through inference without naming the type.
+  void _graftChildren({
+    required KdbxNode from,
+    required KdbxNode to,
+    Set<String> skip = const {},
+    Set<String>? only,
+  }) {
+    for (final child in from.node.childElements.toList()) {
+      final name = child.name.local;
+      if (skip.contains(name)) continue;
+      if (only != null && !only.contains(name)) continue;
+      for (final existing in to.node.childElements.toList()) {
+        if (existing.name.local == name) to.node.children.remove(existing);
+      }
+      to.node.children.add(child.copy());
+    }
+  }
+
+  KdbxObject? _objectByUuid(KdbxFile file, String uuid) {
+    for (final object in file.body.rootGroup.getAllGroupsAndEntries()) {
+      if (object.uuid.uuid == uuid) return object;
+    }
+    return null;
+  }
+
+  KdbxGroup? _groupByUuid(KdbxFile file, String uuid) {
+    final object = _objectByUuid(file, uuid);
+    return object is KdbxGroup ? object : null;
+  }
+
+  KdbxEntry? _entryByUuid(KdbxFile file, String uuid) {
+    final object = _objectByUuid(file, uuid);
+    return object is KdbxEntry ? object : null;
+  }
+
+  /// FR-5's record table, with T009b's temporal reading of "matching".
+  ///
+  /// The one row that is not a direct transcription of the spec table is
+  /// `live` against `tombstoned`: T009b's gaps G1/G3 resolved "matching" as
+  /// **strictly newer than the live side's modification time**, so an edit at
+  /// or after the deletion clock is proof of life and supersedes the tombstone,
+  /// and an equal clock breaks toward preservation. An *unknown* modification
+  /// time carries no such proof, so a tombstone always matches it — FR-3's
+  /// "unknown never outranks evidence", applied to deletion. That model is the
+  /// gate this implementation has to be coherent with, not an invention here.
+  KdbxRecordClassification _classifyRecord(
+    KdbxRecordSide local,
+    KdbxRecordSide remote,
+  ) {
+    if (local.evidence == KdbxRecordEvidence.live &&
+        remote.evidence == KdbxRecordEvidence.live) {
+      return KdbxRecordClassification.sharedLive;
+    }
+    if (!local.isLiveSomewhere && !remote.isLiveSomewhere) {
+      return KdbxRecordClassification.recordDeleted;
+    }
+    if (local.isLiveSomewhere && remote.isLiveSomewhere) {
+      // At least one side has it binned (the other is live or binned too):
+      // bin-vs-live is FR-5's explicit move-to-bin conflict, bin-vs-bin is
+      // deleted on both.
+      return local.evidence == remote.evidence
+          ? KdbxRecordClassification.recordDeleted
+          : KdbxRecordClassification.recordDeletionConflict;
+    }
+
+    final liveSide = local.isLiveSomewhere ? local : remote;
+    final otherSide = local.isLiveSomewhere ? remote : local;
+    final liveOnLocal = local.isLiveSomewhere;
+
+    if (otherSide.evidence == KdbxRecordEvidence.tombstoned &&
+        _tombstoneMatches(liveSide, otherSide)) {
+      return KdbxRecordClassification.recordDeletionConflict;
+    }
+    // Either plain absence (FR-4: never deletion evidence) or a tombstone the
+    // live side's later edit superseded. Both preserve the record.
+    return liveOnLocal
+        ? KdbxRecordClassification.recordLocalOnly
+        : KdbxRecordClassification.recordRemoteOnly;
+  }
+
+  bool _tombstoneMatches(KdbxRecordSide live, KdbxRecordSide tomb) {
+    final deletedAt = tomb.deletedAtUtc;
+    if (deletedAt == null) return true;
+    final modifiedAt = live.modifiedAtUtc;
+    if (modifiedAt == null) return true;
+    return deletedAt.isAfter(modifiedAt);
+  }
+
+  _SideEvidence _sideEvidence(KdbxMergeSide side) {
+    final file = side.file;
+    final binned = _recycleBinMemberUuids(file);
+    final objects = <String, KdbxObject>{
+      for (final object in file.body.rootGroup.getAllGroupsAndEntries())
+        object.uuid.uuid: object,
+    };
+    return _SideEvidence(
+      objects: objects,
+      binnedUuids: binned,
+      tombstones: tombstonesOf(file),
+    );
+  }
+
+  /// Every object inside the recycle-bin subtree, the bin group itself
+  /// excluded.
+  ///
+  /// The bin group is a container, not a deleted record: it is preserved like
+  /// any other group, and only what the user put *into* it counts as a
+  /// move-to-bin.
+  Set<String> _recycleBinMemberUuids(KdbxFile file) {
+    final bin = file.recycleBin;
+    if (bin == null) return const <String>{};
+    return {
+      for (final object in bin.getAllGroupsAndEntries())
+        if (object.uuid != bin.uuid) object.uuid.uuid,
+    };
+  }
 
   KdbxMergeSide _validateSide(KdbxFile file) {
     final kinds = <String, KdbxMergeObjectKind>{};
@@ -579,13 +1323,52 @@ class KdbxMergeAdapter {
       );
     }
   }
-
-  Map<String, KdbxEntry> _entriesByUuid(KdbxFile file) => {
-    for (final entry in file.body.rootGroup.getAllEntries())
-      entry.uuid.uuid: entry,
-  };
-
-  Set<String> _groupUuids(KdbxFile file) => {
-    for (final group in file.body.rootGroup.getAllGroups()) group.uuid.uuid,
-  };
 }
+
+/// One side's raw evidence, indexed by UUID.
+final class _SideEvidence {
+  const _SideEvidence({
+    required this.objects,
+    required this.binnedUuids,
+    required this.tombstones,
+  });
+
+  final Map<String, KdbxObject> objects;
+  final Set<String> binnedUuids;
+  final Map<String, DateTime?> tombstones;
+
+  KdbxRecordSide sideFor(String uuid) {
+    final object = objects[uuid];
+    if (object != null) {
+      return KdbxRecordSide(
+        evidence: binnedUuids.contains(uuid)
+            ? KdbxRecordEvidence.recycled
+            : KdbxRecordEvidence.live,
+        modifiedAtUtc: object.times.lastModificationTime.get(),
+        // A tombstone can coexist with a live object of the same UUID after a
+        // delete-then-restore on this side; carrying it keeps the join
+        // monotone (T009b) instead of silently dropping evidence.
+        deletedAtUtc: tombstones[uuid],
+      );
+    }
+    if (tombstones.containsKey(uuid)) {
+      return KdbxRecordSide(
+        evidence: KdbxRecordEvidence.tombstoned,
+        deletedAtUtc: tombstones[uuid],
+      );
+    }
+    return const KdbxRecordSide.absent();
+  }
+}
+
+/// The `DeletedObjects` tombstone list of [file], keyed by UUID.
+///
+/// `KdbxBody.deletedObjects` is the only accessor the library offers and it is
+/// annotated `@visibleForTesting` — recorded in the Gate 0 report as one of the
+/// primitives that sits outside the supported surface. It is exported and
+/// stable; the annotation is what forces the ignore, not the API.
+Map<String, DateTime?> tombstonesOf(KdbxFile file) => {
+  // ignore: invalid_use_of_visible_for_testing_member
+  for (final deleted in file.body.deletedObjects)
+    deleted.uuid.uuid: deleted.deletionTime.get(),
+};

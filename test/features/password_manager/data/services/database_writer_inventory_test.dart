@@ -636,6 +636,12 @@ final _nonFilesystem = RegExp(
   // in-memory record constructor — the service touches no file by contract
   // (and its own tests search the disk for the secret to prove it).
   r'pendingGeneration[!?]?\.create(Sync)?\(|'
+  // spec 008 T301 apply half: `XmlElement.copy()` deep-copies a node in
+  // memory. Scrubbed by SHAPE rather than by receiver name — a zero-argument
+  // `.copy()` can never be `File.copy`/`copySync`, both of which require the
+  // destination path. So this exempts the whole class of in-memory copies
+  // without exempting any filesystem one.
+  r'\.copy\(\)|'
   // `tool/drive_conditional_spike.dart` issues an HTTP DELETE against the
   // Drive API through its `http.Client` field — a network call, not a
   // filesystem mutation. This is the only allowlisted receiver in `tool/`:
