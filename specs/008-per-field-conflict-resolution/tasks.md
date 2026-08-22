@@ -423,6 +423,23 @@ itself green** — the T009/T009b precedent.
 **Gate 3 exit**: implementation compiles against domain contract; fidelity,
 UUID/lineage, presence, deletion, shortcut, secret boundary and DI tests pass.
 
+> **Gate 3 is CLOSED (2026-08-22).** Independent tester verdict **VALIDATED**,
+> against `main` at PRs #91, #93 and #96. The evidence was re-executed, not
+> declared: **1293 tests green**, `flutter analyze` clean; end-to-end
+> commutativity **30/30 on `main`**; **zero undeclared dimensions** in the
+> full-manifest diff between two devices at **0, 10 and 25 seconds of skew**, on
+> a fixture that also exercises divergent metadata; **15/15 regression mutants
+> killed**, including the two gaps the previous round left open (`_newer`
+> inverted, and the D16 codes). HIGH-5 and HIGH-6 are re-verified closed with
+> their original probes: the tombstone reports `CONVERGED=true` from the first
+> exchange on the max and stays stable over three rounds, and remote metadata is
+> preserved from both perspectives with the recycle bin resolving by UUID.
+>
+> Four residual findings remain — **MEDIUM-5, MEDIUM-6, LOW-4, LOW-5**. They are
+> coverage gaps on code verified correct, **not regressions**, and none produces
+> data loss as the code stands. They are handed to **T401**, which re-reads
+> `_mergeMeta` for FR-7 step 5 anyway, and are written out there.
+
 **Phase 3 slice 2 executed 2026-08-22** on `feat/008-t302-t310-merge-repository`
 (T302, T302a, T303, T308, T309, T310). `flutter analyze` clean, `flutter test`
 green (1264 tests). What landed beyond the six task lines, and why:
@@ -567,6 +584,50 @@ time under a wall clock does not do.
       2026-08-15 report claimed the respecification had happened while this line
       was unchanged — a declared-but-unmade change, the same error class as the
       fabricated citation corrected in the 2026-08-14 pass. It is made here.)*
+
+      **What T401 must decide — the single list.** Everything below is input
+      T401 *treats*, not something it should rediscover; `_mergeMeta` is
+      re-opened here anyway for FR-7 step 5. Every item is either a **coverage
+      gap on code verified correct** or an open design question. **None is a
+      regression, and none produces data loss as the code stands today.**
+
+      *Residual findings from the Gate 3 final validation (2026-08-22):*
+      - **MEDIUM-5 — the recycle-bin block of `_mergeMeta` is declared atomic in
+        its comment and tested by nothing.** Adopting `recycleBinUUID` without
+        the `enabled` flag makes `/meta/recycleBinEnabled` diverge between the
+        two sides, and every subsequent deletion goes permanent instead of to the
+        bin. The mutant was verified harmful. The atomicity has to be asserted,
+        not commented.
+      - **MEDIUM-6 — "a known clock beats an unknown clock" lives in the document
+        and has no guard.** Inverted, the rule stays commutative and elects the
+        side with no clock: it discards a real user edit in favour of a value
+        that was never set. Same damage direction as HIGH-5 — which is exactly
+        why the commutativity assertion cannot see it.
+      - **LOW-4 — two custom icons with the same UUID and different bytes are not
+        commutative**, because `addCustomIcon` is first-wins. No realistic path
+        builds it: icon UUIDs are random at creation, and neither KeePass nor
+        KeePassXC modifies an icon in place. Two-line remedy — a deterministic
+        tie-break on the bytes, using the comparator T401a builds anyway.
+      - **LOW-5 — the pre-capture of `localSettingsAt`/`remoteSettingsAt` for
+        `customData` is a precaution declared in the comment and tested by
+        nothing.** It has not been shown non-commutative either; it needs an
+        assertion that settles which of the two it is.
+
+      *Already open, carried forward — grouped here, stated where they live:*
+      - **No per-field modification time**: FR-3 is entry-level LWW in practice.
+        The three candidate answers (a) / (b) / (c) are in **T401a** below, and
+        in `feasibility-report.md` §"Where the T301 adapter's evidence does NOT
+        line up with T009's model", item 2.
+      - **`KdbxFieldDiff.keySpellingDiverges` is emitted and read by nobody.**
+        Full statement and the three analysed candidates: **T401a** below.
+      - **Sibling order and entry history are not commutative.** Both are
+        pre-existing per-replica state the merge preserves rather than writes,
+        each already pinned by its own executable assertion. Statement: the
+        Phase 3 Round 2 note above, "Two dimensions remain **not** commutative".
+      - **Automatic metadata adoption is invisible in `MergeReviewSummary`.**
+        Frozen-contract insufficiency, raised and deliberately not worked around.
+        Statement: the Phase 3 Round 3 note above, "Frozen-contract insufficiency
+        found and NOT resolved".
 - [ ] **T401a Deterministic tie-break** — implement FR-3's globally deterministic
       total order over candidate values (unsigned lexicographic, greater wins)
       for timestamp ties and unknown timestamps, and use the same order to fix

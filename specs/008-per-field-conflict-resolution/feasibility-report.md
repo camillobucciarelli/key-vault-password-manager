@@ -997,6 +997,34 @@ listed here so nobody reads "T009 passed" as covering them.
    argument, and an argument is what T009 exists to replace. To be folded into
    the model when T401a extends it.
 
+Items 2 and 3 **survive the Gate 3 close of 2026-08-22**: closing Phase 3 does
+not close them, and they are indexed together with the rest of T401's input in
+`tasks.md` under T401.
+
+#### Gate 3 final validation (2026-08-22) — VALIDATED
+
+Independent tester, against `main` at PRs #91, #93 and #96; evidence re-executed
+rather than declared. 1293 tests green, `flutter analyze` clean, end-to-end
+commutativity 30/30 on `main`, **zero undeclared dimensions** in the
+full-manifest diff between two devices at 0, 10 and 25 s of skew on a fixture
+that also exercises divergent metadata, and 15/15 regression mutants killed —
+including the two the previous round left open, `_newer` inverted and the D16
+codes. HIGH-5 and HIGH-6 re-verified closed with their original probes:
+tombstone `CONVERGED=true` from the first exchange on the max and stable over
+three rounds; remote metadata preserved from both perspectives, recycle bin
+resolving by UUID.
+
+Four residual findings, all **coverage gaps on code verified correct — not
+regressions — and none producing data loss as the code stands**. Full text and
+remedies in `tasks.md` under T401:
+
+| Id | Status | Summary |
+| --- | --- | --- |
+| MEDIUM-5 | open, handed to T401 | `_mergeMeta`'s recycle-bin block is declared atomic in the comment and tested by nothing; adopting `recycleBinUUID` without the `enabled` flag diverges `/meta/recycleBinEnabled` and sends later deletions permanent. Mutant verified harmful. |
+| MEDIUM-6 | open, handed to T401 | "a known clock beats an unknown clock" is doc-only and unguarded; inverted it stays commutative and elects the clock-less side, discarding a real edit. Same damage direction as HIGH-5. |
+| LOW-4 | open, handed to T401 | Two custom icons, same UUID, different bytes are not commutative (`addCustomIcon` is first-wins). No realistic path constructs it; two-line deterministic byte tie-break. |
+| LOW-5 | open, handed to T401 | The `localSettingsAt`/`remoteSettingsAt` pre-capture for `customData` is a commented precaution with no test; not shown non-commutative either. |
+
 ### T009b — deletion convergence model
 
 Executed 2026-08-22. Status: **pending PM acceptance** — the gate closes only
@@ -1338,3 +1366,8 @@ closing them is Gate 1 work, outside the Phase 0 scope.
 | Gate 0 T009 convergence model | `passed` | PM | 2026-08-21 | **Accepted.** 36 tests green on `main` (PR #65); `node tool/mutation_runner.mjs --definitions=tool/mutations/008_t009_convergence.json --check` exit 0, 0 survivors, re-verified by the PM on 2026-08-21. **Scope: additions only** — deletions are T009b and are not covered. |
 | Gate 0 close | `passed` | PM | 2026-08-21 | **T001–T009 all passed; Gate 0 CLOSED.** T201 and the domain freeze are unblocked. T009b remains open and gates only deletion/tombstone/attachment work. |
 | Gate 1 writer/mutex/platform evidence | `not-run` | — | — | All platforms disabled |
+| Gate 3 Phase 3 (round 1) | `failed` | independent tester | 2026-08-22 | **Not validated.** Three HIGH: HIGH-3 a consumed session was re-callable and, with assertions compiled out, produced duplicate UUIDs in the candidate; HIGH-2 the FR-1 parity gate had no test; HIGH-1 the DI barrier checked only `export`. Plus MEDIUM-1/2/3. All closed by replaying the tester's own mutants. |
+| Gate 3 Phase 3 (round 2) | `failed` | independent tester | 2026-08-22 | **Not validated.** 7/7 round-1 mutants dead, but two HIGH remained: HIGH-1 the barrier's return-type check was inert on a `null` interpolation; HIGH-4 a third commutativity divergence written by the merge itself (`Changeable.modify` stamping `DateTime.now()`), closed by `_stampDeterministicTimes`. Sibling order and entry history declared non-commutative and pinned. |
+| Gate 3 Phase 3 (round 3) | `failed` | independent tester | 2026-08-22 | **Not validated.** HIGH-6 `_unionTombstones` was add-if-missing, so two devices deleting the same record never converged; HIGH-5 `applyMerge` never merged `KdbxMeta`. Both merged rather than refused, on the KDBX per-field change clocks, which entered the canonical manifest. MEDIUM-4, LOW-2, LOW-3 closed. Frozen-contract insufficiency raised and NOT resolved: automatic metadata adoption is invisible in `MergeReviewSummary`. |
+| Gate 3 Phase 3 (final) | `passed` | independent tester | 2026-08-22 | **VALIDATED.** 1293 tests green, `flutter analyze` clean, commutativity 30/30 on `main`, zero undeclared dimensions in the full-manifest diff at 0/10/25 s of skew on a metadata-divergent fixture, 15/15 regression mutants killed including `_newer` inverted and the D16 codes. HIGH-5 and HIGH-6 re-verified closed with the original probes. Four residual findings (MEDIUM-5, MEDIUM-6, LOW-4, LOW-5) — coverage gaps on verified-correct code, no data loss, handed to T401. |
+| Gate 3 close | `passed` | PM | 2026-08-22 | **T301–T310 all passed; Gate 3 CLOSED.** PRs #91, #93, #96. Phase 4 is unblocked. The four residual findings plus the four previously open T401/T401a items are indexed as one list under T401 in `tasks.md`. |
