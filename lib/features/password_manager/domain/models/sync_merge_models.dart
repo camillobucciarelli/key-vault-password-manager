@@ -49,8 +49,13 @@ final class MergeSessionId extends Equatable {
 
   static final RegExp _pattern = RegExp(r'^ms-[0-9a-f]{32}$');
 
-  /// The opaque token. Safe to log, persist and compare: it is random and
-  /// carries no information about the database, the file or its contents.
+  /// The token.
+  ///
+  /// Safe to log, persist and compare **only to the extent that minting holds
+  /// up its end** — see the class doc and `tasks.md` T302a. A token minted from
+  /// a CSPRNG carries no information about the database, the file or its
+  /// contents; a token derived from any input carries all of it, and this shape
+  /// check cannot tell the two apart.
   final String token;
 
   @override

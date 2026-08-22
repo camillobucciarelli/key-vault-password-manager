@@ -14,15 +14,21 @@ and the choice is recorded there too. Nothing in this document is derived from
 an assumption that has no executed evidence behind it.
 
 Changing a frozen declaration is a spec amendment: edit `spec.md`, re-run the
-affected Gate 0 model, then edit this file. Adding a field, getter, static or
-method to any registered merge file additionally has to pass
+affected Gate 0 model, then edit this file. Adding **any declaration at all** to
+a registered merge file additionally has to pass
 `test/features/password_manager/domain/models/sync_merge_redaction_test.dart`,
 and adding a **file** to the merge module has to pass the registry-completeness
 check in `sync_merge_domain_architecture_test.dart`: a file in `lib/` that names
 a spec-008 merge identifier and is absent from
 `test/features/password_manager/domain/sync_merge_module_registry.dart` fails
-the suite. Forgetting the registry is a failure, not a silent pass — which is
-what the first version of these gates got wrong (see "Validation history").
+the suite. Forgetting the registry is a failure, not a silent pass.
+
+The judge behind both gates is **fail-closed**: a top-level declaration, class
+member, type annotation or directive whose kind it does not recognise is a
+violation, not a skip. A Dart construct that does not exist today will therefore
+break this gate the first time it is used in the module, and a human will decide
+what it means. That is deliberate, and it is the correction for the defect that
+survived two review rounds in different disguises — see "Validation history".
 
 Representation split:
 
@@ -691,8 +697,9 @@ implementation in existence**:
 | Artifact | Enforces |
 | --- | --- |
 | `test/.../domain/sync_merge_module_registry.dart` | **The single point of update.** Declares which files are in the merge module and which bucket each belongs to. Not a test itself; both gates derive their scope from it. |
-| `test/.../domain/sync_merge_domain_architecture_test.dart` | **Registry completeness**: any file in `lib/` naming a spec-008 merge identifier and missing from the registry fails, so a new merge file cannot escape the gates. Plus: no merge file imports `data/`, `presentation/`, `dart:io` or Flutter; `merge_field_display.dart` has a three-entry importer allowlist; no `SyncMergeRepositoryImpl` or `KdbxMergeAdapter` exists — Gate 3 not started early. |
-| `test/.../domain/models/sync_merge_redaction_test.dart` | Over **every strictly-redacted file in the registry**, not just the models: each field, **getter** and **static** must have a safe type and a safe name, with `String` legal only at three listed ids; methods are judged **by return type**, so any `Map<…>`/`dynamic`/`Object`/`String` return is a serialization channel whatever it is named. Safe models must be `Equatable` with `props`; the transient display must have no supertype, no `props`, and a `toString` that is a constant redacted literal. Plus runtime assertions on `props`/`toString`, on disposal, and on the exact limits of the id shape check. |
+| `test/.../domain/sync_merge_domain_architecture_test.dart` | **Registry completeness**: any file in `lib/` naming a spec-008 merge identifier and missing from the registry fails, so a new merge file cannot escape the gates. Exemptions are `(identifier, owning file)` pairs, never bare names. Plus: every registered file must live under `domain/`; the transient bucket is asserted to be a closed singleton, so it cannot be used as an opt-out; importer restrictions are derived from the transient bucket rather than from a literal filename; no merge file imports `data/`, `presentation/`, `dart:io` or Flutter; no `SyncMergeRepositoryImpl` or `KdbxMergeAdapter` exists. |
+| `test/.../domain/sync_merge_ast_gate.dart` | **The fail-closed judge.** Walks classes, enums, mixins, extensions, extension types, typedefs, top-level functions and variables — and refuses any other top-level construct, any unrecognised class member, any unrecognised type-annotation shape and any directive other than `import`/`library`. `part` and `export` are refused outright. Types are judged on the AST, so nullability cannot change the verdict; `List`/`Set` recurse, record types recurse, function types are refused, and a parameterised type the judge cannot unwrap is refused. |
+| `test/.../domain/models/sync_merge_redaction_test.dart` | Runs the judge over **every registered file**, strict for buckets 1 and 3: each field, getter, static and extension-type representation must have a safe type and a safe name, with `String` legal only at three listed ids; methods are judged **by return type**. The safe *stored* type set is built from the strict files **minus the transient bucket's own types**, so no field may hold a `MergeFieldDisplay` even though the port may return one. Safe models must be `Equatable` with `props`; the transient library must have no supertype, no `props`, and a `toString` that is a constant redacted literal. Plus runtime assertions on `props`/`toString`, on disposal, and on the exact limits of the id shape check. |
 | `test/.../domain/services/sync_merge_policy_test.dart` | Visible defaults, deterministic both-sides notes, the shortcut set excluding one-sided rows, and the missing side being unselectable. |
 | `test/.../domain/usecases/sync_merge_usecases_test.dart` | The port and its use cases compile and behave against a fake repository declared in the test file. |
 
@@ -720,6 +727,45 @@ the tester's exact mutant:
 | **F4** | The serializer gate was a six-name blacklist, so `Map<String, dynamic> asTelemetryPayload()` passed. | Methods are judged by **return type**. | Killed. |
 | **F5** | This document claimed the id shape made the ids non-derivable. False: `'ms-' + md5(path)` is accepted. | Claim struck and replaced with what the shape actually delivers; the guarantee relocated to minting requirement **T302a** in Gate 3; the acceptances pinned by assertions. | Documented, not mutated. |
 | **F6** | The "three layers" protecting `MergeFieldDisplay` are really one — an allowlisted file may still copy `.value` into a durable `String`. | Registered as a **Phase 6 gate condition** on `tasks.md` T603; not implemented now, because no allowlisted consumer exists yet. | Deferred by decision. |
+
+**Round 3 — independent tester, second NOT VALIDATED.** F1–F5 were confirmed
+genuinely closed (6/6 of the previous survivors died, including the strongest
+case: renaming every identifier innocuously still fails, because *using* the
+transient type is enough to make a file a module member). The verdict was on the
+gate's **design**, and it was the same defect as round 1 wearing different
+clothes: round 1 enumerated *files*, round 2 enumerated *AST declaration kinds*.
+The tester's sentence is the one that matters — *"as long as the walker
+enumerates what it knows instead of refusing what it does not, this conversation
+repeats at round four."*
+
+The fix is therefore not the seven items below; it is that **the judge is now
+fail-closed**, and the items are what that change had to cover:
+
+| # | Escape | Closure | Re-verified |
+| --- | --- | --- | --- |
+| **N1** | `moduleDeclaredTypes()` iterated `mergeModuleFiles`, which *includes* the transient bucket, so `MergeDisplaySide` and `MergeFieldDisplay` — the two plaintext-bearing classes — counted as safe types for the strict bucket. `SyncMergeFailure` could hold a live `MergeDisplaySide` and a `List<MergeFieldDisplay>`: F2 reopened through the type system. | The safe *stored* set is built from the strict files and the transient type names are subtracted. Types are compared on the AST, so `MergeDisplaySide?` and `MergeDisplaySide` get the same verdict — previously nullability saved it by accident. | Killed, 2 violations. |
+| **N2/N3** | Both walkers did `whereType<ClassDeclaration>()`. An enum with `canonicalPath`/`masterPassword`, `toJson` and a plaintext getter reachable as `uploadState.masterPassword`; an `extension type MergeVaultLocator(String canonicalPath)`; `typedef MergeSecretBundle = Map<String, String>`; and worst, `extension MergeDecisionLeak on RedactedMergeDecision` adding a plaintext getter and a serializer to a gated class **from outside its body**. | All five declaration kinds are walked — and, more to the point, anything else fails. | Killed, 14 violations across the four constructs. |
+| **N4** | A `part of 'sync_merge_models.dart'` file was invisible three times over: not a registry member, not in the registered file's AST, and not caught by an import walker that filtered only `Import`/`Export`. | **Refusal, not resolution** — see below. | Killed. |
+| **N5** | Registering into bucket 2 exempted a file from the field rules, and the importer check matched the literal string `merge_field_display.dart`, so a *second* transient file had no import restriction at all. | Importer targets derive from the bucket; the bucket is asserted to be a closed singleton. | Killed on four assertions at once. |
+| **N6** | Exemptions were bare identifiers, leaving four names globally free: a new file declaring a class called exactly `MergePreview` was invisible to completeness. | Exemptions are `(identifier, owning file)` pairs. | Killed. |
+| **N7** | The layering test judged a registered file's imports but never its location, so a `presentation/` file registered as a merge contract file passed. | Every registered file must live under `domain/`. | Killed on two assertions. |
+| **F5 residual** | The doc comment on `token` still read "Safe to log, persist and compare: it is random", contradicting the class doc 30 lines above. | Rewritten to say the safety is conditional on T302a's minting. | Documented. |
+
+**Why `part` is refused rather than resolved.** Resolving would mean parsing the
+part, attributing its declarations to the parent and judging them — which needs
+a second membership mechanism (part files are not registry entries) and leaves
+the import walker still blind to them. Refusal is one rule, it is total, and the
+module has no use for parts. `export` is refused for the same reason: it
+republishes unjudged declarations through a registered file.
+
+**Proof that the fix is structural, not another enumeration.** A probe was
+written against a construct the judge has *no rule for* and whose content is
+deliberately harmless — `mixin _Harmless {}` plus
+`class MergeAliased = Object with _Harmless;`, containing no `String`, no
+secret-bearing name and no serializer. It fails, with
+`declares an unhandled top-level construct (ClassTypeAliasImpl)`. Nothing about
+that alias is a leak; it fails purely because it is unrecognised, which is the
+property the previous two rounds lacked.
 
 Minor follow-ups tracked, not implemented: **F7** (`withChoice` throws
 `ArgumentError` while the port declares `SyncMergeFailure` its only error — the

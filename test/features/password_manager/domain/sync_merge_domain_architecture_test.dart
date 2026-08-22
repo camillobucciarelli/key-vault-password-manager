@@ -33,6 +33,38 @@ void main() {
     }
   });
 
+  test('every registered file lives in the merge domain directory (N7)', () {
+    // The layering test judges a registered file's IMPORTS, never its
+    // location, so registering a presentation/ or data/ file into a merge
+    // bucket used to pass. Membership of a bucket now implies membership of
+    // the domain layer.
+    for (final relative in mergeModuleFiles) {
+      expect(
+        relative,
+        startsWith(mergeModuleDirectory),
+        reason:
+            '$relative is registered as a merge module file but does not live '
+            'under $mergeModuleDirectory',
+      );
+    }
+  });
+
+  test('the transient bucket is a closed singleton (N5)', () {
+    // Bucket 2 is exempt from the field/type/name rules — it is the one place
+    // plaintext may live — so it must not be usable as an opt-out. Extending
+    // it requires editing this assertion, which is a review, not an edit to a
+    // list.
+    expect(
+      mergeTransientFiles,
+      ['lib/features/password_manager/domain/models/merge_field_display.dart'],
+      reason:
+          'Registering a file in mergeTransientFiles exempts it from the '
+          'redaction rules. The bucket is deliberately a closed singleton: '
+          'adding to it is a security decision that must be argued, not a '
+          'list edit.',
+    );
+  });
+
   test('every file participating in the merge contract is registered '
       '(a new merge file cannot escape the gates)', () {
     final unregistered = <String, Set<String>>{};
@@ -44,7 +76,10 @@ void main() {
       final hits = mergeIdentifierPattern
           .allMatches(entry.readAsStringSync())
           .map((m) => m.group(0)!)
-          .where((id) => !nonSpec008MergeIdentifiers.contains(id))
+          .where(
+            (id) =>
+                !(nonSpec008MergeIdentifiers[id]?.contains(relative) ?? false),
+          )
           .toSet();
 
       if (hits.isNotEmpty) unregistered[relative] = hits;
@@ -111,15 +146,21 @@ void main() {
   );
 
   test('the transient field display is imported only by allowlisted files', () {
+    // Targets derive from the registry, not from a literal filename: a SECOND
+    // transient file used to arrive with no import restriction at all (N5).
+    final transientBasenames = [
+      for (final relative in mergeTransientFiles) p.basename(relative),
+    ];
     final offenders = <String>[];
 
     for (final entry in _dartFilesUnder(p.join(root, 'lib'))) {
       final relative = p.relative(entry.path, from: root).replaceAll(r'\', '/');
       if (mergeFieldDisplayImporters.contains(relative)) continue;
-      if (importsOf(
+      final imported = importsOf(
         entry.path,
-      ).any((uri) => uri.endsWith('merge_field_display.dart'))) {
-        offenders.add(relative);
+      ).where((uri) => transientBasenames.any(uri.endsWith));
+      if (imported.isNotEmpty) {
+        offenders.add('$relative -> ${imported.join(', ')}');
       }
     }
 

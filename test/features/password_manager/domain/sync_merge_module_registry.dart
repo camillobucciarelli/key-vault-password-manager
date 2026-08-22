@@ -61,7 +61,11 @@ const mergeStrictlyRedactedFiles = <String>[
   ...mergeContractFiles,
 ];
 
-/// The only files allowed to import the transient plaintext response.
+/// The only files allowed to import a transient plaintext library.
+///
+/// The gate derives the *targets* from [mergeTransientFiles] rather than
+/// matching a literal filename, so a second transient file cannot arrive
+/// without import restrictions (N5).
 ///
 /// Phase 6 adds the field widget here — deliberately one reviewed line, and per
 /// F6 it must arrive with the retention test named in `tasks.md` T603, because
@@ -78,17 +82,43 @@ final mergeIdentifierPattern = RegExp(
   r'\b(SyncMerge[A-Za-z0-9_]*|Merge[A-Z][A-Za-z0-9_]*|RedactedMergeDecision)\b',
 );
 
-/// Merge-shaped identifiers that are NOT spec-008. Each is exempt by name, not
-/// by file, so a new file using one does not false-positive and a new file
-/// using a real merge type is still caught.
-const nonSpec008MergeIdentifiers = <String>{
-  'MergeSemantics', // Flutter framework widget
-  'MergePreview', // spec-005 import duplicate preview, predates 008
-  'MergePreviewSurface', // spec-005
-  'MergeDuplicateEntries', // spec-005 duplicate resolution event
+/// Merge-shaped identifiers that are NOT spec-008.
+///
+/// Scoped to `(identifier, owning file)` pairs, never to a bare name (N6). A
+/// bare-name exemption left four identifiers globally free: a brand-new file
+/// declaring a class called exactly `MergePreview` was invisible to the
+/// completeness check and could carry anything. Under the pair rule the
+/// exemption only holds in the files that legitimately use the identifier
+/// today, so a new file naming one is still caught.
+const nonSpec008MergeIdentifiers = <String, Set<String>>{
+  // Flutter framework widget.
+  'MergeSemantics': {
+    'lib/features/password_manager/presentation/screens/vault/vault_entries_details.part.dart',
+  },
+  // spec-005 import duplicate preview, predates 008.
+  'MergePreview': {
+    'lib/features/password_manager/domain/models/merge_preview.dart',
+    'lib/features/password_manager/data/services/vault_duplicate_service.dart',
+    'lib/features/password_manager/presentation/screens/vault/vault_duplicates.part.dart',
+  },
+  'MergePreviewSurface': {
+    'lib/features/password_manager/presentation/navigation/vault_shell_router.dart',
+    'lib/features/password_manager/presentation/screens/vault/vault_duplicates.part.dart',
+  },
+  // spec-005 duplicate resolution event.
+  'MergeDuplicateEntries': {
+    'lib/features/password_manager/presentation/bloc/vault/vault_event.dart',
+    'lib/features/password_manager/presentation/bloc/vault/vault_bloc.dart',
+    'lib/features/password_manager/presentation/screens/vault/vault_duplicates.part.dart',
+  },
 };
 
 /// Phase 3+ types that must not exist yet (Gate 2 exit condition). Kept
 /// separate from the identifier pattern because `KdbxMergeAdapter` does not
 /// match it.
 const phase3TypeNames = <String>['SyncMergeRepositoryImpl', 'KdbxMergeAdapter'];
+
+/// Every registered file must live here. Registering a `presentation/` or
+/// `data/` file into a merge bucket would otherwise pass the layering gate,
+/// which judges a registered file's imports but never its location (N7).
+const mergeModuleDirectory = 'lib/features/password_manager/domain/';

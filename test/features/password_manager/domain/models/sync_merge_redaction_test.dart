@@ -6,21 +6,21 @@
 // completeness is enforced by `sync_merge_domain_architecture_test.dart`, so a
 // file nobody remembered to add is a failure rather than a blind spot.
 //
-// Four holes found by an adversarial pass on the first version, all closed
-// here and each re-verified against the surviving mutant:
+// Round 2 closed four holes here (F1 scope from the registry, F2 rules over
+// every strict file, F3 getters and statics walked, F4 serializers judged by
+// return type). Round 3 found that the walk itself was still an enumeration —
+// of declaration KINDS this time — and that the safe-type set wrongly absorbed
+// the plaintext bucket. Both are fixed by delegating every judgement to
+// `SyncMergeAstGate`, which is **fail-closed**: an unrecognised declaration,
+// member, type shape or directive is a violation, not a skip.
 //
-//   F1 the scope was a hardcoded literal, so a new file was inspected by
-//      nothing -> scope now derives from the registry;
-//   F2 the field rules ran on the models file only, so `SyncMergeFailure` —
-//      the object that reaches logs and crash telemetry — could carry a master
-//      password -> the rules run on every strictly-redacted module file;
-//   F3 only `FieldDeclaration` was walked and statics were skipped, so a
-//      `String get canonicalPath => value` and a process-wide
-//      `static Map<String, String> plaintextByToken` both passed -> getters
-//      and statics are walked too;
-//   F4 the serializer gate was a six-name blacklist, so
-//      `Map<String, dynamic> asTelemetryPayload()` passed -> methods are
-//      judged by RETURN TYPE.
+//   N1 `moduleDeclaredTypes()` included the transient bucket, so a strict-bucket
+//      field could be typed `MergeDisplaySide` and hold live plaintext ->
+//      the safe STORED set is built from the strict files only, and the judge
+//      compares AST names so nullability no longer changes the answer;
+//   N2/N3 enums, extensions, extension types, typedefs and mixins were never
+//      walked -> all are walked, and anything else fails;
+//   N4 a `part` injected declarations invisibly -> parts and exports refused.
 import 'dart:io';
 
 import 'package:analyzer/dart/analysis/utilities.dart';
@@ -30,11 +30,12 @@ import 'package:password_manager/features/password_manager/domain/models/merge_f
 import 'package:password_manager/features/password_manager/domain/models/sync_merge_models.dart';
 import 'package:path/path.dart' as p;
 
+import '../sync_merge_ast_gate.dart';
 import '../sync_merge_module_registry.dart';
 
-/// Types a strictly-redacted member may have, on top of every class and enum
-/// the module itself declares (those are gated by these same rules).
-const _safeMemberTypes = <String>{'int', 'bool', 'int?', 'bool?', 'void'};
+/// Scalars a strictly-redacted member may have, on top of the module types the
+/// judge is given.
+const _safeScalars = <String>{'int', 'bool'};
 
 /// The only `String` members allowed to cross the port, each validated by shape
 /// in its own constructor. A fourth row is a review, not an edit.
@@ -54,30 +55,6 @@ final _secretishName = RegExp(
   caseSensitive: false,
 );
 
-/// A `List`/`Set` of a safe type is safe; `List<dynamic>` is not. Recursive so
-/// the element type is judged by the same rules, never waved through.
-bool _isSafeType(String type, Set<String> safeTypes) {
-  final t = type.replaceAll(' ', '');
-  if (safeTypes.contains(t)) return true;
-  final container = RegExp(r'^(List|Set)<(.+)>\??$').firstMatch(t);
-  if (container != null) return _isSafeType(container.group(2)!, safeTypes);
-  return false;
-}
-
-/// A method returning one of these is a serialization/telemetry channel
-/// whatever it is called. `toString` is exempt and separately required to be a
-/// redacted constant.
-bool _isSerializerReturnType(String? returnType) {
-  if (returnType == null) return true; // untyped: unknowable, therefore refused
-  final t = returnType.replaceAll(' ', '');
-  return t.startsWith('Map<') ||
-      t.startsWith('List<dynamic>') ||
-      t.startsWith('Iterable<dynamic>') ||
-      t == 'dynamic' ||
-      t == 'Object' ||
-      t == 'String';
-}
-
 void main() {
   final root = _findProjectRoot();
   final modelsPaths = [
@@ -87,27 +64,43 @@ void main() {
     for (final relative in mergeTransientFiles) p.join(root, relative),
   ];
 
-  /// Every type the module declares is itself gated, so a member typed by one
-  /// is safe.
-  Set<String> moduleDeclaredTypes() {
-    final names = <String>{};
-    for (final relative in mergeModuleFiles) {
-      final unit = _parse(p.join(root, relative));
-      for (final declaration in unit.declarations) {
-        switch (declaration) {
-          case ClassDeclaration():
-            names.add(declaration.namePart.typeName.lexeme);
-          case EnumDeclaration():
-            names.add(declaration.namePart.typeName.lexeme);
-          case GenericTypeAlias():
-            names.add(declaration.name.lexeme);
-          default:
-            break;
-        }
-      }
-    }
-    return names;
+  CompilationUnit unitFor(String relative) => _parse(p.join(root, relative));
+
+  /// Types the judge may accept in a STORED position.
+  ///
+  /// Built from the strictly-redacted files only, and with the transient
+  /// bucket's own type names subtracted (N1). The transient library is
+  /// explicitly exempt from these rules — it is where plaintext lives — so
+  /// treating its types as "safe" let `SyncMergeFailure` hold a live
+  /// `MergeDisplaySide` and a `List<MergeFieldDisplay>`. That is F2 reopened
+  /// through the type system instead of through the file list.
+  Set<String> safeStoredTypes() {
+    final transient = {
+      for (final relative in mergeTransientFiles)
+        ...declaredTypeNames(unitFor(relative)),
+    };
+    final strict = {
+      for (final relative in mergeStrictlyRedactedFiles)
+        ...declaredTypeNames(unitFor(relative)),
+    };
+    return {..._safeScalars, ...strict.difference(transient)};
   }
+
+  /// A method may RETURN a transient type — the port's `loadFieldDisplay` is
+  /// the whole point of the module — while no field may hold one.
+  Set<String> safeReturnedTypes() => {
+    ...safeStoredTypes(),
+    for (final relative in mergeTransientFiles)
+      ...declaredTypeNames(unitFor(relative)),
+  };
+
+  SyncMergeAstGate newGate() => SyncMergeAstGate(
+    safeStoredTypes: safeStoredTypes(),
+    safeReturnedTypes: safeReturnedTypes(),
+    allowedStringMembers: _allowedStringMembers,
+    allowedPrivateStaticTypes: _allowedPrivateStaticTypes,
+    secretishName: _secretishName,
+  );
 
   group('safe domain models are redacted by construction', () {
     test('every declared class is Equatable and declares props', () {
@@ -135,130 +128,27 @@ void main() {
       expect(violations, isEmpty, reason: violations.join('\n'));
     });
 
-    test('every field, getter and static in the module has a safe type and a '
-        'safe name (F2/F3)', () {
-      final safeTypes = {..._safeMemberTypes, ...moduleDeclaredTypes()};
-      final violations = <String>[];
+    test('the fail-closed judge accepts every declaration in the module '
+        '(N1/N2/N3: unknown construct == violation, not skip)', () {
+      final gate = newGate();
 
-      for (final relative in mergeStrictlyRedactedFiles) {
-        final unit = _parse(p.join(root, relative));
-        final file = p.basename(relative);
-
-        for (final cls in unit.declarations.whereType<ClassDeclaration>()) {
-          final className = cls.namePart.typeName.lexeme;
-
-          void judge({
-            required String memberName,
-            required String? type,
-            required bool isStatic,
-            required bool isPrivate,
-            required String what,
-          }) {
-            final qualified = '$className.$memberName';
-            if (type == null) {
-              violations.add('$file: $qualified ($what) has no declared type');
-              return;
-            }
-            if (type == 'String' || type == 'String?') {
-              if (!_allowedStringMembers.contains(qualified)) {
-                violations.add(
-                  '$file: $qualified ($what) is a String; only the three '
-                  'shape-validated opaque ids may be String',
-                );
-              }
-              return;
-            }
-            final staticallyAllowed =
-                isStatic &&
-                isPrivate &&
-                _allowedPrivateStaticTypes.contains(type);
-            if (!_isSafeType(type, safeTypes) && !staticallyAllowed) {
-              violations.add(
-                '$file: $qualified ($what) has unsafe type "$type"',
-              );
-            }
-            if (_secretishName.hasMatch(memberName)) {
-              violations.add(
-                '$file: $qualified ($what) has a secret-bearing name',
-              );
-            }
-          }
-
-          for (final field in cls.body.members.whereType<FieldDeclaration>()) {
-            final type = field.fields.type?.toSource();
-            for (final variable in field.fields.variables) {
-              final name = variable.name.lexeme;
-              judge(
-                memberName: name,
-                type: type,
-                isStatic: field.isStatic,
-                isPrivate: name.startsWith('_'),
-                what: field.isStatic ? 'static field' : 'field',
-              );
-            }
-          }
-
-          for (final method
-              in cls.body.members.whereType<MethodDeclaration>().where(
-                (m) => m.isGetter,
-              )) {
-            final name = method.name.lexeme;
-            if (name == 'props' || name == 'hashCode') continue;
-            judge(
-              memberName: name,
-              type: method.returnType?.toSource(),
-              isStatic: method.isStatic,
-              isPrivate: name.startsWith('_'),
-              what: 'getter',
-            );
-          }
-        }
+      for (final relative in mergeModuleFiles) {
+        final unit = unitFor(relative);
+        final strict = mergeStrictlyRedactedFiles.contains(relative);
+        gate.judgeDirectives(p.basename(relative), unit);
+        gate.judgeUnit(p.basename(relative), unit, strict: strict);
       }
 
-      expect(violations, isEmpty, reason: violations.join('\n'));
+      expect(
+        gate.violations,
+        isEmpty,
+        reason:
+            'The judge refuses what it cannot evaluate. Either the construct '
+            'below is a leak, or the judge needs an explicit rule for it — '
+            'it is never waved through:\n'
+            '${gate.violations.map((v) => '  - $v').join('\n')}',
+      );
     });
-
-    test(
-      'no member of the module can serialize, judged by return type (F4)',
-      () {
-        final violations = <String>[];
-
-        for (final relative in mergeModuleFiles) {
-          final unit = _parse(p.join(root, relative));
-          final file = p.basename(relative);
-
-          for (final cls in unit.declarations.whereType<ClassDeclaration>()) {
-            final className = cls.namePart.typeName.lexeme;
-
-            for (final method
-                in cls.body.members.whereType<MethodDeclaration>()) {
-              final name = method.name.lexeme;
-              if (name == 'toString' || method.isGetter || method.isSetter) {
-                continue;
-              }
-              if (_isSerializerReturnType(method.returnType?.toSource())) {
-                violations.add(
-                  '$file: $className.$name returns '
-                  '"${method.returnType?.toSource() ?? '<untyped>'}" — a '
-                  'serialization/telemetry channel',
-                );
-              }
-            }
-
-            for (final ctor
-                in cls.body.members.whereType<ConstructorDeclaration>()) {
-              final name = ctor.name?.lexeme;
-              if (name != null &&
-                  (name.startsWith('from') || name.contains('Json'))) {
-                violations.add('$file: $className.$name is a deserializer');
-              }
-            }
-          }
-        }
-
-        expect(violations, isEmpty, reason: violations.join('\n'));
-      },
-    );
   });
 
   group('MergeFieldDisplay is structurally excluded from state', () {

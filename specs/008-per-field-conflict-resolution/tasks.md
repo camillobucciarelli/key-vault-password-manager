@@ -330,6 +330,26 @@ Phase 5 decision. **F8** `MergeDatabaseId`'s path heuristic accepts
 `C:vault.kdb` and `Users_me_Documents_Vault`. **F9** `MergeReviewSummary` is the
 one `ArgumentError.value` that does not pass `'<redacted>'`.
 
+**Round 3** confirmed F1-F5 genuinely closed (6/6 prior survivors dead) and
+returned a second NOT VALIDATED on the gate's *design*: round 1 enumerated
+files, round 2 enumerated AST declaration kinds — the same defect twice. The
+judge is now **fail-closed** (`test/.../domain/sync_merge_ast_gate.dart`): an
+unrecognised top-level construct, class member, type-annotation shape or
+directive is a violation, not a skip, so a Dart construct that does not exist
+yet breaks the gate the first time it is used. Seven escapes closed and
+re-verified on the tester's mutants: **N1** the safe-type set absorbed the
+plaintext bucket, letting `SyncMergeFailure` hold a live `MergeDisplaySide`;
+**N2/N3** enums, extensions, extension types, typedefs and mixins were never
+walked — including an extension adding a plaintext getter to a gated class from
+outside its body; **N4** `part` injection (refused outright, with `export`);
+**N5** bucket 2 was an opt-out and the importer check matched a literal
+filename; **N6** bare-name exemptions left four identifiers free; **N7** the
+layering test never checked where a registered file lives. Proof the fix is
+structural rather than another enumeration: a deliberately harmless
+`class MergeAliased = Object with _Harmless;` fails as
+`unhandled top-level construct (ClassTypeAliasImpl)` — it leaks nothing and is
+rejected purely for being unrecognised.
+
 **The gate closes on PM acceptance of this evidence, not on the suite declaring
 itself green** — the T009/T009b precedent.
 
