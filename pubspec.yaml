@@ -56,7 +56,7 @@ dev_dependencies:
   # Do NOT raise to ^14 without checking `flutter pub get` still resolves:
   # analyzer 14 needs meta ^1.18.3, while flutter_test from the Flutter
   # channel in use (.fvmrc: stable) currently pins meta 1.18.0.
-  analyzer: ^14.1.0
+  analyzer: ^13.0.0  # pinned: analyzer >=14 needs meta ^1.18.3, but the pinned Flutter SDK (fvm) ships flutter_test with meta 1.18.0 — see PR #32; CI passes on a newer SDK, local pub get does not
 
 flutter:
   uses-material-design: true
