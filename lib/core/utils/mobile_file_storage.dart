@@ -59,9 +59,49 @@ class MobileFileStorage {
     final filePath = overwriteIfExists
         ? p.join(directory.path, normalized)
         : await _buildUniquePath(directory.path, normalized);
-    final file = File(filePath);
-    await file.writeAsBytes(bytes, flush: true);
-    return file.path;
+    // spec 008 T109 follow-up (LOW): never write the final name in place.
+    // Exclusive-created same-directory temp + flush(fsync) + read-back
+    // verify + atomic rename, so a crash leaves either no file or the
+    // complete file at [filePath].
+    //
+    // Inlined rather than reusing `SafeVaultFileWriter`: core/ must not
+    // depend on features/. Delta of guarantees vs that writer, deliberate:
+    //   * NO symlink write-through. The writer resolves a leaf symlink so a
+    //     `~/vault.kdbx -> ~/Dropbox/vault.kdbx` setup keeps working; here
+    //     the opposite is wanted. This directory is app-private and an entry
+    //     in it may have been planted (#45/#46), so the rename REPLACES a
+    //     symlink entry instead of following it outside app storage.
+    //   * NO permission preservation. Every file here is created by this
+    //     method inside an app-private directory; there is no user-chosen
+    //     `chmod 600` to carry over, and `overwriteIfExists` has no caller.
+    //   * NO collision retry. `_buildUniquePath` already picked a free name,
+    //     and the temp carries a microsecond suffix; exclusive-create turns
+    //     a residual clash into a loud failure rather than an overwrite.
+    //   * NO sandbox fallback. This path is always inside the app container,
+    //     which is writable by construction on every mobile target.
+    final tempFile = File(
+      '$filePath.tmp-${DateTime.now().microsecondsSinceEpoch}',
+    );
+    await tempFile.create(exclusive: true);
+    try {
+      await tempFile.writeAsBytes(bytes, flush: true);
+      final written = await tempFile.readAsBytes();
+      if (written.length != bytes.length) {
+        throw FileSystemException(
+          'short write: ${written.length} of ${bytes.length} bytes',
+          tempFile.path,
+        );
+      }
+      await tempFile.rename(filePath);
+    } catch (_) {
+      try {
+        await tempFile.delete();
+      } catch (_) {
+        // Best effort: cleanup must not mask the write failure.
+      }
+      rethrow;
+    }
+    return filePath;
   }
 
   static Future<String> copyFileToAppDirectory({

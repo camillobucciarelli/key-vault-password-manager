@@ -10,6 +10,7 @@ import '../../domain/models/vault_entry.dart';
 import '../../domain/models/vault_group.dart';
 import '../../domain/models/vault_snapshot.dart';
 import 'database_path_mutex.dart';
+import 'safe_vault_file_writer.dart';
 
 class KdbxCredentialChange {
   const KdbxCredentialChange({
@@ -22,8 +23,12 @@ class KdbxCredentialChange {
 }
 
 class VaultKdbxService {
-  VaultKdbxService({this.credentialTempWriter, DatabasePathMutex? mutex})
-    : _mutex = mutex ?? DatabasePathMutex();
+  VaultKdbxService({
+    this.credentialTempWriter,
+    DatabasePathMutex? mutex,
+    SafeVaultFileWriter? safeWriter,
+  }) : _mutex = mutex ?? DatabasePathMutex(),
+       _safeWriter = safeWriter ?? SafeVaultFileWriter();
 
   /// spec 008 T105: every mutation below runs inside this lock so vault
   /// edits, sync replacement, import commits and renames on the same file
@@ -32,6 +37,10 @@ class VaultKdbxService {
   final DatabasePathMutex _mutex;
 
   final Future<void> Function(File file, Uint8List bytes)? credentialTempWriter;
+
+  /// spec 008 T109: lock-free safe writer used INSIDE the mutex actions for
+  /// every database byte write (temp + fsync + verify + atomic rename).
+  final SafeVaultFileWriter _safeWriter;
 
   static const maxAttachmentBytes = 20 * 1024 * 1024;
   static final _notesKey = KdbxKey('Notes');
@@ -366,7 +375,10 @@ class VaultKdbxService {
       try {
         final writer = credentialTempWriter;
         if (writer == null) {
-          await tempFile.writeAsBytes(bytes, flush: true);
+          // T109: fsync the temp before it is verified and renamed over the
+          // database — a rename of an un-fsynced temp is the classic
+          // post-crash corruption.
+          await _safeWriter.write(targetPath: tempFile.path, bytes: bytes);
         } else {
           await writer(tempFile, bytes);
         }
@@ -889,7 +901,10 @@ class VaultKdbxService {
 
   Future<void> _save(String databasePath, KdbxFile file) async {
     final bytes = await file.save();
-    await File(databasePath).writeAsBytes(bytes, flush: true);
+    // T109: same-directory temp + fsync + verify + atomic rename. No backup
+    // here: routine saves never produced one (user behaviour unchanged); the
+    // old bytes stay intact until the atomic replace.
+    await _safeWriter.write(targetPath: databasePath, bytes: bytes);
   }
 
   KdbxGroup _findGroupById(List<KdbxGroup> groups, String id) {

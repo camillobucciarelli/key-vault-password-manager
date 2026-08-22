@@ -11,16 +11,19 @@ import '../../domain/repositories/database_sync_repository.dart';
 import '../datasources/sync_metadata_data_source.dart';
 import 'database_path_mutex.dart';
 import 'google_drive_api_service.dart';
+import 'safe_vault_file_writer.dart';
 
 class DatabaseSyncOrchestrator {
   DatabaseSyncOrchestrator({
     required SyncMetadataDataSource syncMetadataDataSource,
     required GoogleDriveApiService googleDriveApiService,
     DatabasePathMutex? mutex,
+    SafeVaultFileWriter? safeWriter,
     this.driveCallTimeout = const Duration(seconds: 30),
   }) : _syncMetadataDataSource = syncMetadataDataSource,
        _googleDriveApiService = googleDriveApiService,
-       _mutex = mutex ?? DatabasePathMutex();
+       _mutex = mutex ?? DatabasePathMutex(),
+       _safeWriter = safeWriter ?? SafeVaultFileWriter();
 
   /// Upper bound on each individual Drive call made while `syncNow` holds
   /// the database lock. The mutex is in-process and non-cancellable: a hung
@@ -41,6 +44,15 @@ class DatabaseSyncOrchestrator {
   /// `_backupFile` stays lock-free — it only runs inside the `syncNow`
   /// acquisition (the mutex is not reentrant).
   final DatabasePathMutex _mutex;
+
+  /// spec 008 T108/T109: every local replacement below goes through the safe
+  /// writer — verified collision-safe backup of the pre-replace database,
+  /// then temp + fsync + verify + atomic rename. Lock-free helper, called
+  /// only inside the `syncNow` mutex acquisition (the mutex is not
+  /// reentrant). Replaces the old `_backupFile` copy + direct `writeAsBytes`
+  /// pair; the backup now happens after the download (no backup litter when
+  /// the download fails) and still strictly before the target write.
+  final SafeVaultFileWriter _safeWriter;
 
   /// Applies [driveCallTimeout] to a Drive call issued under the lock.
   Future<T> _remote<T>(Future<T> call) => call.timeout(driveCallTimeout);
@@ -206,11 +218,14 @@ class DatabaseSyncOrchestrator {
         return const SyncNowSuccess();
       }
 
-      await _backupFile(databasePath);
       final downloaded = await _remote(
         _googleDriveApiService.downloadFile(mapping.driveFileId),
       );
-      await dbFile.writeAsBytes(downloaded, flush: true);
+      await _safeWriter.write(
+        targetPath: databasePath,
+        bytes: downloaded,
+        backupExistingTarget: true,
+      );
       final refreshedLocal = md5.convert(downloaded).toString();
 
       await _syncMetadataDataSource.upsertMapping(
@@ -284,11 +299,14 @@ class DatabaseSyncOrchestrator {
         return const SyncNowSuccess();
       }
 
-      await _backupFile(databasePath);
       final downloaded = await _remote(
         _googleDriveApiService.downloadFile(mapping.driveFileId),
       );
-      await dbFile.writeAsBytes(downloaded, flush: true);
+      await _safeWriter.write(
+        targetPath: databasePath,
+        bytes: downloaded,
+        backupExistingTarget: true,
+      );
       final refreshedLocal = md5.convert(downloaded).toString();
 
       await _syncMetadataDataSource.upsertMapping(
@@ -323,11 +341,14 @@ class DatabaseSyncOrchestrator {
     }
 
     if (remoteChanged) {
-      await _backupFile(databasePath);
       final downloaded = await _remote(
         _googleDriveApiService.downloadFile(mapping.driveFileId),
       );
-      await dbFile.writeAsBytes(downloaded, flush: true);
+      await _safeWriter.write(
+        targetPath: databasePath,
+        bytes: downloaded,
+        backupExistingTarget: true,
+      );
       final refreshedLocal = md5.convert(downloaded).toString();
 
       await _syncMetadataDataSource.upsertMapping(
@@ -395,20 +416,6 @@ class DatabaseSyncOrchestrator {
     return candidate.toLowerCase().endsWith('.kdbx')
         ? candidate
         : '$candidate.kdbx';
-  }
-
-  Future<void> _backupFile(String databasePath) async {
-    final source = File(databasePath);
-    if (!await source.exists()) {
-      return;
-    }
-
-    final timestamp = DateTime.now()
-        .toIso8601String()
-        .replaceAll(':', '-')
-        .replaceAll('.', '-');
-    final backupPath = '$databasePath.$timestamp.bak';
-    await source.copy(backupPath);
   }
 
   Future<_RemoteChecksumSnapshot> _resolveRemoteChecksum({

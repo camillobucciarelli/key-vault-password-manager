@@ -115,10 +115,14 @@ void main() {
     );
     expect(
       await File(victimPath).exists(),
-      isTrue,
+      isFalse,
       reason:
-          'Cleanup is `unlink`, so it drops the in-app name only -- the same '
-          'reasoning #45 records for hardlinks must hold here too.',
+          'spec 008 T109 follow-up: managed saves are temp+rename now. '
+          'rename(2) replaces the symlink ENTRY instead of writing through '
+          'it, so the external target is never created at all -- strictly '
+          'safer than the pre-T109 behaviour this assertion used to record '
+          '(write-through created the victim; cleanup then unlinked only '
+          'the in-app name, #45/#46).',
     );
   });
 
