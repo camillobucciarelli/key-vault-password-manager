@@ -9,17 +9,41 @@ import '../../domain/models/drive_remote_file.dart';
 import '../../domain/models/sync_conflict.dart';
 import '../../domain/repositories/database_sync_repository.dart';
 import '../datasources/sync_metadata_data_source.dart';
+import 'database_path_mutex.dart';
 import 'google_drive_api_service.dart';
 
 class DatabaseSyncOrchestrator {
   DatabaseSyncOrchestrator({
     required SyncMetadataDataSource syncMetadataDataSource,
     required GoogleDriveApiService googleDriveApiService,
+    DatabasePathMutex? mutex,
+    this.driveCallTimeout = const Duration(seconds: 30),
   }) : _syncMetadataDataSource = syncMetadataDataSource,
-       _googleDriveApiService = googleDriveApiService;
+       _googleDriveApiService = googleDriveApiService,
+       _mutex = mutex ?? DatabasePathMutex();
+
+  /// Upper bound on each individual Drive call made while `syncNow` holds
+  /// the database lock. The mutex is in-process and non-cancellable: a hung
+  /// request would otherwise queue EVERY writer on this database until app
+  /// restart. Per-call (not a whole-flow budget) so a legitimately slow
+  /// large-vault transfer is not killed by time spent in earlier calls;
+  /// 30s is far above normal Drive API latency. On expiry the pending
+  /// [TimeoutException] surfaces through syncNow's existing error path and
+  /// the lock is released.
+  final Duration driveCallTimeout;
 
   final SyncMetadataDataSource _syncMetadataDataSource;
   final GoogleDriveApiService _googleDriveApiService;
+
+  /// spec 008 T105: `syncNow` (checksum read, replacement writes and the
+  /// `_backupFile` copy) runs entirely inside the shared database lock so a
+  /// vault edit and a sync replacement on the same file can never interleave.
+  /// `_backupFile` stays lock-free — it only runs inside the `syncNow`
+  /// acquisition (the mutex is not reentrant).
+  final DatabasePathMutex _mutex;
+
+  /// Applies [driveCallTimeout] to a Drive call issued under the lock.
+  Future<T> _remote<T>(Future<T> call) => call.timeout(driveCallTimeout);
 
   Future<DatabaseSyncMapping> linkDatabaseToDrive({
     required String databasePath,
@@ -77,6 +101,15 @@ class DatabaseSyncOrchestrator {
   Future<SyncNowResult> syncNow(
     String databasePath, {
     SyncConflictResolution? resolution,
+  }) {
+    return _mutex.withDatabaseLock([
+      databasePath,
+    ], () => _syncNowLocked(databasePath, resolution: resolution));
+  }
+
+  Future<SyncNowResult> _syncNowLocked(
+    String databasePath, {
+    SyncConflictResolution? resolution,
   }) async {
     final mapping = await _syncMetadataDataSource.getMapping(databasePath);
     if (mapping == null) {
@@ -90,8 +123,8 @@ class DatabaseSyncOrchestrator {
 
     final localBytes = await dbFile.readAsBytes();
     final localChecksum = md5.convert(localBytes).toString();
-    final remote = await _googleDriveApiService.getFileMetadata(
-      mapping.driveFileId,
+    final remote = await _remote(
+      _googleDriveApiService.getFileMetadata(mapping.driveFileId),
     );
     final remoteChecksumSnapshot = await _resolveRemoteChecksum(
       remoteFileId: mapping.driveFileId,
@@ -155,9 +188,11 @@ class DatabaseSyncOrchestrator {
       }
 
       if (resolution == SyncConflictResolution.keepLocal) {
-        final updated = await _googleDriveApiService.updateFile(
-          fileId: mapping.driveFileId,
-          bytes: localBytes,
+        final updated = await _remote(
+          _googleDriveApiService.updateFile(
+            fileId: mapping.driveFileId,
+            bytes: localBytes,
+          ),
         );
         await _syncMetadataDataSource.upsertMapping(
           mapping.copyWith(
@@ -172,8 +207,8 @@ class DatabaseSyncOrchestrator {
       }
 
       await _backupFile(databasePath);
-      final downloaded = await _googleDriveApiService.downloadFile(
-        mapping.driveFileId,
+      final downloaded = await _remote(
+        _googleDriveApiService.downloadFile(mapping.driveFileId),
       );
       await dbFile.writeAsBytes(downloaded, flush: true);
       final refreshedLocal = md5.convert(downloaded).toString();
@@ -231,9 +266,11 @@ class DatabaseSyncOrchestrator {
       }
 
       if (resolution == SyncConflictResolution.keepLocal) {
-        final updated = await _googleDriveApiService.updateFile(
-          fileId: mapping.driveFileId,
-          bytes: localBytes,
+        final updated = await _remote(
+          _googleDriveApiService.updateFile(
+            fileId: mapping.driveFileId,
+            bytes: localBytes,
+          ),
         );
         await _syncMetadataDataSource.upsertMapping(
           mapping.copyWith(
@@ -248,8 +285,8 @@ class DatabaseSyncOrchestrator {
       }
 
       await _backupFile(databasePath);
-      final downloaded = await _googleDriveApiService.downloadFile(
-        mapping.driveFileId,
+      final downloaded = await _remote(
+        _googleDriveApiService.downloadFile(mapping.driveFileId),
       );
       await dbFile.writeAsBytes(downloaded, flush: true);
       final refreshedLocal = md5.convert(downloaded).toString();
@@ -267,9 +304,11 @@ class DatabaseSyncOrchestrator {
     }
 
     if (localChanged) {
-      final updated = await _googleDriveApiService.updateFile(
-        fileId: mapping.driveFileId,
-        bytes: localBytes,
+      final updated = await _remote(
+        _googleDriveApiService.updateFile(
+          fileId: mapping.driveFileId,
+          bytes: localBytes,
+        ),
       );
       await _syncMetadataDataSource.upsertMapping(
         mapping.copyWith(
@@ -285,8 +324,8 @@ class DatabaseSyncOrchestrator {
 
     if (remoteChanged) {
       await _backupFile(databasePath);
-      final downloaded = await _googleDriveApiService.downloadFile(
-        mapping.driveFileId,
+      final downloaded = await _remote(
+        _googleDriveApiService.downloadFile(mapping.driveFileId),
       );
       await dbFile.writeAsBytes(downloaded, flush: true);
       final refreshedLocal = md5.convert(downloaded).toString();
@@ -385,7 +424,9 @@ class DatabaseSyncOrchestrator {
       );
     }
 
-    final downloaded = await _googleDriveApiService.downloadFile(remoteFileId);
+    final downloaded = await _remote(
+      _googleDriveApiService.downloadFile(remoteFileId),
+    );
     final checksum = md5.convert(downloaded).toString();
     return _RemoteChecksumSnapshot(value: checksum, computedFromDownload: true);
   }

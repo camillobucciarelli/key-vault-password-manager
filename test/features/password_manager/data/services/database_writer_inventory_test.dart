@@ -125,26 +125,17 @@ void main() {
       }
     });
 
-    test('the path mutex exists but no writer routes through it yet', () {
-      // T103/T104 shipped the resolver and the mutex; T105 is what routes
-      // the writers. Until it lands, this slice must change zero behaviour:
-      // the only production reference to the mutex is its DI registration,
-      // and the only reference to the resolver is the mutex itself.
-      expect(
-        File(
-          'lib/features/password_manager/data/services/'
-          'database_path_mutex.dart',
-        ).existsSync(),
-        isTrue,
-      );
-      expect(
-        File(
-          'lib/features/password_manager/data/services/'
-          'database_path_identity_resolver.dart',
-        ).existsSync(),
-        isTrue,
-      );
-
+    test('every frozen database writer routes through the path mutex', () {
+      // spec 008 T105: the mutex is no longer DI-only — every T101 database
+      // writer acquires it. This static half of the guard pins the exact set
+      // of production files that may reference the mutex (a NEW writer that
+      // starts mutating database files without appearing here fails the
+      // `discovered` baseline above AND this list) and requires each of them
+      // to actually acquire (`withDatabaseLock(`), not merely import.
+      // The executable half — "a censited writer mutating OUTSIDE the lock
+      // fails a test" — lives in `database_writer_lock_routing_test.dart`:
+      // every entry point is invoked with a refusing mutex and must then
+      // leave the filesystem untouched.
       List<String> referencing(String fileName) =>
           _dartFilesUnder(const ['lib'])
               .where(
@@ -155,14 +146,36 @@ void main() {
               .map((f) => f.path)
               .toList();
 
+      const routedWriters = [
+        'lib/features/password_manager/data/services/'
+            'database_import_service.dart',
+        'lib/features/password_manager/data/services/'
+            'database_rename_transaction.dart',
+        'lib/features/password_manager/data/services/'
+            'database_sync_orchestrator.dart',
+        'lib/features/password_manager/data/services/'
+            'vault_kdbx_service.dart',
+      ];
       expect(
-        referencing('database_path_mutex.dart'),
-        ['lib/features/password_manager/di/password_manager_data_di.dart'],
+        referencing('database_path_mutex.dart')..sort(),
+        [
+          ...routedWriters,
+          'lib/features/password_manager/di/password_manager_data_di.dart',
+        ]..sort(),
         reason:
-            'a writer started importing the mutex before T105 — that routing '
-            'must land as its own reviewed slice, with the frozen inventory '
-            'updated alongside it',
+            'the set of mutex-routed writers changed. A new database writer '
+            'must acquire the shared DatabasePathMutex (audit it for nesting '
+            '— the mutex is NOT reentrant) and be added to '
+            'database_writer_lock_routing_test.dart; a writer must never '
+            'lose its routing silently.',
       );
+      for (final path in routedWriters) {
+        expect(
+          File(path).readAsStringSync(),
+          contains('withDatabaseLock('),
+          reason: '$path imports the mutex but never acquires it',
+        );
+      }
       expect(referencing('database_path_identity_resolver.dart'), [
         'lib/features/password_manager/data/services/'
             'database_path_mutex.dart',
@@ -394,6 +407,11 @@ void main() {
           // _backupFile
           'copy': 1,
         },
+        // T106: rename transaction — forward rename + rollback rename.
+        'lib/features/password_manager/data/services/'
+            'database_rename_transaction.dart': {
+          'rename': 2,
+        },
         'lib/core/utils/mobile_file_storage.dart': {
           'writeAsBytes': 1,
           'delete': 1,
@@ -452,6 +470,10 @@ void main() {
           'createDatabase',
           'copyFile',
           'renameFile',
+        ],
+        'lib/features/password_manager/data/services/'
+            'database_rename_transaction.dart': [
+          'renameDatabase',
         ],
         'lib/features/password_manager/presentation/coordinators/'
             'database_session_coordinator.dart': [
@@ -645,6 +667,11 @@ const _baseline = <String, List<String>>{
       'database_sync_orchestrator.dart': [
     'copy',
     'writeAsBytes',
+  ],
+  // T106: rename transaction (forward + rollback rename under one lock).
+  'lib/features/password_manager/data/services/'
+      'database_rename_transaction.dart': [
+    'rename',
   ],
   // --- unlisted by FR-8, non-database -------------------------------------
   'lib/features/password_manager/data/services/'

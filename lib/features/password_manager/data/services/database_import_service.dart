@@ -13,14 +13,37 @@ import '../../domain/models/database_import_result.dart';
 import '../../domain/models/database_import_transaction.dart';
 import '../../domain/repositories/database_file_repository.dart';
 import '../../domain/usecases/validate_database_usecase.dart';
+import 'database_path_mutex.dart';
 
 /// Data-layer implementation of the [DatabaseFileRepository] domain port
 /// (C-7). Owns every `dart:io`/`FilePicker`/managed-storage detail that the
 /// coordinator used to touch directly.
 class DatabaseImportService implements DatabaseFileRepository {
-  DatabaseImportService({required this.validateDatabaseUseCase});
+  DatabaseImportService({
+    required this.validateDatabaseUseCase,
+    DatabasePathMutex? mutex,
+  }) : _mutex = mutex ?? DatabasePathMutex();
 
   final ValidateDatabaseUseCase validateDatabaseUseCase;
+
+  /// spec 008 T105: every file mutation below acquires this lock. NOT
+  /// reentrant — locked methods never call each other from inside their
+  /// action; multi-step operations (commit, replace) take every involved
+  /// path in a single acquisition and use lock-free private helpers.
+  final DatabasePathMutex _mutex;
+
+  /// Prospective app-storage path used as the lock identity for writes whose
+  /// final name is decided inside `MobileFileStorage` (unique-name suffixing).
+  ///
+  /// ponytail: locking the base name serializes competing writes of the same
+  /// file name, which is the only real contention; a `-1` suffixed sibling
+  /// picked inside the lock is a brand-new file no other writer can hold.
+  Future<String> _prospectiveAppPath(String fileName, String subdirectory) {
+    return MobileFileStorage.getPathInAppDirectory(
+      fileName: fileName,
+      subdirectory: subdirectory,
+    );
+  }
 
   Future<DatabaseAccessFailure?> _validationFailure(String path) async {
     final result = await validateDatabaseUseCase(path);
@@ -126,19 +149,29 @@ class DatabaseImportService implements DatabaseFileRepository {
     required Uint8List bytes,
     required String remoteFileId,
   }) async {
-    final stagedPath = await MobileFileStorage.saveBytesToAppDirectory(
-      bytes: bytes,
-      fileName: fileName,
-      subdirectory: 'database_imports',
+    final prospectivePath = await _prospectiveAppPath(
+      fileName,
+      'database_imports',
     );
-    final failure = await _validationFailure(stagedPath);
-    if (failure != null) {
-      await MobileFileStorage.deleteFileFromAppDirectory(
-        filePath: stagedPath,
-        subdirectory: 'database_imports',
-      );
-      throw failure;
-    }
+    final stagedPath = await _mutex.withDatabaseLock(
+      [prospectivePath],
+      () async {
+        final stagedPath = await MobileFileStorage.saveBytesToAppDirectory(
+          bytes: bytes,
+          fileName: fileName,
+          subdirectory: 'database_imports',
+        );
+        final failure = await _validationFailure(stagedPath);
+        if (failure != null) {
+          await MobileFileStorage.deleteFileFromAppDirectory(
+            filePath: stagedPath,
+            subdirectory: 'database_imports',
+          );
+          throw failure;
+        }
+        return stagedPath;
+      },
+    );
 
     return StagedDatabaseImport(
       imported: DatabaseImportResult(
@@ -167,19 +200,29 @@ class DatabaseImportService implements DatabaseFileRepository {
       throw InvalidDatabaseFileFailure(fileName);
     }
 
-    final stagedPath = await MobileFileStorage.saveBytesToAppDirectory(
-      bytes: Uint8List.fromList(bytes),
-      fileName: fileName,
-      subdirectory: 'database_imports',
+    final prospectivePath = await _prospectiveAppPath(
+      fileName,
+      'database_imports',
     );
-    final failure = await _validationFailure(stagedPath);
-    if (failure != null) {
-      await MobileFileStorage.deleteFileFromAppDirectory(
-        filePath: stagedPath,
-        subdirectory: 'database_imports',
-      );
-      throw failure;
-    }
+    final stagedPath = await _mutex.withDatabaseLock(
+      [prospectivePath],
+      () async {
+        final stagedPath = await MobileFileStorage.saveBytesToAppDirectory(
+          bytes: Uint8List.fromList(bytes),
+          fileName: fileName,
+          subdirectory: 'database_imports',
+        );
+        final failure = await _validationFailure(stagedPath);
+        if (failure != null) {
+          await MobileFileStorage.deleteFileFromAppDirectory(
+            filePath: stagedPath,
+            subdirectory: 'database_imports',
+          );
+          throw failure;
+        }
+        return stagedPath;
+      },
+    );
 
     return StagedDatabaseImport(
       imported: DatabaseImportResult(
@@ -211,76 +254,101 @@ class DatabaseImportService implements DatabaseFileRepository {
     }
 
     if (targetPath == null) {
-      final committedPath = await MobileFileStorage.saveBytesToAppDirectory(
-        bytes: await stagedFile.readAsBytes(),
-        fileName: staged.preferredFileName,
-        subdirectory: 'databases',
+      final prospectivePath = await _prospectiveAppPath(
+        staged.preferredFileName,
+        'databases',
       );
-      await discardStagedDatabase(staged);
-      return DatabaseFileCommit(databasePath: committedPath);
+      return _mutex.withDatabaseLock(
+        [stagedFile.path, prospectivePath],
+        () async {
+          final committedPath = await MobileFileStorage.saveBytesToAppDirectory(
+            bytes: await stagedFile.readAsBytes(),
+            fileName: staged.preferredFileName,
+            subdirectory: 'databases',
+          );
+          // Inline, lock-free discard: calling the public
+          // `discardStagedDatabase` here would nest a second acquisition.
+          await _discardStagedDatabaseLockFree(staged);
+          return DatabaseFileCommit(databasePath: committedPath);
+        },
+      );
     }
 
-    final targetFile = File(targetPath);
-    String? backupPath;
-    if (await targetFile.exists()) {
-      backupPath =
-          '$targetPath.import-backup-${DateTime.now().microsecondsSinceEpoch}';
-      await targetFile.rename(backupPath);
-    }
-    try {
-      await _moveStagedFile(stagedFile, targetPath);
-      return DatabaseFileCommit(
-        databasePath: targetPath,
-        backupPath: backupPath,
-      );
-    } catch (_) {
+    return _mutex.withDatabaseLock([stagedFile.path, targetPath], () async {
+      final targetFile = File(targetPath);
+      String? backupPath;
+      if (await targetFile.exists()) {
+        backupPath =
+            '$targetPath.import-backup-${DateTime.now().microsecondsSinceEpoch}';
+        await targetFile.rename(backupPath);
+      }
+      try {
+        await _moveStagedFile(stagedFile, targetPath);
+        return DatabaseFileCommit(
+          databasePath: targetPath,
+          backupPath: backupPath,
+        );
+      } catch (_) {
+        if (backupPath != null && await File(backupPath).exists()) {
+          await File(backupPath).rename(targetPath);
+        }
+        rethrow;
+      }
+    });
+  }
+
+  @override
+  Future<void> finalizeDatabaseCommit(DatabaseFileCommit commit) {
+    return _mutex.withDatabaseLock([commit.databasePath], () async {
+      final backupPath = commit.backupPath;
       if (backupPath != null && await File(backupPath).exists()) {
-        await File(backupPath).rename(targetPath);
+        await File(backupPath).delete();
       }
-      rethrow;
-    }
+    });
   }
 
   @override
-  Future<void> finalizeDatabaseCommit(DatabaseFileCommit commit) async {
-    final backupPath = commit.backupPath;
-    if (backupPath != null && await File(backupPath).exists()) {
-      await File(backupPath).delete();
-    }
-  }
+  Future<void> rollbackDatabaseCommit(DatabaseFileCommit commit) {
+    return _mutex.withDatabaseLock([commit.databasePath], () async {
+      final committedFile = File(commit.databasePath);
+      final backupPath = commit.backupPath;
+      if (backupPath == null) {
+        if (await committedFile.exists()) {
+          await committedFile.delete();
+        }
+        return;
+      }
 
-  @override
-  Future<void> rollbackDatabaseCommit(DatabaseFileCommit commit) async {
-    final committedFile = File(commit.databasePath);
-    final backupPath = commit.backupPath;
-    if (backupPath == null) {
+      final rollbackFile = File(
+        '${commit.databasePath}.import-rollback-${DateTime.now().microsecondsSinceEpoch}',
+      );
       if (await committedFile.exists()) {
-        await committedFile.delete();
+        await committedFile.rename(rollbackFile.path);
       }
-      return;
-    }
-
-    final rollbackFile = File(
-      '${commit.databasePath}.import-rollback-${DateTime.now().microsecondsSinceEpoch}',
-    );
-    if (await committedFile.exists()) {
-      await committedFile.rename(rollbackFile.path);
-    }
-    try {
-      await File(backupPath).rename(commit.databasePath);
-      if (await rollbackFile.exists()) {
-        await rollbackFile.delete();
+      try {
+        await File(backupPath).rename(commit.databasePath);
+        if (await rollbackFile.exists()) {
+          await rollbackFile.delete();
+        }
+      } catch (_) {
+        if (await rollbackFile.exists() && !await committedFile.exists()) {
+          await rollbackFile.rename(commit.databasePath);
+        }
+        rethrow;
       }
-    } catch (_) {
-      if (await rollbackFile.exists() && !await committedFile.exists()) {
-        await rollbackFile.rename(commit.databasePath);
-      }
-      rethrow;
-    }
+    });
   }
 
   @override
-  Future<void> discardStagedDatabase(StagedDatabaseImport staged) async {
+  Future<void> discardStagedDatabase(StagedDatabaseImport staged) {
+    return _mutex.withDatabaseLock([
+      staged.imported.path,
+    ], () => _discardStagedDatabaseLockFree(staged));
+  }
+
+  Future<void> _discardStagedDatabaseLockFree(
+    StagedDatabaseImport staged,
+  ) async {
     final stagedFile = File(staged.imported.path);
     if (await stagedFile.exists()) {
       await MobileFileStorage.deleteFileFromAppDirectory(
@@ -320,16 +388,24 @@ class DatabaseImportService implements DatabaseFileRepository {
     required Uint8List databaseBytes,
   }) async {
     if (_usesManagedStorage) {
-      return MobileFileStorage.saveBytesToAppDirectory(
-        bytes: databaseBytes,
-        fileName: p.basename(outputFile),
-        subdirectory: 'databases',
+      final prospectivePath = await _prospectiveAppPath(
+        p.basename(outputFile),
+        'databases',
       );
+      return _mutex.withDatabaseLock([prospectivePath], () {
+        return MobileFileStorage.saveBytesToAppDirectory(
+          bytes: databaseBytes,
+          fileName: p.basename(outputFile),
+          subdirectory: 'databases',
+        );
+      });
     }
 
-    final file = File(outputFile);
-    await file.writeAsBytes(databaseBytes, flush: true);
-    return file.path;
+    return _mutex.withDatabaseLock([outputFile], () async {
+      final file = File(outputFile);
+      await file.writeAsBytes(databaseBytes, flush: true);
+      return file.path;
+    });
   }
 
   @override
@@ -417,27 +493,33 @@ class DatabaseImportService implements DatabaseFileRepository {
   }
 
   @override
-  Future<void> deleteFile(String path) async {
-    final file = File(path);
-    if (await file.exists()) {
-      await file.delete();
-    }
+  Future<void> deleteFile(String path) {
+    return _mutex.withDatabaseLock([path], () async {
+      final file = File(path);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    });
   }
 
   @override
   Future<void> copyFile({
     required String sourcePath,
     required String targetPath,
-  }) async {
-    await File(sourcePath).copy(targetPath);
+  }) {
+    return _mutex.withDatabaseLock([sourcePath, targetPath], () async {
+      await File(sourcePath).copy(targetPath);
+    });
   }
 
   @override
   Future<void> renameFile({
     required String sourcePath,
     required String targetPath,
-  }) async {
-    await File(sourcePath).rename(targetPath);
+  }) {
+    return _mutex.withDatabaseLock([sourcePath, targetPath], () async {
+      await File(sourcePath).rename(targetPath);
+    });
   }
 
   @override
@@ -482,7 +564,9 @@ class DatabaseImportService implements DatabaseFileRepository {
       }
       final webDir = await Directory.systemTemp.createTemp('web_db_');
       final webPath = p.join(webDir.path, fileName);
-      await File(webPath).writeAsBytes(selectedBytes, flush: true);
+      await _mutex.withDatabaseLock([webPath], () async {
+        await File(webPath).writeAsBytes(selectedBytes, flush: true);
+      });
       return webPath;
     }
 
@@ -491,22 +575,32 @@ class DatabaseImportService implements DatabaseFileRepository {
     }
 
     if (selectedPath != null && selectedPath.trim().isNotEmpty) {
-      return MobileFileStorage.copyFileToAppDirectory(
-        sourcePath: selectedPath,
-        fallbackFileName: fileName,
-        subdirectory: 'databases',
+      final sourceName = p.basename(selectedPath);
+      final prospectivePath = await _prospectiveAppPath(
+        sourceName.isEmpty ? fileName : sourceName,
+        'databases',
       );
+      return _mutex.withDatabaseLock([prospectivePath], () {
+        return MobileFileStorage.copyFileToAppDirectory(
+          sourcePath: selectedPath,
+          fallbackFileName: fileName,
+          subdirectory: 'databases',
+        );
+      });
     }
 
     if (selectedBytes == null) {
       return null;
     }
 
-    return MobileFileStorage.saveBytesToAppDirectory(
-      bytes: Uint8List.fromList(selectedBytes),
-      fileName: fileName,
-      subdirectory: 'databases',
-    );
+    final prospectivePath = await _prospectiveAppPath(fileName, 'databases');
+    return _mutex.withDatabaseLock([prospectivePath], () {
+      return MobileFileStorage.saveBytesToAppDirectory(
+        bytes: Uint8List.fromList(selectedBytes),
+        fileName: fileName,
+        subdirectory: 'databases',
+      );
+    });
   }
 
   Future<String> _replaceManagedDatabase({
@@ -521,27 +615,29 @@ class DatabaseImportService implements DatabaseFileRepository {
       return targetPath;
     }
 
-    final importedFile = File(validImportPath);
-    final targetFile = File(targetPath);
-    if (!await targetFile.exists()) {
-      return (await importedFile.rename(targetPath)).path;
-    }
-
-    final backupFile = File(
-      '$targetPath.import-backup-${DateTime.now().microsecondsSinceEpoch}',
-    );
-    await targetFile.rename(backupFile.path);
-    try {
-      await importedFile.rename(targetPath);
-      await backupFile.delete();
-      return targetPath;
-    } catch (_) {
-      if (await targetFile.exists()) {
-        await targetFile.delete();
+    return _mutex.withDatabaseLock([validImportPath, targetPath], () async {
+      final importedFile = File(validImportPath);
+      final targetFile = File(targetPath);
+      if (!await targetFile.exists()) {
+        return (await importedFile.rename(targetPath)).path;
       }
-      await backupFile.rename(targetPath);
-      rethrow;
-    }
+
+      final backupFile = File(
+        '$targetPath.import-backup-${DateTime.now().microsecondsSinceEpoch}',
+      );
+      await targetFile.rename(backupFile.path);
+      try {
+        await importedFile.rename(targetPath);
+        await backupFile.delete();
+        return targetPath;
+      } catch (_) {
+        if (await targetFile.exists()) {
+          await targetFile.delete();
+        }
+        await backupFile.rename(targetPath);
+        rethrow;
+      }
+    });
   }
 
   bool get _isMobilePlatform {

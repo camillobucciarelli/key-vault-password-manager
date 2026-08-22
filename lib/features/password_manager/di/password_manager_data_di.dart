@@ -14,6 +14,7 @@ import '../data/repositories/database_sync_repository_impl.dart';
 import '../data/repositories/shared_preferences_password_generator_settings_repository.dart';
 import '../data/services/apple_autofill_v2_method_channel_client.dart';
 import '../data/services/database_path_mutex.dart';
+import '../data/services/database_rename_transaction.dart';
 import '../data/services/database_sync_orchestrator.dart';
 import '../data/services/database_import_service.dart';
 import '../data/services/desktop_oauth_pkce_service.dart';
@@ -98,14 +99,18 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
   sl.registerLazySingleton<AppleAutofillV2Client>(
     () => AppleAutofillV2MethodChannelClient(),
   );
-  // spec 008 T104: one process-wide instance — every database writer must
-  // share it or the serialization guarantee is void. T105 routes the writers.
+  // spec 008 T104/T105: one process-wide instance, shared by every database
+  // writer below — a writer holding a private mutex would void the
+  // serialization guarantee.
   sl.registerLazySingleton(() => DatabasePathMutex());
+  sl.registerLazySingleton(
+    () => DatabaseRenameTransaction(mutex: sl(), syncRepository: sl()),
+  );
   sl.registerLazySingleton(() => VaultCsvImportService());
   sl.registerLazySingleton(() => VaultDuplicateService());
-  sl.registerLazySingleton(() => VaultKdbxService());
+  sl.registerLazySingleton(() => VaultKdbxService(mutex: sl()));
   sl.registerLazySingleton(
-    () => DatabaseImportService(validateDatabaseUseCase: sl()),
+    () => DatabaseImportService(validateDatabaseUseCase: sl(), mutex: sl()),
   );
   sl.registerLazySingleton<DatabaseFileRepository>(
     () => sl<DatabaseImportService>(),
@@ -126,6 +131,7 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
     () => DatabaseSyncOrchestrator(
       syncMetadataDataSource: sl(),
       googleDriveApiService: sl(),
+      mutex: sl(),
     ),
   );
 }
