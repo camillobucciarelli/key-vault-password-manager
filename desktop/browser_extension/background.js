@@ -343,12 +343,141 @@ async function refreshActiveTabBadge() {
   if (tabId !== null) await refreshBadgeForTab(tabId);
 }
 
+// ---------------------------------------------------------------------------
+// Reporting at the listener boundary.
+//
+// A mute `.catch(() => {})` on an event listener is where an error signal
+// dies. Nothing awaits these promises, so a rejection swallowed here is
+// observable NOWHERE — not in the console, not in a response, not in a test.
+// That is precisely why the spec 007 badge defect stayed invisible until it
+// was found by hand in the smoke: `ignoreTabGone` rethrows every NON-tab-gone
+// failure on purpose, so a real chrome.action bug stays visible, and then each
+// listener threw that rethrow straight into a mute catch. The guard was right;
+// the boundary discarded its output.
+//
+// Two rules hold for everything below.
+//
+//  1. NEVER PROPAGATE. A listener that hands back a rejected promise is noise
+//     in MV3 and can surface as an unchecked-`runtime.lastError` warning, so
+//     every path still ends in a catch. Report, do not rethrow.
+//
+//  2. NEVER LOG DATA. A026 ("nothing here logs the request or the native
+//     response") extends to diagnostics. Exactly two things are written: a
+//     STATIC context id fixed at the call site, and the error's own `message`,
+//     sanitized. Not the error object, and not its stack — a stack adds
+//     extension paths and no diagnostic value the message does not already
+//     carry.
+//
+// Sanitizing is not decoration here, it closes a measured vector: an overlay
+// registration id is `<REGISTRATION_PREFIX><hex>` where the hex is a
+// char-by-char encoding of the ORIGIN PATTERN (see `registrationIdForPattern`
+// in overlay_lifecycle.js). A `scripting.*` failure that echoes such an id — or
+// any browser error that quotes a host — would otherwise put a trivially
+// reversible piece of the user's browsing history into the console.
+//
+// The redaction list below is ordered most-specific-first. Two properties are
+// load-bearing and both are pinned by tests:
+//
+//   NO ORIGIN SURVIVES. Not as a URL, not as a bare `host:port`, not as a
+//   scheme-less match pattern, and not hex-encoded. A run of hex is reversible
+//   whether or not it carries the registration prefix, so the prefix rule is a
+//   LABEL, not the defence — rule 2 is.
+//
+//   THE LOG STAYS READABLE. Over-redaction is the opposite failure and just as
+//   real: a report where every token is `<redacted>` teaches people to turn the
+//   channel off. Tab ids, version numbers, numeric codes and source filenames
+//   must survive intact, which is why the host rules demand real evidence of a
+//   host (a TLD-like final label, or a `:port`) instead of matching anything
+//   with a dot in it.
+// ---------------------------------------------------------------------------
+
+const REPORTED_MESSAGE_MAX_CHARS = 200;
+
+/**
+ * Derived from overlay_lifecycle.js, never re-spelled. A literal "kv-overlay-"
+ * here would silently stop matching the day the prefix is renamed, and no test
+ * would fail — the sanitizer would just quietly stop redacting.
+ */
+const REGISTRATION_PREFIX =
+  globalThis.KeyVaultOverlayLifecycle.REGISTRATION_PREFIX;
+
+const escapeForRegExp = (literal) =>
+  literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Final labels treated as a file extension rather than a TLD. Every one of
+ * these is also a real TLD somewhere, so this is a deliberate readability
+ * trade: `background.js` and `icon-16.png` stay legible in a report, at the
+ * cost of not redacting the (nonexistent) sites `example.js` / `example.png`.
+ */
+const FILENAME_TAILS = new Set([
+  "js", "mjs", "cjs", "json", "css", "html", "htm",
+  "png", "svg", "map", "md", "txt", "log", "ts",
+]);
+
+const REDACTIONS = [
+  // 1. A registration id, kept labelled so a reader knows what was removed.
+  [
+    new RegExp(`${escapeForRegExp(REGISTRATION_PREFIX)}[0-9a-f]+`, "gi"),
+    () => `${REGISTRATION_PREFIX}<redacted>`,
+  ],
+  // 2. ANY long bare hex run. `registrationIdForPattern` emits 4 hex digits
+  //    per character, so 16 digits is already a 4-character origin fragment.
+  //    This is what actually closes the encoding vector: it does not care how
+  //    the id was prefixed, or whether it was prefixed at all.
+  [/\b[0-9a-f]{16,}\b/gi, () => "<redacted-id>"],
+  // 3. Absolute URLs (http://, https://, chrome-extension://, file://, ...).
+  [/\b[a-z][a-z0-9+.-]*:\/\/\S*/gi, () => "<redacted-origin>"],
+  // 4. Match patterns with a wildcard scheme, e.g. `*://*.example.com/*`.
+  [/\*:\/\/\S*/g, () => "<redacted-origin>"],
+  // 5. Bare `host:port` — the shape Chrome's own "Missing scheme separator"
+  //    error echoes. A dot plus an explicit port is strong evidence of a host,
+  //    which is what keeps `code:42` (no dot) readable.
+  [/\b(?:[a-z0-9-]+\.)+[a-z0-9-]+:\d{1,5}\b/gi, () => "<redacted-origin>"],
+  // 6. `localhost`, the one scheme-less host that has no dot at all.
+  [/\blocalhost(?::\d{1,5})?\b/gi, () => "<redacted-origin>"],
+  // 7. Bare dotted host, optional `*.` prefix and path, where the FINAL label
+  //    is TLD-like (alphabetic, 2+). The alphabetic requirement is what makes
+  //    `Chrome 151.0.7977.54` survive: its last label is numeric, so it is a
+  //    version, not a host.
+  [
+    /(?:\*\.)?(?:[a-z0-9-]+\.)+([a-z]{2,})(?:\/\S*)?/gi,
+    (match, tail) =>
+      FILENAME_TAILS.has(tail.toLowerCase()) ? match : "<redacted-origin>",
+  ],
+];
+
+function sanitizeErrorMessage(error) {
+  const raw =
+    typeof error?.message === "string" ? error.message : String(error ?? "");
+  let redacted = raw;
+  for (const [pattern, replacer] of REDACTIONS) {
+    redacted = redacted.replace(pattern, replacer);
+  }
+  redacted = redacted.replace(/\s+/g, " ").trim();
+  if (redacted === "") return "(no message)";
+  return redacted.length > REPORTED_MESSAGE_MAX_CHARS
+    ? `${redacted.slice(0, REPORTED_MESSAGE_MAX_CHARS)}…`
+    : redacted;
+}
+
+/**
+ * @param {string} context A static, caller-fixed identifier naming the
+ *   listener. Never interpolated from runtime data.
+ * @param {unknown} error The rejection value. Only its `message` is read.
+ */
+function reportListenerFailure(context, error) {
+  console.error(`[keyvault] ${context}: ${sanitizeErrorMessage(error)}`);
+}
+
 // Re-derived on tab activation, tab navigation, extension (re)start — the
 // events plan.md names. No "tabs" host permission is requested: these
 // listeners fire without it (only sensitive fields like tab.url would be
 // filtered, and this file never reads tab.url — it only ever uses tabId).
 chrome.tabs.onActivated.addListener(({ tabId }) => {
-  void refreshBadgeForTab(tabId).catch(() => {});
+  void refreshBadgeForTab(tabId).catch((error) =>
+    reportListenerFailure("tabs.onActivated badge refresh", error)
+  );
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
@@ -357,21 +486,31 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     // the safe "unknown" (no-badge) state rather than a stale count.
     void clearTabMatchCount(tabId)
       .then(() => refreshBadgeForTab(tabId))
-      .catch(() => {});
+      .catch((error) =>
+        reportListenerFailure("tabs.onUpdated(loading) badge refresh", error)
+      );
   } else if (changeInfo.status === "complete") {
-    void refreshBadgeForTab(tabId).catch(() => {});
+    void refreshBadgeForTab(tabId).catch((error) =>
+      reportListenerFailure("tabs.onUpdated(complete) badge refresh", error)
+    );
   }
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  void clearTabMatchCount(tabId).catch(() => {});
+  void clearTabMatchCount(tabId).catch((error) =>
+    reportListenerFailure("tabs.onRemoved match-count cleanup", error)
+  );
 });
 
 chrome.runtime.onStartup.addListener(() =>
-  void refreshActiveTabBadge().catch(() => {})
+  void refreshActiveTabBadge().catch((error) =>
+    reportListenerFailure("runtime.onStartup badge refresh", error)
+  )
 );
 chrome.runtime.onInstalled.addListener(() =>
-  void refreshActiveTabBadge().catch(() => {})
+  void refreshActiveTabBadge().catch((error) =>
+    reportListenerFailure("runtime.onInstalled badge refresh", error)
+  )
 );
 
 // ---------------------------------------------------------------------------
@@ -384,10 +523,18 @@ chrome.runtime.onInstalled.addListener(() =>
 // ---------------------------------------------------------------------------
 
 chrome.runtime.onStartup.addListener(() => {
-  void overlayLifecycle.ready().catch(() => {});
+  void overlayLifecycle
+    .ready()
+    .catch((error) =>
+      reportListenerFailure("runtime.onStartup overlay reconcile", error)
+    );
 });
 chrome.runtime.onInstalled.addListener(() => {
-  void overlayLifecycle.ready().catch(() => {});
+  void overlayLifecycle
+    .ready()
+    .catch((error) =>
+      reportListenerFailure("runtime.onInstalled overlay reconcile", error)
+    );
 });
 chrome.permissions.onAdded.addListener((added) => {
   // `prunePermissions: false` — Chrome fires onAdded before the popup's
@@ -408,10 +555,16 @@ chrome.permissions.onAdded.addListener((added) => {
         grantedOrigins: Array.isArray(added?.origins) ? added.origins : [],
       })
     )
-    .catch(() => {});
+    .catch((error) =>
+      reportListenerFailure("permissions.onAdded overlay reconcile", error)
+    );
 });
 chrome.permissions.onRemoved.addListener(() => {
-  void overlayLifecycle.reconcile().catch(() => {});
+  void overlayLifecycle
+    .reconcile()
+    .catch((error) =>
+      reportListenerFailure("permissions.onRemoved overlay reconcile", error)
+    );
 });
 
 // ---------------------------------------------------------------------------
