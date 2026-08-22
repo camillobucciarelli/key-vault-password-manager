@@ -411,7 +411,7 @@
         "pairs inside that single test. This runner counts test cases, so the",
         "measured value is 1. The property is held; the unit was wrong."
       ],
-      "expectedKills": 1,
+      "expectedKills": 2,
       "edits": [
         {
           "find": "    hex += pattern.charCodeAt(index).toString(16).padStart(4, \"0\");",
@@ -537,7 +537,7 @@
     },
     {
       "id": "A2-M10",
-      "expectedKills": 13,
+      "expectedKills": 14,
       "$comment": "12 -> 13 when the A2-M15 onAdded-race tests landed: the trigger-completeness test plants a stale registration and asserts the onAdded reconcile removes it, which this mutation forbids. Blast radius only.",
       "slice": "A2",
       "suite": "node-extension",
@@ -1026,7 +1026,7 @@
     },
     {
       "id": "A2-M16",
-      "expectedKills": 79,
+      "expectedKills": 80,
       "slice": "A2",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_lifecycle.js",
@@ -1665,7 +1665,7 @@
     },
     {
       "id": "A7-M1",
-      "expectedKills": 3,
+      "expectedKills": 9,
       "slice": "A7",
       "suite": "node-extension",
       "file": "desktop/browser_extension/background.js",
@@ -1680,7 +1680,7 @@
     },
     {
       "id": "A7-M2",
-      "expectedKills": 2,
+      "expectedKills": 3,
       "slice": "A7",
       "suite": "node-extension",
       "file": "desktop/browser_extension/background.js",
@@ -1735,6 +1735,89 @@
         {
           "find": "    if (!maybeStartFrameHint()) teardownSession();",
           "replace": "    maybeStartFrameHint();"
+        }
+      ]
+    },
+    {
+      "id": "A7-M6",
+      "expectedKills": 6,
+      "slice": "A7",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/background.js",
+      "title": "the tabs.onActivated listener goes back to a mute catch",
+      "property": "The tab-gone guard rethrows every NON-tab-gone failure on purpose, but the only callers in the shipped worker are event listeners: if one swallows that rethrow, the guard's output is observable nowhere and a real chrome.action bug is invisible again. This is the pre-existing defect the spec 007 smoke hit by hand. Restoring the mute catch must break the boundary tests, not just the reporting detail.",
+      "edits": [
+        {
+          "find": "  void refreshBadgeForTab(tabId).catch((error) =>\n    reportListenerFailure(\"tabs.onActivated badge refresh\", error)\n  );",
+          "replace": "  void refreshBadgeForTab(tabId).catch(() => {});"
+        }
+      ]
+    },
+    {
+      "id": "A7-M7",
+      "expectedKills": 1,
+      "slice": "A7",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/background.js",
+      "title": "the permissions.onRemoved listener goes back to a mute catch",
+      "property": "Nine listener call sites share one reporter, so coverage of ONE of them is not coverage of the boundary. This mutation mutes a different family (overlay reconcile, not badge paint) and must be killed independently of A7-M6 — if both mutations were killed only by tabs.onActivated tests, eight sites could go mute unnoticed.",
+      "edits": [
+        {
+          "find": "  void overlayLifecycle\n    .reconcile()\n    .catch((error) =>\n      reportListenerFailure(\"permissions.onRemoved overlay reconcile\", error)\n    );",
+          "replace": "  void overlayLifecycle.reconcile().catch(() => {});"
+        }
+      ]
+    },
+    {
+      "id": "A7-M8",
+      "expectedKills": 1,
+      "slice": "A7",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/background.js",
+      "title": "the sanitizer only redacts prefixed registration ids, not bare hex runs",
+      "property": "A run of hex is reversible whether or not it still carries the registration prefix — the tester decoded one by hand. Dropping the bare-hex rule leaves the prefix rule looking like a defence while an unprefixed id walks straight into the console.",
+      "edits": [
+        {
+          "find": "  [/\\b[0-9a-f]{16,}\\b/gi, () => \"<redacted-id>\"],",
+          "replace": ""
+        }
+      ]
+    },
+    {
+      "id": "A7-M9",
+      "expectedKills": 1,
+      "slice": "A7",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/background.js",
+      "title": "the sanitizer requires a scheme, so bare hosts pass through",
+      "property": "Both original rules were anchored on `://`, so `secret.example.com:8443` and `*.secret.example.com/*` printed in clear. Removing the scheme-less host rules must fail loudly: a sanitizer that lets an origin through is a false guarantee someone will rely on.",
+      "edits": [
+        {
+          "find": "  [/\\b(?:[a-z0-9-]+\\.)+[a-z0-9-]+:\\d{1,5}\\b/gi, () => \"<redacted-origin>\"],",
+          "replace": ""
+        },
+        {
+          "find": "  [\n    /(?:\\*\\.)?(?:[a-z0-9-]+\\.)+([a-z]{2,})(?:\\/\\S*)?/gi,\n    (match, tail) =>\n      FILENAME_TAILS.has(tail.toLowerCase()) ? match : \"<redacted-origin>\",\n  ],",
+          "replace": ""
+        }
+      ]
+    },
+    {
+      "id": "A7-M10",
+      "expectedKills": 1,
+      "slice": "A7",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/background.js",
+      "title": "the sanitizer redacts every dotted token, filenames and versions included",
+      "property": "Over-redaction is the opposite failure and just as real: a report where every token is <redacted> is a channel people switch off, and then the signal is gone again by a different route. Dropping the TLD-like and filename conditions must be caught, not silently accepted as 'more secure'.",
+      "edits": [
+        {
+          "find": "    (match, tail) =>\n      FILENAME_TAILS.has(tail.toLowerCase()) ? match : \"<redacted-origin>\",",
+          "replace": "    () => \"<redacted-origin>\","
+        },
+        {
+          "find": "/(?:\\*\\.)?(?:[a-z0-9-]+\\.)+([a-z]{2,})(?:\\/\\S*)?/gi,",
+          "replace": "/(?:\\*\\.)?(?:[a-z0-9-]+\\.)+([a-z0-9]{2,})(?:\\/\\S*)?/gi,"
         }
       ]
     }
