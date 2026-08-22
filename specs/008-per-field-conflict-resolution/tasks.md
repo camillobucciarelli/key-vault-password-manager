@@ -128,7 +128,16 @@ Ordered gates. Later phase cannot start until prior gate exit passes.
       therefore says nothing about removal. Nothing in the current design
       depends on this — FR-4 states that a missing KDBX field or attachment is
       normally a union, not a deletion — so it blocks the deletion work only.
-      **Executed 2026-08-22 — pending PM acceptance.** Structure chosen:
+      **ACCEPTED by the PM 2026-08-22 — the T009b gate is CLOSED.** Acceptance
+      was earned, not declared: the evidence was re-executed on `main` by the PM
+      (18 tests green; `node tool/mutation_runner.mjs
+      --definitions=tool/mutations/008_t009b_deletion_convergence.json --check`
+      exit 0, 14 mutations, 0 survivors), the equal-clock tie was verified to
+      break toward preservation with an executable assertion (G3, model line
+      ~614), and the D13/D14 rows were spot-read to confirm they mutate model
+      semantics (Keep clock stamping, manifest omission of the tombstone), not
+      counters. Deletion/tombstone/attachment implementation work is unblocked.
+      Structure chosen:
       **tombstone with a clock** (LWW-element-set family), not a 2P-Set —
       FR-5's Keep is an un-delete, which a 2P-Set cannot express, and FR-5's
       "preserve newest supported deletion data" is a max-clock join. Evidence:
