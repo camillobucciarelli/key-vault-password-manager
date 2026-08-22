@@ -71,6 +71,13 @@ class MobileFileStorage {
     //     the opposite is wanted. This directory is app-private and an entry
     //     in it may have been planted (#45/#46), so the rename REPLACES a
     //     symlink entry instead of following it outside app storage.
+    //     Since the T109 HIGH-4 follow-up the two layers agree rather than
+    //     contradict: that writer gates its resolution on the app-private
+    //     perimeter — which on the mobile targets IS this directory — so it
+    //     also declines to follow a link here, and it refuses a `..` path
+    //     outright just as _containsTraversal does below. It is
+    //     unconditional here because this method only ever writes paths it
+    //     built itself, inside this directory.
     //   * NO permission preservation. Every file here is created by this
     //     method inside an app-private directory; there is no user-chosen
     //     `chmod 600` to carry over, and `overwriteIfExists` has no caller.

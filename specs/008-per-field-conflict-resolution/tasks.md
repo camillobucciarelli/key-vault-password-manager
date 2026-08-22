@@ -211,23 +211,51 @@ flutter test test/features/password_manager/data/services/sync_merge_convergence
       Follow-up (LOW, T105 tester review): `DatabaseImportService.saveKeyFile`
       and the managed key-file copies write in place today (no temp+rename) —
       route key-file writes through this same safe writer.
-      Follow-up (HIGH-4 residual, T109 tester review): `SafeVaultFileWriter`
-      resolves a live leaf symlink with **no perimeter gate**, while
-      `MobileFileStorage` two files away refuses to follow one in the same
-      directory. Not a regression — `main` write-through is identical, and
-      the backup no longer escapes the caller's directory — but the two
-      layers disagree by construction. Candidate fix: a `followSymlinks:`
-      flag set by the desktop call sites and cleared by the managed-path
-      ones, or a gate on `isPathInAppDirectory`. **Close before the next
-      mobile release.**
-      Follow-up (MEDIUM-2, T109 tester review): the HIGH-3 sandbox fallback
-      covers the target temp only, not the `createBackup` sibling that runs
-      before it. If the HIGH-3 premise holds on sandboxed macOS, routine
-      saves (`backupExistingTarget: false`) degrade and succeed while the
-      three sync replacements fail permanently at the backup step —
-      fail-safe and consistent with the FR-9 hard stop, but an undocumented
-      asymmetry. Recorded in `safe_vault_file_writer.dart`'s doc comment;
-      resolve together with T111 platform evidence.
+      Follow-up (HIGH-4 residual, T109 tester review) — **CLOSED**:
+      `SafeVaultFileWriter` now gates leaf-symlink resolution on the
+      app-private perimeter (`SafeVaultFileIo.appDirectoryRoot` +
+      `_isInsideAppPerimeter`), so it agrees with `MobileFileStorage` on the
+      directory they share. Outside the perimeter a live link is still
+      written THROUGH (HIGH-2, the `~/vault.kdbx -> ~/Cloud/...` case);
+      inside it the link is left unresolved and the rename replaces the
+      entry (#45/#46). Dangling links are unchanged on both sides. Chosen
+      over the `followSymlinks:` flag because the same call sites
+      (`VaultKdbxService._save`, the three sync replacements) serve managed
+      and user-picked paths interchangeably, so no caller can answer the
+      question statically.
+      **The perimeter is NOT `documentsRoot()`.**
+      `getApplicationDocumentsDirectory()` is the per-app container only on
+      iOS/Android and under the macOS sandbox; on Linux
+      (`xdg DOCUMENTS`), Windows (`WindowsKnownFolder.Documents`) and
+      unsandboxed macOS it is the user's own `~/Documents`, i.e. the
+      picker's default location — so the first cut of this gate froze a
+      `~/Documents/vault.kdbx -> ~/Dropbox/vault.kdbx` cloud vault while
+      reporting success. `SafeVaultFileIo.isAppPrivateDocumentsRoot` decides
+      per platform (`Containers` segment for the macOS sandbox); the other
+      targets get no perimeter at all. No perimeter counts as outside —
+      pre-follow-up behaviour.
+      A path holding a `..` segment is now refused outright before the
+      perimeter is consulted: the kernel follows an intermediate symlink
+      BEFORE applying `..`, so a planted directory link makes a
+      textually-inside path land anywhere and NEITHER answer of the symlink
+      gate helps. `MobileFileStorage` refuses traversal for the same reason.
+      Every direction has a killer in `safe_vault_file_writer_test.dart`,
+      including the desktop and the traversal reproducers.
+      Follow-up (MEDIUM-2, T109 tester review) — **CLOSED**: the hard stop
+      stays. Extending the HIGH-3 fallback to the backup is not available:
+      a backup IS a second file, so under a sandbox that authorizes the
+      chosen path alone the only degraded option would be to skip it, which
+      FR-9 forbids — and the callers that request one are the three sync
+      replacements, where remote bytes overwrite the local vault. What
+      changed is the diagnosis: a permission-refused backup now raises
+      `SafeVaultBackupUnavailableException` naming the operation and the OS
+      reason (path-shaped tokens stripped), instead of a raw
+      `FileSystemException`. Only the sibling claim is converted — a
+      permission failure reading the source vault keeps its own diagnosis,
+      since "re-grant folder access" would be the wrong advice there — and
+      non-permission backup failures propagate unchanged. The asymmetry is
+      documented in `SafeVaultFileWriter.write`'s doc comment; the HIGH-3
+      premise itself still awaits T111 platform evidence.
       Follow-up (MEDIUM, T109 tester review): `VaultKdbxService`
       `beginCredentialChange` (`vault_kdbx_service.dart:391-397`) renames the
       database to the backup name and only then renames the temp into place —

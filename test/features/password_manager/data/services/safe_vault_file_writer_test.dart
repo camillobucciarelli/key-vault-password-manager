@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/data/services/safe_vault_file_writer.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 // =============================================================================
 // spec 008 Gate 1 — T108 (collision-safe backup) and T110 (failure injection).
@@ -15,6 +17,8 @@ import 'package:path/path.dart' as p;
 // =============================================================================
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   late Directory tempDir;
 
   setUp(() async {
@@ -749,6 +753,614 @@ void main() {
       },
     );
   });
+
+  // ===========================================================================
+  // Tester HIGH-4 follow-up — symlink resolution is gated on the app-private
+  // perimeter. BOTH directions have a killer here: dropping the gate breaks
+  // the "inside" test, gating everything breaks the "outside" one, so neither
+  // mutation survives.
+  //
+  // Perimeter = the app documents container. Outside it a path was chosen by
+  // the user through a picker (HIGH-2 write-through must keep working);
+  // inside it an entry may have been planted (#45/#46) and `MobileFileStorage`
+  // already refuses to follow links in that same directory.
+  // ===========================================================================
+  group('HIGH-4 perimeter-gated symlink resolution', () {
+    late Directory appDocs;
+    late Directory cloud;
+    late File real;
+
+    setUp(() async {
+      appDocs = await Directory(p.join(tempDir.path, 'appdocs')).create();
+      cloud = await Directory(p.join(tempDir.path, 'cloud')).create();
+      real = File(p.join(cloud.path, 'real.kdbx'));
+      await real.writeAsBytes(const [1, 2, 3], flush: true);
+    });
+
+    test('OUTSIDE the perimeter a live link is still followed: the cloud file '
+        'changes and the link survives', () async {
+      // `~/vault.kdbx -> ~/Dropbox/vault.kdbx`: the HIGH-2 fix. The perimeter
+      // is a real, unrelated directory, so the gate must not fire.
+      final writer = SafeVaultFileWriter(io: _PerimeterIo(appDocs.path));
+      final linkPath = p.join(tempDir.path, 'vault.kdbx');
+      await Link(linkPath).create(real.path);
+
+      await writer.write(
+        targetPath: linkPath,
+        bytes: Uint8List.fromList(const [9, 9, 9]),
+      );
+
+      expect(
+        FileSystemEntity.isLinkSync(linkPath),
+        isTrue,
+        reason: 'the link entry was replaced; the cloud file is now frozen',
+      );
+      expect(await real.readAsBytes(), [9, 9, 9]);
+    });
+
+    test('INSIDE the perimeter a live link is NOT followed: the entry is '
+        'replaced and the file it pointed at is untouched', () async {
+      // The #45/#46 attack shape that HIGH-2 left open: a LIVE link planted
+      // in app-private storage. Nothing legitimate creates one there.
+      final writer = SafeVaultFileWriter(io: _PerimeterIo(appDocs.path));
+      final linkPath = p.join(appDocs.path, 'planted.kdbx');
+      await Link(linkPath).create(real.path);
+
+      await writer.write(
+        targetPath: linkPath,
+        bytes: Uint8List.fromList(const [9, 9, 9]),
+        operation: 'vault save',
+      );
+
+      expect(
+        await real.readAsBytes(),
+        [1, 2, 3],
+        reason: 'the write escaped app storage through a planted link',
+      );
+      expect(FileSystemEntity.isLinkSync(linkPath), isFalse);
+      expect(await File(linkPath).readAsBytes(), [9, 9, 9]);
+    });
+
+    test(
+      'INSIDE the perimeter the backup is taken too, and also stays put',
+      () async {
+        final writer = SafeVaultFileWriter(io: _PerimeterIo(appDocs.path));
+        final linkPath = p.join(appDocs.path, 'planted.kdbx');
+        await Link(linkPath).create(real.path);
+
+        final result = await writer.write(
+          targetPath: linkPath,
+          bytes: Uint8List.fromList(const [4]),
+          backupExistingTarget: true,
+        );
+
+        expect(p.dirname(result.backupPath!), appDocs.path);
+        expect(await real.readAsBytes(), [1, 2, 3]);
+        expect(await File(linkPath).readAsBytes(), [4]);
+      },
+    );
+
+    test(
+      'a sibling directory sharing the perimeter prefix is OUTSIDE',
+      () async {
+        // `startsWith` instead of `p.isWithin` would swallow `<root>-old`.
+        final writer = SafeVaultFileWriter(io: _PerimeterIo(appDocs.path));
+        final sibling = await Directory('${appDocs.path}-old').create();
+        final linkPath = p.join(sibling.path, 'vault.kdbx');
+        await Link(linkPath).create(real.path);
+
+        await writer.write(
+          targetPath: linkPath,
+          bytes: Uint8List.fromList(const [6]),
+        );
+
+        expect(FileSystemEntity.isLinkSync(linkPath), isTrue);
+        expect(await real.readAsBytes(), [6]);
+      },
+    );
+
+    test('createBackup goes through the gate too, instead of resolving on its '
+        'own', () async {
+      // The bypass is nearly invisible by content (readBytes/stat follow the
+      // link at OS level either way), so it is pinned by the call itself.
+      final io = _PerimeterIo(appDocs.path);
+      final writer = SafeVaultFileWriter(io: io);
+      final linkPath = p.join(appDocs.path, 'planted.kdbx');
+      await Link(linkPath).create(real.path);
+
+      await writer.createBackup(linkPath);
+
+      expect(
+        io.resolveLeafLinkCalls,
+        isEmpty,
+        reason: 'the backup resolved a link the perimeter gate refused',
+      );
+    });
+
+    test('a write that takes a backup asks the platform for the perimeter '
+        'exactly once', () async {
+      final io = _ClassifyingIo(appDocs.path, 'ios');
+      final writer = SafeVaultFileWriter(io: io);
+      final target = File(p.join(appDocs.path, 'vault.kdbx'));
+      await target.writeAsBytes(const [1], flush: true);
+
+      await writer.write(
+        targetPath: target.path,
+        bytes: Uint8List.fromList(const [2]),
+        backupExistingTarget: true,
+      );
+
+      expect(io.appDirectoryRootCalls, 1);
+    });
+
+    test('a perimeter that cannot be determined counts as OUTSIDE, so the '
+        'pre-follow-up write-through is unchanged', () async {
+      // The production default: on desktop and in every non-Flutter host the
+      // documents root may be unavailable. Unknown must never mean "refuse to
+      // follow", or a cloud-symlinked vault would silently stop syncing.
+      final writer = SafeVaultFileWriter(io: _PerimeterIo(null));
+      final linkPath = p.join(appDocs.path, 'vault.kdbx');
+      await Link(linkPath).create(real.path);
+
+      await writer.write(
+        targetPath: linkPath,
+        bytes: Uint8List.fromList(const [8]),
+      );
+
+      expect(FileSystemEntity.isLinkSync(linkPath), isTrue);
+      expect(await real.readAsBytes(), [8]);
+    });
+  });
+
+  // ===========================================================================
+  // Tester FINDING-1 — "the documents directory" is NOT one concept.
+  // `getApplicationDocumentsDirectory()` is the app container on iOS/Android
+  // and under the macOS sandbox, but the user's own `~/Documents` on Linux,
+  // Windows and unsandboxed macOS — where it is also the picker's DEFAULT
+  // location. Treating it as app-private there re-broke HIGH-2 on exactly the
+  // most likely desktop setup.
+  // ===========================================================================
+  group('FINDING-1 the perimeter is app-private on every platform', () {
+    test('per-platform classification of a documents root', () {
+      bool classify(String root, String os) =>
+          SafeVaultFileIo.isAppPrivateDocumentsRoot(root, os);
+
+      // Per-app containers: app-private.
+      expect(
+        classify('/var/mobile/Containers/Data/App/X/Documents', 'ios'),
+        isTrue,
+      );
+      expect(
+        classify('/data/user/0/com.example/app_flutter', 'android'),
+        isTrue,
+      );
+      // macOS: only under the sandbox container.
+      expect(
+        classify('/Users/u/Library/Containers/com.x/Data/Documents', 'macos'),
+        isTrue,
+      );
+      expect(classify('/Users/u/Documents', 'macos'), isFalse);
+      // LOW-1: the marker is the `Library/Containers` PAIR. A home that
+      // happens to hold a directory named `Containers` must not switch the
+      // perimeter on over the user's real ~/Documents.
+      expect(classify('/Users/Containers/Documents', 'macos'), isFalse);
+      expect(classify('/Containers/x/Documents', 'macos'), isFalse);
+      // Linux `xdg DOCUMENTS` and the Windows known folder are the USER's.
+      expect(classify('/home/u/Documents', 'linux'), isFalse);
+      expect(classify(r'C:\Users\u\Documents', 'windows'), isFalse);
+    });
+
+    test('MEDIUM-1 composition: the PRODUCTION seam applies the '
+        'classification, not just the pure function', () async {
+      // Every other test here replaces `appDirectoryRoot()` with a fake, so
+      // dropping the classification INSIDE it — i.e. reintroducing FINDING-1
+      // verbatim — survived the whole suite. This is the only test that runs
+      // the real seam over a real path_provider answer.
+      final original = PathProviderPlatform.instance;
+      addTearDown(() => PathProviderPlatform.instance = original);
+
+      // Shape of the USER's documents directory: what Linux, Windows and
+      // unsandboxed macOS actually return.
+      final userDocuments = await Directory(
+        p.join(tempDir.path, 'home', 'Documents'),
+      ).create(recursive: true);
+      PathProviderPlatform.instance = _FixedPathProvider(userDocuments.path);
+
+      expect(
+        await const SafeVaultFileIo().appDirectoryRoot(),
+        isNull,
+        reason:
+            'the production seam handed back a USER directory as the '
+            'app-private perimeter — FINDING-1, on ${Platform.operatingSystem}',
+      );
+
+      // ...and the positive half, on the one host that can express it.
+      final container = await Directory(
+        p.join(
+          tempDir.path,
+          'Library',
+          'Containers',
+          'com.x',
+          'Data',
+          'Documents',
+        ),
+      ).create(recursive: true);
+      PathProviderPlatform.instance = _FixedPathProvider(container.path);
+
+      expect(
+        await const SafeVaultFileIo().appDirectoryRoot(),
+        Platform.isMacOS ? container.path : isNull,
+        reason:
+            'a sandboxed macOS container must be a perimeter; every other '
+            'host has no documents-based perimeter at all',
+      );
+    });
+
+    test('DESKTOP REPRO: ~/Documents/vault.kdbx -> ~/Dropbox/vault.kdbx is '
+        'still written THROUGH', () async {
+      // The regression the tester reproduced: followed=false, cloud bytes
+      // frozen, app reporting a successful save.
+      final documents = await Directory(
+        p.join(tempDir.path, 'home', 'Documents'),
+      ).create(recursive: true);
+      final dropbox = await Directory(
+        p.join(tempDir.path, 'home', 'Dropbox'),
+      ).create();
+      final cloudVault = File(p.join(dropbox.path, 'vault.kdbx'));
+      await cloudVault.writeAsBytes(const [1, 2, 3], flush: true);
+      final linkPath = p.join(documents.path, 'vault.kdbx');
+      await Link(linkPath).create(cloudVault.path);
+
+      final writer = SafeVaultFileWriter(
+        io: _ClassifyingIo(documents.path, 'linux'),
+      );
+      await writer.write(
+        targetPath: linkPath,
+        bytes: Uint8List.fromList(const [9, 9]),
+        operation: 'vault save',
+      );
+
+      expect(
+        await cloudVault.readAsBytes(),
+        [9, 9],
+        reason: 'the cloud vault froze: sync stops silently from here on',
+      );
+      expect(FileSystemEntity.isLinkSync(linkPath), isTrue);
+    });
+
+    test('the SAME fixture on iOS is inside the perimeter and is not '
+        'followed', () async {
+      // One fixture, both platforms: what changes is only the classification.
+      final documents = await Directory(
+        p.join(tempDir.path, 'Containers', 'Data', 'App', 'X', 'Documents'),
+      ).create(recursive: true);
+      final outside = await Directory(p.join(tempDir.path, 'outside')).create();
+      final victim = File(p.join(outside.path, 'victim.kdbx'));
+      await victim.writeAsBytes(const [1, 2, 3], flush: true);
+      final linkPath = p.join(documents.path, 'planted.kdbx');
+      await Link(linkPath).create(victim.path);
+
+      final writer = SafeVaultFileWriter(
+        io: _ClassifyingIo(documents.path, 'ios'),
+      );
+      await writer.write(
+        targetPath: linkPath,
+        bytes: Uint8List.fromList(const [9, 9]),
+        operation: 'vault save',
+      );
+
+      expect(await victim.readAsBytes(), [1, 2, 3]);
+      expect(FileSystemEntity.isLinkSync(linkPath), isFalse);
+    });
+  });
+
+  // ===========================================================================
+  // Tester FINDING-2 — the kernel follows an intermediate symlink BEFORE it
+  // applies `..`, so a textually-inside path can land anywhere. Neither answer
+  // of the symlink gate helps; the write itself has to be refused.
+  // ===========================================================================
+  group('FINDING-2 traversal is refused, not classified', () {
+    test('REPRO: a planted directory symlink plus ".." never reaches the '
+        'victim', () async {
+      final documents = await Directory(
+        p.join(tempDir.path, 'Containers', 'Data', 'App', 'X', 'Documents'),
+      ).create(recursive: true);
+      final outside = await Directory(p.join(tempDir.path, 'outside')).create();
+      final victim = File(p.join(outside.path, 'victim.kdbx'));
+      await victim.writeAsBytes(const [1, 2, 3], flush: true);
+      // The planted piece: a DIRECTORY link inside app storage. `..` after it
+      // is resolved by the kernel relative to `outside`, not to `documents`.
+      await Link(p.join(documents.path, 'evil')).create(outside.path);
+      final targetPath = p.join(
+        documents.path,
+        'evil',
+        '..',
+        'outside',
+        'victim.kdbx',
+      );
+
+      final writer = SafeVaultFileWriter(
+        io: _ClassifyingIo(documents.path, 'ios'),
+      );
+
+      await expectLater(
+        writer.write(
+          targetPath: targetPath,
+          bytes: Uint8List.fromList(const [9, 9]),
+          operation: 'vault save',
+        ),
+        throwsA(
+          isA<FileSystemException>().having(
+            (e) => e.message,
+            'message',
+            contains('".." segment'),
+          ),
+        ),
+      );
+      expect(
+        await victim.readAsBytes(),
+        [1, 2, 3],
+        reason: 'the write escaped the perimeter through link + ".."',
+      );
+      expect(
+        outside.listSync().whereType<File>().map((f) => p.basename(f.path)),
+        ['victim.kdbx'],
+        reason: 'no temp may be left outside the perimeter either',
+      );
+    });
+
+    test('the refusal does not depend on the perimeter being known', () async {
+      // The guard runs before the perimeter question, so a desktop path with
+      // traversal is refused too — no caller produces one, and a tampered
+      // `appdocs:` record decodes straight into `p.joinAll`.
+      final writer = SafeVaultFileWriter(io: _PerimeterIo(null));
+
+      await expectLater(
+        writer.write(
+          targetPath: p.join(tempDir.path, 'a', '..', 'vault.kdbx'),
+          bytes: Uint8List.fromList(const [1]),
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(File(p.join(tempDir.path, 'vault.kdbx')).existsSync(), isFalse);
+    });
+
+    test('the refusal names no verbatim path', () async {
+      final writer = SafeVaultFileWriter(io: _PerimeterIo(null));
+      final targetPath = p.join(tempDir.path, 'a', '..', 'secret-vault.kdbx');
+
+      try {
+        await writer.write(
+          targetPath: targetPath,
+          bytes: Uint8List.fromList(const [1]),
+        );
+        fail('a traversal path must be refused');
+      } on FileSystemException catch (error) {
+        expect(error.toString(), isNot(contains('secret-vault')));
+      }
+    });
+  });
+
+  // ===========================================================================
+  // Tester MEDIUM-2 — the HIGH-3 sandbox fallback covers the temp only. The
+  // backup keeps its FR-9 hard stop (a backup IS a second file: under a
+  // sandbox that authorizes one path there is no degraded way to make one,
+  // and the only alternative would be to skip it). What must NOT survive is
+  // the raw FileSystemException, which carried a verbatim vault path into the
+  // sync error log.
+  // ===========================================================================
+  group('MEDIUM-2 backup refusal is a comprehensible hard stop', () {
+    test('a permission-refused backup aborts with a typed error and leaves '
+        'the target intact', () async {
+      final io = _FaultyIo(_Fault.backupPermissionDenied);
+      final writer = SafeVaultFileWriter(io: io);
+      final target = await targetFile(const [1, 2, 3]);
+
+      await expectLater(
+        writer.write(
+          targetPath: target.path,
+          bytes: Uint8List.fromList(const [9, 9, 9, 9]),
+          backupExistingTarget: true,
+          operation: 'sync replace from remote',
+        ),
+        throwsA(
+          isA<SafeVaultBackupUnavailableException>()
+              .having(
+                (e) => e.toString(),
+                'message',
+                contains('sync replace from remote'),
+              )
+              .having(
+                (e) => e.toString(),
+                'message',
+                contains('Operation not permitted'),
+              ),
+        ),
+      );
+
+      expect(await target.readAsBytes(), [1, 2, 3]);
+      expect(backupsIn(tempDir), isEmpty);
+      expect(
+        io.renames.where((r) => r.$2 == target.path),
+        isEmpty,
+        reason: 'no target write may follow a refused backup',
+      );
+    });
+
+    test('the typed error never carries the verbatim vault path', () async {
+      // AGENTS.md: paths are logged as a shape. The sync error path logs the
+      // exception object, so its `toString` is the leak surface.
+      final writer = SafeVaultFileWriter(
+        io: _FaultyIo(_Fault.backupPermissionDenied),
+      );
+      final target = await targetFile(const [1]);
+
+      try {
+        await writer.write(
+          targetPath: target.path,
+          bytes: Uint8List.fromList(const [2]),
+          backupExistingTarget: true,
+          operation: 'sync replace from remote',
+        );
+        fail('the refused backup must abort the write');
+      } on SafeVaultBackupUnavailableException catch (error) {
+        expect(error.toString(), isNot(contains(target.path)));
+        expect(error.toString(), isNot(contains('vault.kdbx')));
+      }
+    });
+
+    test(
+      'a NON-permission backup failure still propagates unchanged',
+      () async {
+        // The typed error must mean exactly "the OS refused the sibling", not
+        // "the backup failed somehow" — a disk error keeps its own diagnosis.
+        final writer = SafeVaultFileWriter(io: _FaultyIo(_Fault.backupIoError));
+        final target = await targetFile(const [1, 2, 3]);
+
+        await expectLater(
+          writer.write(
+            targetPath: target.path,
+            bytes: Uint8List.fromList(const [9]),
+            backupExistingTarget: true,
+          ),
+          throwsA(
+            isA<FileSystemException>().having(
+              (e) => e.message,
+              'message',
+              contains('injected: EIO on the backup'),
+            ),
+          ),
+        );
+        expect(await target.readAsBytes(), [1, 2, 3]);
+      },
+    );
+
+    test('an unreadable SOURCE vault keeps its own diagnosis instead of the '
+        'backup-sibling advice', () async {
+      // FINDING-3: wrapping all of createBackup told the user to re-grant
+      // folder access when the real cause was an unreadable vault.
+      final writer = SafeVaultFileWriter(
+        io: _FaultyIo(_Fault.sourceReadPermissionDenied),
+      );
+      final target = await targetFile(const [1, 2, 3]);
+
+      await expectLater(
+        writer.write(
+          targetPath: target.path,
+          bytes: Uint8List.fromList(const [9]),
+          backupExistingTarget: true,
+          operation: 'sync replace from remote',
+        ),
+        throwsA(
+          isA<FileSystemException>().having(
+            (e) => e.message,
+            'message',
+            contains('the vault itself is unreadable'),
+          ),
+        ),
+      );
+      expect(await target.readAsBytes(), [1, 2, 3]);
+    });
+
+    test(
+      'a path smuggled into the OS message is stripped from the reason',
+      () async {
+        final writer = SafeVaultFileWriter(
+          io: _FaultyIo(_Fault.backupPermissionDeniedWithPathInMessage),
+        );
+        final target = await targetFile(const [1]);
+
+        try {
+          await writer.write(
+            targetPath: target.path,
+            bytes: Uint8List.fromList(const [2]),
+            backupExistingTarget: true,
+            operation: 'sync replace from remote',
+          );
+          fail('the refused backup must abort the write');
+        } on SafeVaultBackupUnavailableException catch (error) {
+          expect(error.osReason, isNot(contains('secret-vault')));
+          expect(error.osReason, contains('Operation not permitted'));
+        }
+      },
+    );
+
+    test('a routine save (no backup requested) still degrades and succeeds '
+        'under the same refusal', () async {
+      // The documented asymmetry, pinned: the sandbox stops the three sync
+      // replacements but never a routine vault save.
+      final writer = SafeVaultFileWriter(
+        io: _FaultyIo(_Fault.tempPermissionDenied),
+      );
+      final target = await targetFile(const [1, 2, 3]);
+
+      final result = await writer.write(
+        targetPath: target.path,
+        bytes: Uint8List.fromList(const [7, 7]),
+        operation: 'vault save',
+      );
+
+      expect(result.atomic, isFalse);
+      expect(await target.readAsBytes(), [7, 7]);
+    });
+  });
+}
+
+/// Stands in for `path_provider` so the PRODUCTION [SafeVaultFileIo
+/// .appDirectoryRoot] can be exercised end to end (MEDIUM-1). Same harness
+/// as `mobile_file_storage_guard_qa_test.dart`.
+class _FixedPathProvider extends PathProviderPlatform
+    with MockPlatformInterfaceMixin {
+  _FixedPathProvider(this.basePath);
+
+  final String basePath;
+
+  @override
+  Future<String?> getApplicationDocumentsPath() async => basePath;
+}
+
+/// Reports a fixed app-private perimeter; `null` stands in for "no
+/// perimeter", which is what the real IO returns on desktop and wherever no
+/// plugin binding exists. Also records every [resolveLeafLink] call, so a
+/// gate BYPASS (resolving where the gate said not to) is observable even when
+/// the two paths would otherwise behave alike.
+class _PerimeterIo extends SafeVaultFileIo {
+  _PerimeterIo(this.root);
+
+  final String? root;
+  final resolveLeafLinkCalls = <String>[];
+
+  @override
+  Future<String?> appDirectoryRoot() async => root;
+
+  @override
+  String resolveLeafLink(String path) {
+    resolveLeafLinkCalls.add(path);
+    return super.resolveLeafLink(path);
+  }
+}
+
+/// Runs the REAL per-platform perimeter classification over a fake documents
+/// root, so the desktop and mobile shapes of the same fixture are exercised
+/// end to end through [SafeVaultFileWriter.write].
+class _ClassifyingIo extends SafeVaultFileIo {
+  _ClassifyingIo(this.documentsRoot, this.operatingSystem);
+
+  final String documentsRoot;
+  final String operatingSystem;
+
+  var appDirectoryRootCalls = 0;
+
+  @override
+  Future<String?> appDirectoryRoot() async {
+    appDirectoryRootCalls++;
+    return SafeVaultFileIo.isAppPrivateDocumentsRoot(
+          documentsRoot,
+          operatingSystem,
+        )
+        ? documentsRoot
+        : null;
+  }
 }
 
 /// Every chmod is refused — stands in for exFAT/FAT32/network mounts.
@@ -855,6 +1467,10 @@ enum _Fault {
   tempPermissionDenied,
   targetFlushAndClose,
   backupCreate,
+  backupIoError,
+  backupPermissionDenied,
+  backupPermissionDeniedWithPathInMessage,
+  sourceReadPermissionDenied,
   backupWrite,
   backupFlush,
   backupVerify,
@@ -878,6 +1494,35 @@ class _FaultyIo extends _RecordingIo {
   Future<void> createExclusive(String path) {
     if (fault == _Fault.backupCreate && _isBackup(path)) {
       throw const FileSystemException('injected: backup create failure');
+    }
+    if (fault == _Fault.backupIoError && _isBackup(path)) {
+      throw const FileSystemException(
+        'injected: EIO on the backup',
+        'backup',
+        OSError('Input/output error', 5),
+      );
+    }
+    if (fault == _Fault.backupPermissionDeniedWithPathInMessage &&
+        _isBackup(path)) {
+      // FINDING-4: the guarantee "no path in the reason" must be enforced by
+      // the code, not inherited from whatever `strerror` happens to say.
+      throw const FileSystemException(
+        'injected',
+        'backup',
+        OSError(
+          'Operation not permitted, path = /Users/u/secret-vault.kdbx',
+          1,
+        ),
+      );
+    }
+    if (fault == _Fault.backupPermissionDenied && _isBackup(path)) {
+      // MEDIUM-2: the sandbox refuses the backup sibling exactly as it
+      // refuses the temp one — same shape as `tempPermissionDenied`.
+      throw const FileSystemException(
+        'injected: sandbox refuses the sibling backup',
+        'backup',
+        OSError('Operation not permitted', 1),
+      );
     }
     if (fault == _Fault.tempPermissionDenied && path.endsWith('.tmp')) {
       // Shape of a macOS-sandbox refusal on a sibling path: EACCES.
@@ -940,6 +1585,13 @@ class _FaultyIo extends _RecordingIo {
 
   @override
   Future<Uint8List> readBytes(String path) async {
+    if (fault == _Fault.sourceReadPermissionDenied && !_isBackup(path)) {
+      throw const FileSystemException(
+        'injected: the vault itself is unreadable',
+        'source',
+        OSError('Permission denied', 13),
+      );
+    }
     final bytes = await super.readBytes(path);
     if (fault == _Fault.backupVerify && _isBackup(path)) {
       // Read-back sees corrupt content.
