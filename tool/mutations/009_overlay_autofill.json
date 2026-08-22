@@ -31,6 +31,10 @@
     "  * A2-M4. PR #50 recorded '4 kills'. That was a UNIT ERROR: 4 assertions",
     "    inside ONE test case. This runner counts test cases, so 1 is correct.",
     "    See the row's own comment.",
+    "  * A0-M2, A4-M8, A4-M9 and A5-M6 went UP again in the A7 slice (240→241,",
+    "    9→10, 42→48, 4→8). Same cause as the A0 rows above: the M7 iframe→",
+    "    iframe tests widened the blast radius of mutations that were already",
+    "    strong. No mutation was weakened and no policy changed.",
     "  * A1-M2. PR #47 recorded 14, this file measures 10, because the mutation",
     "    here is a tighter reconstruction and the Flutter suite is targeted at",
     "    four files. See the row's own comment.",
@@ -70,7 +74,8 @@
     "A4": "metadata overlay and explicit fill in content_overlay.js (A028-A034) — this PR",
     "A5": "iframe policy surface, ARIA, keyboard, click-vs-blur, geometry (A035-A039) — this PR",
     "B2": "explicit Generate UI: capability-gated row, one-shot generate token, app-owned pending (B010-B013) — this PR",
-    "A6": "AT activation (A040): direct press on shadow rows + generic light-DOM fallback listbox — this PR"
+    "A6": "AT activation (A040): direct press on shadow rows + generic light-DOM fallback listbox — this PR",
+    "A7": "post-QA polish: badge paint against a closed tab (spec 007) and the iframe→iframe hint re-anchor (M7) — this PR"
   },
   "suites": {
     "node-extension": {
@@ -119,7 +124,7 @@
     },
     {
       "id": "A0-M2",
-      "expectedKills": 240,
+      "expectedKills": 241,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -1230,7 +1235,7 @@
     },
     {
       "id": "A4-M8",
-      "expectedKills": 9,
+      "expectedKills": 10,
       "slice": "A4",
       "suite": "node-extension",
       "file": "desktop/browser_extension/content_overlay.js",
@@ -1245,7 +1250,7 @@
     },
     {
       "id": "A4-M9",
-      "expectedKills": 42,
+      "expectedKills": 48,
       "slice": "A4",
       "suite": "node-extension",
       "file": "desktop/browser_extension/content_overlay.js",
@@ -1382,11 +1387,11 @@
       "suite": "node-extension",
       "edits": [
         {
-          "find": "    if (session.pendingAction === true) return;\n    if (session.blurTimerId !== 0) return;\n    const s = session;\n    s.blurTimerId = setTimeout(() => {\n      if (session === s) {\n        s.blurTimerId = 0;\n        teardownSession();\n      }\n    }, 0);",
+          "find": "    if (session.pendingAction === true) return;\n    if (session.blurTimerId !== 0) return;\n    const s = session;\n    s.blurTimerId = setTimeout(() => {\n      if (session === s) {\n        s.blurTimerId = 0;\n        const wasHint = s.kind === \"hint\";\n        teardownSession();\n        // M7 — when the engine DOES report the outgoing iframe's focusout,\n        // re-anchor here instead of waiting up to one watchdog tick, so an\n        // iframe→iframe move never blanks the hint in between. Same guard as\n        // everywhere else: only a real hint target gets a hint.\n        if (wasHint) maybeStartFrameHint();\n      }\n    }, 0);",
           "replace": "    teardownSession();"
         }
       ],
-      "expectedKills": 4
+      "expectedKills": 8
     },
     {
       "id": "A5-M7",
@@ -1655,6 +1660,81 @@
         {
           "find": "        opt.addEventListener(\n          \"click\",\n          (event) => {\n            if (event.isTrusted !== true) return;\n            activate();\n          },\n          { signal }\n        );",
           "replace": "        opt.addEventListener(\n          \"click\",\n          () => {\n            activate();\n          },\n          { signal }\n        );"
+        }
+      ]
+    },
+    {
+      "id": "A7-M1",
+      "expectedKills": 3,
+      "slice": "A7",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/background.js",
+      "title": "the tab-gone catch is widened to swallow every chrome.action rejection",
+      "property": "A blanket catch turns 'this tab no longer exists, nothing to paint' into 'every chrome.action failure is invisible'. The narrow match is the whole difference between a no-op and a hidden bug: a real API failure (bad colour, bad imageData, revoked permission) must still propagate — whether it arrives as a rejection or as a synchronous throw.",
+      "edits": [
+        {
+          "find": "    if (TAB_GONE_MESSAGE.test(error?.message ?? \"\")) return;\n    throw error;",
+          "replace": "    return;"
+        }
+      ]
+    },
+    {
+      "id": "A7-M2",
+      "expectedKills": 2,
+      "slice": "A7",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/background.js",
+      "title": "the badge text paint drops the tab-gone guard entirely",
+      "property": "refreshBadgeForTab awaits a native ping before it paints, so the tab can be gone by then. Without the guard the rejection escapes as an unchecked runtime.lastError and aborts the remaining paint steps.",
+      "edits": [
+        {
+          "find": "  await ignoreTabGone(() => chrome.action.setBadgeText({ tabId, text: text || \"\" }));",
+          "replace": "  await chrome.action.setBadgeText({ tabId, text: text || \"\" });"
+        }
+      ]
+    },
+    {
+      "id": "A7-M3",
+      "expectedKills": 2,
+      "slice": "A7",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "the watchdog stops re-checking the hint's iframe",
+      "property": "M7: focus moving between two child browsing contexts fires no second top-window blur, and whether the parent sees a focusout on the outgoing iframe is engine detail. Only the state-driven watchdog re-check keeps the hint correct when no event fires at all.",
+      "edits": [
+        {
+          "find": "      if (session.kind === \"hint\") recheckFrameHint();",
+          "replace": "      return;"
+        }
+      ]
+    },
+    {
+      "id": "A7-M4",
+      "expectedKills": 4,
+      "slice": "A7",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "the deferred outside-blur teardown no longer re-anchors a hint",
+      "property": "M7: when the engine DOES report the outgoing iframe's focusout, the hint must re-anchor in the same task instead of blanking until the next watchdog tick.",
+      "edits": [
+        {
+          "find": "        if (wasHint) maybeStartFrameHint();",
+          "replace": "        void wasHint;"
+        }
+      ]
+    },
+    {
+      "id": "A7-M5",
+      "expectedKills": 1,
+      "slice": "A7",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "recheckFrameHint keeps a hint whose iframe is no longer focused",
+      "property": "M7: a hint anchored to a frame nobody is in must be removed, not left floating. Dropping the teardown branch reinstates exactly the documented 'stays anchored to the first iframe' defect.",
+      "edits": [
+        {
+          "find": "    if (!maybeStartFrameHint()) teardownSession();",
+          "replace": "    maybeStartFrameHint();"
         }
       ]
     }

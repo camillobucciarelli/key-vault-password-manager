@@ -187,6 +187,57 @@ async function dimmedIconImageData() {
   return result;
 }
 
+/**
+ * `refreshBadgeForTab` awaits a native-host ping BEFORE it paints, so by the
+ * time the chrome.action calls run the tab may already be closed. Chrome then
+ * rejects with "No tab with id: N." and the console shows an unchecked
+ * lastError — observed live during the spec 007 smoke.
+ *
+ * A tab that no longer exists is not an application error: there is simply
+ * nothing left to paint. This helper swallows EXACTLY that rejection and
+ * rethrows everything else, so a real chrome.action failure (bad colour, bad
+ * imageData, missing permission) stays visible instead of being hidden behind
+ * a blanket catch.
+ *
+ * WHY A MESSAGE MATCH AND NOT A `chrome.tabs.get` PRE-CHECK
+ * ---------------------------------------------------------
+ * A pre-check cannot replace this catch: the tab can still die between the
+ * `get` resolving and the `setBadgeText` landing, so the catch is required
+ * either way — and the pre-check would add one extra async round trip per
+ * painted tab for a race it does not close. It is strictly more code that
+ * fixes strictly less.
+ *
+ * The message match is safe here because extension-API error strings are
+ * emitted by Chrome's C++ bindings as fixed English literals (the tab-not-
+ * found error is built from a `"No tab with id: *."` template) — they are not
+ * routed through the browser's UI localization, so they do not change with the
+ * user's locale. The regex is deliberately anchored on that invariant
+ * substring only, ignoring the id and the trailing punctuation.
+ *
+ * WHY A THUNK AND NOT AN ALREADY-EVALUATED PROMISE
+ * ------------------------------------------------
+ * Taking `Promise` would mean the call has already run by the time this
+ * function is entered, so a SYNCHRONOUS throw from `chrome.action.*` would
+ * never reach the catch. Chrome does not currently throw synchronously for a
+ * dead tab — the tab id is resolved browser-side, so the failure always
+ * arrives as a rejection, and `test/fake_browser.js` models exactly that. The
+ * thunk is therefore defence in depth against an unobserved binding
+ * behaviour, not a workaround for something measured: it costs one arrow
+ * function per call site and makes the guard total over both failure modes.
+ */
+const TAB_GONE_MESSAGE = /No tab with id/i;
+
+async function ignoreTabGone(call) {
+  try {
+    // Invoked INSIDE the try: a synchronous throw and a rejection take the
+    // same path, and both are filtered by the same narrow match.
+    await call();
+  } catch (error) {
+    if (TAB_GONE_MESSAGE.test(error?.message ?? "")) return;
+    throw error;
+  }
+}
+
 // ponytail: spec 007 owns real pre-rendered per-state icon PNGs
 // (icons/state/*.png per plan.md); those do not exist in this repo yet
 // and T10-T14 scope forbids generating new binary icon assets. Until
@@ -197,23 +248,29 @@ async function dimmedIconImageData() {
 // once spec 007 lands.
 async function applyIconForTab(tabId, dim) {
   if (!dim) {
-    await chrome.action.setIcon({
-      tabId,
-      path: { 16: "icons/icon-16.png", 32: "icons/icon-32.png", 48: "icons/icon-48.png" },
-    });
+    await ignoreTabGone(() =>
+      chrome.action.setIcon({
+        tabId,
+        path: { 16: "icons/icon-16.png", 32: "icons/icon-32.png", 48: "icons/icon-48.png" },
+      })
+    );
     return;
   }
   const imageData = await dimmedIconImageData();
-  await chrome.action.setIcon({ tabId, imageData });
+  await ignoreTabGone(() => chrome.action.setIcon({ tabId, imageData }));
 }
 
 async function applyBadgeForTab(tabId, { text, color, textColor }) {
-  await chrome.action.setBadgeText({ tabId, text: text || "" });
+  await ignoreTabGone(() => chrome.action.setBadgeText({ tabId, text: text || "" }));
   if (text) {
-    await chrome.action.setBadgeBackgroundColor({ tabId, color });
+    await ignoreTabGone(() =>
+      chrome.action.setBadgeBackgroundColor({ tabId, color })
+    );
     // setBadgeTextColor is Chrome 110+; feature-detect, never required.
     if (textColor && typeof chrome.action.setBadgeTextColor === "function") {
-      await chrome.action.setBadgeTextColor({ tabId, color: textColor });
+      await ignoreTabGone(() =>
+        chrome.action.setBadgeTextColor({ tabId, color: textColor })
+      );
     }
   }
 }

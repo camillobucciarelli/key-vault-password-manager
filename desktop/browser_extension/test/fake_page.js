@@ -434,6 +434,8 @@ class FakePage {
     this._timeouts = new Map();
     this._timerId = 0;
     this._timeOffsetMs = 0;
+    /** True while focus lives in a child browsing context (see `_moveFocus`). */
+    this._windowBlurred = false;
 
     this.document = new FakeDocument(this);
     this.window = new FakeEventTarget();
@@ -629,6 +631,15 @@ class FakePage {
    * ELEMENT. The old fake delivered `focusin` at the iframe element — the
    * convenient behaviour, not the real one — which made the cross-origin
    * hint pass against a mechanism Chrome never fires.
+   *
+   * IFRAME → IFRAME (the same divergence, one step further): the top window
+   * blurs on the way INTO a child browsing context, and it is already blurred
+   * once focus is in one. Moving straight from iframe A to iframe B therefore
+   * fires NO second window `blur` — the top window never regained focus, so it
+   * has none to lose. `_windowBlurred` models exactly that edge, and clears
+   * when focus lands back on an element of this document. Emitting the second
+   * blur (what this fake used to do) let a hint that only re-derives on window
+   * blur look correct against a signal Chrome does not send.
    */
   _moveFocus(next) {
     const prev = this.document.activeElement;
@@ -648,10 +659,15 @@ class FakePage {
     }
     if (intoFrame) {
       // Parent loses focus to the child browsing context: window blur, no
-      // focusin anywhere in this document.
-      this.window._invoke(new FakeEvent("blur", { bubbles: false }));
+      // focusin anywhere in this document — and only on the TRANSITION, never
+      // again while focus stays inside some child frame.
+      if (this._windowBlurred !== true) {
+        this._windowBlurred = true;
+        this.window._invoke(new FakeEvent("blur", { bubbles: false }));
+      }
       return;
     }
+    this._windowBlurred = false;
     if (next && next !== this.document.body) {
       this._propagate(
         next,
@@ -801,6 +817,15 @@ class FakePage {
 
   get listenerCount() {
     return this.listeners.length;
+  }
+
+  /**
+   * Timers the content world still holds. A teardown that leaves either count
+   * above zero has leaked a callback that will fire against a dead session —
+   * the property the M7 re-check must not break by adding a poll of its own.
+   */
+  get timerCounts() {
+    return { intervals: this._intervals.size, timeouts: this._timeouts.size };
   }
 
   /** Payloads of a given `type`. */
