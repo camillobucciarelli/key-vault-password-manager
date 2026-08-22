@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 
 import '../../data/datasources/local_data_source.dart';
 import '../../data/datasources/secure_data_source.dart';
+import '../../data/services/database_rename_transaction.dart';
 import '../../data/services/vault_kdbx_service.dart';
 import '../../domain/entities/database_record.dart';
 import '../../domain/entities/database_security_profile.dart';
@@ -51,6 +52,7 @@ class DatabaseSettingsUpdateResult {
 class VaultSessionCoordinator {
   VaultSessionCoordinator({
     required this.databaseFileRepository,
+    required this.databaseRenameTransaction,
     required this.localDataSource,
     required this.databaseRegistryRepository,
     required this.databaseSecurityRepository,
@@ -65,6 +67,12 @@ class VaultSessionCoordinator {
   /// pre-rekey backup copy) goes through this domain port; the coordinator
   /// performs no direct `dart:io` mutation.
   final DatabaseFileRepository databaseFileRepository;
+
+  /// spec 008 T106: forward rename + sync-mapping move happen atomically
+  /// under one old+new path lock inside this transaction. The best-effort
+  /// inverse restore in the failure path below stays sequential on purpose:
+  /// today a failed mapping move-back must not prevent the file rename-back.
+  final DatabaseRenameTransaction databaseRenameTransaction;
   final LocalDataSource localDataSource;
   final DatabaseRegistryRepository databaseRegistryRepository;
   final DatabaseSecurityRepository databaseSecurityRepository;
@@ -241,24 +249,14 @@ class VaultSessionCoordinator {
       if (!await currentFile.exists()) {
         throw Exception('Current database file not found.');
       }
-      await databaseFileRepository.renameFile(
+      // spec 008 T106: rename + mapping move (and the rename-back when the
+      // mapping move fails) run atomically under the old+new path lock.
+      await databaseRenameTransaction.renameDatabase(
         sourcePath: currentPath,
         targetPath: targetPath,
       );
       effectivePath = targetPath;
-      try {
-        await databaseSyncRepository.moveMappingPath(
-          fromDatabasePath: currentPath,
-          toDatabasePath: effectivePath,
-        );
-        mappingMoved = true;
-      } catch (_) {
-        await databaseFileRepository.renameFile(
-          sourcePath: effectivePath,
-          targetPath: currentPath,
-        );
-        rethrow;
-      }
+      mappingMoved = true;
     }
 
     final profile =

@@ -208,6 +208,9 @@ flutter test test/features/password_manager/data/services/sync_merge_convergence
 - [ ] **T109 Safe target writer** — same-directory temp, flush/fsync/close, verified
       backup before target write, atomic replace without delete-first, directory
       sync where supported.
+      Follow-up (LOW, T105 tester review): `DatabaseImportService.saveKeyFile`
+      and the managed key-file copies write in place today (no temp+rename) —
+      route key-file writes through this same safe writer.
 - [ ] **T110 Failure tests** — backup create/write/flush/verify, disk-full/short
       write, target flush, rename and cleanup failures leave old/full new target.
 - [ ] **T111 Platform harness artifacts** — run target harness separately on

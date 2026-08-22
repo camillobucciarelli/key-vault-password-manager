@@ -7,6 +7,8 @@ import 'package:password_manager/features/password_manager/data/datasources/loca
 import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
 import 'package:password_manager/features/password_manager/data/repositories/database_registry_repository_impl.dart';
 import 'package:password_manager/features/password_manager/data/repositories/database_security_repository_impl.dart';
+import 'package:password_manager/features/password_manager/data/services/database_path_mutex.dart';
+import 'package:password_manager/features/password_manager/data/services/database_rename_transaction.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_security_profile.dart';
@@ -74,6 +76,10 @@ void main() {
     final unused = _Unused();
     return VaultSessionCoordinator(
       databaseFileRepository: FakeDatabaseFileRepository(),
+      databaseRenameTransaction: DatabaseRenameTransaction(
+        mutex: DatabasePathMutex(),
+        syncRepository: unused,
+      ),
       sessionSecretHolder: SessionSecretHolder(),
       localDataSource: LocalDataSourceImpl(),
       databaseRegistryRepository: DatabaseRegistryRepositoryImpl(

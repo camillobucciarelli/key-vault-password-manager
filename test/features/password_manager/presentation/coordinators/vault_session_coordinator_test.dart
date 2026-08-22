@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kdbx/kdbx.dart';
 import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
+import 'package:password_manager/features/password_manager/data/services/database_path_mutex.dart';
+import 'package:password_manager/features/password_manager/data/services/database_rename_transaction.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_security_profile.dart';
@@ -45,6 +47,10 @@ void main() {
       sessionSecretHolder = SessionSecretHolder();
       coordinator = VaultSessionCoordinator(
         databaseFileRepository: FakeDatabaseFileRepository(),
+        databaseRenameTransaction: DatabaseRenameTransaction(
+          mutex: DatabasePathMutex(),
+          syncRepository: syncRepository,
+        ),
         sessionSecretHolder: sessionSecretHolder,
         localDataSource: localDataSource,
         databaseRegistryRepository: registryRepository,
@@ -502,6 +508,10 @@ void main() {
       final realService = VaultKdbxService();
       coordinator = VaultSessionCoordinator(
         databaseFileRepository: FakeDatabaseFileRepository(),
+        databaseRenameTransaction: DatabaseRenameTransaction(
+          mutex: DatabasePathMutex(),
+          syncRepository: syncRepository,
+        ),
         sessionSecretHolder: sessionSecretHolder,
         localDataSource: localDataSource,
         databaseRegistryRepository: registryRepository,
@@ -565,6 +575,10 @@ void main() {
       final realService = VaultKdbxService();
       coordinator = VaultSessionCoordinator(
         databaseFileRepository: FakeDatabaseFileRepository(),
+        databaseRenameTransaction: DatabaseRenameTransaction(
+          mutex: DatabasePathMutex(),
+          syncRepository: syncRepository,
+        ),
         sessionSecretHolder: sessionSecretHolder,
         localDataSource: localDataSource,
         databaseRegistryRepository: registryRepository,

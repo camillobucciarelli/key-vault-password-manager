@@ -9,6 +9,7 @@ import '../../domain/models/vault_custom_field.dart';
 import '../../domain/models/vault_entry.dart';
 import '../../domain/models/vault_group.dart';
 import '../../domain/models/vault_snapshot.dart';
+import 'database_path_mutex.dart';
 
 class KdbxCredentialChange {
   const KdbxCredentialChange({
@@ -21,7 +22,14 @@ class KdbxCredentialChange {
 }
 
 class VaultKdbxService {
-  VaultKdbxService({this.credentialTempWriter});
+  VaultKdbxService({this.credentialTempWriter, DatabasePathMutex? mutex})
+    : _mutex = mutex ?? DatabasePathMutex();
+
+  /// spec 008 T105: every mutation below runs inside this lock so vault
+  /// edits, sync replacement, import commits and renames on the same file
+  /// serialize. NOT reentrant: no method may call another locked method
+  /// from inside its action ([changeCredentials] composes sequentially).
+  final DatabasePathMutex _mutex;
 
   final Future<void> Function(File file, Uint8List bytes)? credentialTempWriter;
 
@@ -176,29 +184,31 @@ class VaultKdbxService {
     required String url,
     required String notes,
     List<VaultCustomField> customFields = const [],
-  }) async {
-    final file = await _openFile(
-      databasePath: databasePath,
-      password: password,
-      keyFilePath: keyFilePath,
-    );
-    final rootGroup = file.body.rootGroup;
-    final group = _findGroupById(rootGroup.getAllGroups(), groupId);
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
+      final rootGroup = file.body.rootGroup;
+      final group = _findGroupById(rootGroup.getAllGroups(), groupId);
 
-    final entry = KdbxEntry.create(file, group);
-    entry.setString(KdbxKeyCommon.TITLE, PlainValue(title));
-    entry.setString(KdbxKeyCommon.USER_NAME, PlainValue(username));
-    entry.setString(
-      KdbxKeyCommon.PASSWORD,
-      ProtectedValue.fromString(entryPassword),
-    );
-    entry.setString(KdbxKeyCommon.URL, PlainValue(url));
-    entry.setString(_notesKey, PlainValue(notes));
-    _setCustomFields(entry, customFields);
-    group.addEntry(entry);
+      final entry = KdbxEntry.create(file, group);
+      entry.setString(KdbxKeyCommon.TITLE, PlainValue(title));
+      entry.setString(KdbxKeyCommon.USER_NAME, PlainValue(username));
+      entry.setString(
+        KdbxKeyCommon.PASSWORD,
+        ProtectedValue.fromString(entryPassword),
+      );
+      entry.setString(KdbxKeyCommon.URL, PlainValue(url));
+      entry.setString(_notesKey, PlainValue(notes));
+      _setCustomFields(entry, customFields);
+      group.addEntry(entry);
 
-    await _save(databasePath, file);
-    return entry.uuid.uuid;
+      await _save(databasePath, file);
+      return entry.uuid.uuid;
+    });
   }
 
   Future<void> updateEntry({
@@ -212,25 +222,30 @@ class VaultKdbxService {
     required String url,
     required String notes,
     List<VaultCustomField> customFields = const [],
-  }) async {
-    final file = await _openFile(
-      databasePath: databasePath,
-      password: password,
-      keyFilePath: keyFilePath,
-    );
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
 
-    final entry = _findEntryById(file.body.rootGroup.getAllEntries(), entryId);
-    entry.setString(KdbxKeyCommon.TITLE, PlainValue(title));
-    entry.setString(KdbxKeyCommon.USER_NAME, PlainValue(username));
-    entry.setString(
-      KdbxKeyCommon.PASSWORD,
-      ProtectedValue.fromString(entryPassword),
-    );
-    entry.setString(KdbxKeyCommon.URL, PlainValue(url));
-    entry.setString(_notesKey, PlainValue(notes));
-    _setCustomFields(entry, customFields);
+      final entry = _findEntryById(
+        file.body.rootGroup.getAllEntries(),
+        entryId,
+      );
+      entry.setString(KdbxKeyCommon.TITLE, PlainValue(title));
+      entry.setString(KdbxKeyCommon.USER_NAME, PlainValue(username));
+      entry.setString(
+        KdbxKeyCommon.PASSWORD,
+        ProtectedValue.fromString(entryPassword),
+      );
+      entry.setString(KdbxKeyCommon.URL, PlainValue(url));
+      entry.setString(_notesKey, PlainValue(notes));
+      _setCustomFields(entry, customFields);
 
-    await _save(databasePath, file);
+      await _save(databasePath, file);
+    });
   }
 
   Future<void> mergeEntries({
@@ -239,55 +254,57 @@ class VaultKdbxService {
     String? keyFilePath,
     required String primaryId,
     required String secondaryId,
-  }) async {
-    final file = await _openFile(
-      databasePath: databasePath,
-      password: password,
-      keyFilePath: keyFilePath,
-    );
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
 
-    final allEntries = file.body.rootGroup.getAllEntries();
-    final primary = _findEntryById(allEntries, primaryId);
-    final secondary = _findEntryById(allEntries, secondaryId);
+      final allEntries = file.body.rootGroup.getAllEntries();
+      final primary = _findEntryById(allEntries, primaryId);
+      final secondary = _findEntryById(allEntries, secondaryId);
 
-    // Copy notes if primary notes is empty.
-    final primaryNotes = primary.getString(_notesKey)?.getText() ?? '';
-    final secondaryNotes = secondary.getString(_notesKey)?.getText() ?? '';
-    if (primaryNotes.trim().isEmpty && secondaryNotes.trim().isNotEmpty) {
-      primary.setString(_notesKey, PlainValue(secondaryNotes));
-    }
-
-    // Copy custom fields present in secondary but absent in primary.
-    final primaryStringKeys = primary.stringEntries
-        .map((e) => e.key.key.toLowerCase())
-        .toSet();
-    for (final stringEntry in secondary.stringEntries) {
-      final key = stringEntry.key.key;
-      if (_standardEntryKeys.contains(key.toLowerCase())) continue;
-      if (!primaryStringKeys.contains(key.toLowerCase())) {
-        primary.setString(KdbxKey(key), stringEntry.value ?? PlainValue(''));
+      // Copy notes if primary notes is empty.
+      final primaryNotes = primary.getString(_notesKey)?.getText() ?? '';
+      final secondaryNotes = secondary.getString(_notesKey)?.getText() ?? '';
+      if (primaryNotes.trim().isEmpty && secondaryNotes.trim().isNotEmpty) {
+        primary.setString(_notesKey, PlainValue(secondaryNotes));
       }
-    }
 
-    // Copy attachments present in secondary but absent in primary.
-    final primaryAttachmentKeys = primary.binaryEntries
-        .map((e) => e.key.key)
-        .toSet();
-    for (final binaryEntry in secondary.binaryEntries) {
-      final key = binaryEntry.key.key;
-      if (!primaryAttachmentKeys.contains(key)) {
-        primary.createBinary(
-          isProtected: false,
-          name: key,
-          bytes: binaryEntry.value.value,
-        );
+      // Copy custom fields present in secondary but absent in primary.
+      final primaryStringKeys = primary.stringEntries
+          .map((e) => e.key.key.toLowerCase())
+          .toSet();
+      for (final stringEntry in secondary.stringEntries) {
+        final key = stringEntry.key.key;
+        if (_standardEntryKeys.contains(key.toLowerCase())) continue;
+        if (!primaryStringKeys.contains(key.toLowerCase())) {
+          primary.setString(KdbxKey(key), stringEntry.value ?? PlainValue(''));
+        }
       }
-    }
 
-    // Move secondary to recycle bin.
-    file.deleteEntry(secondary);
+      // Copy attachments present in secondary but absent in primary.
+      final primaryAttachmentKeys = primary.binaryEntries
+          .map((e) => e.key.key)
+          .toSet();
+      for (final binaryEntry in secondary.binaryEntries) {
+        final key = binaryEntry.key.key;
+        if (!primaryAttachmentKeys.contains(key)) {
+          primary.createBinary(
+            isProtected: false,
+            name: key,
+            bytes: binaryEntry.value.value,
+          );
+        }
+      }
 
-    await _save(databasePath, file);
+      // Move secondary to recycle bin.
+      file.deleteEntry(secondary);
+
+      await _save(databasePath, file);
+    });
   }
 
   Future<void> changeCredentials({
@@ -313,100 +330,108 @@ class VaultKdbxService {
     String? currentKeyFilePath,
     required String newPassword,
     String? newKeyFilePath,
-  }) async {
-    final file = await _openFile(
-      databasePath: databasePath,
-      password: currentPassword,
-      keyFilePath: currentKeyFilePath,
-    );
-
-    Uint8List? keyFileBytes;
-    if (newKeyFilePath != null && newKeyFilePath.trim().isNotEmpty) {
-      final keyFile = File(newKeyFilePath);
-      if (!await keyFile.exists()) {
-        throw Exception('Key file not found.');
-      }
-      keyFileBytes = await keyFile.readAsBytes();
-    }
-
-    file.credentials = Credentials.composite(
-      ProtectedValue.fromString(newPassword),
-      keyFileBytes,
-    );
-    final bytes = await file.save();
-    final suffix = DateTime.now().microsecondsSinceEpoch;
-    final directory = p.dirname(databasePath);
-    final name = p.basename(databasePath);
-    final tempFile = File(p.join(directory, '.$name.credentials-$suffix.tmp'));
-    final backupFile = File(
-      p.join(directory, '.$name.credentials-$suffix.bak'),
-    );
-    final databaseFile = File(databasePath);
-
-    try {
-      final writer = credentialTempWriter;
-      if (writer == null) {
-        await tempFile.writeAsBytes(bytes, flush: true);
-      } else {
-        await writer(tempFile, bytes);
-      }
-      await _openFile(
-        databasePath: tempFile.path,
-        password: newPassword,
-        keyFilePath: newKeyFilePath,
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: currentPassword,
+        keyFilePath: currentKeyFilePath,
       );
 
-      await databaseFile.rename(backupFile.path);
+      Uint8List? keyFileBytes;
+      if (newKeyFilePath != null && newKeyFilePath.trim().isNotEmpty) {
+        final keyFile = File(newKeyFilePath);
+        if (!await keyFile.exists()) {
+          throw Exception('Key file not found.');
+        }
+        keyFileBytes = await keyFile.readAsBytes();
+      }
+
+      file.credentials = Credentials.composite(
+        ProtectedValue.fromString(newPassword),
+        keyFileBytes,
+      );
+      final bytes = await file.save();
+      final suffix = DateTime.now().microsecondsSinceEpoch;
+      final directory = p.dirname(databasePath);
+      final name = p.basename(databasePath);
+      final tempFile = File(
+        p.join(directory, '.$name.credentials-$suffix.tmp'),
+      );
+      final backupFile = File(
+        p.join(directory, '.$name.credentials-$suffix.bak'),
+      );
+      final databaseFile = File(databasePath);
+
       try {
-        await tempFile.rename(databasePath);
+        final writer = credentialTempWriter;
+        if (writer == null) {
+          await tempFile.writeAsBytes(bytes, flush: true);
+        } else {
+          await writer(tempFile, bytes);
+        }
+        await _openFile(
+          databasePath: tempFile.path,
+          password: newPassword,
+          keyFilePath: newKeyFilePath,
+        );
+
+        await databaseFile.rename(backupFile.path);
+        try {
+          await tempFile.rename(databasePath);
+        } catch (_) {
+          await backupFile.rename(databasePath);
+          rethrow;
+        }
+
+        return KdbxCredentialChange(
+          databasePath: databasePath,
+          backupPath: backupFile.path,
+        );
       } catch (_) {
-        await backupFile.rename(databasePath);
+        if (await tempFile.exists()) {
+          await tempFile.delete();
+        }
         rethrow;
       }
+    });
+  }
 
-      return KdbxCredentialChange(
-        databasePath: databasePath,
-        backupPath: backupFile.path,
+  Future<void> finalizeCredentialChange(KdbxCredentialChange change) {
+    return _mutex.withDatabaseLock([change.databasePath], () async {
+      final backupFile = File(change.backupPath);
+      if (await backupFile.exists()) {
+        await backupFile.delete();
+      }
+    });
+  }
+
+  Future<void> rollbackCredentialChange(KdbxCredentialChange change) {
+    return _mutex.withDatabaseLock([change.databasePath], () async {
+      final backupFile = File(change.backupPath);
+      if (!await backupFile.exists()) {
+        throw StateError('Credential backup is unavailable.');
+      }
+
+      final databaseFile = File(change.databasePath);
+      final failedFile = File(
+        '${change.databasePath}.credentials-rollback-${DateTime.now().microsecondsSinceEpoch}',
       );
-    } catch (_) {
-      if (await tempFile.exists()) {
-        await tempFile.delete();
+      if (await databaseFile.exists()) {
+        await databaseFile.rename(failedFile.path);
       }
-      rethrow;
-    }
-  }
-
-  Future<void> finalizeCredentialChange(KdbxCredentialChange change) async {
-    final backupFile = File(change.backupPath);
-    if (await backupFile.exists()) {
-      await backupFile.delete();
-    }
-  }
-
-  Future<void> rollbackCredentialChange(KdbxCredentialChange change) async {
-    final backupFile = File(change.backupPath);
-    if (!await backupFile.exists()) {
-      throw StateError('Credential backup is unavailable.');
-    }
-
-    final databaseFile = File(change.databasePath);
-    final failedFile = File(
-      '${change.databasePath}.credentials-rollback-${DateTime.now().microsecondsSinceEpoch}',
-    );
-    if (await databaseFile.exists()) {
-      await databaseFile.rename(failedFile.path);
-    }
-    try {
-      await backupFile.rename(change.databasePath);
-      if (await failedFile.exists()) {
-        await failedFile.delete();
+      try {
+        await backupFile.rename(change.databasePath);
+        if (await failedFile.exists()) {
+          await failedFile.delete();
+        }
+      } catch (_) {
+        if (await failedFile.exists() && !await databaseFile.exists()) {
+          await failedFile.rename(change.databasePath);
+        }
+        rethrow;
       }
-    } catch (_) {
-      if (await failedFile.exists() && !await databaseFile.exists()) {
-        await failedFile.rename(change.databasePath);
-      }
-      rethrow;
-    }
+    });
   }
 
   Future<void> addAttachment({
@@ -415,30 +440,35 @@ class VaultKdbxService {
     String? keyFilePath,
     required String entryId,
     required String filePath,
-  }) async {
-    final file = await _openFile(
-      databasePath: databasePath,
-      password: password,
-      keyFilePath: keyFilePath,
-    );
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
 
-    final source = File(filePath);
-    if (!await source.exists()) {
-      throw Exception('Attachment source file not found.');
-    }
+      final source = File(filePath);
+      if (!await source.exists()) {
+        throw Exception('Attachment source file not found.');
+      }
 
-    final bytes = await source.readAsBytes();
-    if (bytes.length > maxAttachmentBytes) {
-      throw Exception('Attachment exceeds 20 MB limit.');
-    }
+      final bytes = await source.readAsBytes();
+      if (bytes.length > maxAttachmentBytes) {
+        throw Exception('Attachment exceeds 20 MB limit.');
+      }
 
-    final entry = _findEntryById(file.body.rootGroup.getAllEntries(), entryId);
-    entry.createBinary(
-      isProtected: false,
-      name: p.basename(filePath),
-      bytes: bytes,
-    );
-    await _save(databasePath, file);
+      final entry = _findEntryById(
+        file.body.rootGroup.getAllEntries(),
+        entryId,
+      );
+      entry.createBinary(
+        isProtected: false,
+        name: p.basename(filePath),
+        bytes: bytes,
+      );
+      await _save(databasePath, file);
+    });
   }
 
   Future<void> removeAttachment({
@@ -447,16 +477,21 @@ class VaultKdbxService {
     String? keyFilePath,
     required String entryId,
     required String attachmentKey,
-  }) async {
-    final file = await _openFile(
-      databasePath: databasePath,
-      password: password,
-      keyFilePath: keyFilePath,
-    );
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
 
-    final entry = _findEntryById(file.body.rootGroup.getAllEntries(), entryId);
-    entry.removeBinary(KdbxKey(attachmentKey));
-    await _save(databasePath, file);
+      final entry = _findEntryById(
+        file.body.rootGroup.getAllEntries(),
+        entryId,
+      );
+      entry.removeBinary(KdbxKey(attachmentKey));
+      await _save(databasePath, file);
+    });
   }
 
   Future<String> exportAttachment({
@@ -466,22 +501,30 @@ class VaultKdbxService {
     required String entryId,
     required String attachmentKey,
     required String destinationDirectory,
-  }) async {
-    final file = await _openFile(
-      databasePath: databasePath,
-      password: password,
-      keyFilePath: keyFilePath,
+  }) {
+    return _mutex.withDatabaseLock(
+      [databasePath, p.join(destinationDirectory, attachmentKey)],
+      () async {
+        final file = await _openFile(
+          databasePath: databasePath,
+          password: password,
+          keyFilePath: keyFilePath,
+        );
+
+        final entry = _findEntryById(
+          file.body.rootGroup.getAllEntries(),
+          entryId,
+        );
+        final binary = entry.getBinary(KdbxKey(attachmentKey));
+        if (binary == null) {
+          throw Exception('Attachment not found.');
+        }
+
+        final destination = File(p.join(destinationDirectory, attachmentKey));
+        await destination.writeAsBytes(binary.value, flush: true);
+        return destination.path;
+      },
     );
-
-    final entry = _findEntryById(file.body.rootGroup.getAllEntries(), entryId);
-    final binary = entry.getBinary(KdbxKey(attachmentKey));
-    if (binary == null) {
-      throw Exception('Attachment not found.');
-    }
-
-    final destination = File(p.join(destinationDirectory, attachmentKey));
-    await destination.writeAsBytes(binary.value, flush: true);
-    return destination.path;
   }
 
   Future<void> deleteEntry({
@@ -490,22 +533,27 @@ class VaultKdbxService {
     String? keyFilePath,
     required String entryId,
     bool permanently = false,
-  }) async {
-    final file = await _openFile(
-      databasePath: databasePath,
-      password: password,
-      keyFilePath: keyFilePath,
-    );
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
 
-    final entry = _findEntryById(file.body.rootGroup.getAllEntries(), entryId);
+      final entry = _findEntryById(
+        file.body.rootGroup.getAllEntries(),
+        entryId,
+      );
 
-    if (permanently) {
-      file.deletePermanently(entry);
-    } else {
-      file.deleteEntry(entry);
-    }
+      if (permanently) {
+        file.deletePermanently(entry);
+      } else {
+        file.deleteEntry(entry);
+      }
 
-    await _save(databasePath, file);
+      await _save(databasePath, file);
+    });
   }
 
   Future<void> moveEntry({
@@ -514,19 +562,24 @@ class VaultKdbxService {
     String? keyFilePath,
     required String entryId,
     required String targetGroupId,
-  }) async {
-    final file = await _openFile(
-      databasePath: databasePath,
-      password: password,
-      keyFilePath: keyFilePath,
-    );
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
 
-    final groups = file.body.rootGroup.getAllGroups();
-    final entry = _findEntryById(file.body.rootGroup.getAllEntries(), entryId);
-    final targetGroup = _findGroupById(groups, targetGroupId);
-    file.move(entry, targetGroup);
+      final groups = file.body.rootGroup.getAllGroups();
+      final entry = _findEntryById(
+        file.body.rootGroup.getAllEntries(),
+        entryId,
+      );
+      final targetGroup = _findGroupById(groups, targetGroupId);
+      file.move(entry, targetGroup);
 
-    await _save(databasePath, file);
+      await _save(databasePath, file);
+    });
   }
 
   Future<void> createGroup({
@@ -535,20 +588,22 @@ class VaultKdbxService {
     String? keyFilePath,
     required String parentGroupId,
     required String name,
-  }) async {
-    final file = await _openFile(
-      databasePath: databasePath,
-      password: password,
-      keyFilePath: keyFilePath,
-    );
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
 
-    final parentGroup = _findGroupById(
-      file.body.rootGroup.getAllGroups(),
-      parentGroupId,
-    );
-    file.createGroup(parent: parentGroup, name: name);
+      final parentGroup = _findGroupById(
+        file.body.rootGroup.getAllGroups(),
+        parentGroupId,
+      );
+      file.createGroup(parent: parentGroup, name: name);
 
-    await _save(databasePath, file);
+      await _save(databasePath, file);
+    });
   }
 
   Future<void> renameGroup({
@@ -557,17 +612,19 @@ class VaultKdbxService {
     String? keyFilePath,
     required String groupId,
     required String newName,
-  }) async {
-    final file = await _openFile(
-      databasePath: databasePath,
-      password: password,
-      keyFilePath: keyFilePath,
-    );
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
 
-    final group = _findGroupById(file.body.rootGroup.getAllGroups(), groupId);
-    group.name.set(newName);
+      final group = _findGroupById(file.body.rootGroup.getAllGroups(), groupId);
+      group.name.set(newName);
 
-    await _save(databasePath, file);
+      await _save(databasePath, file);
+    });
   }
 
   Future<void> deleteGroup({
@@ -576,25 +633,27 @@ class VaultKdbxService {
     String? keyFilePath,
     required String groupId,
     bool permanently = false,
-  }) async {
-    final file = await _openFile(
-      databasePath: databasePath,
-      password: password,
-      keyFilePath: keyFilePath,
-    );
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
 
-    final group = _findGroupById(file.body.rootGroup.getAllGroups(), groupId);
-    if (group.parent == null) {
-      throw Exception('Root group cannot be deleted.');
-    }
+      final group = _findGroupById(file.body.rootGroup.getAllGroups(), groupId);
+      if (group.parent == null) {
+        throw Exception('Root group cannot be deleted.');
+      }
 
-    if (permanently) {
-      file.deletePermanently(group);
-    } else {
-      file.deleteGroup(group);
-    }
+      if (permanently) {
+        file.deletePermanently(group);
+      } else {
+        file.deleteGroup(group);
+      }
 
-    await _save(databasePath, file);
+      await _save(databasePath, file);
+    });
   }
 
   Future<bool> isGroupEmpty({
@@ -623,29 +682,31 @@ class VaultKdbxService {
     String? keyFilePath,
     required String groupId,
     required String targetGroupId,
-  }) async {
-    final file = await _openFile(
-      databasePath: databasePath,
-      password: password,
-      keyFilePath: keyFilePath,
-    );
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
 
-    final groups = file.body.rootGroup.getAllGroups();
-    final group = _findGroupById(groups, groupId);
-    final targetGroup = _findGroupById(groups, targetGroupId);
+      final groups = file.body.rootGroup.getAllGroups();
+      final group = _findGroupById(groups, groupId);
+      final targetGroup = _findGroupById(groups, targetGroupId);
 
-    if (group.parent == null) {
-      throw Exception('Root group cannot be moved.');
-    }
-    if (group.uuid == targetGroup.uuid) {
-      throw Exception('Group cannot be moved into itself.');
-    }
-    if (targetGroup.isInGroup(group)) {
-      throw Exception('Group cannot be moved into a descendant.');
-    }
+      if (group.parent == null) {
+        throw Exception('Root group cannot be moved.');
+      }
+      if (group.uuid == targetGroup.uuid) {
+        throw Exception('Group cannot be moved into itself.');
+      }
+      if (targetGroup.isInGroup(group)) {
+        throw Exception('Group cannot be moved into a descendant.');
+      }
 
-    file.move(group, targetGroup);
-    await _save(databasePath, file);
+      file.move(group, targetGroup);
+      await _save(databasePath, file);
+    });
   }
 
   Future<void> restoreEntryFromRecycleBin({
@@ -653,21 +714,26 @@ class VaultKdbxService {
     required String password,
     String? keyFilePath,
     required String entryId,
-  }) async {
-    final file = await _openFile(
-      databasePath: databasePath,
-      password: password,
-      keyFilePath: keyFilePath,
-    );
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
 
-    final entry = _findEntryById(file.body.rootGroup.getAllEntries(), entryId);
-    if (!entry.isInRecycleBin()) {
-      throw Exception('Entry is not in recycle bin.');
-    }
+      final entry = _findEntryById(
+        file.body.rootGroup.getAllEntries(),
+        entryId,
+      );
+      if (!entry.isInRecycleBin()) {
+        throw Exception('Entry is not in recycle bin.');
+      }
 
-    final targetGroup = _resolveRestoreTargetGroup(file, entry);
-    file.move(entry, targetGroup);
-    await _save(databasePath, file);
+      final targetGroup = _resolveRestoreTargetGroup(file, entry);
+      file.move(entry, targetGroup);
+      await _save(databasePath, file);
+    });
   }
 
   Future<void> restoreGroupFromRecycleBin({
@@ -675,26 +741,28 @@ class VaultKdbxService {
     required String password,
     String? keyFilePath,
     required String groupId,
-  }) async {
-    final file = await _openFile(
-      databasePath: databasePath,
-      password: password,
-      keyFilePath: keyFilePath,
-    );
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
 
-    final groups = file.body.rootGroup.getAllGroups();
-    final group = _findGroupById(groups, groupId);
-    if (!group.isInRecycleBin()) {
-      throw Exception('Group is not in recycle bin.');
-    }
+      final groups = file.body.rootGroup.getAllGroups();
+      final group = _findGroupById(groups, groupId);
+      if (!group.isInRecycleBin()) {
+        throw Exception('Group is not in recycle bin.');
+      }
 
-    final targetGroup = _resolveRestoreTargetGroup(file, group);
-    if (targetGroup == group || targetGroup.isInGroup(group)) {
-      throw Exception('Invalid restore target group.');
-    }
+      final targetGroup = _resolveRestoreTargetGroup(file, group);
+      if (targetGroup == group || targetGroup.isInGroup(group)) {
+        throw Exception('Invalid restore target group.');
+      }
 
-    file.move(group, targetGroup);
-    await _save(databasePath, file);
+      file.move(group, targetGroup);
+      await _save(databasePath, file);
+    });
   }
 
   Future<void> deleteEntryPermanently({
@@ -702,20 +770,25 @@ class VaultKdbxService {
     required String password,
     String? keyFilePath,
     required String entryId,
-  }) async {
-    final file = await _openFile(
-      databasePath: databasePath,
-      password: password,
-      keyFilePath: keyFilePath,
-    );
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
 
-    final entry = _findEntryById(file.body.rootGroup.getAllEntries(), entryId);
-    if (!entry.isInRecycleBin()) {
-      throw Exception('Only recycle bin entries can be permanently deleted.');
-    }
+      final entry = _findEntryById(
+        file.body.rootGroup.getAllEntries(),
+        entryId,
+      );
+      if (!entry.isInRecycleBin()) {
+        throw Exception('Only recycle bin entries can be permanently deleted.');
+      }
 
-    file.deletePermanently(entry);
-    await _save(databasePath, file);
+      file.deletePermanently(entry);
+      await _save(databasePath, file);
+    });
   }
 
   Future<void> deleteGroupPermanently({
@@ -723,61 +796,68 @@ class VaultKdbxService {
     required String password,
     String? keyFilePath,
     required String groupId,
-  }) async {
-    final file = await _openFile(
-      databasePath: databasePath,
-      password: password,
-      keyFilePath: keyFilePath,
-    );
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
 
-    final group = _findGroupById(file.body.rootGroup.getAllGroups(), groupId);
-    if (!group.isInRecycleBin()) {
-      throw Exception('Only recycle bin groups can be permanently deleted.');
-    }
-    if (group == file.recycleBin) {
-      throw Exception('Recycle bin group cannot be permanently deleted.');
-    }
+      final group = _findGroupById(file.body.rootGroup.getAllGroups(), groupId);
+      if (!group.isInRecycleBin()) {
+        throw Exception('Only recycle bin groups can be permanently deleted.');
+      }
+      if (group == file.recycleBin) {
+        throw Exception('Recycle bin group cannot be permanently deleted.');
+      }
 
-    file.deletePermanently(group);
-    await _save(databasePath, file);
+      file.deletePermanently(group);
+      await _save(databasePath, file);
+    });
   }
 
   Future<void> emptyRecycleBin({
     required String databasePath,
     required String password,
     String? keyFilePath,
-  }) async {
-    final file = await _openFile(
-      databasePath: databasePath,
-      password: password,
-      keyFilePath: keyFilePath,
-    );
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
 
-    final recycleBin = file.recycleBin;
-    if (recycleBin == null) {
-      return;
-    }
-
-    final entries = recycleBin.getAllEntries();
-    for (final entry in entries) {
-      if (entry.parent != null) {
-        file.deletePermanently(entry);
+      final recycleBin = file.recycleBin;
+      if (recycleBin == null) {
+        return;
       }
-    }
 
-    final groups =
-        recycleBin.getAllGroups().where((group) => group != recycleBin).toList()
-          ..sort(
-            (a, b) => b.breadcrumbs.length.compareTo(a.breadcrumbs.length),
-          );
-
-    for (final group in groups) {
-      if (group.parent != null) {
-        file.deletePermanently(group);
+      final entries = recycleBin.getAllEntries();
+      for (final entry in entries) {
+        if (entry.parent != null) {
+          file.deletePermanently(entry);
+        }
       }
-    }
 
-    await _save(databasePath, file);
+      final groups =
+          recycleBin
+              .getAllGroups()
+              .where((group) => group != recycleBin)
+              .toList()
+            ..sort(
+              (a, b) => b.breadcrumbs.length.compareTo(a.breadcrumbs.length),
+            );
+
+      for (final group in groups) {
+        if (group.parent != null) {
+          file.deletePermanently(group);
+        }
+      }
+
+      await _save(databasePath, file);
+    });
   }
 
   Future<KdbxFile> _openFile({
