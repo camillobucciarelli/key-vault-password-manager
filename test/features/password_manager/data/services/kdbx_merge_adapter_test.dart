@@ -63,6 +63,16 @@ KdbxFile _buildSide(Credentials credentials) {
   return file;
 }
 
+/// Emits a tombstone for [uuid] in [file] carrying exactly [deletedAt].
+void _stampTombstone(KdbxFile file, KdbxUuid uuid, DateTime deletedAt) {
+  file.ctx.addDeletedObject(uuid);
+  // ignore: invalid_use_of_visible_for_testing_member
+  file.body.deletedObjects
+      .firstWhere((o) => o.uuid == uuid)
+      .deletionTime
+      .set(deletedAt);
+}
+
 /// Two replicas sharing a lineage, as a real local/remote pair does.
 ({KdbxFile local, KdbxFile remote}) _replicaPair(Credentials credentials) {
   final local = _buildSide(credentials);
@@ -1400,6 +1410,325 @@ void main() {
           isA<DateTime>().having((t) => t.year, 'year', DateTime.now().year),
         ),
       );
+    });
+  });
+
+  // ===========================================================================
+  // FR-3 — the DIRECTION of the time join.
+  //
+  // The commutativity test is blind to this by construction: taking the older
+  // time is just as deterministic and just as commutative as taking the newer
+  // one, so inverting the comparator survives it. The direction is not
+  // cosmetic — an mtime pushed backwards makes T009b's G1 ("a tombstone
+  // matches when it is strictly newer than the live mtime") fire more often,
+  // which biases the merge toward DELETING. That is the only way this join can
+  // be wrong in a damaging direction, and it is the one the other tests miss.
+  // ===========================================================================
+  group('FR-3 the time join takes the newer side', () {
+    test('a merged object carries the NEWER of the two modification times', () {
+      final older = DateTime.utc(2020, 5, 1);
+      final newer = DateTime.utc(2023, 9, 17);
+
+      ({DateTime? entry, DateTime? group}) mergedTimes({
+        required DateTime localAt,
+        required DateTime remoteAt,
+      }) {
+        final pair = _replicaPair(credentials);
+        for (final side in [
+          (file: pair.local, at: localAt),
+          (file: pair.remote, at: remoteAt),
+        ]) {
+          _sharedEntry(side.file).times.lastModificationTime.set(side.at);
+          side.file.body.rootGroup.times.lastModificationTime.set(side.at);
+        }
+        // Force the merge to actually touch the objects, so the wall clock
+        // would otherwise win: a remote-only field on the shared entry, and a
+        // remote-only record under the root group.
+        _sharedEntry(
+          pair.remote,
+        ).setString(KdbxKey('Custom_RemoteOnly'), PlainValue('v'));
+        _sharedEntry(pair.remote).times.lastModificationTime.set(remoteAt);
+        final extra = KdbxEntry.create(pair.remote, pair.remote.body.rootGroup)
+          ..forceSetUuid(KdbxUuid.random());
+        pair.remote.body.rootGroup.addEntry(extra);
+        pair.remote.body.rootGroup.times.lastModificationTime.set(remoteAt);
+
+        final validated = adapter.validatePair(
+          local: pair.local,
+          remote: pair.remote,
+        );
+        final candidate = adapter.applyMerge(
+          pair: validated,
+          diff: adapter.diffPresence(validated),
+          resolution: KdbxMergeResolution(),
+        );
+        return (
+          entry: _sharedEntry(candidate).times.lastModificationTime.get(),
+          group: candidate.body.rootGroup.times.lastModificationTime.get(),
+        );
+      }
+
+      final localIsNewer = mergedTimes(localAt: newer, remoteAt: older);
+      expect(localIsNewer.entry, newer);
+      expect(localIsNewer.group, newer);
+
+      final remoteIsNewer = mergedTimes(localAt: older, remoteAt: newer);
+      expect(remoteIsNewer.entry, newer);
+      expect(remoteIsNewer.group, newer);
+    });
+  });
+
+  // ===========================================================================
+  // FR-1 — metadata is MERGED, not taken from whichever side is the base.
+  //
+  // The candidate is built from the local file, and for a while that quietly
+  // meant the local side won every metadata field unconditionally: a database
+  // renamed on one device lost its name after a merge on the other, with no
+  // conflict, no decision, no summary row and no refusal. The evidence FR-3
+  // needs does exist — KDBX stores a change clock beside each of these fields
+  // — so this is resolved automatically, exactly like a value conflict with
+  // two known timestamps.
+  // ===========================================================================
+  group('FR-1 metadata merge', () {
+    KdbxFile mergeOf(KdbxFile local, KdbxFile remote) {
+      final validated = adapter.validatePair(local: local, remote: remote);
+      return adapter.applyMerge(
+        pair: validated,
+        diff: adapter.diffPresence(validated),
+        resolution: KdbxMergeResolution(),
+      );
+    }
+
+    test('a newer remote rename survives the merge instead of vanishing', () {
+      final pair = _replicaPair(credentials);
+      final older = DateTime.utc(2020);
+      final newer = DateTime.utc(2021);
+
+      pair.local.body.meta
+        ..databaseName.set('QA')
+        ..databaseNameChanged.set(older)
+        ..databaseDescription.set('')
+        ..databaseDescriptionChanged.set(older)
+        ..defaultUserName.set('')
+        ..defaultUserNameChanged.set(older)
+        ..historyMaxItems.set(20)
+        ..settingsChanged.set(older);
+      pair.remote.body.meta
+        ..databaseName.set('RENAMED-ON-REMOTE')
+        ..databaseNameChanged.set(newer)
+        ..databaseDescription.set('DESCRIPTION-ONLY-ON-REMOTE')
+        ..databaseDescriptionChanged.set(newer)
+        ..defaultUserName.set('remote-default-user')
+        ..defaultUserNameChanged.set(newer)
+        ..historyMaxItems.set(42)
+        ..settingsChanged.set(newer);
+      pair.remote.body.meta.customData['qa-key'] = 'qa-remote-value';
+
+      final meta = mergeOf(pair.local, pair.remote).body.meta;
+
+      expect(meta.databaseName.get(), 'RENAMED-ON-REMOTE');
+      expect(meta.databaseNameChanged.get(), newer);
+      expect(meta.databaseDescription.get(), 'DESCRIPTION-ONLY-ON-REMOTE');
+      expect(meta.defaultUserName.get(), 'remote-default-user');
+      expect(meta.historyMaxItems.get(), 42);
+      expect(meta.customData['qa-key'], 'qa-remote-value');
+    });
+
+    test('an OLDER remote value does not overwrite the local one', () {
+      // The direction matters: a merge that always took the remote side would
+      // pass the test above and destroy local edits instead of remote ones.
+      final pair = _replicaPair(credentials);
+      pair.local.body.meta
+        ..databaseName.set('NEWER-LOCAL')
+        ..databaseNameChanged.set(DateTime.utc(2021));
+      pair.remote.body.meta
+        ..databaseName.set('OLDER-REMOTE')
+        ..databaseNameChanged.set(DateTime.utc(2020));
+
+      final meta = mergeOf(pair.local, pair.remote).body.meta;
+
+      expect(meta.databaseName.get(), 'NEWER-LOCAL');
+      expect(meta.databaseNameChanged.get(), DateTime.utc(2021));
+    });
+
+    test('the metadata merge is commutative, clocks included', () {
+      String render(KdbxMeta meta) => [
+        meta.databaseName.get(),
+        meta.databaseNameChanged.get(),
+        meta.databaseDescription.get(),
+        meta.defaultUserName.get(),
+        meta.historyMaxItems.get(),
+        meta.settingsChanged.get(),
+        meta.customData['shared-key'],
+      ].join('|');
+
+      void diverge(KdbxFile a, KdbxFile b) {
+        a.body.meta
+          ..databaseName.set('side-a')
+          ..databaseNameChanged.set(DateTime.utc(2021))
+          ..historyMaxItems.set(11)
+          ..settingsChanged.set(DateTime.utc(2020));
+        a.body.meta.customData['shared-key'] = 'from-a';
+        b.body.meta
+          ..databaseName.set('side-b')
+          ..databaseNameChanged.set(DateTime.utc(2020))
+          ..historyMaxItems.set(22)
+          ..settingsChanged.set(DateTime.utc(2021));
+        b.body.meta.customData['shared-key'] = 'from-b';
+      }
+
+      final forward = _replicaPair(credentials);
+      diverge(forward.local, forward.remote);
+      final mirrored = _replicaPair(credentials);
+      diverge(mirrored.remote, mirrored.local);
+
+      expect(
+        render(mergeOf(forward.local, forward.remote).body.meta),
+        render(mergeOf(mirrored.local, mirrored.remote).body.meta),
+      );
+    });
+
+    test(
+      'an exact clock tie is broken by the value, not by the perspective',
+      () {
+        final tie = DateTime.utc(2021, 6, 1);
+
+        KdbxFile merged({required String local, required String remote}) {
+          final pair = _replicaPair(credentials);
+          pair.local.body.meta
+            ..databaseName.set(local)
+            ..databaseNameChanged.set(tie);
+          pair.remote.body.meta
+            ..databaseName.set(remote)
+            ..databaseNameChanged.set(tie);
+          return mergeOf(pair.local, pair.remote);
+        }
+
+        expect(
+          merged(local: 'alpha', remote: 'zulu').body.meta.databaseName.get(),
+          'zulu',
+        );
+        expect(
+          merged(local: 'zulu', remote: 'alpha').body.meta.databaseName.get(),
+          'zulu',
+        );
+      },
+    );
+
+    test('a side with NO recycle bin adopts the other side\'s, so the imported '
+        'bin group is not left orphaned in the normal tree', () {
+      // The functional half of the bug, not just a convergence one: without
+      // this the bin group arrives as a one-sided union while `recycleBinUUID`
+      // stays null, so the user sees a group full of deleted entries in the
+      // ordinary tree — and the next delete creates a SECOND bin beside it.
+      final pair = _replicaPair(credentials);
+      expect(pair.local.body.meta.recycleBinUUID.get(), isNull);
+
+      // A record the local side has never seen, which the remote created and
+      // then deleted. It is a one-sided union that happens to live in the bin,
+      // NOT a deletion conflict — so it arrives with its container.
+      final doomed = KdbxEntry.create(pair.remote, pair.remote.body.rootGroup)
+        ..forceSetUuid(KdbxUuid.random());
+      pair.remote.body.rootGroup.addEntry(doomed);
+      doomed.setString(KdbxKeyCommon.TITLE, PlainValue('Remote Only'));
+      KdbxDao(pair.remote).deleteEntry(doomed);
+      final remoteBin = pair.remote.recycleBin!.uuid;
+
+      final candidate = mergeOf(pair.local, pair.remote);
+
+      expect(candidate.body.meta.recycleBinUUID.get(), remoteBin);
+      expect(candidate.recycleBin, isNotNull);
+      expect(candidate.recycleBin!.uuid, remoteBin);
+      // ...and the adopted bin really is the imported group, so the deleted
+      // record is inside it rather than loose in the ordinary tree.
+      expect(
+        candidate.recycleBin!.getAllEntries().map((e) => e.uuid.uuid),
+        contains(doomed.uuid.uuid),
+      );
+    });
+
+    test('custom icons the remote holds for records that never moved are '
+        'carried over, not only the ones an imported record references', () {
+      final pair = _replicaPair(credentials);
+      final icon = KdbxCustomIcon(
+        uuid: KdbxUuid.random(),
+        data: Uint8List.fromList(const [7, 7, 7]),
+      );
+      pair.remote.body.meta.addCustomIcon(icon);
+
+      final candidate = mergeOf(pair.local, pair.remote);
+
+      expect(candidate.body.meta.customIcons, contains(icon.uuid));
+    });
+  });
+
+  group('FR-5 tombstone clocks converge on the newer side', () {
+    test('the same record deleted on both sides keeps the NEWER clock, so two '
+        'devices converge in one round', () {
+      // The earlier implementation returned early whenever the UUID was
+      // already tombstoned locally, so each device froze its own clock and
+      // neither ever adopted the other's — measured as
+      // `ROUND2_CONVERGED=false`, `ROUND3_CONVERGED=false`. The vault CONTENT
+      // converged anyway (both clocks sit above the live mtime, so G1
+      // classifies identically), but `DeletedObjects` did not, and FR-7 step 5
+      // arbitrates on the manifest.
+      final orphan = KdbxUuid.random();
+      final older = DateTime.utc(2020, 1, 1);
+      final newer = DateTime.utc(2020, 1, 1, 0, 0, 3);
+
+      KdbxPresenceDiff diffOf(KdbxFile local, KdbxFile remote) => adapter
+          .diffPresence(adapter.validatePair(local: local, remote: remote));
+
+      KdbxFile candidateOf(KdbxFile local, KdbxFile remote) {
+        final validated = adapter.validatePair(local: local, remote: remote);
+        return adapter.applyMerge(
+          pair: validated,
+          diff: diffOf(local, remote),
+          resolution: KdbxMergeResolution(),
+        );
+      }
+
+      // Device A deleted it three seconds before device B did.
+      final deviceA = _replicaPair(credentials);
+      _stampTombstone(deviceA.local, orphan, older);
+      _stampTombstone(deviceA.remote, orphan, newer);
+      final mergedOnA = candidateOf(deviceA.local, deviceA.remote);
+
+      // Device B sees the same pair from the other side.
+      final deviceB = _replicaPair(credentials);
+      _stampTombstone(deviceB.local, orphan, newer);
+      _stampTombstone(deviceB.remote, orphan, older);
+      final mergedOnB = candidateOf(deviceB.local, deviceB.remote);
+
+      expect(tombstonesOf(mergedOnA)[orphan.uuid], newer);
+      expect(tombstonesOf(mergedOnB)[orphan.uuid], newer);
+      expect(
+        tombstonesOf(mergedOnA)[orphan.uuid],
+        tombstonesOf(mergedOnB)[orphan.uuid],
+        reason: 'one round, not three — the join is a max, not a first-wins',
+      );
+    });
+
+    test('a local tombstone NEWER than the remote one is kept', () {
+      final orphan = KdbxUuid.random();
+      final older = DateTime.utc(2019);
+      final newer = DateTime.utc(2021);
+
+      final pair = _replicaPair(credentials);
+      _stampTombstone(pair.local, orphan, newer);
+      _stampTombstone(pair.remote, orphan, older);
+
+      final validated = adapter.validatePair(
+        local: pair.local,
+        remote: pair.remote,
+      );
+      final candidate = adapter.applyMerge(
+        pair: validated,
+        diff: adapter.diffPresence(validated),
+        resolution: KdbxMergeResolution(),
+      );
+
+      expect(tombstonesOf(candidate)[orphan.uuid], newer);
     });
   });
 

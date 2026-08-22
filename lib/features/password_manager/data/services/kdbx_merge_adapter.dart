@@ -389,8 +389,9 @@ final class KdbxPresenceDiff {
   ///
   /// An object tombstoned on both sides and live on neither is deliberately
   /// **not** here: it carries no decision and has no fields. Its tombstones are
-  /// still unioned when the candidate is built (FR-5 "preserve newest supported
-  /// deletion data").
+  /// still joined when the candidate is built — the newer of the two clocks
+  /// wins, which is FR-5's "preserve newest supported deletion data" — see
+  /// [KdbxMergeAdapter._unionTombstones].
   final List<KdbxRecordDiff> recordDiffs;
 
   /// Only fields of entries [KdbxRecordClassification.sharedLive] on both
@@ -723,10 +724,19 @@ class KdbxMergeAdapter {
   ///
   /// **Why the local file is the base.** FR-1 forbids rebuilding a database
   /// from a lossy projection, and the cheapest way to keep every construct the
-  /// library supports — header, KDF, metadata, settings, custom icons, history,
-  /// tombstones, recycle-bin settings — is to never destroy the object that
-  /// already holds them. So the candidate *is* the opened local file, mutated
-  /// in place. Two consequences, stated rather than discovered later:
+  /// library supports — header, KDF, history, custom icons, tombstones — is to
+  /// never destroy the object that already holds them. So the candidate *is*
+  /// the opened local file, mutated in place.
+  ///
+  /// **Being the base is not the same as winning.** An earlier version of this
+  /// comment claimed metadata and recycle-bin settings were "kept", which was
+  /// true of the local side and silently false of the remote one: a database
+  /// renamed on one device lost its name on the next merge elsewhere, with no
+  /// conflict, no decision and no refusal. Everything the base contributes is
+  /// now either merged by an explicit rule ([_mergeMeta]) or listed there as
+  /// deliberately not merged, with the reason.
+  ///
+  /// Two consequences, stated rather than discovered later:
   ///
   ///   * the pair is consumed by this call. `pair.local.file` is no longer the
   ///     local side afterwards, and the caller must not diff it again;
@@ -736,6 +746,8 @@ class KdbxMergeAdapter {
   ///
   /// What is applied, in this order and for these reasons:
   ///
+  ///   0. **metadata**, by the per-field FR-3 join KDBX's own change clocks
+  ///      make derivable;
   ///   1. **remote-only groups**, in pre-order so a parent exists before its
   ///      child needs it;
   ///   2. **remote-only entries**, which need their parent group to exist;
@@ -758,6 +770,8 @@ class KdbxMergeAdapter {
     // clock into the candidate. See [_stampDeterministicTimes].
     final times = _captureTimes(local, remote);
     final keepStamps = <String, DateTime>{};
+
+    _mergeMeta(local: local, remote: remote);
 
     for (final record in diff.recordDiffs) {
       if (record.classification != KdbxRecordClassification.recordRemoteOnly) {
@@ -798,6 +812,178 @@ class KdbxMergeAdapter {
     return local;
   }
 
+  /// FR-1's metadata, merged by the per-field FR-3 join instead of being taken
+  /// wholesale from whichever side happened to be the base.
+  ///
+  /// **Why a merge and not a refusal.** KDBX stores a change clock *next to*
+  /// each metadata field — `DatabaseNameChanged`, `DatabaseDescriptionChanged`,
+  /// `DefaultUserNameChanged`, `RecycleBinChanged`, `EntryTemplatesGroupChanged`
+  /// and `SettingsChanged` for the settings block — for exactly this purpose.
+  /// The evidence FR-3's automatic policy needs therefore exists, which puts
+  /// metadata in the same class as a value conflict with two known timestamps:
+  /// resolved automatically, no decision, no new conflict category. Where the
+  /// evidence did not exist this would have to be refused instead, and the
+  /// frozen contract has no category for it — that is recorded as a finding,
+  /// not worked around.
+  ///
+  /// The two clocks are compared, not the two values, and a tie falls back to
+  /// FR-3's rule 3 (greater UTF-8 byte sequence wins) so the outcome does not
+  /// depend on which side is calling itself "local".
+  ///
+  /// Order matters inside each block: the value is written first and its clock
+  /// second, because `KdbxMeta` wires `setOnModifyListener` to stamp the clock
+  /// with `DateTime.now()` on every write. Writing the clock afterwards is what
+  /// keeps the merge free of the wall clock (see [_stampDeterministicTimes]).
+  ///
+  /// **Deliberately not merged**, each for a reason:
+  ///   * `masterKeyChanged` — the credentials are not the merge's business, and
+  ///     the library itself refuses to merge them. Adopting the other side's
+  ///     clock would tell KeePass the key rotated when it did not.
+  ///   * `generator` and `headerHash` — the writer's own identity and a header
+  ///     digest, neither of which is content.
+  void _mergeMeta({required KdbxFile local, required KdbxFile remote}) {
+    final mine = local.body.meta;
+    final theirs = remote.body.meta;
+
+    if (_remoteWins(
+      localAt: mine.databaseNameChanged.get(),
+      remoteAt: theirs.databaseNameChanged.get(),
+      localValue: mine.databaseName.get(),
+      remoteValue: theirs.databaseName.get(),
+    )) {
+      mine.databaseName.set(theirs.databaseName.get());
+      mine.databaseNameChanged.set(theirs.databaseNameChanged.get());
+    }
+
+    if (_remoteWins(
+      localAt: mine.databaseDescriptionChanged.get(),
+      remoteAt: theirs.databaseDescriptionChanged.get(),
+      localValue: mine.databaseDescription.get(),
+      remoteValue: theirs.databaseDescription.get(),
+    )) {
+      mine.databaseDescription.set(theirs.databaseDescription.get());
+      mine.databaseDescriptionChanged.set(
+        theirs.databaseDescriptionChanged.get(),
+      );
+    }
+
+    if (_remoteWins(
+      localAt: mine.defaultUserNameChanged.get(),
+      remoteAt: theirs.defaultUserNameChanged.get(),
+      localValue: mine.defaultUserName.get(),
+      remoteValue: theirs.defaultUserName.get(),
+    )) {
+      mine.defaultUserName.set(theirs.defaultUserName.get());
+      mine.defaultUserNameChanged.set(theirs.defaultUserNameChanged.get());
+    }
+
+    if (_remoteWins(
+      localAt: mine.entryTemplatesGroupChanged.get(),
+      remoteAt: theirs.entryTemplatesGroupChanged.get(),
+      localValue: mine.entryTemplatesGroup.get()?.uuid,
+      remoteValue: theirs.entryTemplatesGroup.get()?.uuid,
+    )) {
+      mine.entryTemplatesGroup.set(theirs.entryTemplatesGroup.get());
+      mine.entryTemplatesGroupChanged.set(
+        theirs.entryTemplatesGroupChanged.get(),
+      );
+    }
+
+    // The recycle-bin block is one unit, because the enabled flag and the UUID
+    // share `RecycleBinChanged`. This is also where the FUNCTIONAL half of the
+    // bug lived: a device whose local side had no bin imported the other side's
+    // bin group as an ordinary one-sided union while `recycleBinUUID` stayed
+    // null, so the vault showed an orphan group full of deleted entries in the
+    // normal tree and the next delete created a second bin beside it.
+    if (_remoteWins(
+      localAt: mine.recycleBinChanged.get(),
+      remoteAt: theirs.recycleBinChanged.get(),
+      localValue:
+          '${mine.recycleBinEnabled.get()}|'
+          '${mine.recycleBinUUID.get()?.uuid}',
+      remoteValue:
+          '${theirs.recycleBinEnabled.get()}|'
+          '${theirs.recycleBinUUID.get()?.uuid}',
+    )) {
+      mine.recycleBinEnabled.set(theirs.recycleBinEnabled.get());
+      mine.recycleBinUUID.set(theirs.recycleBinUUID.get());
+      mine.recycleBinChanged.set(theirs.recycleBinChanged.get());
+    }
+
+    // History limits and maintenance days share `SettingsChanged`, which is
+    // also the only evidence `customData` has — it is a plain string map with
+    // no per-key clock. Both clocks are read BEFORE the block below can
+    // overwrite the local one.
+    final localSettingsAt = mine.settingsChanged.get();
+    final remoteSettingsAt = theirs.settingsChanged.get();
+    final settingsToRemote = _remoteWins(
+      localAt: mine.settingsChanged.get(),
+      remoteAt: theirs.settingsChanged.get(),
+      localValue:
+          '${mine.historyMaxItems.get()}|'
+          '${mine.historyMaxSize.get()}|'
+          '${mine.maintenanceHistoryDays.get()}',
+      remoteValue:
+          '${theirs.historyMaxItems.get()}|'
+          '${theirs.historyMaxSize.get()}|'
+          '${theirs.maintenanceHistoryDays.get()}',
+    );
+    if (settingsToRemote) {
+      mine.historyMaxItems.set(theirs.historyMaxItems.get());
+      mine.historyMaxSize.set(theirs.historyMaxSize.get());
+      mine.maintenanceHistoryDays.set(theirs.maintenanceHistoryDays.get());
+      mine.settingsChanged.set(theirs.settingsChanged.get());
+    }
+
+    // Custom data: a key union, because a key only one side has is a one-sided
+    // field and FR-4 preserves those automatically. A key both sides hold with
+    // different values falls to `SettingsChanged`, then to the value order.
+    for (final entry in theirs.customData.entries) {
+      final ours = mine.customData[entry.key];
+      if (ours == null) {
+        mine.customData[entry.key] = entry.value;
+        continue;
+      }
+      if (ours == entry.value) continue;
+      if (_remoteWins(
+        localAt: localSettingsAt,
+        remoteAt: remoteSettingsAt,
+        localValue: ours,
+        remoteValue: entry.value,
+      )) {
+        mine.customData[entry.key] = entry.value;
+      }
+    }
+
+    // Custom icons: a plain union by UUID, which is idempotent and
+    // commutative. `_copyCustomIcon` only carries the icons an imported object
+    // references; an icon the remote holds for a record that stayed put would
+    // otherwise be dropped.
+    for (final icon in theirs.customIcons.values) {
+      mine.addCustomIcon(icon);
+    }
+  }
+
+  /// FR-3's order, applied to one metadata field: newer known clock wins,
+  /// a known clock beats an unknown one, and an exact tie falls to the greater
+  /// UTF-8 byte sequence so neither perspective is privileged.
+  bool _remoteWins({
+    required DateTime? localAt,
+    required DateTime? remoteAt,
+    required String? localValue,
+    required String? remoteValue,
+  }) {
+    if (localAt != null && remoteAt != null) {
+      if (remoteAt.isAfter(localAt)) return true;
+      if (localAt.isAfter(remoteAt)) return false;
+    } else if (remoteAt != null) {
+      return true;
+    } else if (localAt != null) {
+      return false;
+    }
+    return compareUtf8Bytes(remoteValue ?? '', localValue ?? '') > 0;
+  }
+
   /// Both sides' object times, per UUID, before the merge touches anything.
   Map<String, _ObjectTimes> _captureTimes(KdbxFile local, KdbxFile remote) {
     final captured = <String, _ObjectTimes>{};
@@ -836,16 +1022,25 @@ class KdbxMergeAdapter {
   /// actually stores (there is no per-field time). A one-sided object keeps
   /// the single known time, which is its source's.
   ///
+  /// **Known imprecision, and its direction.** Under an explicit user override
+  /// the winning VALUE may be the older side's while the stamp is still the max
+  /// of the two, so the merged record claims a modification time newer than the
+  /// value it carries. KDBX offers nowhere finer to record it — there is one
+  /// time per object, not per field — and the damage direction is conservative:
+  /// an inflated mtime makes T009b's G1 ("a tombstone matches when it is
+  /// strictly newer than the live mtime") fire LESS often, so the bias is
+  /// toward preserving the record. The opposite bias would delete.
+  ///
   /// Two deliberate exceptions, both already deterministic:
   ///   * [keepStamps] — FR-5 Keep re-dates the record at the tombstone's clock
   ///     (T009b G2), and that must win over the join or the tombstone starts
   ///     matching again on the next peer;
   ///   * a **fresh** deletion emitted by an explicit Delete keeps the wall
   ///     clock. A Delete is a user decision taken at a real moment and is
-  ///     per-device by G4, and unlike a modification time a tombstone clock is
-  ///     join-convergent (FR-5 "preserve newest supported deletion data" is a
-  ///     max), so two devices converge on the next round instead of rewriting
-  ///     each other forever.
+  ///     per-device by T009b's G4. This is only sound because
+  ///     [_unionTombstones] really does take the max of the two clocks — the
+  ///     first version of that method did not, and this exception was ratified
+  ///     on the strength of a convergence it did not have.
   void _stampDeterministicTimes(
     KdbxFile candidate,
     Map<String, _ObjectTimes> times,
@@ -1153,10 +1348,21 @@ class KdbxMergeAdapter {
     emitted.deletionTime.set(deletedAt);
   }
 
-  /// FR-5 "preserve newest supported deletion data": every tombstone the remote
-  /// holds and the candidate does not is carried over — unless the UUID is live
-  /// in the candidate, which is what a Keep decision or a one-sided union just
-  /// established.
+  /// FR-5 "preserve newest supported deletion data" — the **max** of the two
+  /// deletion clocks, not "keep whichever one we already had".
+  ///
+  /// The earlier version returned early whenever the UUID was already
+  /// tombstoned locally, so a tombstone the remote held with a NEWER clock was
+  /// discarded. Two devices deleting the same record seconds apart therefore
+  /// each froze their own clock and never converged — measured across three
+  /// rounds — while this method's own doc comment claimed the opposite. The
+  /// vault CONTENT still converged, because both clocks sit above the live
+  /// mtime and T009b's G1 classifies identically on both devices; what
+  /// diverged was `DeletedObjects` and therefore the canonical manifest, which
+  /// is what FR-7 step 5 arbitrates on.
+  ///
+  /// A UUID that is live in the candidate is skipped: a Keep decision or a
+  /// one-sided union just established that the record exists.
   void _unionTombstones({required KdbxFile local, required KdbxFile remote}) {
     final existing = tombstonesOf(local);
     final live = {
@@ -1164,8 +1370,19 @@ class KdbxMergeAdapter {
         object.uuid.uuid,
     };
     tombstonesOf(remote).forEach((uuid, deletedAt) {
-      if (existing.containsKey(uuid) || live.contains(uuid)) return;
-      _addTombstone(local, uuid, deletedAt);
+      if (live.contains(uuid)) return;
+      if (!existing.containsKey(uuid)) {
+        _addTombstone(local, uuid, deletedAt);
+        return;
+      }
+      if (deletedAt == null) return;
+      final mine = existing[uuid];
+      if (mine != null && !deletedAt.isAfter(mine)) return;
+      // ignore: invalid_use_of_visible_for_testing_member
+      local.body.deletedObjects
+          .firstWhere((o) => o.uuid.uuid == uuid)
+          .deletionTime
+          .set(deletedAt);
     });
   }
 
@@ -1289,7 +1506,14 @@ class KdbxMergeAdapter {
   /// any other group, and only what the user put *into* it counts as a
   /// move-to-bin.
   Set<String> _recycleBinMemberUuids(KdbxFile file) {
-    final bin = file.recycleBin;
+    // Resolved here rather than through `KdbxFile.recycleBin`, which MEMOIZES
+    // its answer on first call. Reading it during the diff would cache "this
+    // file has no bin" and that stale null would survive `_mergeMeta` adopting
+    // the other side's bin, so the candidate would carry a correct
+    // `RecycleBinUUID` while the in-memory object still denied having one.
+    final binUuid = file.body.meta.recycleBinUUID.get();
+    if (binUuid == null || binUuid.isNil) return const <String>{};
+    final bin = _groupByUuid(file, binUuid.uuid);
     if (bin == null) return const <String>{};
     return {
       for (final object in bin.getAllGroupsAndEntries())
