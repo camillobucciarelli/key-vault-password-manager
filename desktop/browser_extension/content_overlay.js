@@ -610,6 +610,16 @@
   const buildOverlay = () => {
     const signal = session.teardownController.signal;
     const host = document.createElement("div");
+    // WCAG 3.1.2 — every fixed string this file renders (STATE_TEXT,
+    // GENERATE_TEXT, "Try again", "Suggestion N of M", …) is English UI
+    // copy, never page content. The host's `lang` inherits into the whole
+    // shadow tree (language, like other CSS-inherited properties, is
+    // resolved over the FLATTENED tree, so it crosses the shadow boundary):
+    // one attribute here covers the live region and every shadow row without
+    // needing a second one inside. A host on an Italian-language page would
+    // otherwise announce this English text in the page's voice/accent
+    // mid-utterance.
+    host.setAttribute("lang", "en");
     // SR-6/A034: closed mode. `host.shadowRoot` reads null from page code;
     // that is a collision/style boundary, not invisibility — see file header.
     const shadow = host.attachShadow({ mode: "closed" });
@@ -693,6 +703,12 @@
       lightListbox.id = "kv-light-listbox";
       lightListbox.setAttribute("role", "listbox");
       lightListbox.setAttribute("aria-label", "KeyVault suggestions");
+      // WCAG 3.1.2 — this listbox is a SIBLING of the host, not a shadow
+      // descendant, so it does NOT inherit `lang` from it; it inherits from
+      // the host PAGE instead, which may be any language. Its rows are fixed
+      // English strings ("Suggestion N of M", "Generate a password"), so it
+      // needs its own explicit lang.
+      lightListbox.setAttribute("lang", "en");
       lightListbox.setAttribute("style", LIGHT_LISTBOX_STYLE);
       // Same pending-action protocol as the shadow section (A038): a pointer
       // press here keeps the anchor focused and holds the deferred blur off.

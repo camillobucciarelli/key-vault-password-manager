@@ -124,13 +124,13 @@
     },
     {
       "id": "A0-M2",
-      "expectedKills": 241,
+      "expectedKills": 242,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
       "title": "canonical origin drops the scheme",
       "property": "http and https are never the same origin",
-      "$comment": "91 -> 92 when the A2-M7 closure test landed: dropping the scheme breaks origin canonicalization, so the new A020 grant test dies with the rest. The policy did not change, the blast radius grew by one test. 142 -> 143 when the A2-M15 onAdded-race tests landed, for the same reason: broken canonicalization also kills the race repro's enable. 143 -> 144 when the A2-M16 alphabetical-readback tests landed: broken canonicalization also kills the new end-to-end enable ('Gate A2: enable commits despite Chrome's alphabetical readback key order').",
+      "$comment": "91 -> 92 when the A2-M7 closure test landed: dropping the scheme breaks origin canonicalization, so the new A020 grant test dies with the rest. The policy did not change, the blast radius grew by one test. 142 -> 143 when the A2-M15 onAdded-race tests landed, for the same reason: broken canonicalization also kills the race repro's enable. 143 -> 144 when the A2-M16 alphabetical-readback tests landed: broken canonicalization also kills the new end-to-end enable ('Gate A2: enable commits despite Chrome's alphabetical readback key order'). 241 -> 242 with the lang=en accessibility fix (WCAG 3.1.2): the new lang test using loginPage() also can't approve when canonicalization is broken, so it dies with the rest. Blast radius only.",
       "edits": [
         {
           "find": "  const serialized =\n    effectivePort === defaultPort\n      ? `${scheme}://${asciiHost}`\n      : `${scheme}://${asciiHost}:${effectivePort}`;",

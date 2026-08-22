@@ -39,6 +39,7 @@ const {
   optionRows,
   listboxEl,
   overlayCount,
+  lightListboxEl,
 } = require("./session_helpers.js");
 
 const RUNTIME_ID = "abcdefghijklmnopabcdefghijklmnop";
@@ -493,6 +494,55 @@ test("renders every state with metadata-only DOM", async () => {
     // Loading state, observed mid-flight, is covered by the gated A030 test;
     // here every terminal state has been proven metadata-only.
   }
+});
+
+// WCAG 3.1.2 — every fixed English string this file renders must live under
+// an ancestor with an explicit `lang="en"`, regardless of what language the
+// host page declares. The host carries it (and the shadow tree inherits it
+// over the flattened tree); the light-DOM fallback listbox (A040) is a
+// SIBLING of the host, not a descendant, so it cannot rely on that
+// inheritance and needs its own explicit attribute.
+test("declares lang=en on the overlay host and the light-DOM listbox for every state", async () => {
+  const states = [
+    ["matches", (m) => matchesResult(m, { items: [item({ title: "First" })] })],
+    ["no-matches", (m) => matchesResult(m, { items: [] })],
+    ["locked", (m) => errorResult("matchesResult", "locked", m)],
+    ["no_host", (m) => errorResult("matchesResult", "no_host", m)],
+    ["timeout", (m) => errorResult("matchesResult", "timeout", m)],
+    ["unsupported_frame", (m) => errorResult("matchesResult", "unsupported_frame", m)],
+    ["unsupported_capability", (m) => errorResult("matchesResult", "unsupported_capability", m)],
+    ["stale_session", (m) => errorResult("matchesResult", "stale_session", m)],
+  ];
+  for (const [label, matches] of states) {
+    const { page, password: pwInput, handlers } = await loginPage();
+    handlers.matches = matches;
+    await page.focus(pwInput);
+
+    const host = page.overlayHosts()[0];
+    assert.equal(host.getAttribute("lang"), "en", `${label}: host missing lang`);
+
+    // The light listbox is a `fill`-session-only fixture (A040); it exists
+    // for every state above since they all render a fill session, but stays
+    // absent for a display-only "unsupported" session (asserted separately).
+    const listbox = lightListboxEl(page);
+    assert.ok(listbox, `${label}: expected a light listbox`);
+    assert.equal(listbox.getAttribute("lang"), "en", `${label}: light listbox missing lang`);
+  }
+});
+
+test("declares lang=en on the overlay host for a display-only unsupported (hint) session", async () => {
+  // A035/A040 — focus on a cross-origin iframe drives the display-only
+  // "hint" render path, which never creates a light listbox.
+  const { page } = await loginPage();
+  const iframe = page.document.createElement("iframe");
+  iframe.setAttribute("src", "https://other.example/embedded-login");
+  page.document.body.appendChild(iframe);
+  await page.focus(iframe);
+
+  const host = page.overlayHosts()[0];
+  assert.ok(host, "the hint must still render a host");
+  assert.equal(host.getAttribute("lang"), "en");
+  assert.equal(lightListboxEl(page), undefined, "no light listbox for a hint");
 });
 
 test("anchors below, flips above, and clamps viewport", async () => {
