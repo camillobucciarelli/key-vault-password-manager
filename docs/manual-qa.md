@@ -1,0 +1,1059 @@
+# Manual QA checklist
+
+One executable list for every manual verification this repository still owes.
+It replaces the prose scattered across `specs/008-per-field-conflict-resolution/`,
+`specs/009-in-page-autofill-overlay/` and `specs/011-master-password-session-scope/`.
+
+**How to use this file.** Pick the session that matches the hardware you have in
+front of you, run its items top to bottom, and write the outcome into the status
+table below. Every item states its preconditions, numbered steps, the expected
+observation, and what counts as a failure. Nothing here requires you to go read a
+spec first.
+
+**Rules of evidence, inherited from spec 008 and spec 011 and non-negotiable:**
+
+- Host evidence never qualifies another platform. Running an item on macOS does
+  not fill in the Linux row.
+- `not-run` is a legitimate result and must be recorded as such. It is never
+  upgraded to `passed` by reasoning.
+- A `failed` item blocks whatever it gates. It is not "mostly fine".
+
+## Status
+
+Every row is `passed`, `failed` or `not-run`. `not-run` means nobody has ever
+executed it on that platform.
+
+| Session | Platform / hardware needed | Items | Status | Last run | Notes |
+| --- | --- | --- | --- | --- | --- |
+| S1 | Android phone or emulator | 7 | `not-run` | — | Nothing in this session has ever been executed |
+| S2 | iPhone or iPad (physical) | 6 | `not-run` | — | Keychain inspection blocked, see S2-1 |
+| S3 | macOS machine (also covers Chrome/Edge + native host) | 11 | `not-run` | — | Partially superseded rows removed, see "Removed" |
+| S4 | Windows machine | 4 | `not-run` | — | Shrunk by the `test-windows` CI job, see "Removed" |
+| S5 | Linux machine | 4 | `not-run` | — | Nothing in this session has ever been executed |
+
+Total: **32 items**, all currently `not-run`.
+
+Sessions are grouped by *what you must physically have*, not by spec. If you are
+holding an Android phone, S1 is everything you can do; you never need to jump
+between three documents.
+
+### Time estimate
+
+Honest, assuming the preconditions are already met (builds installed, extension
+loaded, native host installed) and that nothing fails. A failure adds triage
+time that is not budgeted here.
+
+| Session | Setup | Execution | Total |
+| --- | --- | --- | --- |
+| S1 Android | 30 min | 60 min | **~1 h 30 min** |
+| S2 iOS | 30 min | 40 min | **~1 h 10 min** |
+| S3 macOS + browsers | 45 min | 2 h 15 min | **~3 h** |
+| S4 Windows | 40 min | 35 min | **~1 h 15 min** |
+| S5 Linux | 40 min | 35 min | **~1 h 15 min** |
+
+**Total: ~8 h 10 min**, spread across five machines. No session is longer than
+one sitting; S3 is the only one worth splitting in two.
+
+### State of the code these items verify
+
+- **Spec 011** — slices 1–3 are **merged on main** (`027641d`, `29e4164`). The
+  per-database keystore key (`MASTER_PASSWORD.<databaseId>`) and the legacy-entry
+  deletion exist in `secure_data_source.dart`. The header of
+  `specs/011-master-password-session-scope/spec.md` still reads
+  *"Draft · not started"* and is stale; trust the code, not that header. The AC
+  items below are therefore runnable **now**.
+- **Spec 009** — Slice A and Slice B are implemented; Slice C replaced the
+  per-origin opt-in with a single global toggle (PR #113). A040 and A046 remain
+  open manual debt.
+- **Spec 008** — the merge feature itself is **off** (`commit` returns
+  `platformDisabled`, no UI before Phase 6), so nothing below tests merging. What
+  *is* live and on the path of every single save is the **safe vault file
+  writer**, and that is what T111 and the sandbox items verify.
+
+---
+
+## S1 — Android phone or emulator
+
+**Session preconditions**
+
+- A debug or profile build installed: `flutter run -d <device> --dart-define-from-file=.env.dart.define.json`.
+- `adb` on `PATH` and `adb devices` listing exactly one target.
+- Application id: `dev.camillobucciarelli.kdbxKeyVault`.
+- Two `.kdbx` test vaults with known master passwords, called A and B below.
+- Device enrolled with a fingerprint/face so biometric unlock is offerable.
+
+**The keystore inspection command, in full.** `flutter_secure_storage` 10.3.1 on
+Android stores values in a `SharedPreferences` XML file named
+`FlutterSecureStorage`, with every key prefixed by
+`VGhpcyBpcyB0aGUgcHJlZml4IGZvciBhIHNlY3VyZSBzdG9yYWdlCg`. Values are encrypted;
+you are checking for **presence or absence of the entry**, not for readable
+plaintext.
+
+```bash
+# Debug build on an emulator or a rooted device — direct read.
+adb shell run-as dev.camillobucciarelli.kdbxKeyVault \
+  cat /data/data/dev.camillobucciarelli.kdbxKeyVault/shared_prefs/FlutterSecureStorage.xml
+```
+
+```bash
+# Any build, including a non-debuggable one, on an emulator or rooted device.
+adb root
+adb shell cat /data/data/dev.camillobucciarelli.kdbxKeyVault/shared_prefs/FlutterSecureStorage.xml
+```
+
+`run-as` only works when the installed build is debuggable. On a stock
+non-rooted retail phone with a release build **neither command works, and there
+is no supported alternative** — record the item `not-run` on that hardware and
+repeat it on an emulator rather than inventing evidence.
+
+Read the result with these two greps:
+
+```bash
+# Legacy global entry (spec 011 FR-6). Must be ABSENT after any launch of a
+# post-slice-3 build.
+... | grep -o 'VGhpcyBpcyB0aGUgcHJlZml4IGZvciBhIHNlY3VyZSBzdG9yYWdlCg[A-Za-z0-9+/=_.-]*'
+```
+
+Each printed name is `<prefix><key>`. The keys that matter are the literal
+`MASTER_PASSWORD` (legacy, must never be present) and
+`MASTER_PASSWORD.<databaseId>` (per-database, present only with biometrics on).
+
+---
+
+### S1-1 · Keystore is untouched when biometrics are off (spec 011 AC-1)
+
+**Preconditions.** App installed and launched at least once. Vault A registered
+with biometric protection **off**.
+
+**Steps**
+
+1. Force-stop the app: `adb shell am force-stop dev.camillobucciarelli.kdbxKeyVault`.
+2. Launch the app, select vault A, unlock it by typing the master password.
+3. Leave the vault open. Do not lock it.
+4. Run the keystore dump command above and list the entry names.
+
+**Expected observation.** No entry named `MASTER_PASSWORD` and no entry named
+`MASTER_PASSWORD.<id of A>`. The file may not exist at all — that is a pass.
+
+**Fails if.** Either name is present while the vault is unlocked and biometric
+protection is off.
+
+---
+
+### S1-2 · Nothing survives a process kill (spec 011 AC-2)
+
+**Preconditions.** S1-1 passed. Vault A unlocked, biometrics still off.
+
+**Steps**
+
+1. With the vault open, kill the process without locking:
+   `adb shell am force-stop dev.camillobucciarelli.kdbxKeyVault`.
+2. Run the keystore dump command.
+3. Relaunch the app and open vault A.
+
+**Expected observation.** No `MASTER_PASSWORD*` entry after the kill, and the app
+asks for the master password again at step 3.
+
+**Fails if.** An entry is present after the kill, or the vault opens without
+asking for the password.
+
+---
+
+### S1-3 · Biometric unlock still works (spec 011 AC-3)
+
+**Preconditions.** Vault A with biometric protection **on**, enrolled by
+unlocking once with the master password after enabling it.
+
+**Steps**
+
+1. Confirm `MASTER_PASSWORD.<id of A>` exists in the dump.
+2. Force-stop the app.
+3. Relaunch, select vault A, choose biometric unlock, present the enrolled
+   fingerprint/face.
+
+**Expected observation.** The vault opens. Entries are listed and readable.
+
+**Fails if.** Biometric unlock is not offered, is rejected, or falls through to
+an error instead of the master-password fallback. (The fallback being
+unreachable was a real defect once — issue #71 — so check it explicitly: cancel
+the biometric prompt and confirm the password field is reachable.)
+
+---
+
+### S1-4 · Two databases, biometrics on only one (spec 011 AC-5)
+
+**Preconditions.** Vault A with biometrics **on** and enrolled. Vault B
+registered with biometrics **off**.
+
+**Steps**
+
+1. Launch, unlock vault B **manually** with its master password.
+2. Lock, or switch database back to A.
+3. Biometric-unlock vault A.
+4. Run the keystore dump.
+
+**Expected observation.** A opens with biometrics. Exactly one entry exists,
+`MASTER_PASSWORD.<id of A>`. There is **no** entry for B, and no bare
+`MASTER_PASSWORD`.
+
+**Fails if.** An entry for B appears after step 1, or A's biometric unlock is
+attempted with B's password (visible as a wrong-password error on a vault whose
+biometrics are correctly enrolled).
+
+---
+
+### S1-5 · Upgrade from a pre-011 build (spec 011 AC-6)
+
+**Preconditions.** A build from **before** commit `027641d` — build it from a
+checkout of a parent commit, or keep a previously archived APK. Plus the current
+build.
+
+**Steps**
+
+1. Install the old build. Unlock vault A once with the master password.
+2. Dump the keystore. Confirm the legacy global `MASTER_PASSWORD` entry **is**
+   present — this establishes the precondition. If it is not, the old build is
+   not old enough and the item proves nothing.
+3. Install the current build **over** it (`adb install -r`, no uninstall — an
+   uninstall clears the store and voids the test).
+4. Launch the app once. Let it reach the database selection screen.
+5. Dump the keystore again.
+6. Unlock vault A with its master password.
+
+**Expected observation.** After step 5 the bare `MASTER_PASSWORD` entry is gone.
+After step 6 the vault opens normally.
+
+**Fails if.** The legacy entry survives the first launch, or the vault no longer
+opens with a password that worked before the upgrade.
+
+---
+
+### S1-6 · Safe-writer fallback under Android SAF (spec 008, "not verifiable on host")
+
+**Why manual.** Under Android SAF the grant authorizes the **chosen document**,
+not its parent directory, so creating a sibling temp file can be refused where a
+direct write succeeds. `safe_vault_file_writer.dart:415` degrades to a
+non-atomic in-place write for exactly this case. On the host this is only
+simulated by a fault seam (`_FaultyIo(_Fault.tempPermissionDenied)`); whether the
+real refusal has the shape the code expects has **never** been observed on a
+device.
+
+**Preconditions.** A vault opened through the system document picker from a
+location the app does not own — Downloads, or a Drive/SD provider.
+
+**Steps**
+
+1. Start `adb logcat` filtered to the app.
+2. Open the SAF-provided vault, edit any entry, save.
+3. Search the log for the safe writer's degradation warning (it names the
+   operation that degraded).
+4. Re-open the vault and confirm the edit persisted.
+5. Confirm no `.tmp`-suffixed leftover next to the vault, where the picker
+   location lets you list it.
+
+**Expected observation.** The save succeeds. Either the atomic path ran with no
+warning, or the fallback ran and logged the degradation naming the operation.
+Data is intact either way.
+
+**Fails if.** The save fails outright, the log shows a permission error that is
+not caught by the fallback, the vault is truncated, or a temp file is left
+behind.
+
+---
+
+### S1-7 · T111 Android platform artifact (spec 008 Gate 1)
+
+**Preconditions.** The target harness runnable on-device. **The harness has no
+runner script in the repository today** — `build/safety-evidence/` is empty and
+`no platform artifact exists yet` asserts that. Its required *output* schema is
+pinned by
+`test/features/password_manager/data/services/safe_vault_file_writer_harness_schema_test.dart`.
+
+**Steps**
+
+1. Run the target harness on the named device/emulator, recording the device
+   model and Android version.
+2. Write the result to `build/safety-evidence/android/safe-vault-writer.json`
+   plus its log.
+3. Verify the artifact against the schema test.
+4. Update the Android row of
+   `specs/008-per-field-conflict-resolution/feasibility-report.md` with the
+   result and the artifact metadata.
+
+**Expected observation.** A schema-valid artifact whose status is `passed`,
+naming Android and only Android.
+
+**Fails if.** The artifact is absent, schema-invalid, or `failed`. Any of those
+keeps the Android target disabled — which is the current, correct state.
+
+**Blocked, stated plainly.** Until the harness runner exists this item cannot
+start. It is listed so the gap stays visible, not because it is executable today.
+
+---
+
+## S2 — iPhone or iPad (physical device)
+
+**Session preconditions**
+
+- A build on a real device. The simulator does **not** reproduce the
+  `/var` → `/private/var` divergence and its keychain is a separate store, so it
+  cannot stand in here.
+- Two test vaults, A and B.
+- Face ID or Touch ID enrolled.
+
+**Keychain inspection: no command, stated openly.** There is **no supported way
+to dump the keychain of a third-party app from a non-jailbroken iOS device**.
+`security find-generic-password` is a macOS binary and does not reach an iOS
+device; Xcode offers no keychain browser. Any command claiming otherwise would be
+fiction, so none is written here.
+
+What must be discovered before S2-1 and S2-2 can be executed at all:
+
+- Whether a temporary debug probe is acceptable — a build-flavor-gated screen
+  calling `SecureDataSource.getMasterPassword(id)` and reporting only
+  **present/absent**, never the value. This is the cheapest honest route and is
+  proposed for automation at the end of this file.
+- Otherwise: a jailbroken device, or accept that iOS keychain inspection stays
+  permanently `not-run` and rely on the Android and macOS rows for AC-1/AC-2/AC-5.
+
+Until one of those is chosen, S2-1 and S2-2 are **blocked, not failed**.
+
+---
+
+### S2-1 · Keystore untouched with biometrics off, iOS (spec 011 AC-1) — BLOCKED
+
+Same intent as S1-1. **Blocked on the inspection method above.** Record
+`not-run`, with the reason, until a probe exists. Do not substitute the macOS
+result: the spec forbids one platform qualifying another.
+
+---
+
+### S2-2 · Nothing survives process kill, iOS (spec 011 AC-2) — BLOCKED
+
+Same intent as S1-2, same blocker for the inspection half.
+
+The **user-visible half is runnable now, and worth running on its own:**
+
+**Steps**
+
+1. Unlock vault A with biometrics off.
+2. Swipe the app out of the app switcher to terminate it.
+3. Relaunch and open vault A.
+
+**Expected observation.** The app asks for the master password again.
+
+**Fails if.** The vault opens without asking. Note this is weaker evidence than
+AC-2 requires — it shows the app does not *use* a persisted secret, not that none
+*exists*.
+
+---
+
+### S2-3 · Biometric unlock after a kill (spec 011 AC-3)
+
+**Preconditions.** Vault A with biometric protection on, enrolled by one manual
+unlock after enabling.
+
+**Steps**
+
+1. Terminate the app from the app switcher.
+2. Relaunch, select vault A, trigger biometric unlock, authenticate.
+3. Cancel the biometric prompt on a second attempt and confirm the master
+   password field is reachable (regression guard for #71).
+
+**Expected observation.** Step 2 opens the vault. Step 3 offers a working
+password fallback.
+
+**Fails if.** Biometric unlock is not offered, fails, or the cancel path dead-ends.
+
+---
+
+### S2-4 · Two databases, biometrics on only one (spec 011 AC-5), behavioural half
+
+**Steps**
+
+1. Unlock vault B manually.
+2. Switch to vault A and biometric-unlock it.
+
+**Expected observation.** A opens. No wrong-password error, which would be the
+symptom of the old global key serving B's password to A.
+
+**Fails if.** A's biometric unlock reports a wrong password, or B ever offers a
+biometric unlock it was never enrolled for.
+
+---
+
+### S2-5 · Upgrade from a pre-011 build (spec 011 AC-6), behavioural half
+
+**Preconditions.** A pre-`027641d` build installed and unlocked once, then the
+current build installed over it **without deleting the app**.
+
+**Steps**
+
+1. Launch the upgraded build once, reaching database selection.
+2. Unlock vault A with its master password.
+3. If vault A had biometrics on before the upgrade, observe what the app now
+   offers.
+
+**Expected observation.** The vault opens with the password. Re-enrolment of
+biometrics at the next manual unlock is **expected and correct** (FR-6 is a
+deliberate one-time silent re-enrolment), not a defect.
+
+**Fails if.** The vault refuses a password that worked before the upgrade, or the
+app crashes on first launch after the upgrade.
+
+---
+
+### S2-6 · Apple autofill smoke (spec 011 FR-8)
+
+**Preconditions.** KeyVault enabled under Settings → General → Autofill &
+Passwords. Vault A unlocked at least once so credentials are published. A test
+site with a login form in Safari.
+
+**Steps**
+
+1. Unlock vault A, confirm at least one entry with a URL matching the test site.
+2. Background the app.
+3. In Safari, focus the username field on the test site.
+4. Choose KeyVault from the QuickType bar, authenticate.
+5. Confirm the filled username and password match the vault entry.
+6. Lock the vault in the app, then repeat steps 3–4.
+
+**Expected observation.** Steps 4–5 fill the correct credentials. After step 6
+the extension either offers nothing or asks to unlock — it never serves a stale
+credential from a locked vault.
+
+**Fails if.** Wrong credentials are offered, credentials for a non-matching
+domain appear, or the extension still fills after the vault is locked. The last
+one is a security failure, not a bug: stop and report it.
+
+---
+
+## S3 — macOS machine
+
+This session is the largest because one Mac covers three separate debts: the
+macOS half of spec 011, the whole browser-extension debt of spec 009, and the
+signed-and-sandboxed Release check of spec 008.
+
+**Session preconditions**
+
+- macOS build: `flutter run -d macos --dart-define-from-file=.env.dart.define.json`.
+- Chrome installed. Microsoft Edge installed (required by S3-8; without it that
+  item is `not-run`, not skipped).
+- Native host installed: `./desktop/native_host/install_host_macos.sh <EXTENSION_ID>`,
+  and for Edge the same script with `edge`.
+- Extension loaded unpacked from `desktop/browser_extension/`, or from the ZIP
+  built by `./desktop/browser_extension/package_extension.sh`.
+- Two test vaults, A and B.
+
+**Keychain inspection command.** The app stores through
+`flutter_secure_storage_darwin`, which writes generic-password items. The plugin
+sets `kSecAttrService` only when the app passes a service, and this app passes
+none, so the item may carry **no service attribute** — meaning a
+`security find-generic-password -s <something>` lookup can miss an entry that is
+really there. Search by account instead, and confirm with a full dump:
+
+```bash
+# Targeted: the account is the storage key.
+security find-generic-password -a 'MASTER_PASSWORD' -g 2>&1 | head -20
+security find-generic-password -a "MASTER_PASSWORD.<databaseId>" -g 2>&1 | head -20
+# "The specified item could not be found in the keychain." == absent == pass for AC-1.
+```
+
+```bash
+# Broad confirmation, because absence is the thing being proven and a missed
+# lookup would fake a pass. Inspect every matching account name.
+security dump-keychain ~/Library/Keychains/login.keychain-db \
+  | grep -i -A2 'MASTER_PASSWORD'
+```
+
+`security dump-keychain` prompts for permission per item; approve with "Allow",
+not "Always Allow". **To be discovered:** whether the sandboxed Release build
+writes into `login.keychain-db` or into the data-protection keychain, which
+`dump-keychain` does not read. Until that is settled, treat a clean dump from a
+**Release** build as weaker evidence than the same dump from the debug build, and
+say so in the status table.
+
+---
+
+### S3-1 · Keystore untouched with biometrics off, macOS (spec 011 AC-1)
+
+**Steps**
+
+1. Quit the app entirely.
+2. Launch, unlock vault A (biometrics off) with the master password.
+3. Run both keychain commands above.
+
+**Expected observation.** Neither `MASTER_PASSWORD` nor
+`MASTER_PASSWORD.<id of A>` is found.
+
+**Fails if.** Either is present while biometrics are off.
+
+---
+
+### S3-2 · Nothing survives a process kill, macOS (spec 011 AC-2)
+
+**Steps**
+
+1. With vault A unlocked, kill the process:
+   `pkill -9 -f kdbxKeyVault` (verify the match with `pgrep -fl kdbxKeyVault`
+   first).
+2. Run the keychain commands.
+3. Relaunch and open vault A.
+
+**Expected observation.** No entry after the kill; the app asks for the password.
+
+**Fails if.** An entry survives, or the vault opens without a password.
+
+---
+
+### S3-3 · Two databases, biometrics on only one, macOS (spec 011 AC-5)
+
+**Steps**
+
+1. Enable biometric protection on vault A and enrol it with one manual unlock.
+2. Quit, relaunch, unlock vault B manually.
+3. Switch to vault A and unlock it with biometrics.
+4. Run the keychain commands for both database ids.
+
+**Expected observation.** Only `MASTER_PASSWORD.<id of A>` exists. B has no
+entry. Bare `MASTER_PASSWORD` does not exist.
+
+**Fails if.** B has an entry, or A's biometric unlock reports a wrong password.
+
+---
+
+### S3-4 · Upgrade from a pre-011 build, macOS (spec 011 AC-6)
+
+**Steps**
+
+1. Run a pre-`027641d` build, unlock vault A once.
+2. Confirm the bare `MASTER_PASSWORD` account exists. If it does not, the
+   precondition is unmet and the item proves nothing.
+3. Run the current build once.
+4. Re-run the keychain lookup for the bare account.
+5. Unlock vault A with its master password.
+
+**Expected observation.** The legacy account is gone after step 3; the vault
+opens at step 5.
+
+**Fails if.** The legacy account survives, or the vault stops opening.
+
+---
+
+### S3-5 · Desktop browser autofill smoke (spec 011 FR-8)
+
+**Preconditions.** Native host installed, extension loaded, overlay toggle on,
+vault A unlocked with an entry whose URL matches the test page.
+
+**Steps**
+
+1. Serve a login page locally. The visual harness page is already in the repo and
+   is the closest thing to a prepared fixture:
+   `desktop/browser_extension/test/visual/harness/page.html`. Serve it with
+   `python3 -m http.server 8907 --directory desktop/browser_extension/test/visual/harness`
+   and open `http://127.0.0.1:8907/page.html`. Port 8907 is what the visual
+   runner itself uses (`capture_runner.mjs:42`), so the origin matches the
+   captured baselines.
+2. Focus the username field. Observe the overlay.
+3. Pick the matching entry, authenticate in the app when prompted.
+4. Confirm the filled values match the entry.
+5. Lock the vault in the app. Focus the field again.
+
+**Expected observation.** Step 3 fills correctly. After step 5 the overlay
+reports a locked state and reveals nothing.
+
+**Fails if.** A secret is filled while the vault is locked, or an entry appears
+for an origin it is not bound to. Both are security failures — stop and report.
+
+---
+
+### S3-6 · Slice C: single broad prompt under a gesture (spec 009, Slice C debt)
+
+**Why this is here.** Slice C changed the authorization surface: the popup now
+asks once for the broad `http://*/*` + `https://*/*` optional grant. The failure
+mode found in the earlier smoke — the popup closing and losing the gesture — was
+caught by mutation A2-M15, **not** by the automated suite, so a human still has
+to see the prompt.
+
+**Steps**
+
+1. In `chrome://extensions`, remove all site access from the extension.
+2. Open the popup and click the single toggle once.
+3. Observe the Chrome permission prompt.
+4. Accept it.
+5. Reopen the popup.
+6. In `chrome://extensions`, check the site-access state.
+
+**Expected observation.** Exactly one prompt, naming both patterns, appearing on
+the first click without a second gesture. The toggle reads **on** afterwards, and
+`chrome://extensions` shows access on all sites.
+
+**Fails if.** The prompt does not appear on the first click, the popup closes and
+the grant is lost, or the toggle reads on while `chrome://extensions` shows no
+access.
+
+---
+
+### S3-7 · Slice C: real v1 → v2 upgrade with a residual broad grant (spec 009, Slice C debt)
+
+**Why this is here.** The v1 → v2 migration is not a dedicated branch — it is the
+strict-parser fail-closed path. A v1 value, *including one whose broad grant is
+already held*, must migrate to DISABLED and have the residual grant revoked. That
+sweep has only ever been asserted by tests.
+
+**Steps**
+
+1. Install a pre-Slice-C build of the extension (a checkout before `b466ed9`).
+2. Enable the overlay on at least two sites, so the v1 `enabledOrigins` array is
+   non-empty.
+3. In `chrome://extensions`, set site access to **On all sites** by hand.
+4. Load the current extension over it, keeping the same profile and extension id.
+5. Open the popup.
+6. Check `chrome://extensions` site access.
+
+**Expected observation.** The toggle is **off** after the upgrade. Site access is
+back to on-click/none — the residual broad grant was revoked, not inherited.
+
+**Fails if.** The toggle reads on without the user asking, or the broad grant
+survives. A grant surviving a fail-closed migration is a security failure.
+
+---
+
+### S3-8 · Edge subset (spec 009 A046 row 16 — never run on any row)
+
+**Preconditions.** Edge installed; native host registered for Edge
+(`./desktop/native_host/install_host_macos.sh <EXTENSION_ID> edge`); extension
+loaded in Edge.
+
+**Steps**
+
+1. Repeat S3-6 in Edge: single broad prompt under a gesture.
+2. Repeat S3-5 in Edge: overlay appears, fill works, locked vault reveals
+   nothing.
+3. Navigate away with the overlay open and confirm it tears down.
+
+**Expected observation.** Behaviourally identical to Chrome.
+
+**Fails if.** Any step diverges from Chrome. **Pixel differences are not a
+failure** — Edge is explicitly not pixel authority; only the 18 canonical Linux
+baselines are.
+
+---
+
+### S3-9 · VoiceOver re-confirmation of the #81 fix (spec 009 A040)
+
+**Why this is here.** The original VoiceOver session found two real defects:
+arrow keys moved the VoiceOver cursor instead of the overlay selection, and
+activation was impossible because `aria-activedescendant` does not cross a
+**closed** shadow root, so Enter fell through as an implicit page submit. The fix
+(#81 — a light-DOM listbox mirroring the shadow rows, `press` handled on the rows,
+an `isTrusted` guard on every activation handler) is pinned by
+`test/overlay_at_activation.test.js`. **A harness is not a screen reader.** This
+item is that reconfirmation.
+
+**Steps**
+
+1. Serve the harness page as in S3-5.
+2. Turn VoiceOver on (⌘F5).
+3. Focus the username field and let the overlay open.
+4. Listen for the live-region announcement.
+5. Arrow down through the suggestions.
+6. Activate the selected row with VoiceOver's activation (VO-Space).
+7. Note whether the form submitted.
+
+**Expected observation.** Step 4 announces the suggestion count
+(e.g. *"2 suggestions"*). Step 5 moves the **overlay selection**, announcing each
+row. Step 6 fills the field. Step 7: **the form does not submit.**
+
+**Fails if.** Nothing is announced, arrows move only the VoiceOver cursor while
+the overlay selection stays put, activation does nothing, or the page submits.
+The last one is the #81 regression returning.
+
+---
+
+### S3-10 · Keyboard-only, no assistive technology (spec 009 A040, first row — never run by hand)
+
+**Why this is here.** This is the first line of A040's own requirement and it has
+**never** been exercised manually. Its only evidence is the six `A037:` cases in
+`test/overlay_interaction.test.js`.
+
+**Steps**
+
+1. Serve the harness page. VoiceOver **off**.
+2. Reach the username field using Tab alone — no mouse from here on.
+3. Arrow down and up through the suggestions.
+4. Press Escape.
+5. Reopen the overlay, press Enter on a selection.
+6. Reopen, then press Tab.
+
+**Expected observation.** Step 3 moves a visible selection. Step 4 closes the
+overlay and leaves focus in the field. Step 5 fills the field **without
+submitting the form**. Step 6 closes the overlay and moves focus onward normally.
+
+**Fails if.** Focus is trapped, the selection is invisible, Escape does not
+close, or Enter submits the page.
+
+---
+
+### S3-11 · Signed, sandboxed macOS Release: does the safe-writer fallback actually fire? (spec 008, "not verifiable on host")
+
+**Why this is here, precisely.** Under the macOS app sandbox the
+`files.user-selected.read-write` entitlement authorizes the **chosen path**, not
+its parent directory, so creating a sibling temp file can fail with
+`Operation not permitted` where a direct write to the same path succeeds
+(`safe_vault_file_writer.dart:411-423`). Every host test simulates that refusal
+through a fault seam. Whether the real sandbox produces an error the code
+classifies as a permission denial has **never been observed in a signed Release
+build** — and if it does not, saves fail instead of degrading.
+
+There is a second, sharper consequence to check, documented as MEDIUM-2: the
+fallback covers the **temp only**. `createBackup` also creates a sibling and gets
+**no** fallback, because skipping a backup is what FR-9 forbids. So a sandbox
+that authorizes only the chosen path should fail a *backup-requesting* save
+outright rather than silently skipping the backup.
+
+**Preconditions.** A **signed, sandboxed Release** build —
+`flutter build macos --release` plus the normal signing — launched from
+`/Applications` or from the build output, **not** `flutter run`. Debug builds
+loosen exactly the behaviour under test.
+
+**Steps**
+
+1. Open a vault from a location outside the app container, chosen through the
+   system open panel: `~/Documents`, or an external volume.
+2. Edit an entry and save.
+3. Watch the log: `log stream --predicate 'process CONTAINS "kdbxKeyVault"' --info`.
+4. Note whether the atomic path or the fallback ran, and whether the fallback
+   named the operation.
+5. List the vault's directory: confirm a backup exists and no `.tmp` remains.
+6. Reopen the vault and confirm the edit persisted.
+
+**Expected observation.** One of two acceptable outcomes, and you must record
+**which**: either the atomic temp+rename path ran with no warning, or the
+permission refusal was caught and the fallback wrote in place, logging the
+degradation with the operation name. Data intact either way.
+
+**Fails if.** The save fails with an unhandled permission error, the log shows a
+refusal that the fallback did not catch, the vault is truncated, or a `.tmp` file
+is left behind. A backup-requesting save that *succeeds without producing a
+backup* is also a failure — that is the MEDIUM-2 asymmetry being violated.
+
+---
+
+## S4 — Windows machine
+
+**This session is deliberately short.** PRs #114 and #117 added a blocking
+`test-windows` job on `windows-2022` to `.github/workflows/pr.yml`, and it moved
+real coverage out of manual QA. See "Removed" below for exactly what left.
+
+**Session preconditions**
+
+- A Windows build of the app.
+- The repository checked out, Flutter available.
+- Two test vaults.
+
+**Credential inspection: partially known, stated honestly.**
+`flutter_secure_storage_windows` 4.1.0 writes `CRED_TYPE_GENERIC` entries through
+`CredWriteW`. Generic credentials are listable with:
+
+```powershell
+cmdkey /list
+```
+
+**To be discovered before this is a reliable check:** the exact `TargetName` the
+plugin composes for a key. The plugin builds it in
+`flutter_secure_storage_windows_plugin.cpp`, but the composition was not read
+during the writing of this checklist, so the string to grep for is **not
+known**. Do not guess it. Establish it once — write a known key from a debug
+build, diff `cmdkey /list` before and after — and then record the shape here.
+`cmdkey` never prints secret values, so this remains a presence/absence check.
+
+---
+
+### S4-1 · Keystore behaviour on Windows (spec 011 AC-1 / AC-2)
+
+**Blocked** on the target-name discovery above. Record `not-run` with that
+reason. Spec 011's test plan explicitly permits this: *"Desktop secure store
+inspection on macOS, Linux and Windows, or the platform is recorded as `not-run`
+rather than assumed passing."*
+
+The behavioural half is runnable now: unlock a vault with biometrics off, kill
+the process from Task Manager, relaunch, and confirm the app asks for the master
+password again. Fails if it does not.
+
+---
+
+### S4-2 · Saving a vault held open by another process
+
+**Why manual.** CI **measured** this: `File.rename` over an open handle is
+refused on Windows with `ERROR_ACCESS_DENIED` where POSIX silently succeeds. The
+writer holds its contract — old vault byte-identical, error propagated, no `.tmp`
+residue — and that is asserted per platform in CI. What CI cannot show is the
+**product** consequence: on Windows, saving a vault another instance holds open
+**fails**. This item confirms the user-facing shape of that failure.
+
+**Steps**
+
+1. Open vault A in the app.
+2. From a second process, hold the file open — a second app instance, or a
+   backup tool.
+3. Edit an entry in the app and save.
+4. Read the error the user actually sees.
+5. Release the second handle, save again.
+6. Confirm the vault is intact and the edit landed.
+
+**Expected observation.** Step 3 fails with a message a user can act on. Step 5
+succeeds. The vault is never truncated and no `.tmp` file is left behind.
+
+**Fails if.** The error is a raw OS code or a silent no-op, the vault is
+corrupted, or a `.tmp` file survives.
+
+---
+
+### S4-3 · A machine without Developer Mode
+
+**Why manual, precisely.** CI **measured** that GitHub-hosted `windows-2022`
+runners create symlinks without Developer Mode, so the three symlink QA suites
+genuinely run there. The caveat in `AGENTS.md` therefore applies to **local
+developer machines**, not CI. What no runner can reproduce is a machine where
+symlink creation is actually denied.
+
+**Steps**
+
+1. On a Windows machine with Developer Mode **off**, in a **non-elevated** shell,
+   run:
+   ```
+   flutter test test/features/password_manager/data/portable_path_symlink_qa_test.dart test/core/utils/mobile_file_storage_guard_qa_test.dart test/core/utils/mobile_file_storage_guard_bypass_qa_test.dart
+   ```
+2. Record which failures are `Link.create` permission errors.
+3. Launch the app, open a vault, edit and save an entry.
+
+**Expected observation.** Step 1 may fail — that is an **environment** result,
+not a product defect, and must be recorded as such. Step 3 must work regardless:
+the app itself never needs to create a symlink.
+
+**Fails if.** The app cannot save, or a failure at step 1 is something other than
+a symlink-privilege error.
+
+---
+
+### S4-4 · T111 Windows platform artifact (spec 008 Gate 1)
+
+Same shape and same blocker as S1-7: the harness runner does not exist yet.
+Artifact path `build/safety-evidence/windows/safe-vault-writer.json`. The Windows
+row stays `not-run` and the target stays disabled.
+
+---
+
+## S5 — Linux machine
+
+**Session preconditions**
+
+- A Linux build of the app.
+- `libsecret` tools installed (`secret-tool`) and a running keyring daemon.
+- Two test vaults.
+
+**Secret store inspection command, in full.** `flutter_secure_storage_linux`
+3.0.2 stores through libsecret with a single attribute, `account`, set to
+`<APPLICATION_ID>.secureStorage` (`flutter_secure_storage_linux_plugin.cc:209`).
+`APPLICATION_ID` is `dev.camillobucciarelli.kdbxKeyVault`
+(`linux/CMakeLists.txt:10`).
+
+```bash
+# All items this app owns. Prints attributes; secrets are shown for matches,
+# so run it where nobody is watching your screen.
+secret-tool search --all account dev.camillobucciarelli.kdbxKeyVault.secureStorage
+```
+
+```bash
+# Or browse the same collection in a GUI.
+seahorse
+```
+
+The plugin keeps all keys in **one** libsecret item as a JSON map, so this is a
+check on the map's *contents*, not on a per-key item. Read the returned value and
+look for the key names `MASTER_PASSWORD` and `MASTER_PASSWORD.<databaseId>`.
+
+---
+
+### S5-1 · Keystore untouched with biometrics off, Linux (spec 011 AC-1)
+
+**Steps**
+
+1. Quit the app.
+2. Launch, unlock vault A (biometrics off) with the master password.
+3. Run the `secret-tool` command.
+
+**Expected observation.** No item, or an item whose map contains neither
+`MASTER_PASSWORD` nor `MASTER_PASSWORD.<id of A>`.
+
+**Fails if.** Either key is present with biometrics off.
+
+---
+
+### S5-2 · Nothing survives a process kill, Linux (spec 011 AC-2)
+
+**Steps**
+
+1. With vault A unlocked, `pkill -9 -f kdbxKeyVault` (confirm the match with
+   `pgrep -fl kdbxKeyVault` first).
+2. Re-run the `secret-tool` command.
+3. Relaunch and open vault A.
+
+**Expected observation.** No master-password key after the kill; the app asks for
+the password.
+
+**Fails if.** A key survives, or the vault opens without a password.
+
+---
+
+### S5-3 · Desktop browser autofill smoke on Linux (spec 011 FR-8)
+
+**Preconditions.** Native host installed
+(`./desktop/native_host/install_host_linux.sh <EXTENSION_ID>`, add
+`--browser chromium` for Chromium), extension loaded, overlay toggle on.
+
+**Steps**
+
+1. Serve the harness page:
+   `python3 -m http.server 8907 --directory desktop/browser_extension/test/visual/harness`.
+2. Open `http://127.0.0.1:8907/page.html`, focus the username field.
+3. Fill from the overlay and confirm the values.
+4. Lock the vault; focus the field again.
+
+**Expected observation.** Step 3 fills correctly; step 4 reveals nothing.
+
+**Fails if.** A secret is served while locked, or an entry appears for an origin
+it is not bound to.
+
+---
+
+### S5-4 · T111 Linux platform artifact (spec 008 Gate 1)
+
+Same shape and blocker as S1-7. Artifact path
+`build/safety-evidence/linux/safe-vault-writer.json`. Linux stays `not-run` and
+the target stays disabled.
+
+---
+
+## Removed from the manual list
+
+Each entry names what was dropped and why. Dropping is deliberate: a list that
+only grows stops being read.
+
+### Removed because CI now covers it (PRs #114, #117 — job `test-windows`, blocking)
+
+| Was | Now |
+| --- | --- |
+| "Verify `File.rename` over an open handle on Windows" | **Measured in CI** on `windows-2022`. Windows refuses with `ERROR_ACCESS_DENIED` where POSIX silently succeeds; the writer's contract (old vault byte-identical, error propagated, no `.tmp` residue) is asserted **per platform**, not with a test that accepts either outcome. Only the user-facing failure shape stayed manual, as **S4-2**. |
+| "Run the three symlink QA suites on Windows" | **They really run in CI.** A probe step measured `SYMLINK_CAPABLE=true` on GitHub-hosted `windows-2022` (run 32596328624): the runners create symlinks without Developer Mode. `portable_path_symlink_qa_test.dart`, `mobile_file_storage_guard_qa_test.dart` and `mobile_file_storage_guard_bypass_qa_test.dart` all execute. Only the **no-Developer-Mode local machine** case stayed manual, as **S4-3**. |
+| "Check the Windows branch of `_isPermissionDenied`" | **Asserted in CI.** It previously asserted nothing: the T110 harness encoded POSIX errno values as universal constants, so the Windows fallback never fired and the negative control (`EIO` 5) collided with `ERROR_ACCESS_DENIED`. Closed with per-platform helpers plus an anti-collapse guard that fails if the two codes coincide. |
+| "Run the Flutter suite on Windows before a release" | **Runs on every PR.** `test-windows` is green and blocking (`continue-on-error` removed). *Outstanding, and not an agent action:* adding `test-windows` to the branch's **required status checks** is a repository branch-protection setting the user must apply. |
+
+### Removed because Slice C superseded the behaviour (PR #113)
+
+| Was (A046 rows) | Why it is gone |
+| --- | --- |
+| Row 2, "grant/deny per origin" | The per-site "Turn on" no longer exists. The durable opt-in is one boolean and the popup asks once for the broad optional grant. Replaced by **S3-6**. |
+| Row 3, "scheme/port variants sharing one permission pattern" | This tested per-origin permission-pattern arithmetic, which has no subject left: there is one registration over `http(s)://*/*`. A sibling port is now **served as itself** — still a separate identity toward the vault, so no entry leaks — and that stronger property is pinned by the migrated mutation table. |
+| Row 4's per-origin half, "cross-origin child first denied, then enabled on its own origin" | The "enable this child origin" step no longer exists. The frame **policy** survives and is more reachable than before (an `http(s)` child inside a `file://`, `view-source:` or PDF-viewer top document is still classified unsupported); it is now pinned by an executable test plus 2 of the 18 golden baselines, so it needs no manual row. |
+
+### Removed because a stronger automated check replaced it
+
+| Was | Why it is gone |
+| --- | --- |
+| A046 row 18, "canonical baseline comparison by a human" | The canonical environment is pinned by immutable OCI digest plus an exact Chrome for Testing build, and `run_visual_baselines.sh --verify` compares decoded pixels **and** approved SHA-256 per baseline: exit 0, 18/18 (A045). A human eye adds no evidence a hash comparison lacks, and would add a false authority. Design changes still require `--approve` behind human review — that is a design gate, not QA. |
+| A046 rows 10–15 (app lock, host absent/timeout, restricted page, exact vs domain-only match, crash/restart per disable phase, stale native response) | Kept **off** the manual list on purpose. Each has real automated evidence, named in `tasks.md`, including mutation coverage (A3-M11, A1-M2, A3-M6) and the eight `A021:` crash-injection cases. They are recorded as automation-only rather than re-run by hand; re-running them manually would cost hours and produce weaker evidence than the mutants already give. |
+
+### Recorded as permanent debt, not as a pending step
+
+| Item | Status |
+| --- | --- |
+| Chrome + NVDA on Windows (spec 009 A040) | **Permanent declared debt.** No Windows machine with NVDA is available. It must never be reported as covered. If a Windows machine appears, it becomes a real S4 item; until then it is not a task waiting to be done. |
+
+### Could not be recovered, and is therefore not written as a step
+
+Two findings named in the debt intake could not be located in `specs/009-*`, in
+the extension source, or in recorded session decisions:
+
+- **The LOW finding on the "display-only" ARIA treatment.** Not found. What must
+  be re-derived before it can be a checklist item: which element was marked
+  display-only, and what the reviewer expected instead.
+- **The B2 busy-state copy.** Not found. What must be re-derived: the exact
+  string shown while a generate request is in flight, and what it should say.
+
+Both are almost certainly small, but writing plausible steps for them would be
+inventing procedure. They are listed here so they are not silently lost. The
+generate round trip **that is** recorded — generate → fill → confirmation banner
+in the app → confirm → entry present in the vault → consistent re-fill — was
+already executed and passed in the A046 session (row 9), and the structural
+defect it exposed (#73: B005 had zero production callers) is fixed, so it is not
+re-listed as an open item.
+
+---
+
+## Candidates for automation
+
+The goal is for this file to shrink. Each candidate names what it would remove.
+
+### 1. A keystore presence probe behind a debug flag — removes 6 blocked items
+
+**Removes:** S2-1, S2-2's inspection half, S4-1, and de-risks S1-1, S3-1, S5-1.
+
+A build-flavor-gated debug screen (or a `--dart-define` guarded integration test)
+calling `SecureDataSource.getMasterPassword(id)` and reporting only
+**`present` / `absent`**, never the value. That single primitive makes AC-1,
+AC-2, AC-5 and AC-6 checkable identically on all five platforms, and it is the
+only realistic way to verify iOS at all short of a jailbroken device.
+
+Effort: small. Risk to manage explicitly: the probe must be impossible to compile
+into a Release build, and must never print or log the secret. Given spec 011's
+constitution principle I, that constraint is the whole design.
+
+### 2. An `integration_test` for the AC-2 / AC-6 lifecycle — removes 4 items
+
+**Removes:** the behavioural halves of S1-2, S1-5, S2-2, S2-5.
+
+The repository already has the pattern: `integration_test/ios_portable_paths_qa_test.dart`
+drives a two-phase, `--dart-define=QA_PHASE=`-selected harness across an app
+reinstall. The same shape covers "unlock, terminate, relaunch, assert the
+password is required" and "legacy entry present, upgrade, legacy entry gone".
+Combined with candidate 1, this turns most of spec 011's manual matrix into one
+command per device.
+
+Effort: medium. Needs a real device or emulator, so it stays out of CI — but it
+becomes repeatable, which is the actual goal.
+
+### 3. The T111 harness runner — removes 5 items, and is currently blocking all of them
+
+**Removes:** S1-7, S4-4, S5-4 and the iOS/macOS artifact rows.
+
+The output schema is already pinned
+(`safe_vault_file_writer_harness_schema_test.dart`) and the enablement rule is
+already machine-checked ("host platform never qualifies another target"). What is
+missing is the runner that executes the fault matrix on-device and emits
+`build/safety-evidence/<platform>/safe-vault-writer.json`. Until it exists, five
+checklist items cannot even start, and the 008 platform matrix stays entirely
+`not-run`.
+
+Effort: medium-to-large, and the highest-value item on this list — it is the
+difference between five permanently blocked rows and five runnable ones.
+
+### 4. A scripted smoke fixture for S3-5 / S5-3 — removes setup friction, not items
+
+Serving `test/visual/harness/page.html` on port 8907 is already the closest thing
+to a prepared environment, but the port and path have to be recovered from
+`capture_runner.mjs` every time. A three-line `serve_harness.sh` next to
+`run_visual_baselines.sh` would make the browser sessions start in seconds
+instead of minutes. It removes no checklist item; it makes S3 and S5 cheap enough
+that they actually get run.
+
+Effort: trivial.
+
+### 5. Edge in the extension test matrix — would shrink S3-8, not remove it
+
+The Node harness is browser-agnostic, so pointing the existing suite at an Edge
+binary is cheap and would cover the protocol and DOM contract. It would **not**
+cover the permission prompt or the native-host registration, which are the parts
+of S3-8 that have genuinely never been exercised. Worth doing; do not let it be
+mistaken for closing the Edge row.
