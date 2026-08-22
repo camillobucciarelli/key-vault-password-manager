@@ -95,19 +95,35 @@ void main() {
   group('case-sensitive filesystem (Linux, Android)', () {
     setUp(() => PortablePath.debugFoldsCaseOverride = false);
 
-    test('a case-different documents root stays absolute', () {
-      final docs = p.join(base, 'Documents');
-      final file = p.join(base, 'documents', 'vault.kdbx');
+    test(
+      'a case-different documents root stays absolute',
+      () {
+        final docs = p.join(base, 'Documents');
+        final file = p.join(base, 'documents', 'vault.kdbx');
 
-      expect(
-        PortablePath.encode(file, docs),
-        file,
-        reason:
-            'These are two different directories here, so folding case would '
-            'claim a containment that does not exist and decode would rebuild '
-            'a path pointing at the wrong file.',
-      );
-    });
+        expect(
+          PortablePath.encode(file, docs),
+          file,
+          reason:
+              'These are two different directories here, so folding case would '
+              'claim a containment that does not exist and decode would rebuild '
+              'a path pointing at the wrong file.',
+        );
+      },
+      // POSIX-only, and not a coverage gap that can be closed here.
+      // `debugFoldsCaseOverride = false` turns off PortablePath's OWN case
+      // fold, but the first branch of `_relativeWithin` is `p.isWithin`, and
+      // on Windows `package:path` uses its Windows context, which compares
+      // case-insensitively by itself. Containment therefore succeeds before
+      // the override is ever consulted, so a case-SENSITIVE volume cannot be
+      // expressed on this host at all. The scenario stays covered on Linux and
+      // macOS CI, where the override does what it says.
+      skip: Platform.isWindows
+          ? 'a case-sensitive volume cannot be simulated on Windows: '
+                'package:path folds case in p.isWithin before the override '
+                'is consulted'
+          : null,
+    );
 
     test('a matching-case documents root is unaffected', () {
       final docs = p.join(base, 'Documents');

@@ -420,7 +420,14 @@ class BrowserSetupService {
   String _defaultInstallScriptDisplayPath(BrowserSetupHostPlatform platform) {
     final scriptName = _installScriptName(platform);
     if (scriptName == null) return '<INSTALL_SCRIPT>';
-    final raw = p.join('desktop', 'native_host', scriptName);
+    // `p.posix.join`, NOT `p.join`: this string is rendered for [platform],
+    // which `platformOverride` lets a caller set independently of the host, so
+    // the host separator has no business here. `p.join` on a Windows host
+    // produced `./desktop\native_host\install_host_macos.sh` — a macOS
+    // instruction with Windows separators. The Windows branch below converts
+    // to `\` explicitly, so building in POSIX first is correct for every
+    // combination instead of only for host == target.
+    final raw = p.posix.join('desktop', 'native_host', scriptName);
     final windowsSeparator = String.fromCharCode(92);
     return platform == BrowserSetupHostPlatform.windows
         ? '.\\${raw.replaceAll('/', windowsSeparator)}'
@@ -435,7 +442,10 @@ class BrowserSetupService {
     var display = path;
     final windowsSeparator = String.fromCharCode(92);
     if (root != null && p.isWithin(root, path)) {
-      final relative = p.relative(path, from: root);
+      // Re-spelled in POSIX for the same reason as
+      // [_defaultInstallScriptDisplayPath]: `p.relative` yields the HOST
+      // separator, but the string is rendered for [platform].
+      final relative = p.posix.joinAll(p.split(p.relative(path, from: root)));
       display = platform == BrowserSetupHostPlatform.windows
           ? '.\\${relative.replaceAll('/', windowsSeparator)}'
           : './$relative';
