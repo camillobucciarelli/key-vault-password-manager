@@ -202,6 +202,179 @@ test("M7: the one-shot post-blur poll catches an activeElement that settles late
 });
 
 // ---------------------------------------------------------------------------
+// M7 — iframe → iframe. The top window blurs on the way INTO a child browsing
+// context and is already blurred once focus is in one, so moving straight from
+// iframe A to iframe B fires NO second window blur. A hint that only ever
+// re-derives on window blur therefore stays glued to A. Cosmetic, but wrong to
+// show — and the fake used to hide it by emitting the second blur anyway.
+// ---------------------------------------------------------------------------
+
+/** Two cross-origin iframes at different x offsets, so the hint's anchor is
+ *  observable through the overlay host's fixed position. */
+async function twoForeignFrames() {
+  const ctx = await loginPage();
+  const make = (src, left) => {
+    const el = ctx.page.document.createElement("iframe");
+    el.setAttribute("src", src);
+    el._rect = {
+      x: left, y: 100, top: 100, bottom: 140,
+      left, right: left + 300, width: 300, height: 40,
+    };
+    ctx.page.document.body.appendChild(el);
+    return el;
+  };
+  return {
+    ...ctx,
+    frameA: make("https://a.example/login", 10),
+    frameB: make("https://b.example/login", 500),
+  };
+}
+
+const hintLeft = (page) => page.overlayHosts()[0]?.style?.left;
+
+test("M7 FIDELITY: focus moving between two child frames fires no second window blur", async () => {
+  // The premise of the bug. If this ever stops holding, the re-check below is
+  // dead weight — and the test that proves the re-check works would be
+  // passing for the wrong reason.
+  const { page, frameA, frameB } = await twoForeignFrames();
+  let blurs = 0;
+  page.window.addEventListener("blur", () => {
+    blurs += 1;
+  });
+
+  await page.focus(frameA);
+  assert.equal(blurs, 1, "entering the first child frame blurs the top window");
+  await page.focus(frameB);
+  assert.equal(blurs, 1, "the top window has no focus left to lose");
+});
+
+test("M7: focus moving straight from one cross-origin iframe to another re-anchors the hint", async () => {
+  const { page, frameA, frameB } = await twoForeignFrames();
+
+  await page.focus(frameA);
+  assert.equal(overlayCount(page), 1);
+  assert.equal(hintLeft(page), "10px", "the hint is anchored to frame A");
+
+  await page.focus(frameB);
+
+  assert.equal(overlayCount(page), 1, "exactly one hint, never two");
+  assert.equal(statusText(page), UNSUPPORTED_TEXT);
+  assert.equal(hintLeft(page), "500px", "the hint must follow focus to frame B");
+  // A035 is unchanged by the re-anchor: still display-only.
+  assert.equal(page.sentOfType("requestMatches").length, 0);
+  assert.equal(page.sentOfType("fill").length, 0);
+  assert.equal(frameB.getAttribute("aria-expanded"), null);
+});
+
+test("M7: the re-anchored hint discloses nothing about either child origin", async () => {
+  // SECURITY: the parent cannot know a cross-origin child's origin and must
+  // never look like it does. The rendered surface is the frozen state string
+  // and nothing else — before and after the re-anchor.
+  const { page, frameA, frameB } = await twoForeignFrames();
+
+  await page.focus(frameA);
+  await page.focus(frameB);
+
+  // Scoped to what the EXTENSION rendered. The page's own iframes carry their
+  // `src` in the page tree — that is the page's data, not a disclosure, so a
+  // whole-document scan would be vacuously red.
+  const host = page.overlayHosts()[0];
+  const rendered = [];
+  const walk = (node) => {
+    for (const child of node.childNodes ?? []) {
+      rendered.push(child.tagName ?? "", child.id ?? "", child._text ?? "");
+      for (const [name, value] of child._attributes ?? []) rendered.push(name, value);
+      if (child._shadow) walk(child._shadow);
+      walk(child);
+    }
+  };
+  for (const [name, value] of host._attributes) rendered.push(name, value);
+  walk(host._shadow);
+
+  const surface = rendered.join("\n");
+  assert.equal(statusText(page), UNSUPPORTED_TEXT);
+  assert.ok(!surface.includes("a.example"), "frame A's origin must not leak");
+  assert.ok(!surface.includes("b.example"), "frame B's origin must not leak");
+  assert.ok(!surface.includes("https://"), "no URL of any kind is rendered");
+});
+
+test("M7: a same-origin second iframe drops the hint instead of re-anchoring", async () => {
+  // Frame B carries its own injected instance; painting the parent's hint over
+  // it would double up. Failing "closed" here means removing the hint.
+  const { page, frameA } = await twoForeignFrames();
+  const sameOrigin = page.document.createElement("iframe");
+  sameOrigin.setAttribute("src", "/widget");
+  page.document.body.appendChild(sameOrigin);
+
+  await page.focus(frameA);
+  assert.equal(overlayCount(page), 1);
+
+  await page.focus(sameOrigin);
+
+  assert.equal(overlayCount(page), 0, "no hint may survive on a same-origin frame");
+});
+
+test("M7: focus returning from a second iframe to the top document tears the hint down", async () => {
+  const { page, frameA, frameB, password } = await twoForeignFrames();
+
+  await page.focus(frameA);
+  await page.focus(frameB);
+  assert.equal(overlayCount(page), 1);
+
+  await page.focus(password);
+
+  // The hint is gone; what is open now is a normal fill session on the input.
+  assert.equal(statusText(page) !== UNSUPPORTED_TEXT, true);
+  assert.equal(overlayCount(page), 1, "exactly one overlay: the fill session");
+  assert.equal(password.getAttribute("aria-expanded"), "true");
+});
+
+test("M7: the re-check is event-independent — a silent activeElement swap still re-anchors", async () => {
+  // The load-bearing property. Whether the engine reports focusout on the
+  // outgoing iframe element is detail we refuse to depend on, so the re-check
+  // is driven by state: model an engine that fires NOTHING at all.
+  const { page, frameA, frameB } = await twoForeignFrames();
+  await page.focus(frameA);
+  assert.equal(hintLeft(page), "10px");
+
+  page.document.activeElement = frameB; // no focusout, no blur, no focusin
+  await page.tick(); // one watchdog interval
+
+  assert.equal(overlayCount(page), 1);
+  assert.equal(hintLeft(page), "500px", "the watchdog must re-anchor to frame B");
+  assert.equal(page.sentOfType("requestMatches").length, 0);
+});
+
+test("M7: a silent swap to a non-frame active element removes the hint", async () => {
+  const { page, frameA } = await twoForeignFrames();
+  await page.focus(frameA);
+  assert.equal(overlayCount(page), 1);
+
+  page.document.activeElement = page.document.body;
+  await page.tick();
+
+  assert.equal(overlayCount(page), 0);
+});
+
+test("M7: the hint re-check adds no timer that outlives the session", async () => {
+  const { page, frameA, frameB } = await twoForeignFrames();
+  const idle = page.timerCounts;
+
+  await page.focus(frameA);
+  await page.focus(frameB);
+  assert.equal(overlayCount(page), 1, "a hint must be open for this to mean anything");
+
+  await page.firePagehide(); // teardown through a non-focus path
+
+  assert.equal(overlayCount(page), 0);
+  assert.deepEqual(
+    page.timerCounts,
+    idle,
+    "every timer the hint created must die with it"
+  );
+});
+
+// ---------------------------------------------------------------------------
 // A037 — keyboard.
 // ---------------------------------------------------------------------------
 

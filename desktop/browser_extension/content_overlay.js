@@ -1387,7 +1387,14 @@
         Date.now() >= session.expiresAtEpochMs
       ) {
         teardownSession();
+        return;
       }
+      // M7 — the hint's anchor is an iframe, and the parent gets no event at
+      // all for focus moving between two child browsing contexts (see
+      // recheckFrameHint). Piggy-backing on the watchdog the session already
+      // owns keeps that case correct without adding a timer that could
+      // outlive the teardown: this interval is cleared in teardownSession().
+      if (session.kind === "hint") recheckFrameHint();
     }, WATCHDOG_MS);
     anchorEl.addEventListener("keydown", onSessionKeyDown, {
       signal: session.teardownController.signal,
@@ -1441,10 +1448,8 @@
    * detectable non-same-origin iframe, render the display-only hint session
    * (A035 semantics unchanged: no query, no fill, manual copy from the app).
    * The hint tears down through the normal paths when focus returns to the
-   * top document (focusin), the page hides, or the TTL watchdog fires.
-   * KNOWN LIMIT: focus moving directly between two iframes fires no second
-   * top-window blur, so the hint stays anchored to the first — cosmetic
-   * only, no authorization is derived from it.
+   * top document (focusin), the page hides, or the TTL watchdog fires — and
+   * re-anchors on an iframe→iframe move through `recheckFrameHint`.
    */
   const maybeStartFrameHint = () => {
     if (instanceMode !== "supported") return false;
@@ -1455,6 +1460,32 @@
     teardownSession();
     startSession(active, null, "hint");
     return true;
+  };
+
+  /**
+   * M7 — re-anchor or drop a live hint whose iframe is no longer the active
+   * element. Focus moving DIRECTLY from one child browsing context to another
+   * fires no second top-window blur (the top window is already blurred), and
+   * whether the parent even sees a `focusout` on the outgoing iframe element
+   * is engine detail we do not want to depend on. So the check is driven by
+   * state, not by an event: compare `document.activeElement` against the
+   * iframe the hint was rendered for, and rebuild from whatever is actually
+   * focused now.
+   *
+   * `maybeStartFrameHint` already tears the old session down before starting
+   * the new one, so the only extra case is "active element is not a hint
+   * target any more" — the hint must go away rather than linger over a frame
+   * nobody is in.
+   *
+   * SECURITY: unchanged. The hint renders the frozen `unsupported_frame`
+   * string and nothing else; re-anchoring reads the new iframe only for
+   * geometry, exactly as the first render did, and still discloses nothing
+   * about the child's origin. No query is sent, no fill path is minted.
+   */
+  const recheckFrameHint = () => {
+    if (session === null || session.kind !== "hint") return;
+    if (document.activeElement === session.anchorEl) return;
+    if (!maybeStartFrameHint()) teardownSession();
   };
 
   /** One-shot post-blur re-check; owned by the instance, not the session. */
@@ -1495,7 +1526,13 @@
     s.blurTimerId = setTimeout(() => {
       if (session === s) {
         s.blurTimerId = 0;
+        const wasHint = s.kind === "hint";
         teardownSession();
+        // M7 — when the engine DOES report the outgoing iframe's focusout,
+        // re-anchor here instead of waiting up to one watchdog tick, so an
+        // iframe→iframe move never blanks the hint in between. Same guard as
+        // everywhere else: only a real hint target gets a hint.
+        if (wasHint) maybeStartFrameHint();
       }
     }, 0);
   };

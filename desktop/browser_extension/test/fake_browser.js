@@ -201,6 +201,104 @@ class FakeBrowser {
         return undefined;
       },
     };
+
+    /**
+     * `chrome.action`, modelled on the ONE behaviour the badge state machine
+     * depends on and cannot control: a per-tab paint against a tab that no
+     * longer exists REJECTS. Real Chrome resolves the tab id browser-side, so
+     * the failure arrives as a rejected promise (an unchecked
+     * `runtime.lastError` in the console), never as a synchronous throw — that
+     * asymmetry is the whole reason the worker needs a catch and not a guard.
+     *
+     * The message is Chrome's literal: "No tab with id: 42."
+     *
+     * `failNextAction` injects a DIFFERENT failure through the same API, which
+     * is what makes "the tab-gone catch is narrow" falsifiable rather than
+     * asserted in a comment.
+     */
+    this.actionCalls = [];
+    this.badges = new Map();
+    this.icons = new Map();
+    /** Set to a message to make the next chrome.action call reject with it. */
+    this.failNextAction = null;
+    /**
+     * Set to a message to make the next chrome.action call throw it
+     * SYNCHRONOUSLY, before any promise is produced.
+     *
+     * NOT AN OBSERVED CHROME BEHAVIOUR. Chrome resolves the tab id
+     * browser-side, so a dead tab always arrives as a rejection; the argument
+     * validation that *does* throw synchronously rejects malformed arguments,
+     * which the worker never sends. This injector exists so the worker's guard
+     * can be proven total over BOTH failure modes — defence in depth against
+     * an unobserved binding behaviour, deliberately labelled as such so nobody
+     * later reads it as "Chrome does this".
+     */
+    this.failNextActionSync = null;
+
+    const actionCall = (api, tabId) => {
+      self.actionCalls.push({ api, tabId });
+      if (self.failNextAction !== null) {
+        const message = self.failNextAction;
+        self.failNextAction = null;
+        throw new Error(message);
+      }
+      if (typeof tabId === "number" && !self.tabList.some((t) => t.id === tabId)) {
+        throw new Error(`No tab with id: ${tabId}.`);
+      }
+    };
+
+    /**
+     * Wraps each API so the sync injector fires OUTSIDE the async function
+     * body — inside it, a `throw` would be folded into a rejected promise and
+     * the test would not be modelling a synchronous throw at all.
+     */
+    const syncGate = (api, fn) => (args = {}) => {
+      if (self.failNextActionSync !== null) {
+        const message = self.failNextActionSync;
+        self.failNextActionSync = null;
+        self.actionCalls.push({ api, tabId: args.tabId });
+        throw new Error(message);
+      }
+      return fn(args);
+    };
+
+    this.action = {
+      setIcon: syncGate("setIcon", async ({ tabId, path, imageData } = {}) => {
+        actionCall("setIcon", tabId);
+        self.icons.set(tabId, imageData !== undefined ? "dim" : path);
+      }),
+      setBadgeText: syncGate("setBadgeText", async ({ tabId, text } = {}) => {
+        actionCall("setBadgeText", tabId);
+        const entry = self.badges.get(tabId) ?? {};
+        self.badges.set(tabId, { ...entry, text });
+      }),
+      setBadgeBackgroundColor: syncGate(
+        "setBadgeBackgroundColor",
+        async ({ tabId, color } = {}) => {
+          actionCall("setBadgeBackgroundColor", tabId);
+          const entry = self.badges.get(tabId) ?? {};
+          self.badges.set(tabId, { ...entry, color });
+        }
+      ),
+      setBadgeTextColor: syncGate(
+        "setBadgeTextColor",
+        async ({ tabId, color } = {}) => {
+          actionCall("setBadgeTextColor", tabId);
+          const entry = self.badges.get(tabId) ?? {};
+          self.badges.set(tabId, { ...entry, textColor: color });
+        }
+      ),
+    };
+  }
+
+  /** Close a tab: every later per-tab `chrome.action` call for it rejects. */
+  closeTab(tabId) {
+    this.tabList = this.tabList.filter((tab) => tab.id !== tabId);
+  }
+
+  /** The chrome.action APIs invoked for a tab, in order. */
+  actionApisFor(tabId) {
+    return this.actionCalls.filter((c) => c.tabId === tabId).map((c) => c.api);
   }
 
   /** Committed durable value, exactly as stored. */
