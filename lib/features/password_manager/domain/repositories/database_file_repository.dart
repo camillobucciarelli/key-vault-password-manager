@@ -97,4 +97,21 @@ abstract class DatabaseFileRepository {
 
   /// Deletes the file at [path] (used by `removeAndDeleteFile`).
   Future<void> deleteFile(String path);
+
+  /// Copies the file at [sourcePath] to [targetPath], overwriting an
+  /// existing target (same semantics as `File.copy`). Used by the
+  /// presentation export flows and the dated pre-rekey backup, which per
+  /// spec 008 T102 must not touch `dart:io` directly.
+  Future<void> copyFile({
+    required String sourcePath,
+    required String targetPath,
+  });
+
+  /// Renames/moves the file at [sourcePath] to [targetPath] (same
+  /// semantics as `File.rename`). Used by the database-settings rename and
+  /// its rollback (spec 008 T102).
+  Future<void> renameFile({
+    required String sourcePath,
+    required String targetPath,
+  });
 }

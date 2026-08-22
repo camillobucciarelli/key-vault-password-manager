@@ -16,6 +16,7 @@ import '../../../../../core/widgets/kv_bottom_sheet.dart';
 import '../../../../../core/widgets/kv_pill_button.dart';
 import '../../../../../injection_container.dart' as di;
 import '../../domain/errors/database_access_failure.dart';
+import '../../domain/repositories/database_file_repository.dart';
 import '../../domain/models/database_selection_item.dart';
 import '../bloc/database_selection/database_selection_bloc.dart';
 import '../bloc/database_selection/database_selection_event.dart';
@@ -158,7 +159,11 @@ class DatabaseSelectionScreen extends StatelessWidget {
         : '$savePath.kdbx';
 
     try {
-      await source.copy(resolvedPath);
+      // spec 008 T102: exports go through the domain port, never dart:io.
+      await di.sl<DatabaseFileRepository>().copyFile(
+        sourcePath: path,
+        targetPath: resolvedPath,
+      );
       messenger.showSnackBar(
         const SnackBar(content: Text('Database backup exported.')),
       );

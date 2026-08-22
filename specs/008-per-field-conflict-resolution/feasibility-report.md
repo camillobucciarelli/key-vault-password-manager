@@ -576,9 +576,57 @@ the 14-file result below is unchanged, and now provably complete for `lib/`.
 | Import/stage/replace/create/rollback covered | `passed` | row 2 + GAP 6 |
 | Settings/credential/database rename covered | `passed` | row 4 |
 | Database create/delete/export covered | `passed` | rows 5, 6, 7 + GAP 5 + CORRECTION |
-| Presentation direct database writes removed/forbidden | **`failed`** | 5 presentation writers still exist (`presentation layer still mutates database files directly`) — Gate 1 T102 |
+| Presentation direct database writes removed/forbidden | `passed` (2026-08-22, Gate 1 T102) | all 5 presentation writers now delegate to `DatabaseFileRepository.copyFile/renameFile`; guarded by `T102 architecture presentation layer performs no direct file mutation` |
 | Alias and deterministic multi-path lock tests enumerated | `not-run` | enumerated below; executed in Gate 1 T107 |
 | No shared path mutex shipped by Gate 0 | `passed` | `no shared database path mutex exists yet` |
+
+### Gate 1 progress — T101/T102 (2026-08-22)
+
+**T101 — inventory frozen before the mutex.** The T007 scan result above was
+re-verified against the code: **no divergence found** — every writer the
+report lists existed at the listed operations, and no unlisted writer
+appeared. The freeze is now executable at two granularities in
+`database_writer_inventory_test.dart`:
+
+- `inventory baseline` (unchanged mechanism): file → operation kinds, all of
+  `lib/` + `tool/`;
+- `T101 frozen writer inventory` (new): exact **mutation call-site counts**
+  per database-writer file (`vault_kdbx_service` 3/6/3
+  writeAsBytes/rename/delete, `database_import_service` 4/12/8/1
+  writeAsBytes/rename/delete/copy, `database_sync_orchestrator` 3/1
+  writeAsBytes/copy, `mobile_file_storage` 1/1/1
+  writeAsBytes/delete/create), plus a by-name freeze of the T101 entry
+  points (credential transaction, `syncNow`/`_backupFile`, import
+  stage/commit/finalize/rollback/create, session-coordinator
+  create/import/remove, `updateDatabaseSettings`/`_writeDatedPreRekeyBackup`,
+  `_exportDatabaseBackup`). A new call site in an already-listed file now
+  fails the freeze, which the kind-level baseline alone could not detect.
+
+**T102 — presentation database file writes removed.** The five presentation
+writers in the 14-file table (rows 4, 5, 6, 8, 9) no longer perform any
+direct `dart:io` mutation. `DatabaseFileRepository` (domain port) gained
+`copyFile`/`renameFile`, implemented by `DatabaseImportService` (data):
+
+- `vault_session_coordinator.dart` — settings rename, both rollback renames
+  and the dated pre-rekey backup copy go through the injected port;
+- `database_selection_screen.dart`, `vault_shared.part.dart` (database and
+  key-file export), `internal_key_file_manager_dialog.dart`/`_sheet.dart`
+  (key-file export) resolve the port via DI for the copy.
+
+Pure refactor: flows, error handling and UX are unchanged. Enforcement is the
+`T102 architecture` group — the presentation layer is pinned at **zero**
+direct file mutations, kill-checked by temporarily adding a
+`File(...).writeAsBytes` to a presentation file (baseline and architecture
+tests both failed, then the injection was removed). The scan-result table
+above is retained as T007 evidence; post-T102 the direct-writer set is the
+9 data/core rows (1–3, 7, 10–14) with row 2 additionally holding the `copy`
+port implementation.
+
+Still open for Gate 1: T103–T111 (path identity, mutex, routing, rename
+transaction, collision-safe backup, safe writer, failure tests, platform
+artifacts). GAP 1 (`MobileFileStorage`) and GAP 5 (domain-layer KDBX
+serialization) remain unresolved by design at this step — they are mutex
+routing (T104/T105) concerns, not presentation writes.
 
 ## Path identity design (input to Gate 1 T103/T104)
 

@@ -112,6 +112,22 @@ class _FakeDatabaseFileRepository implements DatabaseFileRepository {
   }
 
   @override
+  Future<void> copyFile({
+    required String sourcePath,
+    required String targetPath,
+  }) async {
+    throw UnimplementedError('copyFile is not exercised by this use case');
+  }
+
+  @override
+  Future<void> renameFile({
+    required String sourcePath,
+    required String targetPath,
+  }) async {
+    throw UnimplementedError('renameFile is not exercised by this use case');
+  }
+
+  @override
   Future<String?> ensureManagedKeyFilePath(String? keyFilePath) async =>
       keyFilePath;
 

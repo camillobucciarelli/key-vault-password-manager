@@ -254,7 +254,11 @@ Future<void> _exportDatabaseBackup(
   final resolvedPath = savePath.toLowerCase().endsWith('.kdbx')
       ? savePath
       : '$savePath.kdbx';
-  await source.copy(resolvedPath);
+  // spec 008 T102: exports go through the domain port, never dart:io.
+  await di.sl<DatabaseFileRepository>().copyFile(
+    sourcePath: databasePath,
+    targetPath: resolvedPath,
+  );
   messenger.showSnackBar(
     const SnackBar(content: Text('Database backup exported.')),
   );
@@ -291,7 +295,10 @@ Future<void> _exportKeyFileBackup(BuildContext context) async {
     return;
   }
 
-  await source.copy(savePath);
+  await di.sl<DatabaseFileRepository>().copyFile(
+    sourcePath: keyPath,
+    targetPath: savePath,
+  );
   messenger.showSnackBar(
     const SnackBar(content: Text('Key file backup exported.')),
   );

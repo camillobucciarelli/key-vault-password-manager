@@ -52,6 +52,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
 
   sl.registerLazySingleton<VaultSessionCoordinator>(
     () => VaultSessionCoordinator(
+      databaseFileRepository: sl(),
       localDataSource: sl(),
       databaseRegistryRepository: sl(),
       databaseSecurityRepository: sl(),

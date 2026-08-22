@@ -168,7 +168,7 @@ flutter test test/features/password_manager/data/services/sync_merge_convergence
 
 ## Phase 1 — All-writer serialization and filesystem safety
 
-- [ ] **T101 Freeze writer inventory before mutex** — verify current paths:
+- [x] **T101 Freeze writer inventory before mutex** — verify current paths:
       `VaultKdbxService` all mutations + credential transaction;
       `DatabaseSyncOrchestrator.syncNow/_backupFile`;
       `DatabaseImportService` import/stage/commit/finalize/rollback/move/replace/
@@ -176,7 +176,7 @@ flutter test test/features/password_manager/data/services/sync_merge_convergence
       `VaultSessionCoordinator.updateDatabaseSettings` settings/credential/
       rename/rollback; database exports in `database_selection_screen.dart` and
       `vault_navigation.part.dart`.
-- [ ] **T102 Remove presentation database file writes** — export/copy/delete/
+- [x] **T102 Remove presentation database file writes** — export/copy/delete/
       rename operations use domain ports with data implementations. Architecture
       test rejects new presentation `dart:io` database mutation.
 - [ ] **T103 `database_path_identity_resolver.dart`** — normalize absolute/
