@@ -446,12 +446,102 @@ exactly these 18 basenames with no missing/extra PNGs.
 JavaScript strings are immutable; no requirement may claim deterministic memory
 zeroization or garbage-collection timing.
 
+## Slice C — one global switch replaces the per-origin opt-in
+
+**Status**: implemented. This section AMENDS the model described above; it does
+not rewrite it. Slices A0–A3 really were per-origin, their tasks really were
+executed as written, and their tasks stay ticked. What follows is the change
+made on top of them and the reason for it.
+
+### The change
+
+The durable opt-in is no longer a list of individually enabled origins. It is
+one boolean:
+
+```text
+overlayConfigV1 { version: 1, revision, enabledOrigins[] }   <- slices A0–A3
+overlayConfigV2 { version: 2, revision, enabled }            <- slice C
+```
+
+The popup shows a single switch. Turning it on requests both optional host
+patterns (`http://*/*`, `https://*/*`) once, under the user gesture. One
+content-script registration covers `http(s)://*/*` instead of one registration
+per enabled pattern.
+
+### Why
+
+The per-origin control was unusable in practice. Before the overlay could
+appear on a site, the user had to notice the site was not enabled, open the
+toolbar popup, and click *Turn on* — for every site, forever. The realistic
+outcome was that the overlay never appeared, which is not a safer product than
+one broad informed grant; it is the same product with a feature nobody reaches.
+
+### Relationship to "Broad always-on site access" in Out of scope
+
+That bullet is narrowed rather than deleted, and the distinction is the whole
+point of this slice. What is now in scope is broad **injection**: the overlay
+script may run on any http(s) page while the switch is on. What remains out of
+scope, and is unchanged, is broad **behaviour**: the extension does not read,
+collect or transmit page content, does not fill or submit anything without an
+explicit click, and does not widen what the app will disclose.
+
+### What Slice C did NOT change
+
+Asserted by the test suite and by the mutation table, not merely intended:
+
+- **A015 / the manifest.** Byte-identical. Still no `host_permissions`, still no
+  static `content_scripts`, still no `tabs`/`webNavigation`/clipboard, still
+  `<all_urls>`-free. The broad pair was already declared as
+  `optional_host_permissions` before this slice; only the runtime request
+  changed shape.
+- **Exact-origin disclosure.** The authoritative origin is still derived from
+  `sender.url`, the body origin is still only a mismatch detector, the native
+  metadata query is still made with the frame's exact origin including port,
+  and the reveal is still bound to it. A frame is authorized to RUN, not to
+  ask about a neighbour.
+- **One-shot focus tokens, the TTL ceiling, and the
+  `(databaseId, cacheGeneration, bridgeGeneration)` binding.**
+- **`isTrusted` on every activation handler, the closed shadow root, the log
+  sanitizer, and every teardown trigger.**
+- **The crash-consistent disable order D1–D5.** D1 is still the durable commit
+  and still precedes every side effect; only what each phase converges on
+  changed.
+- **The 18 visual baselines.** The in-page overlay UI is untouched and the
+  baselines verify byte-identical without recapture.
+
+### What Slice C did change, deliberately
+
+- A sibling port, a sibling scheme and a look-alike host now all get the
+  overlay injected, where before only an exactly-enabled origin did. Each is
+  still a separate identity to the vault, so none of them sees another's
+  entries.
+- Refcounting of permissions and registrations across origins sharing one
+  Chromium pattern is gone; there is nothing to share.
+- `unsupported_origin` and `too_many_origins` no longer exist as refusals.
+
+### Migration
+
+A surviving `overlayConfigV1` value is not readable by this build and is never
+interpreted. The overlay starts **disabled** after the upgrade regardless of how
+many origins were enabled before — consent to three named sites is not consent
+to all sites — and reconciliation revokes every residual per-origin host
+permission, unregisters every per-origin content script, and deletes the stale
+key. This holds even when the broad grant happens to be held already (a user
+can set "On all sites" by hand from `chrome://extensions`): a browser
+permission is not consent to the feature.
+
+The revision floor key is deliberately NOT renamed alongside the config key, so
+revision monotonicity holds across the v1→v2 boundary and a focus grant minted
+at a v1 revision can never compare as current against a restarted counter.
+
 ## Out of scope
 
 - Automatic fill or submit.
 - TOTP fill.
 - Automatic save or vault mutation from page.
-- Broad always-on site access.
+- Broad always-on site *behaviour* — reading, collecting or transmitting page
+  content. Broad *injection* is in scope as of Slice C; see that section for
+  the distinction.
 - Built-in clipboard fallback.
 - Firefox/Safari support.
 - Universal iframe or Shadow DOM security claims.

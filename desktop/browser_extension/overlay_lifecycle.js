@@ -6,8 +6,8 @@
 // fake browser. There is one implementation of every rule below.
 //
 // Every validation rule this file needs already exists in `overlay_security.js`
-// (SR-2 canonical origin, permission-pattern derivation, `overlayConfigV1`
-// shape, focus-grant store). Nothing is re-implemented here: this file owns
+// (SR-2 canonical origin, the broad permission set, `overlayConfigV2` shape,
+// focus-grant store). Nothing is re-implemented here: this file owns
 // only the *lifecycle* — when the durable value is written, in which order the
 // revocation side effects run, and how a cold worker reconciles browser state
 // back to the committed config.
@@ -57,17 +57,16 @@ function isOverlayRegistrationId(id) {
 /**
  * The browser permission patterns the committed config justifies.
  *
- * Derived, never persisted (data-model.md). Two enabled origins that differ
- * only by port collapse onto one pattern, which is precisely why disabling one
- * of them must not remove the permission the other still needs.
+ * Derived, never persisted (data-model.md). Slice C reduces this to a single
+ * all-or-nothing answer: the global switch justifies BOTH broad patterns, and
+ * an off switch justifies none. A pattern the browser holds that is not in
+ * this set is an orphan — which is exactly how every residual Slice A2
+ * per-origin grant gets revoked on the first reconcile after the upgrade.
  */
 function desiredPatterns(config) {
-  const patterns = new Set();
-  for (const origin of config.enabledOrigins) {
-    const pattern = securityModule.permissionPatternForOrigin(origin);
-    if (pattern !== null) patterns.add(pattern);
-  }
-  return patterns;
+  return config.enabled === true
+    ? new Set(securityModule.GLOBAL_PERMISSION_PATTERNS)
+    : new Set();
 }
 
 // Registration and injection both target the isolated world at document_idle,
@@ -79,10 +78,26 @@ const CONTENT_SCRIPT_FILES = Object.freeze([
   "content_overlay.js",
 ]);
 
-function registrationForPattern(pattern) {
+/**
+ * SLICE C — the ONE registration.
+ *
+ * Its id is derived from the joined broad patterns through the same injective
+ * hex encoding Slice A2 used per origin. That is not cosmetic: because the
+ * encoding is injective, this id can never equal any per-origin id a Slice A2
+ * install left registered, so those registrations are classified as orphans
+ * and unregistered on the first reconcile instead of lingering alongside it.
+ */
+const GLOBAL_REGISTRATION_PATTERN_KEY =
+  securityModule.GLOBAL_PERMISSION_PATTERNS.join(",");
+
+const GLOBAL_REGISTRATION_ID = registrationIdForPattern(
+  GLOBAL_REGISTRATION_PATTERN_KEY
+);
+
+function globalRegistration() {
   return {
-    id: registrationIdForPattern(pattern),
-    matches: [pattern],
+    id: GLOBAL_REGISTRATION_ID,
+    matches: [...securityModule.GLOBAL_PERMISSION_PATTERNS],
     js: [...CONTENT_SCRIPT_FILES],
     runAt: "document_idle",
     allFrames: true,
@@ -97,25 +112,59 @@ function registrationForPattern(pattern) {
 // Pure so the popup renders a state it did not compute itself. `denied` is not
 // derivable from durable state: it is the transient answer to one declined
 // `permissions.request`, so the popup passes it in.
+//
+// SLICE C — the switch is GLOBAL, so the state is derived from the config, not
+// from the tab. `tabUrl` survives for exactly one purpose: when the switch is
+// OFF and the current page is not an http(s) page, "unsupported" is the honest
+// answer (turning the overlay on would visibly do nothing here).
+//
+// ORDER MATTERS AND IS A SAFETY PROPERTY: `enabled` is reported BEFORE the
+// `unsupported` check, so a user sitting on a `chrome://` page is still shown
+// the switch in its on state with a working "Turn off". A UI that hid the off
+// switch on non-http(s) pages would be a permission the user cannot withdraw
+// from where they are standing.
+//
+// WHY `reconciling` IS KEPT, and its exact reachability today.
+//
+// REACHABILITY: this branch is currently reachable ONLY from tests. The single
+// production caller, `siteState`, awaits `ready()` and then calls this without
+// passing `ready`, so the default `true` always wins. `test/
+// overlay_lifecycle.test.js` is the only site that passes `ready: false`.
+// Stated here so nobody deletes it believing it dead, and nobody reads it as
+// evidence that the popup renders this state today. It does not.
+//
+// WHY IT STAYS ANYWAY: it is the correct answer for a window that genuinely
+// exists, and the alternative is not "no state" but a WRONG state. Without it
+// a popup opened while reconciliation is in flight would fall through to
+// `disabled` and render "Off / Turn on". A user clicking that would fire
+// `permissions.request` while a reconcile is still running — reopening exactly
+// the grant/sweep race A2-M15 pins, this time from the UI side, where the
+// worker's `prunePermissions: false` deferral cannot help because the reconcile
+// is already in flight and never saw the grant.
+//
+// So the branch is retained deliberately: the moment `siteState` (or any future
+// caller) reports readiness honestly instead of awaiting it, this is the state
+// that must be rendered, and the popup already handles it as a no-action row.
 // ---------------------------------------------------------------------------
 
-function computeSiteControlState({
-  tabUrl,
+function computeGlobalControlState({
+  tabUrl = null,
   config,
   ready = true,
   lastRequestDenied = false,
 }) {
-  const origin = securityModule.canonicalOriginOrNull(tabUrl);
-  if (origin === null) {
-    return { state: "unsupported", origin: null, pattern: null };
+  const pageOrigin = securityModule.canonicalOriginOrNull(tabUrl);
+  if (!ready) return { state: "reconciling", pageOrigin };
+  if (config.enabled === true) return { state: "enabled", pageOrigin };
+  if (lastRequestDenied) return { state: "denied", pageOrigin };
+  // `unsupported` is a claim about a page we were actually told about. A caller
+  // that supplied no tab at all (the `setSiteState` echo, for instance) gets
+  // the plain global answer instead of a guess about a page it never named.
+  const tabWasSupplied = tabUrl !== null && tabUrl !== undefined;
+  if (tabWasSupplied && pageOrigin === null) {
+    return { state: "unsupported", pageOrigin: null };
   }
-  const pattern = securityModule.permissionPatternForOrigin(origin);
-  if (!ready) return { state: "reconciling", origin, pattern };
-  if (config.enabledOrigins.includes(origin)) {
-    return { state: "enabled", origin, pattern };
-  }
-  if (lastRequestDenied) return { state: "denied", origin, pattern };
-  return { state: "disabled", origin, pattern };
+  return { state: "disabled", pageOrigin };
 }
 
 // ---------------------------------------------------------------------------
@@ -124,13 +173,12 @@ const DISABLE_PHASES = Object.freeze(["D1", "D2", "D3", "D4", "D5"]);
 
 /**
  * Canonical JSON with object keys sorted recursively. Array order is
- * preserved — `enabledOrigins` is sorted by contract, so a reordered array IS
- * a different value and must still mismatch.
+ * preserved: a reordered array IS a different value and must still mismatch.
  *
  * Exists because real Chrome (measured on 151) returns
  * `chrome.storage.local.get` objects with keys in ALPHABETICAL order, not
- * insertion order: `set {version, revision, enabledOrigins}` reads back as
- * `{enabledOrigins, revision, version}`. A readback compared through plain
+ * insertion order: `set {version, revision, enabled}` reads back as
+ * `{enabled, revision, version}`. A readback compared through plain
  * `JSON.stringify` therefore mismatches on EVERY commit in production while
  * comparing equal in any harness that preserves insertion order. The readback
  * guard's intent is value identity, not byte identity of one serialization.
@@ -184,8 +232,13 @@ class OverlayLifecycle {
   /**
    * A023 — the durable monotonic revision floor.
    *
+   * The floor key is INTENTIONALLY not versioned alongside the config: Slice C
+   * renamed `overlayConfigV1` to `overlayConfigV2`, and if the floor had been
+   * renamed with it the v2 config would have restarted at revision 1 while
+   * focus grants minted at a higher v1 revision were still in flight.
+   *
    * CLOSES the "KNOWN GAP" Slice A2 left here. In A2 a total corruption of
-   * `overlayConfigV1` (an unreadable revision, `null`, a missing key, a
+   * the config (an unreadable revision, `null`, a missing key, a
    * negative revision) salvaged 0 and the next commit restarted the counter at
    * revision 1. That was harmless while nothing was authorized. In A3 it is
    * not: a focus grant carries `configRevision`, and `FocusGrantStore.consume`
@@ -197,7 +250,7 @@ class OverlayLifecycle {
    *
    *   PREVENTION — this floor. Written in the SAME `storage.local.set` as the
    *   config (one operation, so D1 stays a single atomic commit) but under its
-   *   own key, so corruption of `overlayConfigV1` does not destroy it. Every
+   *   own key, so corruption of `overlayConfigV2` does not destroy it. Every
    *   commit raises it, every read raises the recovered revision to it, and a
    *   config whose revision is BELOW it is treated as corrupt — that is what a
    *   rollback to an older-but-well-formed value looks like.
@@ -236,16 +289,14 @@ class OverlayLifecycle {
         __invalid: true,
       };
     }
-    return {
-      version: 1,
-      revision: raw.revision,
-      enabledOrigins: [...raw.enabledOrigins],
-    };
+    return { version: 2, revision: raw.revision, enabled: raw.enabled };
   }
 
   /**
-   * Committed authorization state. Anything invalid or missing reads as zero
-   * enabled origins; this method never writes, so a read path can never grant.
+   * Committed authorization state. Anything invalid or missing — including a
+   * surviving Slice A2 `overlayConfigV1` value, which this build cannot parse
+   * — reads as DISABLED. This method never writes, so a read path can never
+   * grant.
    */
   async readCommittedConfig() {
     return this._readConfig();
@@ -303,12 +354,8 @@ class OverlayLifecycle {
     return next;
   }
 
-  _nextConfig(config, enabledOrigins) {
-    return {
-      version: 1,
-      revision: config.revision + 1,
-      enabledOrigins: [...enabledOrigins].sort(),
-    };
+  _nextConfig(config, enabled) {
+    return { version: 2, revision: config.revision + 1, enabled: enabled === true };
   }
 
   async _fault(phase) {
@@ -339,10 +386,20 @@ class OverlayLifecycle {
     }
   }
 
-  async _hasPattern(pattern) {
-    if (pattern === null) return false;
+  /**
+   * Does the browser still hold the BROAD grant?
+   *
+   * One `permissions.contains` over the whole set, so a partial grant answers
+   * false. A throw answers false too: the reconciler must never read "I could
+   * not ask" as "yes".
+   */
+  async _hasGlobalGrant() {
     try {
-      return (await this._browser.permissions.contains({ origins: [pattern] })) === true;
+      return (
+        (await this._browser.permissions.contains({
+          origins: [...securityModule.GLOBAL_PERMISSION_PATTERNS],
+        })) === true
+      );
     } catch (_) {
       return false;
     }
@@ -359,32 +416,39 @@ class OverlayLifecycle {
     }
   }
 
-  /** D4. Registrations converge on exactly the patterns the config justifies. */
+  /**
+   * D4. Registrations converge on exactly what the config justifies: the one
+   * global registration when the switch is on, nothing at all when it is off.
+   *
+   * Every other `kv-overlay-` registration is an orphan and is removed — which
+   * is how the per-origin registrations a Slice A2 install persisted across
+   * sessions are cleaned up, without a single line of migration-specific code.
+   */
   async _reconcileRegistrations(config) {
-    const desired = desiredPatterns(config);
-    const desiredIds = new Set([...desired].map(registrationIdForPattern));
+    const wanted = config.enabled === true;
     const registered = await this._registeredOverlayScripts();
-    const registeredIds = new Set(registered.map((script) => script.id));
 
     const orphans = registered
       .map((script) => script.id)
-      .filter((id) => !desiredIds.has(id));
+      .filter((id) => !(wanted && id === GLOBAL_REGISTRATION_ID));
     if (orphans.length > 0) {
       await this._browser.scripting.unregisterContentScripts({ ids: orphans });
     }
 
-    const missing = [...desired]
-      .filter((pattern) => !registeredIds.has(registrationIdForPattern(pattern)))
-      .map(registrationForPattern);
-    if (missing.length > 0) {
-      await this._browser.scripting.registerContentScripts(missing);
+    const alreadyRegistered = registered.some(
+      (script) => script.id === GLOBAL_REGISTRATION_ID
+    );
+    if (wanted && !alreadyRegistered) {
+      await this._browser.scripting.registerContentScripts([globalRegistration()]);
     }
   }
 
   /**
    * D5. Optional host permissions converge on the patterns the config
-   * justifies. A pattern shared by another still-enabled origin is retained;
-   * that check reads committed origins, never the caller's intent.
+   * justifies. When the switch is off that set is EMPTY, so every granted
+   * origin pattern is removed — the broad pair this build asks for and any
+   * per-origin pattern a Slice A2 install left behind alike. The check reads
+   * committed config, never the caller's intent.
    */
   async _reconcilePermissions(config) {
     const desired = desiredPatterns(config);
@@ -463,7 +527,7 @@ class OverlayLifecycle {
    * popup's `setSiteState` message reaches this worker — so at that moment the
    * freshly granted pattern is not yet justified by committed config and a
    * full reconcile would classify it as an orphan and revoke it, making the
-   * enable fail (`enableOrigin` re-checks `permissions.contains`).
+   * enable fail (`enable` re-checks `permissions.contains`).
    *
    * Deferring the orphan sweep on that one trigger is safe because the
    * DURABLE CONFIG, never the browser permission alone, is the authorization
@@ -473,9 +537,9 @@ class OverlayLifecycle {
    * sweep still runs on every other trigger — cold start / `ready()`, popup
    * open (`siteState`), `permissions.onRemoved`, and the disable flow (D5).
    *
-   * TOCTOU variant (full reconcile computes orphans, `enableOrigin` commits,
+   * TOCTOU variant (full reconcile computes orphans, `enable` commits,
    * reconcile then removes): impossible by construction inside one worker.
-   * Both `reconcile()` and `enableOrigin()` run their ENTIRE body — config
+   * Both `reconcile()` and `enable()` run their ENTIRE body — config
    * read, orphan computation, `permissions.remove` — inside `_withLock`, one
    * FIFO promise queue per lifecycle instance, and `background.js` constructs
    * exactly one instance per worker. So a full reconcile either finishes
@@ -487,8 +551,10 @@ class OverlayLifecycle {
     return this._withLock(async () => {
       let config = await this.readCommittedConfig();
 
-      // Invalid or missing durable state becomes zero enabled origins, written
+      // Invalid, missing, or Slice A2 durable state becomes DISABLED, written
       // back as one valid revisioned config, before any registration exists.
+      // This is also the whole of the v1→v2 migration: a v1 value cannot parse
+      // as v2, so it lands here and can only ever produce `enabled: false`.
       if (config.__invalid === true) {
         config = await this._commitConfig(
           securityModule.emptyOverlayConfig(config.revision + 1)
@@ -500,24 +566,35 @@ class OverlayLifecycle {
       this._grants.clear();
 
       // A permission revoked outside the popup (chrome://extensions) durably
-      // disables the affected origins in one revisioned write.
-      const survivors = [];
-      for (const origin of config.enabledOrigins) {
-        const pattern = securityModule.permissionPatternForOrigin(origin);
-        if (await this._hasPattern(pattern)) survivors.push(origin);
-      }
-      if (survivors.length !== config.enabledOrigins.length) {
-        config = await this._commitConfig(this._nextConfig(config, survivors));
-        // One broadcast regardless of how many origins were dropped: the
-        // message carries only the new revision, so per-origin fan-out would
-        // add round trips without adding information.
+      // disables the overlay in one revisioned write. Under the global model
+      // this is all-or-nothing: losing either half of the broad pair is a
+      // revocation, because a half-injected overlay is not a state the user
+      // consented to.
+      if (config.enabled === true && !(await this._hasGlobalGrant())) {
+        config = await this._commitConfig(this._nextConfig(config, false));
         await this._broadcastTeardown(config.revision);
       }
 
       await this._reconcileRegistrations(config);
       if (prunePermissions) await this._reconcilePermissions(config);
+      // Hygiene, deliberately AFTER the commit and outside it: the Slice A2 key
+      // is never read by this build, so deleting it authorizes nothing and a
+      // failure here is harmless. Doing it inside the commit would put a
+      // non-authorization write inside the single atomic D1 operation.
+      await this._dropLegacyConfig();
       return config;
     });
+  }
+
+  /** Deletes the Slice A2 storage key. Best effort; never authorizes anything. */
+  async _dropLegacyConfig() {
+    try {
+      await this._browser.storage.local.remove(
+        securityModule.OVERLAY_LEGACY_CONFIG_KEY
+      );
+    } catch (_) {
+      // Retried by the next reconciliation. The value is inert either way.
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -525,35 +602,26 @@ class OverlayLifecycle {
   // -------------------------------------------------------------------------
 
   /**
-   * Persists an opt-in. The permission grant is the popup's job (it needs the
-   * user gesture); this method refuses to persist unless the browser confirms
-   * the derived pattern is actually held, so a declined or revoked grant can
-   * never leave an enabled origin behind.
+   * Persists the global opt-in. The permission grant is the popup's job (it
+   * needs the user gesture); this method refuses to persist unless the browser
+   * confirms the BROAD grant is actually held, so a declined, partial or
+   * revoked grant can never leave the overlay durably enabled.
    */
-  async enableOrigin({ origin, tabId } = {}) {
+  async enable({ tabId } = {}) {
     return this._withLock(async () => {
-      const canonical = securityModule.canonicalOriginOrNull(origin);
-      if (canonical === null) return { ok: false, error: "unsupported_origin" };
-
-      const pattern = securityModule.permissionPatternForOrigin(canonical);
-      if (!(await this._hasPattern(pattern))) {
+      if (!(await this._hasGlobalGrant())) {
         return { ok: false, error: "permission_missing" };
       }
 
       let config = await this.readCommittedConfig();
       if (config.__invalid === true) {
-        // Same salvage as `disableOrigin`: the recovered value is in-memory
-        // only and is never committed on its own, so the single write below
-        // advances the revision by exactly one either way.
+        // Same salvage as `disable`: the recovered value is in-memory only and
+        // is never committed on its own, so the single write below advances the
+        // revision by exactly one either way.
         config = securityModule.emptyOverlayConfig(config.revision);
       }
-      if (!config.enabledOrigins.includes(canonical)) {
-        if (config.enabledOrigins.length >= securityModule.LIMITS.ENABLED_ORIGINS) {
-          return { ok: false, error: "too_many_origins" };
-        }
-        config = await this._commitConfig(
-          this._nextConfig(config, [...config.enabledOrigins, canonical])
-        );
+      if (config.enabled !== true) {
+        config = await this._commitConfig(this._nextConfig(config, true));
       }
 
       await this._reconcileRegistrations(config);
@@ -571,7 +639,7 @@ class OverlayLifecycle {
           // nothing; SR-7 forbids claiming injection happened.
         }
       }
-      return { ok: true, revision: config.revision, origin: canonical };
+      return { ok: true, revision: config.revision };
     });
   }
 
@@ -592,12 +660,14 @@ class OverlayLifecycle {
    *     (`validateEnableIntent`, exact keys, canonical origin).
    *   - TTL: an intent older than `ENABLE_INTENT_TTL_MS` (or from the future)
    *     is only deleted, never acted on.
-   *   - The ORIGIN comes ONLY from the intent. It is never derived from the
-   *     granted pattern, which loses the port. The grant event must instead
-   *     cover exactly the pattern the intent's origin derives — a grant the
-   *     user accepted for some other site enables nothing.
-   *   - The enable goes through the same `enableOrigin` (permission re-check,
-   *     single commit, registration) as the popup path. No new path. It is
+   *   - GRANT SUFFICIENCY: the event must carry the WHOLE broad pair. Slice A2
+   *     compared the granted pattern against the origin named in the intent;
+   *     under one global switch there is no origin to compare, so the check
+   *     that survives is that the grant the user just accepted actually covers
+   *     what this switch means. A narrower grant — including a per-origin
+   *     pattern granted for some unrelated reason — enables nothing.
+   *   - The enable goes through the same `enable` (permission re-check, single
+   *     commit, registration) as the popup path. No new path. It is
    *     idempotent, so popup-survives platforms where both complete still
    *     produce one coherent outcome.
    *
@@ -626,11 +696,10 @@ class OverlayLifecycle {
     if (!(age >= 0 && age <= securityModule.ENABLE_INTENT_TTL_MS)) {
       return { ok: false, error: "expired_intent" };
     }
-    const pattern = securityModule.permissionPatternForOrigin(raw.origin);
-    if (pattern === null || !grantedOrigins.includes(pattern)) {
+    if (!securityModule.coversGlobalPermission(grantedOrigins)) {
       return { ok: false, error: "pattern_mismatch" };
     }
-    return this.enableOrigin({ origin: raw.origin, tabId: raw.tabId });
+    return this.enable({ tabId: raw.tabId });
   }
 
   // -------------------------------------------------------------------------
@@ -649,15 +718,15 @@ class OverlayLifecycle {
    * finishes through `reconcile()`.
    *
    * Moving `_commitConfig` after any of D2–D5 reintroduces a window where a
-   * crash leaves the browser cleaned up but the origin still durably
+   * crash leaves the browser cleaned up but the overlay still durably
    * authorized. `test/overlay_lifecycle.test.js` and
    * `test/overlay_crash_consistency.test.js` both fail if that order changes.
+   *
+   * SLICE C changes WHAT each phase converges on, never the order or the rule
+   * that D1 comes first.
    */
-  async disableOrigin({ origin } = {}) {
+  async disable() {
     return this._withLock(async () => {
-      const canonical = securityModule.canonicalOriginOrNull(origin);
-      if (canonical === null) return { ok: false, error: "unsupported_origin" };
-
       let config = await this.readCommittedConfig();
       if (config.__invalid === true) {
         config = securityModule.emptyOverlayConfig(config.revision);
@@ -665,12 +734,7 @@ class OverlayLifecycle {
 
       // D1 — durable commit. Throws on write or readback failure; nothing below
       // this line runs in that case.
-      const committed = await this._commitConfig(
-        this._nextConfig(
-          config,
-          config.enabledOrigins.filter((entry) => entry !== canonical)
-        )
-      );
+      const committed = await this._commitConfig(this._nextConfig(config, false));
       await this._fault("D1");
 
       // D2 — worker grants for the old revision are worthless now.
@@ -681,16 +745,17 @@ class OverlayLifecycle {
       await this._broadcastTeardown(committed.revision);
       await this._fault("D3");
 
-      // D4 — drop the registration only if no committed origin still needs the
-      // pattern (two ports of one host share it).
+      // D4 — drop the registration; nothing justifies it once the switch is off.
       await this._reconcileRegistrations(committed);
       await this._fault("D4");
 
-      // D5 — same sharing rule for the optional host permission.
+      // D5 — hand the broad host permission back. Leaving it granted would keep
+      // an "can read all sites" entry on the extension's permission list that
+      // nothing in this build justifies any more.
       await this._reconcilePermissions(committed);
       await this._fault("D5");
 
-      return { ok: true, revision: committed.revision, origin: canonical };
+      return { ok: true, revision: committed.revision };
     });
   }
 
@@ -698,12 +763,12 @@ class OverlayLifecycle {
   // A017/A018 — read paths.
   // -------------------------------------------------------------------------
 
-  /** Popup control state for one tab. Reconciles first, then reports. */
-  async siteState({ tabUrl, lastRequestDenied = false } = {}) {
+  /** Popup control state for the global switch. Reconciles first, then reports. */
+  async siteState({ tabUrl = null, lastRequestDenied = false } = {}) {
     await this.ready();
     const config = await this.readCommittedConfig();
     return {
-      ...computeSiteControlState({ tabUrl, config, lastRequestDenied }),
+      ...computeGlobalControlState({ tabUrl, config, lastRequestDenied }),
       revision: config.revision,
     };
   }
@@ -744,7 +809,7 @@ class OverlayLifecycle {
       sender,
       runtimeId,
       {
-        enabledOrigins: config.enabledOrigins,
+        enabled: config.enabled,
         revision: config.revision,
         grantedPatterns,
       }
@@ -755,7 +820,7 @@ class OverlayLifecycle {
       frameId: result.sender.frameId,
       frameOrigin: result.sender.origin,
       topOrigin: result.sender.topOrigin,
-      enabledOrigins: config.enabledOrigins,
+      enabled: config.enabled,
     });
     return { ok: true, sender: result.sender, config, frameSupport };
   }
@@ -773,8 +838,9 @@ class OverlayLifecycle {
     return {
       ok: true,
       type: "bootstrapResult",
-      // SR-7: `enabled` is the durable opt-in for THIS frame's exact origin.
-      // An unsupported frame keeps `enabled: true` and is refused by
+      // SR-7: reaching this line means the global switch is on AND the broad
+      // grant is held — `authorizeContentRequest` refuses otherwise. An
+      // unsupported frame keeps `enabled: true` and is refused by
       // `frameSupport`, so the content script can render the honest
       // "unsupported frame" state instead of a misleading "disabled" one.
       enabled: true,
@@ -792,11 +858,12 @@ const API = {
   CONTENT_SCRIPT_FILES,
   DISABLE_PHASES,
   REGISTRATION_PREFIX,
+  GLOBAL_REGISTRATION_ID,
   registrationIdForPattern,
   isOverlayRegistrationId,
-  registrationForPattern,
+  globalRegistration,
   desiredPatterns,
-  computeSiteControlState,
+  computeGlobalControlState,
 };
 
 if (typeof module !== "undefined" && typeof module.exports === "object") {

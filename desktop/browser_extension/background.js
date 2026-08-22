@@ -546,8 +546,8 @@ chrome.permissions.onAdded.addListener((added) => {
   //
   // Then consume the popup's pending enable intent (macOS: the permission
   // prompt closes the popup, so its own setSiteState never arrives). The
-  // origin comes ONLY from the intent; the event's granted patterns are the
-  // cross-check. See consumeEnableIntent()'s doc comment.
+  // event's granted patterns must cover the WHOLE broad set before the intent
+  // is honoured. See consumeEnableIntent()'s doc comment.
   void overlayLifecycle
     .reconcile({ prunePermissions: false })
     .then(() =>

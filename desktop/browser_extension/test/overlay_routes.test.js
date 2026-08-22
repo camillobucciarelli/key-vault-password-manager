@@ -130,21 +130,13 @@ class FakeNative {
  * survives, in-memory grants do not.
  */
 class Harness {
-  constructor({ enabled = [ORIGIN], granted, native, revision = 5 } = {}) {
+  constructor({ enabled = true, granted, native, revision = 5 } = {}) {
     this.browser = new FakeBrowser({
       storage: {
-        [security.OVERLAY_CONFIG_KEY]: {
-          version: 1,
-          revision,
-          enabledOrigins: [...enabled].sort(),
-        },
+        [security.OVERLAY_CONFIG_KEY]: { version: 2, revision, enabled },
         [security.OVERLAY_REVISION_FLOOR_KEY]: revision,
       },
-      granted:
-        granted ??
-        [...enabled]
-          .map((origin) => security.permissionPatternForOrigin(origin))
-          .filter((pattern) => pattern !== null),
+      granted: granted ?? (enabled ? [...security.GLOBAL_PERMISSION_PATTERNS] : []),
       tabs: [{ id: 42 }],
     });
     this.native = native ?? new FakeNative();
@@ -228,8 +220,8 @@ test("A022: a content-script sender cannot reach any extension-page route", asyn
   const sender = contentScriptSender({ frameUrl: PAGE_URL });
 
   for (const message of [
-    overlayMessage("getSiteState", { tabId: 42, origin: ORIGIN }),
-    overlayMessage("setSiteState", { tabId: 42, origin: ORIGIN, enabled: false }),
+    overlayMessage("getSiteState", { tabId: 42, tabUrl: PAGE_URL }),
+    overlayMessage("setSiteState", { tabId: 42, enabled: false }),
     { type: "KEYVAULT_V2_STATUS" },
     { type: "KEYVAULT_V2_REVEAL_FOR_FILL", entryId: "entry-1", origin: ORIGIN },
     { type: "KEYVAULT_V2_QUERY_CREDENTIALS", url: ORIGIN },
@@ -245,7 +237,7 @@ test("A022: a content-script sender cannot reach any extension-page route", asyn
   // request of any kind was issued.
   assert.deepEqual(harness.native.calls, []);
   // And the durable opt-in was not touched by a page asking to change it.
-  assert.deepEqual(harness.browser.config().enabledOrigins, [ORIGIN]);
+  assert.equal(harness.browser.config().enabled, true);
 });
 
 test("A022: an extension-page sender cannot reach any content route", async () => {
@@ -331,7 +323,7 @@ test("A022: the popup routes still work, under the stricter sender validator", a
   assert.deepEqual(harness.reported, { tabId: 42, count: 3 });
 
   const siteState = await harness.dispatch(
-    overlayMessage("getSiteState", { tabId: 42, origin: ORIGIN }),
+    overlayMessage("getSiteState", { tabId: 42, tabUrl: PAGE_URL }),
     sender
   );
   assert.equal(siteState.ok, true);
@@ -339,22 +331,22 @@ test("A022: the popup routes still work, under the stricter sender validator", a
 });
 
 test("A022: setSiteState still enables and disables through the popup route", async () => {
-  const harness = new Harness({ enabled: [], granted: [PATTERN] });
+  const harness = new Harness({ enabled: false, granted: [...security.GLOBAL_PERMISSION_PATTERNS] });
   const sender = extensionPageSender();
 
   const enabled = await harness.dispatch(
-    overlayMessage("setSiteState", { tabId: 42, origin: ORIGIN, enabled: true }),
+    overlayMessage("setSiteState", { tabId: 42, enabled: true }),
     sender
   );
   assert.equal(enabled.state, "enabled");
-  assert.deepEqual(harness.browser.config().enabledOrigins, [ORIGIN]);
+  assert.equal(harness.browser.config().enabled, true);
 
   const disabled = await harness.dispatch(
-    overlayMessage("setSiteState", { tabId: 42, origin: ORIGIN, enabled: false }),
+    overlayMessage("setSiteState", { tabId: 42, enabled: false }),
     sender
   );
   assert.equal(disabled.state, "disabled");
-  assert.deepEqual(harness.browser.config().enabledOrigins, []);
+  assert.equal(harness.browser.config().enabled, false);
 });
 
 test("A022: an extension-page sender that is not this extension is refused", async () => {
@@ -434,7 +426,7 @@ test("A022: an unknown key on a legacy popup route is rejected, not forwarded", 
 // ---------------------------------------------------------------------------
 
 test("A023: the origin forwarded to the native host is the sender-derived one", async () => {
-  const harness = new Harness({ enabled: [ORIGIN] });
+  const harness = new Harness();
   await harness.mintToken();
 
   const query = harness.native.callsOf("overlayQueryCredentials").at(-1);
@@ -448,7 +440,7 @@ test("A023: the origin forwarded to the native host is the sender-derived one", 
 });
 
 test("A023: a body origin that disagrees with sender.url never reaches the host", async () => {
-  const harness = new Harness({ enabled: [ORIGIN, OTHER_ORIGIN] });
+  const harness = new Harness();
 
   // Both origins are enabled and permitted, so the ONLY thing refusing this is
   // the sender-derived origin check: the page claims to be the other site.
@@ -463,8 +455,15 @@ test("A023: a body origin that disagrees with sender.url never reaches the host"
   assert.deepEqual(harness.native.calls, []);
 });
 
-test("A023: port, scheme and host differences are separate origins", async () => {
-  const harness = new Harness({ enabled: [ORIGIN] });
+// SLICE C SUBSTITUTION. This test used to assert that a sibling port, a
+// sibling scheme and a look-alike host were each REFUSED because only
+// `https://example.com` was in `enabledOrigins`. The global switch enables all
+// of them, so that outcome is gone — but the reason the test existed is not:
+// each of these is a DIFFERENT ORIGIN, and the app must be asked about the one
+// the frame actually is. A frame on `example.com.evil.test` getting answers for
+// `example.com` is the exact failure this still guards.
+test("A023: port, scheme and host differences are separate origins to the host", async () => {
+  const harness = new Harness();
 
   for (const frameUrl of [
     "https://example.com:8443/login",
@@ -472,15 +471,20 @@ test("A023: port, scheme and host differences are separate origins", async () =>
     "https://example.com.evil.test/login",
     "https://www.example.com/login",
   ]) {
+    const expectedOrigin = security.canonicalOriginOrNull(frameUrl);
+    assert.notEqual(expectedOrigin, ORIGIN, frameUrl);
+
     const sender = contentScriptSender({ frameUrl });
-    const response = await harness.matches({
-      sender,
-      origin: security.canonicalOriginOrNull(frameUrl),
-    });
-    assert.equal(response.ok, false, frameUrl);
-    assert.equal(response.error.code, "disabled", frameUrl);
+    const response = await harness.matches({ sender, origin: expectedOrigin });
+    assert.equal(response.ok, true, frameUrl);
+
+    const query = harness.native.callsOf("overlayQueryCredentials").at(-1);
+    assert.equal(
+      query.payload.url,
+      expectedOrigin,
+      `${frameUrl} must be queried as itself, never as ${ORIGIN}`
+    );
   }
-  assert.deepEqual(harness.native.calls, []);
 });
 
 test("A023: a disabled origin or a missing permission is refused before native I/O", async () => {
@@ -561,7 +565,7 @@ test("A023: a grant cannot be redeemed from another tab or frame", async () => {
 // ---------------------------------------------------------------------------
 
 test("A023/SR-7: bootstrap reports the frame's own support classification", async () => {
-  const harness = new Harness({ enabled: [ORIGIN, OTHER_ORIGIN] });
+  const harness = new Harness();
   const bootstrap = (sender) =>
     harness.dispatch(overlayMessage("bootstrap", {
       origin: security.canonicalOriginOrNull(sender.url),
@@ -594,7 +598,7 @@ test("A023/SR-7: bootstrap reports the frame's own support classification", asyn
 });
 
 test("A023/SR-7: an unsupported frame is refused before native I/O", async () => {
-  const harness = new Harness({ enabled: [ORIGIN] });
+  const harness = new Harness();
   // A child frame on an enabled origin whose top document cannot be
   // canonicalized (a restricted or opaque top-level page).
   const sender = contentScriptSender({
@@ -622,10 +626,7 @@ test("A023/SR-7: an unsupported frame is refused before native I/O", async () =>
 });
 
 test("A023/SR-7: a permitted cross-origin child binds to its OWN origin", async () => {
-  const harness = new Harness({
-    enabled: [ORIGIN, OTHER_ORIGIN],
-    granted: [PATTERN, OTHER_PATTERN],
-  });
+  const harness = new Harness();
   // Child frame on OTHER_ORIGIN inside a top document on ORIGIN. Both are
   // enabled, so the only question is which one the request binds to.
   const child = contentScriptSender({
@@ -652,18 +653,28 @@ test("A023/SR-7: a permitted cross-origin child binds to its OWN origin", async 
   assert.notEqual(reveal.payload.origin, ORIGIN);
 });
 
-test("A023/SR-7: a cross-origin child whose own origin is not enabled fails closed", async () => {
-  const harness = new Harness({ enabled: [ORIGIN] });
+// SLICE C SUBSTITUTION for "a cross-origin child whose own origin is not
+// enabled fails closed". There is no not-enabled origin any more. The half that
+// survives, and the half that was ever load-bearing, is that the child is bound
+// to ITSELF: an enabled top document cannot make the host answer for it.
+test("A023/SR-7: a cross-origin child is asked about its own origin, never the top's", async () => {
+  const harness = new Harness();
   const sender = contentScriptSender({
     frameUrl: `${OTHER_ORIGIN}/login`,
     topUrl: PAGE_URL,
     frameId: 3,
   });
   const response = await harness.matches({ sender, origin: OTHER_ORIGIN });
-  assert.equal(response.ok, false);
-  // Authorization follows the FRAME, never the enabled top document.
-  assert.equal(response.error.code, "disabled");
-  assert.deepEqual(harness.native.calls, []);
+  assert.equal(response.ok, true);
+
+  const query = harness.native.callsOf("overlayQueryCredentials").at(-1);
+  assert.equal(query.payload.url, OTHER_ORIGIN);
+  assert.notEqual(query.payload.url, ORIGIN);
+
+  // And the top's origin cannot be borrowed by claiming it in the body.
+  const spoofed = await harness.matches({ sender, origin: ORIGIN });
+  assert.equal(spoofed.ok, false);
+  assert.equal(spoofed.error.code, "forbidden");
 });
 
 // ---------------------------------------------------------------------------
@@ -838,7 +849,7 @@ test("A024: the token is never written to durable storage", async () => {
 
   // The durable value still holds exactly what Slice A2 defined, nothing else.
   assert.deepEqual(Object.keys(harness.browser.config()).sort(), [
-    "enabledOrigins",
+    "enabled",
     "revision",
     "version",
   ]);
@@ -1289,7 +1300,7 @@ test("A027: disabling the origin invalidates an outstanding grant", async () => 
   const minted = await harness.mintToken();
 
   await harness.dispatch(
-    overlayMessage("setSiteState", { tabId: 42, origin: ORIGIN, enabled: false }),
+    overlayMessage("setSiteState", { tabId: 42, enabled: false }),
     extensionPageSender()
   );
 
@@ -1316,7 +1327,7 @@ test("A023: a totally corrupt config cannot rewind the revision below the floor"
     await harness.lifecycle.reconcile();
     const committed = harness.browser.config();
     assert.equal(security.validateOverlayConfig(committed).ok, true);
-    assert.deepEqual(committed.enabledOrigins, []);
+    assert.equal(committed.enabled, false);
     // The floor survived in its own key, so the counter moved FORWARD.
     assert.ok(committed.revision > 41, JSON.stringify(corrupt));
     assert.ok(
@@ -1339,7 +1350,7 @@ test("A023: a rolled-back but well-formed config is treated as corrupt", async (
   assert.equal(response.ok, false);
   // The rollback re-authorized nothing: the origin is gone and the revision
   // moved past the floor.
-  assert.deepEqual(harness.browser.config().enabledOrigins, []);
+  assert.equal(harness.browser.config().enabled, false);
   assert.ok(harness.browser.config().revision > 41);
   assert.deepEqual(harness.native.calls, []);
 });
@@ -1377,15 +1388,17 @@ test("A023: the worker self-heals after corruption instead of wedging", async ()
 });
 
 test("A023: the floor and the config commit in one storage write", async () => {
-  const harness = new Harness({ enabled: [], granted: [] });
+  const harness = new Harness({ enabled: false, granted: [] });
   await harness.lifecycle.ready();
   // The popup requests the permission under the user gesture; only then does
   // enable persist anything.
-  harness.browser.granted.add(PATTERN);
+  for (const pattern of security.GLOBAL_PERMISSION_PATTERNS) {
+    harness.browser.granted.add(pattern);
+  }
   harness.browser.calls.length = 0;
 
   await harness.dispatch(
-    overlayMessage("setSiteState", { tabId: 42, origin: ORIGIN, enabled: true }),
+    overlayMessage("setSiteState", { tabId: 42, enabled: true }),
     extensionPageSender()
   );
 
@@ -1451,7 +1464,7 @@ test("A023: a pre-A3 install with no floor key still moves forward", async () =>
   harness.restart();
 
   await harness.dispatch(
-    overlayMessage("setSiteState", { tabId: 42, origin: ORIGIN, enabled: false }),
+    overlayMessage("setSiteState", { tabId: 42, enabled: false }),
     extensionPageSender()
   );
   assert.equal(harness.browser.config().revision, 10);
@@ -1459,12 +1472,13 @@ test("A023: a pre-A3 install with no floor key still moves forward", async () =>
 });
 
 test("A023: a grant does not survive a revision change", async () => {
-  const harness = new Harness({ enabled: [ORIGIN, OTHER_ORIGIN], granted: [PATTERN, OTHER_PATTERN] });
+  const harness = new Harness();
   const minted = await harness.mintToken();
 
-  // Disabling an UNRELATED origin advances the global revision.
+  // Any committed change advances the global revision, and the revision is
+  // what a minted grant is pinned to.
   await harness.dispatch(
-    overlayMessage("setSiteState", { tabId: 42, origin: OTHER_ORIGIN, enabled: false }),
+    overlayMessage("setSiteState", { tabId: 42, enabled: false }),
     extensionPageSender()
   );
 

@@ -619,3 +619,45 @@ that the automated gates alone did not catch it.
   enable.
 - **#81** — AT activation (light listbox + row `press`) and an `isTrusted` guard
   on every activation handler.
+
+## Slice C — one global switch replaces the per-origin opt-in
+
+Model change, not a bug fix. The per-site "Turn on" click was unusable in
+practice, so the durable opt-in became a single boolean and the popup asks once
+for the broad optional host permission. See the Slice C section of `spec.md` for
+the reason and for the full list of what did NOT change.
+
+The A0–A3 tasks above stay ticked: they were executed as written, against the
+per-origin model that shipped. Nothing below rewrites them.
+
+- [x] **C1** — `overlayConfigV2 {version, revision, enabled}` under a new
+  storage key, with the strict fail-closed parser as the migration gate. The
+  revision floor key is deliberately not renamed, so monotonicity holds across
+  the version boundary. A v1 value — including one with origins enabled, and
+  including one whose broad grant is already held — migrates to DISABLED, and
+  reconciliation revokes the residual per-origin permissions and registrations
+  and deletes the stale key.
+- [x] **C2** — `enable()`/`disable()` replace `enableOrigin()`/`disableOrigin()`.
+  One content-script registration over `http(s)://*/*`, isolated world,
+  `allFrames`, `document_idle`. Reconcile verifies the BROAD grant as a set and
+  durably disables when either pattern is missing. The D1–D5 disable order is
+  unchanged and still pinned by crash injection.
+- [x] **C3** — one global toggle in the popup, with copy that states the size of
+  the grant, why it is needed, and what it does not imply. States: off, on,
+  denied, unsupported. The off switch stays reachable from pages the overlay
+  cannot run on.
+- [x] **C4** — the content bootstrap authorizes on the global flag and still
+  canonicalizes its own exact origin for the reveal binding. The A035 frame
+  policy is KEPT: an http(s) child frame inside a tab whose top document has no
+  canonicalizable origin (`file://`, `view-source:`, `data:`, PDF viewer) is
+  still classified unsupported, and the broad grant makes that case more common
+  rather than unreachable. Reachability was demonstrated, not assumed, and is
+  now pinned by an executable test.
+- [x] **C5** — mutation table migrated. Eight rows rewritten with an explicit
+  verdict each (six ADAPTED, two SUBSTITUTED), seven new `C-M*` rows for the
+  invariants Slice C creates, and the retired per-origin properties recorded
+  with the reason they have no subject left. Every kill count re-measured.
+- [x] **C6** — extension README permission table and store justification
+  rewritten for the broad grant; `spec.md`, `tasks.md` and `data-model.md`
+  amended with Slice C sections that supersede the per-origin model without
+  rewriting the history of the slices that built it.

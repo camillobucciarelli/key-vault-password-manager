@@ -43,10 +43,19 @@
     globalThis[GUARD] = false;
   };
 
-  // Exact-origin check. A Chromium host-permission pattern cannot express a
-  // port, so `https://example.com:8443` gets injected whenever
-  // `https://example.com` is enabled. Both this check and the background
-  // authorization below keep that other port inert.
+  // Canonicalize THIS frame's own exact origin.
+  //
+  // SLICE C did not weaken this and could not: the global switch decides only
+  // WHERE the script is injected. What the overlay is allowed to SHOW is still
+  // decided per exact origin — the worker re-derives the authoritative origin
+  // from `sender.url`, the native query matches on it exactly, and the reveal
+  // is bound to it. This value is the frame's claim, checked against the
+  // sender-derived one by `validateContentScriptRequest`; a mismatch is
+  // refused rather than reconciled.
+  //
+  // A frame whose origin cannot be canonicalized (`about:blank`, a sandboxed
+  // document, a non-http(s) scheme the browser injected anyway) stops here and
+  // clears the guard. That path is REACHABLE under the broad grant and stays.
   const origin = security.canonicalOriginOrNull(location.href);
   if (origin === null) {
     clearGuard();
@@ -61,12 +70,17 @@
   };
 
   // SR-7: the three frame kinds the policy supports. `unsupported` is a real
-  // answer for an enabled origin — a child frame whose top document cannot be
-  // canonicalized, for instance. A035: such an instance is not silently inert
-  // any more — it renders the honest unsupported-frame state on eligible
-  // focus (directing manual copy from the app) and NEVER queries or fills;
-  // the worker refuses `requestMatches`/`fill` for it anyway (defence in
-  // depth, `overlay_routes.js` SR-7 gate).
+  // answer even with the switch on and the broad grant held — the live case
+  // is a child frame whose TOP document cannot be canonicalized (an http(s)
+  // iframe inside a `file://`, `view-source:`, `data:` or PDF-viewer tab).
+  // The broad grant makes that MORE common, not less: such a child used to go
+  // uninjected, and now it is injected and must classify honestly.
+  //
+  // A035: such an instance is not silently inert — it renders the honest
+  // unsupported-frame state on eligible focus (directing manual copy from the
+  // app) and NEVER queries or fills; the worker refuses
+  // `requestMatches`/`fill` for it anyway (defence in depth,
+  // `overlay_routes.js` SR-7 gate).
   const SUPPORTED_FRAMES = ["top", "same-origin", "permitted-cross-origin"];
 
   const approved = (response) =>

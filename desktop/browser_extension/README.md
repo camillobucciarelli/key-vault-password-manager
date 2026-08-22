@@ -2,9 +2,9 @@
 
 MV3 extension for Chrome and Chromium-based Edge. Current scope: safe metadata
 search, pending-association requests, explicit popup-triggered fill for exact
-strong matches, and an opt-in in-page overlay on origins the user enables one
-by one. The extension and native host do **not** read `.kdbx`, request the
-master password, cache plaintext passwords, or fill pages silently.
+strong matches, and an in-page overlay the user turns on with a single switch.
+The extension and native host do **not** read `.kdbx`, request the master
+password, cache plaintext passwords, or fill pages silently.
 
 Firefox is not supported: this is an MV3 service-worker extension and a
 separate Firefox implementation would be required before advertising support.
@@ -17,39 +17,87 @@ Declared in `manifest.json`, intentionally minimal:
 |---|---|
 | `nativeMessaging` | Talk to the locally registered KeyVault native host. All credential flow goes through it; the extension holds no vault data. |
 | `activeTab` | Let the popup read the current tab's origin and title after an explicit toolbar click. No `tabs` permission, no background tab access. |
-| `scripting` | Register the overlay content script per enabled origin, and inject the one-shot fill function only after an explicit user action. |
-| `storage` | Persist the overlay's enabled-origin config and the toolbar badge state (host reachable / app unlocked / per-tab match *count*). Never credential data. Survives MV3 worker termination. |
-| `optional_host_permissions` (`http://*/*`, `https://*/*`) | Ceiling for per-origin opt-in requests. Nothing is granted at install time; each origin is requested individually when the user enables it. |
+| `scripting` | Register the overlay content script while the overlay is on, and inject the one-shot fill function only after an explicit user action. |
+| `storage` | Persist the overlay's on/off switch and the toolbar badge state (host reachable / app unlocked / per-tab match *count*). Never credential data. Survives MV3 worker termination. |
+| `optional_host_permissions` (`http://*/*`, `https://*/*`) | Requested **once**, under a user gesture, when the user turns the overlay on. Nothing is granted at install time, and this is the only host access the extension can ever hold. |
 
 Not present, by design: `host_permissions`, static `content_scripts`,
 `tabs`, `webNavigation`, `clipboardRead`, `clipboardWrite`, `<all_urls>`.
 The test suite asserts their absence.
 
-## Exact-origin opt-in and revoke
+### Store justification for the broad host permission
 
-- The overlay is **off by default everywhere**. The user enables it per exact
-  canonical origin (scheme + host + port) from the popup. Enabling requests
-  the matching optional host permission in the same user gesture.
-- Disabling from the popup removes the origin from config, unregisters its
-  content script, and revokes the optional permission.
+This is the permission reviewers and users should scrutinise, so it is worth
+being exact about what it does and does not buy.
+
+**Why it is needed.** The overlay is a content script: to place a suggestion
+box next to a login field it has to be injected into the page. Chromium offers
+no "ask the user the first time they visit each site" injection mode, and a
+site-by-site prompt was tried and abandoned — it required the user to find the
+toolbar popup and click *Turn on* before the overlay would ever appear on a
+given site, which in practice meant it never appeared. One informed grant
+replaces an unusable stream of prompts.
+
+**What it does not mean.**
+
+- The extension does **not** read, collect, transmit or analyse page content.
+  The content script attaches to login-shaped fields, renders a closed-shadow
+  overlay, and talks to nothing but this extension's own service worker.
+- Holding the permission is **not** the same as the feature being on. The
+  durable opt-in is a separate stored value and is the authorization source of
+  truth; a granted permission with the switch off does nothing at all.
+- Broad **injection** did not widen **disclosure**. The overlay lists only
+  entries already in the user's vault whose stored site matches the frame's
+  exact origin — scheme, host and port — and the app reveals a password only
+  after an explicit click on such a match.
+- No page data, browsing history or origin list is persisted. The stored config
+  is `{version, revision, enabled}`; it does not know which sites exist.
+
+**Turning it off** revokes the host permission, unregisters the content script
+and tears down every live overlay. See below.
+
+## One global switch, and revoke
+
+- The overlay is **off by default**. The user turns it on from the popup, which
+  requests both optional host patterns in the same user gesture.
+- Turning it off commits the durable `enabled: false` first, then tears down:
+  live documents are told to remove themselves, the content script is
+  unregistered, and the host permission is handed back. The commit precedes
+  every side effect, so a browser crash mid-teardown can never leave the
+  feature authorized.
+- The *off* switch is reachable from any page, including `chrome://` pages —
+  a permission the user cannot withdraw from where they are standing is one
+  they effectively cannot withdraw.
 - Revoking the permission from `chrome://extensions` (outside the popup) is
   also honored: the worker reconciles on cold start, popup open, permission
-  removal, and disable, and tears the origin down.
+  removal and disable, and durably disables the overlay. Losing *either* of
+  the two patterns counts as a revocation.
 
-### Port-granularity caveat
+### Upgrading from the per-origin build
 
-Chromium host-permission patterns have no port component: enabling
-`https://example.com:8443` requests the pattern `https://example.com/*`,
-which also covers other ports on that host. **Authorization does not widen
-with it**: the extension's own config stores the exact origin including port,
-and every overlay request is checked against that exact origin. The permission
-pattern is a browser-side ceiling; the exact-origin check is the gate.
+Earlier builds stored a list of individually enabled origins under
+`overlayConfigV1`. That value is not readable by this build and is never
+interpreted: the overlay comes up **off** after the upgrade regardless of how
+many origins were enabled before, because consent to three named sites is not
+consent to all sites. The upgrade also revokes every leftover per-origin host
+permission and unregisters every per-origin content script, so no orphan grant
+survives it. The user is asked once, explicitly, or the feature stays off.
+
+### Port granularity
+
+Chromium host-permission patterns have no port component, and the granted
+patterns now cover every host anyway. **Authorization does not widen with
+them**: each frame is bound to its own canonical origin *including the port*,
+the native query is made with that exact origin, and a frame claiming a
+different one is refused. `https://example.com` and `https://example.com:8443`
+remain two different sites to the vault.
 
 ## Dynamic injection and teardown
 
 No static content scripts. `content_overlay.js` is registered via
-`scripting.registerContentScripts` only for enabled origins (`document_idle`,
-`allFrames: true`) and unregistered on disable/revoke. The in-page overlay is
+`scripting.registerContentScripts` as a **single** isolated-world registration
+over `http://*/*` and `https://*/*` (`document_idle`, `allFrames: true`) while
+the switch is on, and unregistered on disable/revoke. The in-page overlay is
 a closed-shadow host that renders **metadata only** (title + display service),
 and tears down on Escape, focus loss, navigation, page hide, visibility
 change, timeout, disable, permission removal, and stale config revision —
@@ -57,10 +105,14 @@ removing the host, aborting listeners/observers/timers, and restoring ARIA.
 
 ## Frame and restricted-page limits
 
-- Supported: top frame and same-origin frames of an enabled origin.
-- Cross-origin frames only when the child frame's origin is itself enabled,
-  permitted, injected, and sender-validated; otherwise the overlay fails
-  closed. Authorization follows the frame origin, never the top document.
+- Supported: the top frame and same-origin child frames.
+- Cross-origin child frames are supported and are bound to the **child's** own
+  origin, never the top document's — an authorized top page cannot make the
+  app answer on behalf of an embedded third-party frame.
+- A child frame whose **top document** has no canonicalizable origin (an
+  http(s) iframe inside a `file://`, `view-source:`, `data:` or PDF-viewer tab)
+  is classified unsupported and never queries or fills. The broad grant makes
+  this case more common, not less: such frames used to go uninjected.
 - Restricted pages (`chrome://`, the Web Store, other extensions' pages,
   `file://` without explicit permission) cannot be injected. Where a limit is
   detectable the overlay shows an unsupported state directing the user to copy
@@ -68,10 +120,10 @@ removing the host, aborting listeners/observers/timers, and restoring ARIA.
 
 ## Worker cold-start recovery
 
-MV3 terminates the service worker at will. All durable state (overlay config,
-badge state) lives in `chrome.storage`; on cold start the worker reconciles
-registered content scripts and granted permissions against committed config,
-sweeps orphans, and rebuilds the badge. A worker restart costs a re-read and
+MV3 terminates the service worker at will. All durable state (the overlay
+switch, badge state) lives in `chrome.storage`; on cold start the worker
+reconciles registered content scripts and granted permissions against committed
+config, sweeps orphans, and rebuilds the badge. A worker restart costs a re-read and
 redraw, never a lost authorization and never a widened one.
 
 ## Native host capability (exact origin)
