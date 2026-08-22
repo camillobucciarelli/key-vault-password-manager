@@ -6,6 +6,8 @@ import 'package:path/path.dart' as p;
 
 import '../../../../../core/theme/app_icons.dart';
 import '../../../../../core/utils/mobile_file_storage.dart';
+import '../../../../../injection_container.dart' as di;
+import '../../domain/repositories/database_file_repository.dart';
 
 class InternalKeyFileManagerResult {
   const InternalKeyFileManagerResult({
@@ -150,7 +152,11 @@ class _InternalKeyFileManagerDialogState
       return;
     }
 
-    await source.copy(savePath);
+    // spec 008 T102: exports go through the domain port, never dart:io.
+    await di.sl<DatabaseFileRepository>().copyFile(
+      sourcePath: entry.path,
+      targetPath: savePath,
+    );
     if (!mounted) {
       return;
     }

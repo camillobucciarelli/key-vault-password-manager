@@ -19,6 +19,7 @@ import 'package:password_manager/features/password_manager/domain/repositories/d
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/vault_session_coordinator.dart';
+import 'fake_database_ports.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
 
 void main() {
@@ -43,6 +44,7 @@ void main() {
       appleAutofillV2Coordinator = _FakeAppleAutofillV2Coordinator();
       sessionSecretHolder = SessionSecretHolder();
       coordinator = VaultSessionCoordinator(
+        databaseFileRepository: FakeDatabaseFileRepository(),
         sessionSecretHolder: sessionSecretHolder,
         localDataSource: localDataSource,
         databaseRegistryRepository: registryRepository,
@@ -499,6 +501,7 @@ void main() {
       securityRepository.failNextSave = true;
       final realService = VaultKdbxService();
       coordinator = VaultSessionCoordinator(
+        databaseFileRepository: FakeDatabaseFileRepository(),
         sessionSecretHolder: sessionSecretHolder,
         localDataSource: localDataSource,
         databaseRegistryRepository: registryRepository,
@@ -561,6 +564,7 @@ void main() {
       sessionSecretHolder.set('old-secret');
       final realService = VaultKdbxService();
       coordinator = VaultSessionCoordinator(
+        databaseFileRepository: FakeDatabaseFileRepository(),
         sessionSecretHolder: sessionSecretHolder,
         localDataSource: localDataSource,
         databaseRegistryRepository: registryRepository,

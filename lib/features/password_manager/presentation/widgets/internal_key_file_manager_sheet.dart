@@ -9,6 +9,8 @@ import '../../../../core/theme/app_radii.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/keyvault_colors.dart';
 import '../../../../core/utils/mobile_file_storage.dart';
+import '../../../../injection_container.dart' as di;
+import '../../domain/repositories/database_file_repository.dart';
 import '../../../../core/widgets/kv_bottom_sheet.dart';
 import '../../../../core/widgets/kv_pill_button.dart';
 
@@ -156,7 +158,11 @@ class _InternalKeyFileManagerSheetState
       return;
     }
 
-    await source.copy(savePath);
+    // spec 008 T102: exports go through the domain port, never dart:io.
+    await di.sl<DatabaseFileRepository>().copyFile(
+      sourcePath: entry.path,
+      targetPath: savePath,
+    );
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
@@ -187,9 +193,7 @@ class _InternalKeyFileManagerSheetState
               const SizedBox(height: 8),
               Text(
                 'Delete "${entry.name}" from app storage?',
-                style: AppTextStyles.body.copyWith(
-                  color: colors.textSecondary,
-                ),
+                style: AppTextStyles.body.copyWith(color: colors.textSecondary),
               ),
               const SizedBox(height: 16),
               Row(

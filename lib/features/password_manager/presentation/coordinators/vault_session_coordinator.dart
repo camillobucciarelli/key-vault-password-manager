@@ -8,6 +8,7 @@ import '../../data/datasources/secure_data_source.dart';
 import '../../data/services/vault_kdbx_service.dart';
 import '../../domain/entities/database_record.dart';
 import '../../domain/entities/database_security_profile.dart';
+import '../../domain/repositories/database_file_repository.dart';
 import '../../domain/repositories/database_registry_repository.dart';
 import '../../domain/repositories/database_security_repository.dart';
 import '../../domain/repositories/database_sync_repository.dart';
@@ -49,6 +50,7 @@ class DatabaseSettingsUpdateResult {
 
 class VaultSessionCoordinator {
   VaultSessionCoordinator({
+    required this.databaseFileRepository,
     required this.localDataSource,
     required this.databaseRegistryRepository,
     required this.databaseSecurityRepository,
@@ -59,6 +61,10 @@ class VaultSessionCoordinator {
     this.appleAutofillV2Coordinator = const NoopAppleAutofillV2Coordinator(),
   });
 
+  /// spec 008 T102: every database file mutation (rename, rollback rename,
+  /// pre-rekey backup copy) goes through this domain port; the coordinator
+  /// performs no direct `dart:io` mutation.
+  final DatabaseFileRepository databaseFileRepository;
   final LocalDataSource localDataSource;
   final DatabaseRegistryRepository databaseRegistryRepository;
   final DatabaseSecurityRepository databaseSecurityRepository;
@@ -235,7 +241,10 @@ class VaultSessionCoordinator {
       if (!await currentFile.exists()) {
         throw Exception('Current database file not found.');
       }
-      await currentFile.rename(targetPath);
+      await databaseFileRepository.renameFile(
+        sourcePath: currentPath,
+        targetPath: targetPath,
+      );
       effectivePath = targetPath;
       try {
         await databaseSyncRepository.moveMappingPath(
@@ -244,7 +253,10 @@ class VaultSessionCoordinator {
         );
         mappingMoved = true;
       } catch (_) {
-        await File(effectivePath).rename(currentPath);
+        await databaseFileRepository.renameFile(
+          sourcePath: effectivePath,
+          targetPath: currentPath,
+        );
         rethrow;
       }
     }
@@ -342,7 +354,10 @@ class VaultSessionCoordinator {
       if (!p.equals(effectivePath, currentPath) &&
           await File(effectivePath).exists()) {
         try {
-          await File(effectivePath).rename(currentPath);
+          await databaseFileRepository.renameFile(
+            sourcePath: effectivePath,
+            targetPath: currentPath,
+          );
         } catch (_) {}
       }
       rethrow;
@@ -415,7 +430,10 @@ class VaultSessionCoordinator {
         directory,
         '$baseName.$stamp.pre-rekey$extension',
       );
-      await source.copy(backupPath);
+      await databaseFileRepository.copyFile(
+        sourcePath: databasePath,
+        targetPath: backupPath,
+      );
     } catch (_) {
       // Best-effort — see doc comment.
     }

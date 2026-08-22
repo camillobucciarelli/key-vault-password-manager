@@ -39,17 +39,18 @@ void main() {
     });
 
     test('baseline covers every FR-8 writer that still exists', () {
-      // Each entry is a writer FR-8 names explicitly.
+      // Each entry is a *data-layer* writer FR-8 names explicitly. The
+      // presentation writers FR-8 also named (vault_session_coordinator,
+      // database_selection_screen, exports) were removed by Gate 1 T102:
+      // they now route through `DatabaseFileRepository.copyFile/renameFile`,
+      // implemented by `DatabaseImportService` — asserted by the
+      // `T102 architecture` group below.
       const fr8Paths = [
         'lib/features/password_manager/data/services/vault_kdbx_service.dart',
         'lib/features/password_manager/data/services/'
             'database_sync_orchestrator.dart',
         'lib/features/password_manager/data/services/'
             'database_import_service.dart',
-        'lib/features/password_manager/presentation/coordinators/'
-            'vault_session_coordinator.dart',
-        'lib/features/password_manager/presentation/screens/'
-            'database_selection_screen.dart',
       ];
       for (final path in fr8Paths) {
         expect(
@@ -171,6 +172,8 @@ void main() {
         // FR-8 says `vault_navigation.part.dart::_exportCurrentDatabase`.
         // The body actually lives in `vault_shared.part.dart` and is reachable
         // from three call sites, so a single-file fix would miss two of them.
+        // Since T102 the body no longer mutates files directly: it delegates
+        // to `DatabaseFileRepository.copyFile`.
         const shared =
             'lib/features/password_manager/presentation/screens/'
             'vault/vault_shared.part.dart';
@@ -178,7 +181,14 @@ void main() {
             'lib/features/password_manager/presentation/screens/'
             'vault/vault_navigation.part.dart';
 
-        expect(discovered[shared], contains('copy'));
+        expect(
+          discovered.keys,
+          isNot(contains(shared)),
+          reason:
+              'T102 routed the export body through the domain port; a direct '
+              'mutation reappearing here is a Gate 1 regression',
+        );
+        expect(File(shared).readAsStringSync(), contains('.copyFile('));
         expect(
           discovered.keys,
           isNot(contains(navigation)),
@@ -201,15 +211,20 @@ void main() {
       },
     );
 
-    test('GAP 3: key-file manager widgets write files from presentation', () {
+    test('GAP 3: key-file manager widgets export through the domain port', () {
+      // Pre-T102 both widgets copied key files with `File.copy` directly.
+      // They now delegate to `DatabaseFileRepository.copyFile` and must not
+      // reappear as direct writers.
       const dialog =
           'lib/features/password_manager/presentation/widgets/'
           'internal_key_file_manager_dialog.dart';
       const sheet =
           'lib/features/password_manager/presentation/widgets/'
           'internal_key_file_manager_sheet.dart';
-      expect(discovered[dialog], contains('copy'));
-      expect(discovered[sheet], contains('copy'));
+      expect(discovered.keys, isNot(contains(dialog)));
+      expect(discovered.keys, isNot(contains(sheet)));
+      expect(File(dialog).readAsStringSync(), contains('.copyFile('));
+      expect(File(sheet).readAsStringSync(), contains('.copyFile('));
     });
 
     test('GAP 4: the sync orchestrator has three replace sites, not one', () {
@@ -257,26 +272,180 @@ void main() {
         contains('databaseFileRepository.deleteFile('),
       );
     });
+  });
 
-    test('presentation layer still mutates database files directly', () {
-      // Gate 1 T102 exit criterion. Recorded here so the list is explicit.
+  // ===========================================================================
+  // Gate 1 T102 — architecture guard: the presentation layer performs no
+  // direct `dart:io` file mutation. Export/copy/rename/delete flows go
+  // through `DatabaseFileRepository` (domain port, data implementation).
+  // ===========================================================================
+  group('T102 architecture', () {
+    test('presentation layer performs no direct file mutation', () {
       final presentationWriters =
-          discovered.keys
+          _discoveredWriters.keys
               .where((path) => path.contains('/presentation/'))
               .toList()
             ..sort();
-      expect(presentationWriters, <String>[
+      expect(
+        presentationWriters,
+        isEmpty,
+        reason:
+            'a dart:io file mutation appeared in the presentation layer. '
+            'Route it through DatabaseFileRepository (domain port, data '
+            'implementation) instead — spec 008 T102.',
+      );
+    });
+
+    test('the pre-T102 presentation writers now delegate to the port', () {
+      // Behaviour anchor: each former direct writer still performs its
+      // operation, but through the domain port.
+      const delegating = <String, String>{
         'lib/features/password_manager/presentation/coordinators/'
-            'vault_session_coordinator.dart',
+                'vault_session_coordinator.dart':
+            'databaseFileRepository.renameFile(',
         'lib/features/password_manager/presentation/screens/'
-            'database_selection_screen.dart',
+                'database_selection_screen.dart':
+            '.copyFile(',
         'lib/features/password_manager/presentation/screens/vault/'
-            'vault_shared.part.dart',
+                'vault_shared.part.dart':
+            '.copyFile(',
         'lib/features/password_manager/presentation/widgets/'
-            'internal_key_file_manager_dialog.dart',
+                'internal_key_file_manager_dialog.dart':
+            '.copyFile(',
         'lib/features/password_manager/presentation/widgets/'
-            'internal_key_file_manager_sheet.dart',
-      ]);
+                'internal_key_file_manager_sheet.dart':
+            '.copyFile(',
+      };
+      delegating.forEach((path, marker) {
+        expect(
+          File(path).readAsStringSync(),
+          contains(marker),
+          reason: '$path lost its port delegation',
+        );
+      });
+    });
+  });
+
+  // ===========================================================================
+  // Gate 1 T101 — frozen writer inventory. Beyond the shape baseline above
+  // (file -> operation kinds), this freezes the *call-site count* of every
+  // mutation operation in the database-writer files, so a new write site
+  // added to an already-listed file fails too. Counts use the same scrub
+  // rules as the scanner.
+  // ===========================================================================
+  group('T101 frozen writer inventory', () {
+    test('database-writer files have exactly the frozen mutation sites', () {
+      const frozenCounts = <String, Map<String, int>>{
+        'lib/features/password_manager/data/services/'
+            'vault_kdbx_service.dart': {
+          // saveVault temp write, attachment export, raw byte write
+          'writeAsBytes': 3,
+          // credential transaction: begin/finalize/rollback renames
+          'rename': 6,
+          'delete': 3,
+        },
+        'lib/features/password_manager/data/services/'
+            'database_import_service.dart': {
+          // stage/commit/create/web-path/key-file writes
+          'writeAsBytes': 4,
+          // commit/finalize/rollback/move/replace renames
+          'rename': 12,
+          'delete': 8,
+          // T102: DatabaseFileRepository.copyFile implementation
+          'copy': 1,
+        },
+        'lib/features/password_manager/data/services/'
+            'database_sync_orchestrator.dart': {
+          // three independent replacement sites (GAP 4)
+          'writeAsBytes': 3,
+          // _backupFile
+          'copy': 1,
+        },
+        'lib/core/utils/mobile_file_storage.dart': {
+          'writeAsBytes': 1,
+          'delete': 1,
+          'create': 1,
+        },
+      };
+
+      final actual = <String, Map<String, int>>{};
+      for (final entry in frozenCounts.entries) {
+        final counts = <String, int>{};
+        for (final line in File(entry.key).readAsLinesSync()) {
+          final scrubbed = line.replaceAll(_nonFilesystem, '');
+          _operations.forEach((name, pattern) {
+            final matches = RegExp(pattern).allMatches(scrubbed).length;
+            if (matches > 0) {
+              counts[name] = (counts[name] ?? 0) + matches;
+            }
+          });
+        }
+        actual[entry.key] = counts;
+      }
+      expect(
+        actual,
+        frozenCounts,
+        reason:
+            'a mutation call site was added to or removed from a frozen '
+            'database writer. Update this table, the FR-8 reconciliation in '
+            'specs/008-per-field-conflict-resolution/feasibility-report.md '
+            'and route the new site through the T104 path mutex when it '
+            'lands.',
+      );
+    });
+
+    test('the frozen entry points still exist by name', () {
+      // T101 names these paths explicitly; a rename or removal must be a
+      // conscious inventory update, not an accident.
+      const entryPoints = <String, List<String>>{
+        'lib/features/password_manager/data/services/'
+            'vault_kdbx_service.dart': [
+          'beginCredentialChange',
+          'finalizeCredentialChange',
+          'rollbackCredentialChange',
+        ],
+        'lib/features/password_manager/data/services/'
+            'database_sync_orchestrator.dart': [
+          'syncNow',
+          '_backupFile',
+        ],
+        'lib/features/password_manager/data/services/'
+            'database_import_service.dart': [
+          'stageLocalSelection',
+          'stageDriveDownload',
+          'commitStagedDatabase',
+          'finalizeDatabaseCommit',
+          'rollbackDatabaseCommit',
+          'createDatabase',
+          'copyFile',
+          'renameFile',
+        ],
+        'lib/features/password_manager/presentation/coordinators/'
+            'database_session_coordinator.dart': [
+          'createNewDatabase',
+          '_commitStagedImport',
+          'removeRecentDatabase',
+        ],
+        'lib/features/password_manager/presentation/coordinators/'
+            'vault_session_coordinator.dart': [
+          'updateDatabaseSettings',
+          '_writeDatedPreRekeyBackup',
+        ],
+        'lib/features/password_manager/presentation/screens/vault/'
+            'vault_shared.part.dart': [
+          '_exportDatabaseBackup',
+        ],
+      };
+      entryPoints.forEach((path, names) {
+        final source = File(path).readAsStringSync();
+        for (final name in names) {
+          expect(
+            source,
+            contains(name),
+            reason: '$path no longer contains frozen entry point $name',
+          );
+        }
+      });
     });
   });
 }
@@ -420,6 +589,9 @@ const _baseline = <String, List<String>>{
   ],
   // --- FR-8 database writers ----------------------------------------------
   'lib/features/password_manager/data/services/database_import_service.dart': [
+    // 'copy' is the T102 `DatabaseFileRepository.copyFile` implementation:
+    // the presentation export/backup copies moved behind this port.
+    'copy',
     'delete',
     'rename',
     'writeAsBytes',
@@ -442,27 +614,10 @@ const _baseline = <String, List<String>>{
     'rename',
     'writeAsBytes',
   ],
-  'lib/features/password_manager/presentation/coordinators/'
-      'vault_session_coordinator.dart': [
-    'copy',
-    'rename',
-  ],
-  'lib/features/password_manager/presentation/screens/'
-      'database_selection_screen.dart': [
-    'copy',
-  ],
-  // --- FR-8 points at vault_navigation.part.dart; the real site is here ----
-  'lib/features/password_manager/presentation/screens/vault/'
-      'vault_shared.part.dart': [
-    'copy',
-  ],
-  // --- unlisted by FR-8 ----------------------------------------------------
-  'lib/features/password_manager/presentation/widgets/'
-      'internal_key_file_manager_dialog.dart': [
-    'copy',
-  ],
-  'lib/features/password_manager/presentation/widgets/'
-      'internal_key_file_manager_sheet.dart': [
-    'copy',
-  ],
+  // Gate 1 T102: the five pre-T102 presentation writers
+  // (vault_session_coordinator, database_selection_screen,
+  // vault_shared.part, both internal_key_file_manager widgets) no longer
+  // mutate files directly — they delegate to
+  // `DatabaseFileRepository.copyFile/renameFile`. The `T102 architecture`
+  // group pins the presentation layer at zero direct writers.
 };

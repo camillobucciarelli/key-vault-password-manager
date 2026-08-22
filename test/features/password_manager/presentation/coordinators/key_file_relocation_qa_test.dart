@@ -13,6 +13,7 @@ import 'package:password_manager/features/password_manager/domain/entities/datab
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/vault_session_coordinator.dart';
+import 'fake_database_ports.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -72,6 +73,7 @@ void main() {
   Future<VaultSessionCoordinator> buildCoordinator() async {
     final unused = _Unused();
     return VaultSessionCoordinator(
+      databaseFileRepository: FakeDatabaseFileRepository(),
       sessionSecretHolder: SessionSecretHolder(),
       localDataSource: LocalDataSourceImpl(),
       databaseRegistryRepository: DatabaseRegistryRepositoryImpl(

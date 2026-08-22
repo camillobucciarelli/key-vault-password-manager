@@ -425,6 +425,22 @@ class DatabaseImportService implements DatabaseFileRepository {
   }
 
   @override
+  Future<void> copyFile({
+    required String sourcePath,
+    required String targetPath,
+  }) async {
+    await File(sourcePath).copy(targetPath);
+  }
+
+  @override
+  Future<void> renameFile({
+    required String sourcePath,
+    required String targetPath,
+  }) async {
+    await File(sourcePath).rename(targetPath);
+  }
+
+  @override
   Future<String?> resolveOutputFilePath(String preferredFileName) async {
     final normalizedFileName = _normalizeDatabaseFileName(preferredFileName);
     if (_usesManagedStorage) {

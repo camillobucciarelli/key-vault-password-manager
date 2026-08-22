@@ -4,6 +4,7 @@
 // class (no interface). BLoC tests build a *real* coordinator wired with
 // these fakes instead of faking the coordinator itself.
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
@@ -36,6 +37,30 @@ class FakeDatabaseFileRepository implements DatabaseFileRepository {
 
   @override
   Future<bool> fileExists(String path) async => existingPaths.contains(path);
+
+  // spec 008 T102: `VaultSessionCoordinator` renames/copies through the
+  // domain port. Its tests run against real temp files, so these perform
+  // the real filesystem operation while recording the call.
+  final List<({String sourcePath, String targetPath})> copiedFiles = [];
+  final List<({String sourcePath, String targetPath})> renamedFiles = [];
+
+  @override
+  Future<void> copyFile({
+    required String sourcePath,
+    required String targetPath,
+  }) async {
+    copiedFiles.add((sourcePath: sourcePath, targetPath: targetPath));
+    await File(sourcePath).copy(targetPath);
+  }
+
+  @override
+  Future<void> renameFile({
+    required String sourcePath,
+    required String targetPath,
+  }) async {
+    renamedFiles.add((sourcePath: sourcePath, targetPath: targetPath));
+    await File(sourcePath).rename(targetPath);
+  }
 
   @override
   Future<String> hashFile(String path) async => hashFileResult;
