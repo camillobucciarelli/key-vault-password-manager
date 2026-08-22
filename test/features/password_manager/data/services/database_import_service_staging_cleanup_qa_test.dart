@@ -125,12 +125,12 @@ void main() {
           'created. Pre-T109 the write followed the link, created the '
           'victim, and cleanup could then only unlink the in-app name '
           '(#45/#46). '
-          'This is NOT a general property of the T109 writer: '
-          'SafeVaultFileWriter, which handles user-chosen vault/key-file '
-          'paths, deliberately DOES resolve a live leaf symlink so a '
-          '`~/vault.kdbx -> ~/Cloud/vault.kdbx` setup keeps working, and '
-          'declines only on a DANGLING link, which is the shape here. The '
-          'two layers differ on purpose -- see safe_vault_file_writer.dart.',
+          'SafeVaultFileWriter reaches the same answer by a different route '
+          'since the T109 HIGH-4 follow-up: it resolves a live leaf symlink '
+          'so a user-chosen `~/vault.kdbx -> ~/Cloud/vault.kdbx` setup keeps '
+          'working, but ONLY outside the app-private container -- inside it, '
+          'and on any DANGLING link (the shape here), it leaves the entry '
+          'unresolved exactly like this layer. See safe_vault_file_writer.dart.',
     );
   });
 

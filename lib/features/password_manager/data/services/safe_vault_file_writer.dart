@@ -2,8 +2,11 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:loggy/loggy.dart';
 import 'package:path/path.dart' as p;
+
+import '../../../../core/utils/portable_path.dart';
 
 /// Every unique-name attempt collided (spec 008 T108). Defined behaviour for
 /// suffix exhaustion: nothing was written or overwritten; the caller's target
@@ -17,6 +20,39 @@ class SafeVaultNameCollisionException implements Exception {
   String toString() =>
       'SafeVaultNameCollisionException: could not claim a fresh file name '
       'after $attempts exclusive-create attempts';
+}
+
+/// The pre-write backup could not be created because the OS refused the
+/// sibling file (spec 008 T109 MEDIUM-2 follow-up).
+///
+/// Nothing was written and the target is untouched: FR-9 mandates a hard stop
+/// when the target cannot be backed up first, and unlike the temp there is no
+/// degraded alternative — a backup IS a second file, so a sandbox that only
+/// authorizes the chosen path cannot host one at all. This exists so the
+/// caller (the three sync replacements) reports something a human can act on
+/// instead of a raw `FileSystemException` carrying a verbatim vault path.
+class SafeVaultBackupUnavailableException implements Exception {
+  const SafeVaultBackupUnavailableException({
+    required this.operation,
+    required this.osReason,
+  });
+
+  /// The flow that was stopped, as passed to [SafeVaultFileWriter.write].
+  final String operation;
+
+  /// OS-level reason, WITHOUT any path: the constructor is fed through
+  /// `_osReasonSafe`, which strips absolute-path-shaped tokens rather than
+  /// trusting `strerror` to contain none.
+  final String osReason;
+
+  @override
+  String toString() =>
+      'SafeVaultBackupUnavailableException: "$operation" was stopped before '
+      'anything was written because the system refused to create the backup '
+      'file next to the database ($osReason). The database is unchanged. A '
+      'sandboxed build is authorized for the file you picked, not for its '
+      'folder — re-grant access to the folder, or keep the database in app '
+      'storage.';
 }
 
 /// Filesystem seam for the safe writer. Production uses this default; T110
@@ -56,6 +92,65 @@ class SafeVaultFileIo {
 
   Future<void> delete(String path) async {
     await File(path).delete();
+  }
+
+  /// Root of the app-private container, or `null` when this platform has no
+  /// such directory, or it cannot be determined.
+  ///
+  /// This is the perimeter the writer gates symlink resolution on (T109
+  /// HIGH-4 follow-up). `null` means "no perimeter", which the writer treats
+  /// as "outside": links are resolved, i.e. the pre-follow-up behaviour that
+  /// keeps the desktop write-through working — including in every
+  /// environment where no Flutter plugin binding exists (unit tests, the
+  /// native host).
+  ///
+  /// **Seam contract for subclasses: this must not throw.** [write] awaits it
+  /// on every call, so an override that throws fails the save outright.
+  /// Return `null` for "unknown" instead — which is what the `catch` below
+  /// does for the production implementation.
+  Future<String?> appDirectoryRoot() async {
+    try {
+      final root = await PortablePath.documentsRoot();
+      return isAppPrivateDocumentsRoot(root, Platform.operatingSystem)
+          ? root
+          : null;
+    } catch (_) {
+      // No plugin binding, or the platform refused: perimeter unknown.
+      return null;
+    }
+  }
+
+  /// Whether the documents root of [operatingSystem] is a directory that only
+  /// this app can populate.
+  ///
+  /// `getApplicationDocumentsDirectory()` is NOT one concept across targets,
+  /// and taking it for an app-private container is what made the first cut of
+  /// this gate a HIGH regression:
+  /// - **iOS / Android** — the per-app container. App-private: a `.kdbx`
+  ///   there is managed storage written by `MobileFileStorage`, so an entry
+  ///   that is a symlink can only have been planted (#45/#46).
+  /// - **macOS** — `~/Documents`, shared with every other app and the
+  ///   picker's default location. UNLESS the app sandbox is on, where it
+  ///   becomes `~/Library/Containers/<id>/Data/Documents`; the `Containers`
+  ///   segment is the marker for that.
+  /// - **Linux** — `xdg.getUserDirectory('DOCUMENTS')`, i.e. `~/Documents`.
+  /// - **Windows** — `WindowsKnownFolder.Documents`, i.e.
+  ///   `C:\Users\<user>\Documents`.
+  ///
+  /// On the last three a `~/Documents/vault.kdbx -> ~/Dropbox/vault.kdbx` is
+  /// an ordinary, extremely plausible user setup that MUST keep being written
+  /// through (HIGH-2), so those platforms get no perimeter at all.
+  @visibleForTesting
+  static bool isAppPrivateDocumentsRoot(String root, String operatingSystem) {
+    switch (operatingSystem) {
+      case 'ios':
+      case 'android':
+        return true;
+      case 'macos':
+        return p.split(root).contains('Containers');
+      default:
+        return false;
+    }
   }
 
   /// Follows a symlink AT THE LEAF of [path] and returns what it points at.
@@ -168,7 +263,9 @@ class SafeVaultFileWriteResult {
 ///   is touched;
 /// - the replace is a same-directory rename — atomic, no delete-first;
 /// - the target's POSIX permission bits survive the replace (T109 HIGH-1);
-/// - a symlinked target is written THROUGH, not replaced (T109 HIGH-2).
+/// - a symlinked target OUTSIDE the app-private container is written
+///   THROUGH, not replaced (T109 HIGH-2); one INSIDE it is replaced, not
+///   followed (T109 HIGH-4 follow-up).
 class SafeVaultFileWriter {
   SafeVaultFileWriter({
     SafeVaultFileIo io = const SafeVaultFileIo(),
@@ -202,8 +299,18 @@ class SafeVaultFileWriter {
   /// world-readable copy on disk, not even briefly. Content is written,
   /// flushed (fsync) and read-back verified; a failed verify removes the
   /// partial backup and rethrows.
-  Future<String> createBackup(String targetPath) async {
-    final resolved = _io.resolveLeafLink(targetPath);
+  Future<String> createBackup(String targetPath, {String? operation}) async {
+    return _createBackup(targetPath, await _io.appDirectoryRoot(), operation);
+  }
+
+  /// [createBackup] against an already-fetched perimeter [root], so a
+  /// [write] that takes a backup asks the platform for it exactly once.
+  Future<String> _createBackup(
+    String targetPath,
+    String? root,
+    String? operation,
+  ) async {
+    final resolved = _resolveTarget(targetPath, root);
     final mode = await _io.permissionBits(resolved);
     final source = await _io.readBytes(resolved);
     // The backup is named next to the CALLER's path, deliberately NOT next to
@@ -217,10 +324,26 @@ class SafeVaultFileWriter {
     // attacker complete vault copies in a directory of their choosing
     // (HIGH-4). Both close here: backups stay in the caller's perimeter,
     // which is also what the pre-slice `_backupFile` copy did.
-    final backupPath = await _claimFreshName(
-      (micros, suffix) => '$targetPath.$micros-$suffix.bak',
-      mode: mode,
-    );
+    // MEDIUM-2: ONLY the sibling claim is converted. A permission failure
+    // anywhere else in this method — above all an unreadable source vault —
+    // has a different cause and a different remedy, and must not be reported
+    // as "the folder refused a second file".
+    final String backupPath;
+    try {
+      backupPath = await _claimFreshName(
+        (micros, suffix) => '$targetPath.$micros-$suffix.bak',
+        mode: mode,
+      );
+    } on FileSystemException catch (error) {
+      if (!_isPermissionDenied(error)) {
+        rethrow;
+      }
+      // The hard stop stays (FR-9) — only the diagnosis improves.
+      throw SafeVaultBackupUnavailableException(
+        operation: operation ?? 'unnamed operation',
+        osReason: _osReasonSafe(error),
+      );
+    }
     try {
       await _writeVerified(backupPath, source);
     } catch (_) {
@@ -241,14 +364,35 @@ class SafeVaultFileWriter {
   /// old target intact (temp removed best-effort); the rename itself is
   /// atomic, so the target is never truncated or mixed.
   ///
-  /// **Symlink handling (HIGH-2).** A leaf symlink is resolved first, so
-  /// `~/vault.kdbx -> ~/Dropbox/vault.kdbx` is written THROUGH: the link
-  /// survives and the cloud-synced file really changes. Without this,
+  /// **Symlink handling (HIGH-2 + HIGH-4).** A leaf symlink on a path the
+  /// user chose — anything OUTSIDE the app-private container — is resolved
+  /// first, so `~/vault.kdbx -> ~/Dropbox/vault.kdbx` is written THROUGH: the
+  /// link survives and the cloud-synced file really changes. Without this,
   /// `rename(2)` would replace the link entry itself and silently freeze the
-  /// real file forever. A **dangling** link is deliberately NOT resolved: the
-  /// rename then replaces the entry, which is the safe direction for the
-  /// attacker-plantable case (#45/#46) — a dangling link cannot be a
-  /// legitimate cloud target, since there is nothing on the other end.
+  /// real file forever.
+  ///
+  /// Two cases are deliberately NOT resolved, and in both the rename replaces
+  /// the entry — the safe direction for the attacker-plantable case
+  /// (#45/#46):
+  /// - a **dangling** link, anywhere: it cannot be a legitimate cloud target,
+  ///   since there is nothing on the other end;
+  /// - **any** leaf link INSIDE the app-private container, live or not.
+  ///   Nothing legitimate creates one there, an entry there may have been
+  ///   planted, and `MobileFileStorage` already refuses to follow links in
+  ///   that exact directory — the two layers agreed in prose but not in code
+  ///   until this gate (see [_resolveTarget]). The gate is a runtime
+  ///   perimeter check rather than a caller-supplied flag because the same
+  ///   call site (`VaultKdbxService._save`, the sync replacements) serves a
+  ///   managed mobile path and a user-picked desktop path interchangeably.
+  ///   "App-private container" is decided per platform by
+  ///   [SafeVaultFileIo.isAppPrivateDocumentsRoot] — NOT by the documents
+  ///   directory alone, which on Linux, Windows and unsandboxed macOS is the
+  ///   user's own `~/Documents` and hence the picker's default location.
+  ///   When there is no perimeter the path counts as outside, i.e.
+  ///   write-through — unchanged pre-follow-up behaviour.
+  ///
+  /// A path holding a `..` segment is refused outright before any of this:
+  /// see [_refuseTraversal].
   ///
   /// **Sandbox fallback (HIGH-3).** Under the macOS app sandbox the
   /// `files.user-selected.read-write` entitlement authorizes the chosen PATH,
@@ -264,28 +408,41 @@ class SafeVaultFileWriter {
   /// at all is the worse outcome. [SafeVaultFileWriteResult.atomic] reports
   /// which path ran.
   ///
-  /// **Known asymmetry, MEDIUM-2 — the fallback covers the temp only.**
-  /// [createBackup] runs first and also creates a sibling; nothing catches a
-  /// permission refusal there. So IF the HIGH-3 premise holds on sandboxed
-  /// macOS, a `backupExistingTarget: false` write (every routine vault save)
-  /// degrades and succeeds, while a `backupExistingTarget: true` write (the
-  /// three sync replacements) fails permanently at the backup step. That
-  /// failure is fail-safe — target intact, and FR-9 mandates a hard stop
-  /// when the backup cannot be made — but the asymmetry is undocumented
-  /// elsewhere and unproven either way; tracked as a T109 follow-up.
+  /// **Documented asymmetry, MEDIUM-2 — the fallback covers the temp only,
+  /// on purpose.** [createBackup] runs first and also creates a sibling. It
+  /// gets NO fallback: a backup is by definition a second file, so under a
+  /// sandbox that authorizes the chosen path alone there is no degraded way
+  /// to produce one — the only "fallback" available would be to skip the
+  /// backup, which is exactly what FR-9 forbids, and the callers that ask for
+  /// one are the three sync replacements, where remote bytes overwrite the
+  /// local vault and the backup is the last line of defence.
+  ///
+  /// So IF the HIGH-3 premise holds on sandboxed macOS, a
+  /// `backupExistingTarget: false` write (every routine vault save) degrades
+  /// and succeeds, while a `backupExistingTarget: true` write fails
+  /// permanently — fail-safe, target intact. What changed with the follow-up
+  /// is only the diagnosis: that refusal now surfaces as a
+  /// [SafeVaultBackupUnavailableException] naming [operation] and the OS
+  /// reason, instead of a raw `FileSystemException` carrying a verbatim vault
+  /// path into the sync error log. A non-permission backup failure still
+  /// propagates unchanged.
   Future<SafeVaultFileWriteResult> write({
     required String targetPath,
     required Uint8List bytes,
     bool backupExistingTarget = false,
     String? operation,
   }) async {
-    final resolved = _io.resolveLeafLink(targetPath);
+    // One platform round-trip per write: asking twice would also open a
+    // window in which the two answers disagree and the backup and the target
+    // resolve against different perimeters.
+    final root = await _io.appDirectoryRoot();
+    final resolved = _resolveTarget(targetPath, root);
 
     String? backupPath;
     if (backupExistingTarget && await _io.exists(resolved)) {
       // Caller's path, not `resolved`: see createBackup on why the backup
       // stays in the caller's perimeter while the temp follows the link.
-      backupPath = await createBackup(targetPath);
+      backupPath = await _createBackup(targetPath, root, operation);
     }
 
     // Mode of the file we are about to replace; absent target -> owner-only.
@@ -343,6 +500,76 @@ class SafeVaultFileWriter {
     return SafeVaultFileWriteResult(
       targetPath: targetPath,
       backupPath: backupPath,
+    );
+  }
+
+  /// The path the temp must be a sibling of, and the path the rename lands
+  /// on — the leaf symlink resolved, or NOT resolved inside the app-private
+  /// perimeter (T109 HIGH-4 follow-up).
+  ///
+  /// Outside the perimeter the path was chosen by the user through a picker,
+  /// so a live leaf link is a deliberate `~/vault.kdbx -> ~/Dropbox/...`
+  /// setup and must be written THROUGH (HIGH-2). Inside the app-private
+  /// container the same entry is plantable (#45/#46) and nothing legitimate
+  /// creates a link there, so it is left unresolved and the rename replaces
+  /// the entry — the rule `MobileFileStorage` already applies to the very
+  /// same directory. Dangling links are unaffected: [SafeVaultFileIo
+  /// .resolveLeafLink] never resolves one, on either side of the perimeter.
+  String _resolveTarget(String path, String? root) {
+    _refuseTraversal(path);
+    if (root != null && _isInsideAppPerimeter(path, root)) {
+      return path;
+    }
+    return _io.resolveLeafLink(path);
+  }
+
+  /// Refuses a path holding a `..` segment, before the perimeter is even
+  /// consulted.
+  ///
+  /// Textual containment and the kernel disagree the moment an intermediate
+  /// symlink is involved: the kernel follows `dir` in `<root>/dir/../x`
+  /// BEFORE applying `..`, so a planted directory link makes a
+  /// textually-inside path land anywhere. Neither answer of the symlink gate
+  /// helps — resolving lands on the link's target, not resolving lets the
+  /// kernel do the same thing at rename time — so the only safe answer is to
+  /// not write at all.
+  ///
+  /// `MobileFileStorage` refuses traversal for the same reason, and is loud
+  /// (`deleteFileFromAppDirectory`) exactly where the operation acts rather
+  /// than merely answers. This one acts.
+  ///
+  /// No legitimate caller produces `..`: paths come from `p.join` or from a
+  /// picker. A tampered persisted record can, though — `PortablePath.decode`
+  /// joins a stored `appdocs:` value onto the documents root without
+  /// inspecting it — which is the #45/#46 threat model again.
+  static void _refuseTraversal(String path) {
+    // NOT `p.normalize(path)` first: normalize collapses `..` out of an
+    // absolute path, which made the first cut of this guard dead code.
+    if (!p.split(path).contains('..')) {
+      return;
+    }
+    throw FileSystemException(
+      'safe write refused: the path contains a ".." segment, which can leave '
+      'the app perimeter through an intermediate symlink no matter how the '
+      'symlink gate answers',
+      _shape(path),
+    );
+  }
+
+  /// Whether the ENTRY at [path] lives inside the app container at [root].
+  ///
+  /// Same two-part rule as `MobileFileStorage`: the parent is symlink-resolved
+  /// (so iOS's `/var` vs `/private/var` spellings compare equal) while the
+  /// leaf is left alone — the question here is where the entry lives, not
+  /// what it points at, because the rename acts on the entry.
+  ///
+  /// Traversal never reaches here: [_refuseTraversal] rejects it first, which
+  /// is why this can compare textually normalized paths at all.
+  static bool _isInsideAppPerimeter(String path, String root) {
+    final resolvedRoot = PortablePath.resolveForComparison(root);
+    return p.isWithin(
+      resolvedRoot,
+      PortablePath.resolveParentForComparison(path),
     );
   }
 
@@ -463,6 +690,20 @@ class SafeVaultFileWriter {
     final extension = p.extension(path);
     return '<depth ${p.split(path).length}>/*$extension';
   }
+
+  /// [_osReason] with any absolute-path-shaped token replaced by `<path>`.
+  ///
+  /// `strerror`/`FormatMessage` messages carry no path today, so this is
+  /// belt-and-braces — but [SafeVaultBackupUnavailableException] promises a
+  /// path-free message to a UI/log surface, and a promise kept by the OS
+  /// rather than by the code is not kept. Only tokens that START a path are
+  /// stripped, so "Input/output error" survives intact.
+  static String _osReasonSafe(Object error) =>
+      _osReason(error).replaceAll(_absolutePathToken, '<path>');
+
+  /// A whitespace-delimited token beginning like an absolute path: POSIX `/`
+  /// or a Windows drive root.
+  static final _absolutePathToken = RegExp(r'(?<![^\s])(/|[A-Za-z]:\\)\S*');
 
   /// The OS-level reason for [error] WITHOUT its path: a
   /// [FileSystemException]'s own `toString` embeds the offending path.
