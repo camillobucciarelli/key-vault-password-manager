@@ -101,7 +101,7 @@ Per `.github/copilot-instructions.md`: if `graphify-out/GRAPH_REPORT.md` exists,
 
 When you finish work that completes a task in a `specs/NNN-*/tasks.md` file, tick that task's box (`- [ ]` → `- [x]`) in the same change that lands the work. This is not bookkeeping: `tasks.md` is the sole source of the roadmap board (Projects v2 #2), and `.github/workflows/spec-project-sync.yml` derives each spec's issue body and Status from those boxes on every push to `main`. An untouched box means the board reports the work as not done.
 
-Tick a box only when that task's own acceptance criteria are met and its tests pass. Never edit the generated issue body or move a card by hand — the next sync overwrites both. To resync without a push: `PROJECT_NUMBER=2 PROJECT_OWNER=camillobucciarelli tool/sync_spec_project.sh`.
+Tick a box only when that task's own acceptance criteria are met and its tests pass. Never edit the generated issue body or move a card by hand — the next sync overwrites both. To resync without a push: `PROJECT_NUMBER=2 tool/sync_spec_project.sh`.
 
 The same duty covers every other spec edit, not just ticking boxes: adding or removing a spec, renaming one, adding, deleting, reordering or rewording tasks. The board must end up consistent with `specs/` in the same change, so keep the shapes the sync depends on:
 
@@ -109,7 +109,7 @@ The same duty covers every other spec edit, not just ticking boxes: adding or re
 - `tasks.md` — task lines start at column 0 as `- [ ]` / `- [x]`; continuation lines are indented. Anything else is invisible to the sync.
 - A spec with no `tasks.md` shows as `Todo` with an explanatory body — expected for drafts.
 
-After a spec change, run the script (command above) or the `Spec project sync` workflow via `workflow_dispatch`, and report the resulting board state. Do not leave `specs/` and the board disagreeing.
+After a spec change, run the script (`PROJECT_NUMBER=2 tool/sync_spec_project.sh`) or the `Spec project sync` workflow via `workflow_dispatch`, and report the resulting board state. Do not leave `specs/` and the board disagreeing.
 
 ## Agent Branch Workflow
 
