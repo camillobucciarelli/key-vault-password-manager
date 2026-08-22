@@ -47,7 +47,7 @@ jobs:
       # Pinned, not `latest`: Node 24 is the current Active LTS (maintained to
       # 2026-04) and matches the local dev version, so CI and local runs of the
       # built-in runner agree. Node 20 is already EOL. `node --test` needs >= 18.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
 
