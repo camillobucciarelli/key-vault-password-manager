@@ -19,8 +19,11 @@
 // given and prove convergence over it, so what the adapter must demonstrate is
 // that its presence evidence has the shape the models assumed — absence is
 // never deletion evidence, and an empty value is present.
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:analyzer/dart/analysis/utilities.dart';
+import 'package:analyzer/dart/ast/ast.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kdbx/kdbx.dart';
 // `forceSetUuid` is how a fixture gives two replicas a shared lineage and how
@@ -1136,6 +1139,139 @@ void main() {
         'without a decision about what it means', () {
       expect(KdbxRecordClassification.values, hasLength(5));
       expect(KdbxRecordEvidence.values, hasLength(4));
+    });
+  });
+
+  // ===========================================================================
+  // T303 — the redaction of the data layer's own `toString`s.
+  //
+  // The T303 tests elsewhere cover the port's SURFACE, which is the domain
+  // boundary. They say nothing about the types on this side of it, and those
+  // are the ones holding decrypted values: `KdbxFieldPresent.semanticValue` is
+  // plaintext, and `toString` is what an interpolation into a log line, an
+  // error message or a crash report calls. Rewriting any of these to
+  // interpolate its own state used to break no test at all — the classes
+  // asserted the property in prose ("Deliberately redacted. This object holds a
+  // decrypted value.") and nothing enforced it.
+  // ===========================================================================
+  group('T303 data-layer toString redaction', () {
+    // Classes whose `toString` must be a constant literal that says
+    // "redacted": each one can reach a decrypted value, directly or through a
+    // field.
+    const guarded = <String>[
+      'KdbxFieldPresent',
+      'KdbxFieldDiff',
+      'KdbxRecordSide',
+      'KdbxRecordDiff',
+      'KdbxPresenceDiff',
+      'KdbxMergeSide',
+      'KdbxMergePair',
+      'KdbxMergeResolution',
+    ];
+
+    // Holds nothing at all, so its `toString` may name its own type — but it
+    // must still be a constant literal, or a future field arrives with an
+    // interpolation already in place.
+    const constantOnly = <String>['KdbxFieldMissing'];
+
+    late CompilationUnit unit;
+
+    setUpAll(() {
+      const path =
+          'lib/features/password_manager/data/services/kdbx_merge_adapter.dart';
+      unit = parseString(
+        content: File(path).readAsStringSync(),
+        path: path,
+      ).unit;
+    });
+
+    test('every type that can hold decrypted data declares a toString that '
+        'returns a constant literal', () {
+      for (final name in [...guarded, ...constantOnly]) {
+        final declaration = unit.declarations
+            .whereType<ClassDeclaration>()
+            .singleWhere(
+              (d) => d.namePart.typeName.lexeme == name,
+              orElse: () => throw StateError('no class "$name"'),
+            );
+        final toString = declaration.body.members
+            .whereType<MethodDeclaration>()
+            .where((m) => m.name.lexeme == 'toString');
+
+        expect(
+          toString,
+          hasLength(1),
+          reason:
+              '$name has no toString, so it falls back to the default — which '
+              'is safe today and silently stops being safe the moment someone '
+              'adds one. Declare it explicitly.',
+        );
+
+        final body = toString.single.body;
+        expect(
+          body,
+          isA<ExpressionFunctionBody>(),
+          reason: '$name.toString must be a single expression',
+        );
+        final expression = (body as ExpressionFunctionBody).expression;
+        expect(
+          expression,
+          isA<SimpleStringLiteral>(),
+          reason:
+              '$name.toString returns ${expression.runtimeType}. Only a '
+              'constant literal is allowed: an interpolation is how a '
+              'decrypted value reaches a log line, and it is one character '
+              'away at all times.',
+        );
+        if (guarded.contains(name)) {
+          expect(
+            (expression as SimpleStringLiteral).value,
+            contains('redacted'),
+            reason: '$name.toString must say it is redacted',
+          );
+        }
+      }
+    });
+
+    test('the guarded list covers every class in the file that is not a pure '
+        'enum or a value-free marker', () {
+      // Fail-closed: a NEW class in the adapter is a violation until someone
+      // decides it belongs on the list or argues why it does not.
+      const exempt = <String>{
+        // Stateless.
+        'KdbxMergeAdapter',
+        // The sealed base of the presence pair: no fields, and both of its
+        // subclasses are covered above.
+        'KdbxFieldPresence',
+      };
+      final declared = unit.declarations
+          .whereType<ClassDeclaration>()
+          .map((d) => d.namePart.typeName.lexeme)
+          .where((name) => !name.startsWith('_'))
+          .toSet();
+
+      expect(
+        declared.difference({...guarded, ...constantOnly, ...exempt}),
+        isEmpty,
+        reason:
+            'a new public class in the merge adapter is not covered by the '
+            'toString guard. Add it to `guarded`, or to `exempt` with a reason '
+            '— it holds no data worth redacting.',
+      );
+    });
+
+    test('a redacted toString actually redacts, at runtime', () {
+      // The source rules above are structural; this is the property itself, so
+      // the two cannot both be satisfied by a clever literal.
+      const secret = 'plaintext-that-must-not-appear';
+      final present = KdbxFieldPresent(
+        semanticValue: secret,
+        isProtected: true,
+        length: secret.length,
+      );
+
+      expect(present.toString(), isNot(contains(secret)));
+      expect(present.semanticValue, secret, reason: 'still readable in data/');
     });
   });
 

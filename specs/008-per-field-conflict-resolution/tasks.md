@@ -480,12 +480,42 @@ All closed, each re-verified by replaying the tester's own mutant:
 - Added on request: **end-to-end commutativity** (FR-3), the bridge from T009's
   model to the implementation.
 
-Two dimensions are **not** commutative yet, each pinned by its own executable
-assertion rather than hidden: **sibling order** (each device appends its imports
-to the end of the target group — needs FR-3's total order, T401a) and **entry
-history** (KDBX history is a per-replica edit log; FR-1 says preserve, nothing
-says merge). Both matter to FR-7 step 5, which arbitrates on the canonical
-manifest. Reported as T401/T401a input.
+**Round 2** (independent tester): seven of seven round-1 mutants dead, the
+release reproduction matching byte for byte, the barrier's whitelist-by-
+construction the right shape. Two HIGH remained, both closed here:
+
+- **HIGH-1** the barrier's signature check was **inert on the return type**: an
+  absent `typeParameters` interpolates as the literal `null` and destroys the
+  trailing word boundary, so the real function's signature read
+  `KdbxMergeAdapternull(GetIt sl)`. Return type is the laundering direction
+  that matters — a barrier leaks by *returning* the adapter. Fixed by joining
+  the null-coalesced parts with a separator; a sweep found the pattern nowhere
+  else in the gate tests.
+- **HIGH-4** a third commutativity divergence, and unlike the other two it was
+  state **the merge wrote itself**: `addEntry`/`addGroup`/`setString` route
+  through `Changeable.modify`, which stamps `DateTime.now()`. Two devices never
+  merge in the same second, so the group that received an import and the entry
+  that received the other side's fields diverged permanently. **Corrected, not
+  projected away**: `_stampDeterministicTimes` restores every object's
+  modification and location times to the FR-3 join of the two inputs, so the
+  candidate no longer depends on when it was built. The commutativity test now
+  forces a 1.5 s gap between the two devices, which turns the former ~27% flake
+  into a deterministic assertion — 30/30 isolated runs green.
+
+Two dimensions remain **not** commutative, each pinned by its own executable
+assertion rather than hidden, and both are pre-existing per-replica state the
+merge preserves rather than writes: **sibling order** (each device appends its
+imports to the end of the target group — needs FR-3's total order, T401a) and
+**entry history** (KDBX history is a per-replica edit log; FR-1 says preserve,
+nothing says merge). Both matter to FR-7 step 5, which arbitrates on the
+canonical manifest. Reported as T401/T401a input.
+
+One wall clock is left in the apply step by decision: the tombstone of a
+**fresh** explicit Delete. A Delete is a user decision taken at a real moment
+and is per-device by T009b's G4, and a tombstone clock is join-convergent —
+FR-5's "preserve newest supported deletion data" is a max — so two devices
+converge on the next round instead of rewriting each other forever, which is
+precisely what a modification time under a wall clock does not do.
 
 ## Phase 4 — Preconditions, commit and remote recovery
 

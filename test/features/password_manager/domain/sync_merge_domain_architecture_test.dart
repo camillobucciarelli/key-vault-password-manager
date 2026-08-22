@@ -326,10 +326,21 @@ void main() {
           );
           // ...and even an allowlisted name must not carry a data type out
           // through its own signature.
-          final signature =
-              '${declaration.returnType}'
-              '${declaration.functionExpression.typeParameters}'
-              '${declaration.functionExpression.parameters}';
+          //
+          // Joined with a separator, and each part null-coalesced, because the
+          // obvious `'$a$b$c'` form is a **no-op on the return type**: an
+          // absent `typeParameters` interpolates as the literal `null`, glued
+          // straight onto the type name, so the signature of the real function
+          // read `KdbxMergeAdapternull(GetIt sl)` and `\bKdbxMergeAdapter\b`
+          // did not match. Parameters stayed covered — they are fenced by
+          // parentheses and commas — but the return type is the laundering
+          // direction that matters here: a barrier leaks by *returning* the
+          // adapter, not by accepting one.
+          final signature = [
+            declaration.returnType,
+            declaration.functionExpression.typeParameters,
+            declaration.functionExpression.parameters,
+          ].map((node) => node?.toString() ?? '').join(' ');
           for (final type in dataTypeNames) {
             expect(
               RegExp('\\b${RegExp.escape(type)}\\b').hasMatch(signature),

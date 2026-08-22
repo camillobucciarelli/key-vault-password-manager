@@ -675,6 +675,28 @@ void main() {
         lessThan(serialize),
         reason: 'a collision must be refused before it becomes bytes',
       );
+
+      // Presence and position are not execution: a re-validation wrapped in a
+      // branch that is never taken satisfies every assertion above. So the
+      // call must be an unconditional statement directly in the try block —
+      // no `if`, no `assert`, no loop, nothing that can skip it.
+      final statements = _tryBlockStatements(
+        File(_implPath).readAsStringSync(),
+        'SyncMergeRepositoryImpl',
+        'buildCandidateBytes',
+      );
+      expect(
+        statements.where(
+          (statement) =>
+              statement is ExpressionStatement &&
+              statement.expression.toSource().contains('validatePair('),
+        ),
+        hasLength(1),
+        reason:
+            'the candidate re-validation must be a direct, unconditional '
+            'statement of the try block — not merely present somewhere in the '
+            'method text, which a never-taken branch also satisfies',
+      );
     });
 
     test('a refused pair leaves no session behind, observably', () async {
@@ -721,6 +743,13 @@ void main() {
       // No shortcut and no override: the automatic FR-3 defaults are exactly
       // what has to agree.
       final left = await forward.reopenCandidate(a.sessionId);
+      // **The two devices merge in different seconds, on purpose.** In the
+      // field they always do, and an earlier version of this test was ~27%
+      // flaky precisely because sometimes they did not: `addEntry` and
+      // `setString` stamp `DateTime.now()`, so the candidate depended on when
+      // it was built. Forcing the gap turns that from a flake into a
+      // deterministic assertion.
+      await Future<void>.delayed(const Duration(milliseconds: 1500));
       final right = await mirrored.reopenCandidate(b.sessionId);
 
       final leftManifest = kdbxSemanticManifest(left);
@@ -770,6 +799,12 @@ void main() {
       //   * ENTRY HISTORY — KDBX history is a per-replica edit log. FR-1 says
       //     preserve it; nothing says merge it, and merging two edit logs is a
       //     design question, not an implementation detail.
+      //
+      // A third divergence used to live here and has been FIXED rather than
+      // projected away, because unlike these two it was state the merge wrote
+      // itself: `addEntry`/`setString` stamped `DateTime.now()`, so the two
+      // candidates differed on every object the merge touched. See
+      // `_stampDeterministicTimes`.
       //
       // Both matter beyond cosmetics: FR-7 step 5 arbitrates with the
       // canonical manifest, so two candidates differing on either dimension
@@ -1278,6 +1313,28 @@ String _topLevelFunctionBody(String source, String name) {
         orElse: () => throw StateError('no top-level function "$name"'),
       );
   return function.functionExpression.body.toSource();
+}
+
+/// Statements directly inside the first top-level `try` block of a method.
+///
+/// "Directly" is the point: a statement nested in an `if`, a loop or an
+/// `assert` is not returned, so a guard hidden in a branch cannot pass for an
+/// unconditional one.
+List<Statement> _tryBlockStatements(
+  String source,
+  String className,
+  String name,
+) {
+  final unit = parseString(content: source, path: _implPath).unit;
+  final type = unit.declarations.whereType<ClassDeclaration>().singleWhere(
+    (declaration) => declaration.namePart.typeName.lexeme == className,
+  );
+  final method = type.body.members.whereType<MethodDeclaration>().singleWhere(
+    (member) => member.name.lexeme == name,
+  );
+  final block = (method.body as BlockFunctionBody).block;
+  final tryStatement = block.statements.whereType<TryStatement>().single;
+  return tryStatement.body.statements.toList();
 }
 
 /// Source of one method of [className], likewise from the AST.

@@ -325,8 +325,12 @@ final class KdbxRecordSide {
       evidence == KdbxRecordEvidence.live ||
       evidence == KdbxRecordEvidence.recycled;
 
+  // A constant literal, even though `evidence` is a safe enum: the rule the
+  // gate enforces is "no interpolation at all", because an interpolation that
+  // is safe today is one field away from carrying a decrypted value, and the
+  // reviewer who adds that field will not re-read this method.
   @override
-  String toString() => 'KdbxRecordSide(${evidence.name})';
+  String toString() => 'KdbxRecordSide(<redacted>)';
 }
 
 /// FR-5's record-level classification of one object across the two sides.
@@ -750,6 +754,11 @@ class KdbxMergeAdapter {
     final local = pair.local.file;
     final remote = pair.remote.file;
 
+    // Captured BEFORE anything is mutated: the merge must never write a wall
+    // clock into the candidate. See [_stampDeterministicTimes].
+    final times = _captureTimes(local, remote);
+    final keepStamps = <String, DateTime>{};
+
     for (final record in diff.recordDiffs) {
       if (record.classification != KdbxRecordClassification.recordRemoteOnly) {
         continue;
@@ -780,11 +789,79 @@ class KdbxMergeAdapter {
         remote: remote,
         record: record,
         choice: resolution.recordChoiceFor(record.objectUuid),
+        keepStamps: keepStamps,
       );
     }
 
     _unionTombstones(local: local, remote: remote);
+    _stampDeterministicTimes(local, times, keepStamps);
     return local;
+  }
+
+  /// Both sides' object times, per UUID, before the merge touches anything.
+  Map<String, _ObjectTimes> _captureTimes(KdbxFile local, KdbxFile remote) {
+    final captured = <String, _ObjectTimes>{};
+    for (final file in [local, remote]) {
+      for (final object in file.body.rootGroup.getAllGroupsAndEntries()) {
+        final existing = captured[object.uuid.uuid] ?? const _ObjectTimes();
+        captured[object.uuid.uuid] = existing.joinedWith(
+          modifiedAt: object.times.lastModificationTime.get(),
+          locationChangedAt: object.times.locationChanged.get(),
+        );
+      }
+    }
+    return captured;
+  }
+
+  /// FR-3, applied to timestamps: **every time the merge writes is a function
+  /// of the two inputs, never of the local clock.**
+  ///
+  /// This is not tidiness. `parent.addEntry` / `addGroup` and `setString` all
+  /// route through `Changeable.modify`, which stamps the object with
+  /// `DateTime.now()`. So importing a one-sided record re-dated the group that
+  /// received it, and taking a remote field value re-dated the entry — and two
+  /// devices never merge in the same second, so their candidates differed on
+  /// exactly those objects, forever. Measured as a ~27% flake in the
+  /// commutativity test and reproduced deterministically by separating the two
+  /// devices by three seconds.
+  ///
+  /// It is the same defect class FR-3 identifies for values, in the dimension
+  /// nobody looks at: a merge whose output depends on *when* it ran is not
+  /// commutative, so the FR-7 semantic short-circuit never fires and each
+  /// device rewrites the other's result on every round.
+  ///
+  /// The rule is FR-3's own join: the merged object's time is the **newer of
+  /// the two sides' known times**, which is exactly "the winning side's
+  /// timestamp travels with the winning value" at the granularity KDBX
+  /// actually stores (there is no per-field time). A one-sided object keeps
+  /// the single known time, which is its source's.
+  ///
+  /// Two deliberate exceptions, both already deterministic:
+  ///   * [keepStamps] — FR-5 Keep re-dates the record at the tombstone's clock
+  ///     (T009b G2), and that must win over the join or the tombstone starts
+  ///     matching again on the next peer;
+  ///   * a **fresh** deletion emitted by an explicit Delete keeps the wall
+  ///     clock. A Delete is a user decision taken at a real moment and is
+  ///     per-device by G4, and unlike a modification time a tombstone clock is
+  ///     join-convergent (FR-5 "preserve newest supported deletion data" is a
+  ///     max), so two devices converge on the next round instead of rewriting
+  ///     each other forever.
+  void _stampDeterministicTimes(
+    KdbxFile candidate,
+    Map<String, _ObjectTimes> times,
+    Map<String, DateTime> keepStamps,
+  ) {
+    for (final object in candidate.body.rootGroup.getAllGroupsAndEntries()) {
+      final captured = times[object.uuid.uuid];
+      if (captured == null) continue;
+      final modifiedAt = keepStamps[object.uuid.uuid] ?? captured.modifiedAt;
+      if (modifiedAt != null) {
+        object.times.lastModificationTime.set(modifiedAt);
+      }
+      if (captured.locationChangedAt != null) {
+        object.times.locationChanged.set(captured.locationChangedAt);
+      }
+    }
   }
 
   /// FR-1's serialization parity gate: serialize the candidate, reopen it with
@@ -978,10 +1055,16 @@ class KdbxMergeAdapter {
     required KdbxFile remote,
     required KdbxRecordDiff record,
     required MergeChoice choice,
+    required Map<String, DateTime> keepStamps,
   }) {
     switch (choice) {
       case MergeChoice.keep:
-        _applyKeep(local: local, remote: remote, record: record);
+        _applyKeep(
+          local: local,
+          remote: remote,
+          record: record,
+          keepStamps: keepStamps,
+        );
       case MergeChoice.delete:
         _applyDelete(local: local, record: record);
       case MergeChoice.local:
@@ -995,6 +1078,7 @@ class KdbxMergeAdapter {
     required KdbxFile local,
     required KdbxFile remote,
     required KdbxRecordDiff record,
+    required Map<String, DateTime> keepStamps,
   }) {
     final uuid = record.objectUuid;
     var object = _objectByUuid(local, uuid);
@@ -1026,7 +1110,7 @@ class KdbxMergeAdapter {
     // remains monotone.
     final deletedAt = record.local.deletedAtUtc ?? record.remote.deletedAtUtc;
     if (deletedAt != null) {
-      object.times.lastModificationTime.set(deletedAt);
+      keepStamps[uuid] = deletedAt;
     }
     _removeTombstone(local, uuid);
   }
@@ -1322,6 +1406,31 @@ class KdbxMergeAdapter {
         classification: classification,
       );
     }
+  }
+}
+
+/// The join of one object's times across the two sides.
+final class _ObjectTimes {
+  const _ObjectTimes({this.modifiedAt, this.locationChangedAt});
+
+  final DateTime? modifiedAt;
+  final DateTime? locationChangedAt;
+
+  /// FR-3's order over known times: a known time beats an unknown one, and the
+  /// newer known time wins. Commutative, so the two sides can be visited in
+  /// either order — which is the whole point.
+  _ObjectTimes joinedWith({
+    DateTime? modifiedAt,
+    DateTime? locationChangedAt,
+  }) => _ObjectTimes(
+    modifiedAt: _newer(this.modifiedAt, modifiedAt),
+    locationChangedAt: _newer(this.locationChangedAt, locationChangedAt),
+  );
+
+  static DateTime? _newer(DateTime? a, DateTime? b) {
+    if (a == null) return b;
+    if (b == null) return a;
+    return a.isAfter(b) ? a : b;
   }
 }
 
