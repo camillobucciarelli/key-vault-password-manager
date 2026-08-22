@@ -577,7 +577,7 @@ the 14-file result below is unchanged, and now provably complete for `lib/`.
 | Settings/credential/database rename covered | `passed` | row 4 |
 | Database create/delete/export covered | `passed` | rows 5, 6, 7 + GAP 5 + CORRECTION |
 | Presentation direct database writes removed/forbidden | `passed` (2026-08-22, Gate 1 T102) | all 5 presentation writers now delegate to `DatabaseFileRepository.copyFile/renameFile`; guarded by `T102 architecture presentation layer performs no direct file mutation` |
-| Alias and deterministic multi-path lock tests enumerated | `not-run` | enumerated below; executed in Gate 1 T107 |
+| Alias and deterministic multi-path lock tests enumerated | `passed` | executed by Gate 1 T107: `database_path_identity_resolver_test.dart` + `database_path_mutex_test.dart` (alias matrix, inverse concurrent renames, global fallback) |
 | No shared path mutex shipped by Gate 0 | `passed` | `no shared database path mutex exists yet` |
 
 ### Gate 1 progress — T101/T102 (2026-08-22)
@@ -630,7 +630,19 @@ routing (T104/T105) concerns, not presentation writes.
 
 ## Path identity design (input to Gate 1 T103/T104)
 
-Design recorded, **not executed** (`not-run`).
+Design recorded; **executed by Gate 1 T103/T104** (2026-08-22) in
+`lib/features/password_manager/data/services/database_path_identity_resolver.dart`
+and `database_path_mutex.dart`. The per-platform decision left open below was
+resolved by replacing the platform assumption with a **runtime probe**: case
+sensitivity is probed per volume via `FileSystemEntity.identical` against the
+case-flipped spelling of the deepest existing prefix (decisive both ways for
+existing paths), and hard-link/file identity uses pairwise
+`FileSystemEntity.identical` — the portable-API gap in step 5 turned out not
+to exist. `identityConfidence` is the `proven` flag; it is `false` (coarse
+global-lock fallback) when the target's parent directory does not exist yet or
+the case probe is inconclusive (a path with no letters). A dangling-symlink
+leaf takes the identity of its target, since writing through the link creates
+the target. Writer routing through the mutex is T105 and has not happened.
 
 Canonicalization pipeline for a database path, in order:
 
@@ -785,7 +797,9 @@ B1.
   task.
 - **platform path identity/global-lock fallback**: design recorded above;
   `identityConfidence` flag with coarse global lock fallback. Per-platform
-  decision `not-run`.
+  decision resolved 2026-08-22 by T103: a per-volume **runtime probe** instead
+  of a per-platform table — see "Path identity design" for the mechanism and
+  the unproven cases.
 - **domain model corrections**: add an explicit `identityConfidence` concept for
   the mutex layer, and an `unsupportedKdbxConstruct` reason code distinct from
   the UUID-integrity `unsupportedKdbxData`, so a future refusal is reportable
@@ -819,7 +833,10 @@ Listed so no reader mistakes them for results:
    evidence does not. All `not-run`.
 3. Atomicity, flush and rename semantics on **every** platform including macOS —
    nothing was executed; all rows `not-run`.
-4. Path canonicalization and case/hard-link behaviour — designed, not executed.
+4. ~~Path canonicalization and case/hard-link behaviour — designed, not
+   executed.~~ **Resolved 2026-08-22**: executed by T103/T107 on the host
+   filesystems the suite runs on (macOS + ubuntu CI); other platforms get
+   their evidence with the Gate 1 T111 harness runs.
 5. Behaviour of the merge adapter under a `kdbx` patch upgrade — the spike
    depends on non-exported symbols; no upper bound is pinned in `pubspec.yaml`
    beyond `^2.4.2`. R1.
