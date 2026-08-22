@@ -16,7 +16,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 REPO="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}"
-PROJECT_OWNER="${PROJECT_OWNER:-${REPO%%/*}}"
+# Default to @me, not the repo owner's login: resolving a login makes gh probe
+# both user() and organization(), and the org probe needs read:org, which a
+# repo+project classic token does not carry -- gh then reports "unknown owner
+# type". @me uses the token's viewer and skips the lookup entirely.
+PROJECT_OWNER="${PROJECT_OWNER:-@me}"
 PROJECT_NUMBER="${PROJECT_NUMBER-}"
 LABEL="spec"
 BODY_LIMIT=60000
