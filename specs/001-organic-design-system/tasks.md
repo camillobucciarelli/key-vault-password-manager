@@ -13,14 +13,14 @@ parallel flags because theme and `pubspec.yaml` changes overlap.
       from `specs/_design/ICONS.md` §2, and record SHA-256 values in
       `assets/icons/lucide/UPSTREAM.md`. Do not add a dependency before this
       delivery record exists.
-- [ ] **T2** Add Caprasimo Regular and Figtree 400/600/700 static TTF files plus
+- [x] **T2** Add Caprasimo Regular and Figtree 400/600/700 static TTF files plus
       OFL licence; declare families/assets in `pubspec.yaml` without touching
       `version:`. Add a font-loading test with runtime fetching disabled. Run
       `flutter pub get`, `flutter analyze` and that test.
 
 ## Phase 2 · Tokens and theme
 
-- [ ] **T3** Add Organic ramps to `app_colors.dart`, `KeyVaultColors`,
+- [x] **T3** Add Organic ramps to `app_colors.dart`, `KeyVaultColors`,
       `AppSpacing`, `AppRadii`, `AppElevation`, `AppMotion` and
       `AppTextStyles`. Keep every existing `AppColors` public constant and
       `AppBackgrounds.gradient` signature mapped to closest Organic values;
@@ -29,7 +29,7 @@ parallel flags because theme and `pubspec.yaml` changes overlap.
       document the handoff deviation in code. Add parameterized ≥4.5:1 tests for
       every FR-2 text/background pairing, plus reduced-motion tests. Run
       `flutter analyze` and theme tests.
-- [ ] **T4** Rebuild `app_theme.dart` with bundled Caprasimo/Figtree, register
+- [x] **T4** Rebuild `app_theme.dart` with bundled Caprasimo/Figtree, register
       `KeyVaultColors`, and style Material buttons, inputs, sheets, snackbars,
       focus/hover/pressed/disabled states. Add the sole accessibility primitive
       `lib/core/widgets/app_focus_ring.dart`: caller-owned shared `FocusNode`,
@@ -46,7 +46,7 @@ parallel flags because theme and `pubspec.yaml` changes overlap.
 
 ## Phase 3 · Lucide primitive
 
-- [ ] **T5** Add `flutter_svg`, curated vendored SVGs, `AppGlyph` and `KvIcon`.
+- [x] **T5** Add `flutter_svg`, curated vendored SVGs, `AppGlyph` and `KvIcon`.
       Enforce 24-unit viewBox, no fill, round caps/joins and 2.75 stroke in asset
       validation. Add the icon state row to the existing gallery and tests.
       Leave `AppIcons` members and all screen call sites untouched. Regenerate
@@ -61,6 +61,6 @@ parallel flags because theme and `pubspec.yaml` changes overlap.
       `--glob '!lib/core/widgets/**'` and diff it against T1 baseline; no new
       occurrence is allowed. Record remaining `AppIcons` compatibility call
       sites for later screen specs; do not require global `Icons.` zero in 001.
-- [ ] **T7** Run `flutter analyze`, `flutter test test/core/theme/app_theme_test.dart`
+- [x] **T7** Run `flutter analyze`, `flutter test test/core/theme/app_theme_test.dart`
       and `flutter test test/goldens/organic_theme_gallery_test.dart`. Run full
       `flutter test` once before commit.

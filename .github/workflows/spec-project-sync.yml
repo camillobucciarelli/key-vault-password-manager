@@ -7,6 +7,10 @@ on:
       - 'specs/**'
       - 'tool/sync_spec_project.sh'
       - '.github/workflows/spec-project-sync.yml'
+  # Base-branch code only: safe access to PROJECTS_TOKEN while reflecting PR
+  # lifecycle immediately, including PRs from forks.
+  pull_request_target:
+    types: [opened, reopened, synchronize, closed, ready_for_review, converted_to_draft]
   workflow_dispatch:
 
 concurrency:
@@ -18,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - name: Sync specs to issues and board
         env:
           # Needs Projects read/write; the default GITHUB_TOKEN cannot write

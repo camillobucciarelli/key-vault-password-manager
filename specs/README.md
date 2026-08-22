@@ -64,16 +64,24 @@ carries dark acceptance criteria.
 
 Development status is mirrored to a GitHub Projects v2 board: one issue per
 spec, labelled `spec`, its body a copy of that spec's `tasks.md` checklist.
-`tool/sync_spec_project.sh` derives everything from this directory and runs on
-every push to `main` that touches `specs/**`
+`tool/sync_spec_project.sh` derives task completion from this directory, detects
+open PRs that touch each spec, and runs on every push to `main` that touches `specs/**`
 (`.github/workflows/spec-project-sync.yml`). Status is `Done` when every task
-box is ticked, `In Progress` when some are, `Todo` otherwise; a `Done` spec's
-issue is closed automatically.
+box is ticked, `In Progress` when some are or an open PR touches the spec, `Todo`
+otherwise; a `Done` spec's issue is closed automatically. Active PR links are
+shown without treating their unmerged task boxes as completed work.
 
 Tick the boxes in `tasks.md` — the issue body is regenerated and hand edits to
 it are lost. One-time setup: repo variable `SPEC_PROJECT_NUMBER` (the board
-number) and secret `PROJECTS_TOKEN` (a fine-grained PAT with Projects
-read/write; the default `GITHUB_TOKEN` cannot write user-level projects).
+number) and secret `PROJECTS_TOKEN` (a classic PAT with `repo`, `project`,
+`read:org` and `read:discussion`; the default `GITHUB_TOKEN` and fine-grained
+PATs cannot write user-level Projects v2).
+
+Checkboxes record whether each task's full acceptance criteria hold on `main`,
+not the historical order in which old implementation landed. A retrospective
+audit can therefore leave an earlier partial task open while checking a later,
+independently satisfied task. Open PRs affect only `In Progress` and active-work
+links; checkout is pinned to `main`, so their unmerged boxes never count.
 
 ## Definition of done, every spec
 

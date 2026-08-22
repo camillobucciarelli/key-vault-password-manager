@@ -195,7 +195,7 @@ flutter test test/features/password_manager/data/services/sync_merge_convergence
 - [x] **T104 `database_path_mutex.dart`** — singleton shared by every T101 writer,
       manual/auto sync and merge. Deduplicate/sort multi-path identities before
       acquisition; independent databases concurrent only when proven distinct.
-- [ ] **T105 Route all writers** — patch `VaultKdbxService`, import service,
+- [x] **T105 Route all writers** — patch `VaultKdbxService`, import service,
       orchestrator, database/session settings flows and exports. No bypass.
 - [ ] **T106 Rename transaction** — lock old+new canonical paths in deterministic
       order through rename, registry/security/sync mapping updates and rollback.
@@ -262,7 +262,7 @@ flutter test test/features/password_manager/data/services/sync_merge_convergence
       a real window in which `databasePath` does not exist. Preexisting
       (T105/T106), the last delete-then-write left in the codebase; route it
       through the safe writer's replace instead.
-- [ ] **T110 Failure tests** — backup create/write/flush/verify, disk-full/short
+- [x] **T110 Failure tests** — backup create/write/flush/verify, disk-full/short
       write, target flush, rename and cleanup failures leave old/full new target.
 - [ ] **T111 Platform harness artifacts** — run target harness separately on
       Android, iOS, macOS, Windows and Linux. Feature flag defaults disabled until
