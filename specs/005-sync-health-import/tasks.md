@@ -2,11 +2,11 @@
 
 ## Health
 
-- [ ] **T1** `vault_health_report.dart`: `VaultHealthReport { int score,
+- [x] **T1** `vault_health_report.dart`: `VaultHealthReport { int score,
       List<HealthCategory> categories }`, `HealthCategory { kind, count,
       List<String> entryIds }`. Kinds: `weak`, `reused`, `old`, `duplicates`,
       `unmatchable`.
-- [ ] **T2** `vault_health_service.dart`: compute the five categories from the
+- [x] **T2** `vault_health_service.dart`: compute the five categories from the
       in-memory entry list. Weak = entropy < 40 bits (reuse the existing
       evaluator). Reused = same **sha256 of the password** across ≥ 2 entries —
       never map plaintext. Old = `lastPasswordChangedAt` older than the threshold,
@@ -31,49 +31,49 @@
       - `success`: last sync, local checksum mono 11 truncated, unlink.
       - `error`: message + persistent "Reconnect Google Drive" action.
       - `conflict`: opens the sheet (T7).
-- [ ] **T6** Recent-activity list under `success` (adopted proposal): compact rows
+- [x] **T6** Recent-activity list under `success` (adopted proposal): compact rows
       padding 11/14 from existing sync metadata.
-- [ ] **T7** Offline state (adopted proposal): shown only for connection-level
+- [x] **T7** Offline state (adopted proposal): shown only for connection-level
       failures (`SocketException`), never for an HTTP error status.
 - [ ] **T8** `remote_file_row.dart`: name, `modifiedTime`, size, plus an
       already-linked warning `KvTag` when the file id appears in another
       `DatabaseSyncMapping`.
-- [ ] **T9** Conflict sheet: two version cards radius 20 padding 14/16 with a 40
+- [x] **T9** Conflict sheet: two version cards radius 20 padding 14/16 with a 40
       square, checksum mono 11, `remoteModifiedTime`; Keep local / Use remote /
       Cancel with which-side labels. `SyncConflictResolution` semantics unchanged.
 
 ## Duplicates & recycle bin
 
-- [ ] **T10** `vault_duplicates.part.dart`: group card radius 24 padding 14,
+- [x] **T10** `vault_duplicates.part.dart`: group card radius 24 padding 14,
       inner rows radius 16 padding 11/13, Keep = `MergePreview.primary`,
       Merge = `secondary`, "Some data will be copied" strip (radius 14, padding
       9/12, 12 px) shown when `hasAnythingToCopy`. Merge action full-width,
       padding 11, radius 999.
-- [ ] **T11** Merge-preview sheet listing **exactly** `willCopyNotes`,
+- [x] **T11** Merge-preview sheet listing **exactly** `willCopyNotes`,
       `willCopyOtp`, `customFieldKeysToCopy`, `willCopyAttachments`.
-- [ ] **T12** No-duplicates empty state.
-- [ ] **T13** `vault_recycle_bin.part.dart`: Restore inline, Delete permanently in
+- [x] **T12** No-duplicates empty state.
+- [x] **T13** `vault_recycle_bin.part.dart`: Restore inline, Delete permanently in
       the row overflow, `Empty bin (n)` screen action — strings unchanged. Empty
       state + confirm sheet with the existing literals.
 
 ## Import / export
 
-- [ ] **T14** CSV import preview: Detected format / Rows found / Valid records /
+- [x] **T14** CSV import preview: Detected format / Rows found / Valid records /
       Skipped rows + the Avoid duplicates toggle.
-- [ ] **T15** `vault_csv_import_service.dart`: expose the per-row skip reason it
+- [x] **T15** `vault_csv_import_service.dart`: expose the per-row skip reason it
       already computes (`SkippedRow { index, reason }`).
-- [ ] **T16** CSV outcome screen listing a reason per skipped row (adopted
+- [x] **T16** CSV outcome screen listing a reason per skipped row (adopted
       proposal).
-- [ ] **T17** `vault_backups.part.dart`: the three existing export actions,
+- [x] **T17** `vault_backups.part.dart`: the three existing export actions,
       behaviour unchanged.
 
 ## Verify
 
-- [ ] **T18** `vault_health_service_test.dart`: fixed fixture → fixed score;
+- [x] **T18** `vault_health_service_test.dart`: fixed fixture → fixed score;
       reuse detection works on hashes; injected `now` drives the "old" category.
-- [ ] **T19** `sync_status_test.dart`: iterate `DatabaseSyncStatus.values`, assert
+- [x] **T19** `sync_status_test.dart`: iterate `DatabaseSyncStatus.values`, assert
       a non-empty hero for each; assert no auth call on first `disconnected` render.
-- [ ] **T20** Merge-preview test: exactly four flags rendered.
-- [ ] **T21** String diff: recycle-bin literals unchanged.
-- [ ] **T22** 17 goldens per the spec table.
-- [ ] **T23** `flutter analyze` clean, `flutter test` green.
+- [x] **T20** Merge-preview test: exactly four flags rendered.
+- [x] **T21** String diff: recycle-bin literals unchanged.
+- [x] **T22** 17 goldens per the spec table.
+- [x] **T23** `flutter analyze` clean, `flutter test` green.

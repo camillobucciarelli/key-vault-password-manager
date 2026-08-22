@@ -5,7 +5,7 @@ files overlap.
 
 ## Phase 1 · Freeze copy and fix architecture boundary
 
-- [ ] **T1** Extract/review user-facing literals from all eight files named in
+- [x] **T1** Extract/review user-facing literals from all eight files named in
       spec Copy contract into `test/fixtures/strings_003_before.txt` before any
       source edit. Record approved additions separately in fixture header;
       secrets/test-only strings are excluded. Lock disposition: reuse/modify
@@ -37,7 +37,7 @@ files overlap.
 
 ## Phase 2 · Coordinator and BLoC behaviour
 
-- [ ] **T5** Change coordinator results from path lists to C-1 metadata aggregated
+- [x] **T5** Change coordinator results from path lists to C-1 metadata aggregated
       through domain ports from registry/security/sync/file existence. Do not
       read, decrypt or persist item counts. Update coordinator and selection-BLoC
       tests; rerun named coordinator-import test and analyze.
@@ -89,7 +89,7 @@ files overlap.
       input 56, primary action, inline links, reduced-motion 280 ms entry, desktop
       card ≤600 with existing explanatory strings hidden but unchanged. Add
       geometry/copy tests.
-- [ ] **T16** Render typed failures under relevant field/surface: existing
+- [x] **T16** Render typed failures under relevant field/surface: existing
       credential message, explicit missing-key action, separate corrupt/missing
       database treatment. Never display raw path/exception. Add placement tests
       proving credential errors are field descendants, not snackbars.
@@ -108,7 +108,7 @@ files overlap.
       599/600/1024 and centred unlock ≤600; credential/database error placement;
       invalid/corrupt/duplicate/key-manager/Face-ID sheet geometry on root
       navigator in light and dark. Run screen tests.
-- [ ] **T20** Add `database_and_unlock_test.dart` with exact 22 filenames/states.
+- [x] **T20** Add `database_and_unlock_test.dart` with exact 22 filenames/states.
       Use bundled fonts, DPR 1, text scale 1, `en_US`, fixed clocks/account data
       and disabled external I/O. Generate/review only those images; assert count
       22.

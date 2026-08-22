@@ -99,7 +99,7 @@ Per `.github/copilot-instructions.md`: if `graphify-out/GRAPH_REPORT.md` exists,
 
 ## Spec Task Tracking
 
-When you finish work that completes a task in a `specs/NNN-*/tasks.md` file, tick that task's box (`- [ ]` → `- [x]`) in the same change that lands the work. This is not bookkeeping: `tasks.md` is the sole source of the roadmap board (Projects v2 #2), and `.github/workflows/spec-project-sync.yml` derives each spec's issue body and Status from those boxes on every push to `main`. An untouched box means the board reports the work as not done.
+When you finish work that completes a task in a `specs/NNN-*/tasks.md` file, tick that task's box (`- [ ]` → `- [x]`) in the same change that lands the work. This is not bookkeeping: `tasks.md` is the sole source of completed roadmap work (Projects v2 #2), and `.github/workflows/spec-project-sync.yml` derives each spec's issue body and Status from those boxes on every push to `main`. An untouched box means the board reports the work as not done. Open PRs touching a spec are detected separately and make it `In Progress`; their unmerged boxes never count as completed.
 
 Tick a box only when that task's own acceptance criteria are met and its tests pass. Never edit the generated issue body or move a card by hand — the next sync overwrites both. To resync without a push: `PROJECT_NUMBER=2 tool/sync_spec_project.sh`.
 
