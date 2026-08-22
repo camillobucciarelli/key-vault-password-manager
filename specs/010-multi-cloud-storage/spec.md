@@ -1,422 +1,705 @@
-# 010 — Multi-cloud remote storage
+# 010 — Cloud storage provider abstraction
 
-**Status**: **Draft** · **Kind**: New feature · **Depends on**: 005
+**Status**: Planned · **Immediate delivery**: Google-only refactor  
+**Kind**: Architecture refactor · **Depends on**: 005 · **Coordinates with**: 008
 
-> Draft only. No `plan.md`, no `tasks.md`, no implementation. This spec exists to
-> freeze the port shape and the user-facing guarantee vocabulary before a second
-> provider is written.
+## Summary
 
-## Goal
+Refactor existing Google Drive sync behind one provider-neutral storage port and
+one Google Drive implementation. Preserve current sync, UI behavior, static copy,
+checksums, conflicts, auto-sync, account, file-picker and mapping behavior. Sole
+intentional copy change: unsafe dynamic provider error details become fixed
+provider-neutral safe messages from this spec; this authorizes no other copy
+change.
 
-Put every remote storage backend behind one domain port, so Google Drive becomes
-one adapter among several instead of the hard-coded remote. Each adapter declares
-what its backend can actually do, and the app derives a user-visible safety
-category from that declaration.
+This delivery does **not** add multi-cloud product behavior. It creates only the
+boundary needed to add a second provider later without leaking its SDK, OAuth or
+wire model through the application.
 
-Candidate providers: Google Drive, Dropbox, OneDrive, iCloud Drive,
-WebDAV/Nextcloud, S3 and S3-compatible object stores, and a plain local or
-network folder.
+## Problem and current state
 
-## Why now
+Cloud sync is hard-coded to Google Drive across layers:
 
-Spec 008's Gate 0 measured Google Drive against a real network on 2026-08-15 and
-found it offers **no compare-and-swap** — no `If-Match`, no `412`, no `ETag`
-(`specs/008-per-field-conflict-resolution/feasibility-report.md`, §"B1
-live-network re-spike"). Spec 008 responded by rewriting FR-7 around a
-storage-agnostic write-verify-converge cycle needing only `get` and `put`.
+- `DatabaseSyncOrchestrator` directly depends on `GoogleDriveApiService`;
+- `DatabaseSyncRepositoryImpl` directly coordinates `DriveAuthService`;
+- domain/presentation expose `DriveRemoteFile`, `DriveAccountSummary` and
+  `DrivePickerData`;
+- `DatabaseSyncMapping` persists `driveFileId` and `driveFileName`;
+- the application-facing repository exposes `linkDatabaseToDrive`;
+- presentation state/events/widgets use Drive-shaped names even where values are
+  generic remote object data.
 
-That rewrite is **accepted as a direction and not yet validated**: spec 008's
-Gate 0 was reopened on 2026-08-15 because the cycle was declared sufficient in
-the same commit that rewrote the criterion, and reading it found three defects
-that each prevented convergence. They are corrected, and 008 T009 makes the
-cycle's properties executable. **This spec therefore describes a port shape, not
-a shipped guarantee**, and no adapter here ships before 008's Gate 0 closes.
+Current code anchors:
 
-The rewrite's consequence is still worth naming: the sync safety model no longer
-depends on any Drive-specific mechanism. Nothing about it is Drive-shaped
-anymore, so nothing justifies Drive being the only backend — and the same
-measurement showed that providers differ in ways the user deserves to see before
-choosing one.
+| Concern | Current path |
+| --- | --- |
+| Application sync boundary | `lib/features/password_manager/domain/repositories/database_sync_repository.dart` |
+| Sync algorithm and mapping workflow | `lib/features/password_manager/data/services/database_sync_orchestrator.dart` |
+| Google object API | `lib/features/password_manager/data/services/google_drive_api_service.dart` |
+| Google OAuth/token handling | `lib/features/password_manager/data/services/drive_auth_service.dart` and Google data sources/services |
+| Persisted mappings | `lib/features/password_manager/domain/models/database_sync_mapping.dart`, `lib/features/password_manager/data/datasources/sync_metadata_data_source.dart` |
+| DI | `lib/features/password_manager/di/password_manager_{data,domain,presentation}_di.dart` |
+| Vault and import/link flows | `VaultBloc`, `VaultSessionCoordinator`, `DatabaseSessionCoordinator` |
 
-## Relation to 008 — dependency direction
+`DatabaseSyncRepository` remains the application-facing domain boundary.
+`DatabaseSyncOrchestrator` remains the data-layer sync workflow and must depend on
+the new provider port, never on Google services.
 
-**010 owns the port. 008 consumes it.**
+## Goals
+
+1. Define one provider-neutral cloud storage port used by data sync code.
+2. Implement that port once for Google Drive by adapting existing auth and API
+   services.
+3. Replace Drive-shaped domain models, repository methods and persisted mapping
+   fields with provider-neutral vocabulary.
+4. Persist stable provider identity `google_drive` per database mapping.
+5. Decode existing mapping JSON safely and write it forward to the generic
+   schema without touching `.kdbx` bytes.
+6. Keep Google OAuth, tokens, HTTP/SDK details and raw errors inside data-layer
+   Google code.
+7. Preserve current user-visible and sync behavior exactly, except unsafe dynamic
+   provider error details intentionally become fixed provider-neutral safe
+   messages. Preserve every static string and all unrelated copy.
+8. Leave a narrow seam for a future provider without adding infrastructure for
+   one that does not exist.
+
+## Immediate non-goals
+
+- No second provider or provider spike.
+- No provider picker, provider-list UI or new safety-category UI.
+- No simultaneous remotes. One database mapping names one provider and one
+  remote object.
+- No provider migration/switch flow.
+- No registry, resolver, factory, keyed DI map or dynamic plugin system.
+- No speculative split into auth, account, metadata and object-operation ports.
+- No sync algorithm, conflict policy, checksum algorithm, timeout or UI behavior
+  change. No static/unrelated copy change; only unsafe dynamic provider error
+  detail is replaced by the fixed safe messages below.
+- No native platform code change.
+- No feature split or refolder: everything stays under
+  `features/password_manager/{data,domain,presentation}`.
+- No capability implementation in the immediate slice. Capability taxonomy is
+  retained below only as future design vocabulary.
+
+## Architecture and dependency rules
 
 ```text
-008 SyncMergeCoordinator
-      -> 008 domain use cases
-            -> 010 RemoteStoragePort  (get/put/list/delete + declared capabilities)
-                  ^
-                  |
-            010 adapters: Drive | Dropbox | OneDrive | iCloud | WebDAV | S3 | folder
+widgets/BLoCs
+    -> existing coordinators
+        -> meaningful atomic use cases + DatabaseSyncRepository
+            -> DatabaseSyncRepositoryImpl
+                -> DatabaseSyncOrchestrator
+                -> CloudStorageProvider (domain port)
+                         ^
+                         |
+                GoogleDriveStorageProvider (data adapter)
+                    -> DriveAuthService
+                    -> GoogleDriveApiService
+                    -> Google token/OAuth data sources and technical services
 ```
 
-- 010 defines the port, the capability set and the category derivation.
-- 008 defines the merge semantics and the FR-7 write-verify-converge cycle, and
-  reads capabilities to decide whether it may take an optional shortcut.
-- 010 **never** imports 008. It knows nothing about KDBX, merges or conflicts.
-- 008's coordinator, use cases and merge adapter are **identical** for every
-  adapter. Capabilities are consumed in the data layer only. No domain or
-  presentation code branches on a capability. This is the architectural point of
-  the whole spec: the storage-agnostic logic is what carries the guarantee, and
-  capabilities are decorations that raise it silently.
+Rules:
 
-## Invariant product constraint — one file, always openable
+1. Keep one `features/password_manager` feature. Do not create a cloud feature.
+2. `DatabaseSyncRepository` remains application-facing. Presentation and use
+   cases never receive `CloudStorageProvider` directly.
+3. `DatabaseSyncOrchestrator` depends on `CloudStorageProvider`, injected through
+   its constructor. It must not import `google_*`, `drive_*`, Google SDK or HTTP
+   transport types.
+4. One provider port includes connection/auth status, account summary and byte/
+   object operations. Split only after a real second implementation proves
+   different lifecycles or consumers require it.
+5. `GoogleDriveStorageProvider` is the data adapter and sole implementation now.
+   Existing `DriveAuthService` and `GoogleDriveApiService` remain data-private
+   technical services behind it; they are not additional domain ports.
+6. DI registers one `CloudStorageProvider` directly to the Google adapter. No
+   collection or provider lookup is introduced.
+7. A mapping carries `providerId`. With one injected implementation, an operation
+   must verify `mapping.providerId == provider.providerId` before remote I/O.
+   Unsupported IDs return a safe typed error and perform no local/remote write.
+8. Atomic business actions with policy or transaction value use use cases. In
+   this slice, link and sync-now qualify. Do not create pass-through use cases for
+   every repository getter/toggle solely for symmetry.
+9. Multi-step connect/list/account/import/link flows stay in existing
+   coordinators. BLoCs translate events to coordinator calls and state only.
+10. Domain and presentation import no Google SDK/type. Provider raw errors and
+    credentials never cross the data boundary.
 
-**At every instant, the vault on the remote is a single `.kdbx` file that an
-external KeePass-compatible application can open directly.**
+## Domain vocabulary
 
-This is not an implementation preference. It is the product promise, and it is
-recorded here because it has already ruled out one design and will be proposed
-again:
+Names describe application semantics, not current provider:
 
-- **no** per-device file scheme (`vault.<deviceId>.kdbx` merged on read);
-- **no** sidecar lock file, marker file or journal that the vault depends on to
-  be correct;
-- **no** app-proprietary container, chunking, or wrapper around the `.kdbx`;
-- **no** intermediate state where the remote path holds a partial, renamed or
-  otherwise non-openable object.
-
-A per-device scheme would give free write isolation and would remove the need for
-any of 008's convergence machinery. It is rejected anyway: a user who opens the
-file with KeePassXC on a machine without KeyVault must find their vault, not a
-fragment of it. Any proposal that reintroduces multiple remote objects is out of
-scope by construction, not by oversight.
-
-Consequence for adapters: an adapter that cannot present exactly one openable
-`.kdbx` at its remote path is not eligible, whatever its capabilities.
-
-## Capability taxonomy
-
-Base operations — `get`, `put`, `list`, `delete` — are the **minimum entry
-requirement**, not capabilities. An adapter that cannot do all four is not an
-adapter. Capabilities are strictly what a backend offers *beyond* that floor.
-
-| Capability | Meaning | Consumed by |
+| Current | Provider-neutral replacement | Semantics |
 | --- | --- | --- |
-| `conditionalWrite` | The server **rejects** a write whose precondition is stale. True compare-and-swap: an observed failure proves the write did not land, and a success proves no concurrent write landed between the read and the write. | 008 FR-7 step 4; closes the race window entirely |
-| `versionHistory` | Previous contents of the object are retrievable **from the server** after being overwritten. | 008 FR-7 step 5 divergence branch; recovers the exact overwritten bytes instead of waiting for the other device |
-| `atomicCreateIfAbsent` | Creating an object at a path succeeds only if nothing exists there, atomically. The backend cannot end up with two objects at the same logical path. | First-time vault provisioning; protects the invariant above against a duplicate remote vault |
-| `changeNotification` | Remote changes are learnable by push notification or by an efficient delta/poll, rather than by re-downloading the object. | Sync scheduling only. **Never** a safety mechanism — a missed notification must never weaken any guarantee |
+| `DriveRemoteFile` | `RemoteFile` | Provider ID, opaque remote ID, display name, optional modified time and content checksum |
+| `DriveAccountSummary` | `StorageAccountSummary` | Safe display label and optional email; no token/account SDK object |
+| `DrivePickerData` | `RemoteFilePickerData` | Files plus account summary for one picker load |
+| `LoadDriveRemoteFiles` | `LoadRemoteFiles` | Request provider-neutral picker/list data |
+| `linkedDriveFileName` | `linkedRemoteFileName` | Current mapping display name |
+| `remoteDriveFiles` | `remoteFiles` | Current provider's listed remote files |
+| `getDrivePickerData` | `getRemoteFilePickerData` | Coordinator picker-data workflow |
+| `driveFileId` | `remoteFileId` | Opaque provider object identity |
+| `driveFileName` | `remoteFileName` | Display name only; never identity |
+| `linkDatabaseToDrive` | `linkDatabaseToRemote` | Create or link one remote object through mapped provider |
 
-Rules on declarations:
+`providerId` is a stable persisted machine value. Immediate constant:
 
-1. A capability is declared **only** when a spike has observed the behaviour
-   against the real service. Documentation alone is not a declaration.
-2. Declarations are conservative. When a behaviour is uncertain, the capability
-   is **absent**. An absent capability costs a guarantee tier; a wrongly present
-   one costs user data.
-3. `changeNotification` never participates in the category derivation, because it
-   affects freshness, not safety.
+```text
+google_drive
+```
 
-## User-facing safety categories
+It is not a localized label, enum ordinal, Dart runtime type or OAuth client ID.
+Changing Google branding must not change it.
 
-Derived from the declared capabilities, shown **in the provider list at the
-moment of choice** — not in a settings screen, not behind a help link, not after
-the account is connected.
+## Provider contract semantics
 
-| Category | Derivation | What the user is told |
+Exact Dart syntax may follow repository style, but semantics are fixed.
+
+`CloudStorageProvider` exposes:
+
+- stable `providerId`;
+- `isConnected`, `connect`, `disconnect`;
+- connected `StorageAccountSummary`;
+- list eligible `.kdbx` remote files with optional query;
+- read object metadata;
+- create object from name and bytes;
+- replace object bytes by opaque ID;
+- download object bytes by opaque ID.
+
+Contract rules:
+
+1. Remote identity is always the tuple `(providerId, remoteFileId)`. Opaque remote
+   IDs may collide across providers; callers never parse them, construct them or
+   compare them without provider identity.
+2. Names are display/fallback-create values, not object identity.
+3. Returned collections are immutable snapshots.
+4. Optional `contentChecksum`, when present, is comparable to the current local
+   MD5 baseline. A provider unable to supply that value returns null; existing
+   orchestrator fallback downloads bytes and computes the same checksum. This
+   refactor does not change checksum semantics.
+5. `modifiedTime` remains optional and normalized to local `DateTime`, matching
+   current behavior.
+6. Create/update success returns fresh metadata. HTTP `2xx` interpretation and
+   metadata refresh remain Google implementation details.
+7. Every call either returns provider-neutral data or throws a safe storage
+   error. Google SDK classes, HTTP responses, access tokens, signed URLs and raw
+   response bodies never escape.
+8. Delete is not added: current application behavior does not delete remote
+   files. Add it only when a real business flow requires it.
+9. Port knows remote bytes/objects, not KDBX parsing, local filesystem writes,
+   sync conflict policy or mapping persistence.
+
+`RemoteFile` therefore carries `providerId`; every returned value must match the
+provider instance that produced it. Picker “already linked” checks compare
+`mapping.providerId == file.providerId && mapping.remoteFileId == file.id`.
+Comparing `remoteFileId` alone is forbidden, including while Google is the sole
+visible provider.
+
+## Application repository and workflow semantics
+
+`DatabaseSyncRepository` keeps current responsibilities and behavior, with
+provider-neutral signatures. It remains responsible for application actions:
+connection, account summary, remote listing/download, mapping CRUD/move,
+auto-sync, link and sync-now.
+
+`DatabaseSyncRepositoryImpl` delegates provider operations through the injected
+provider and sync behavior through `DatabaseSyncOrchestrator`. The orchestrator:
+
+- reads mapping provider identity before remote I/O;
+- uses `remoteFileId`/`remoteFileName` only;
+- retains current per-call timeout, renamed provider-neutrally;
+- retains current MD5 baseline/fallback-download behavior;
+- retains current conflict branches, backups, mapping updates and auto-sync;
+- retains the shared singleton `DatabasePathMutex` and all lock boundaries.
+
+No method gains a provider parameter in current UI/use cases. New links always
+store the sole injected provider's ID. Future provider selection will supply a
+provider choice through a separately specified application flow.
+
+## Persisted mapping schema and migration
+
+### Version 1 — current legacy shape
+
+```json
+{
+  "databasePath": "...",
+  "driveFileId": "opaque-id",
+  "driveFileName": "vault.kdbx"
+}
+```
+
+Other checksum, timestamp, auto-sync and error keys already present remain
+unchanged.
+
+### Version 2 — canonical shape
+
+```json
+{
+  "schemaVersion": 2,
+  "databasePath": "...",
+  "providerId": "google_drive",
+  "remoteFileId": "opaque-id",
+  "remoteFileName": "vault.kdbx"
+}
+```
+
+Existing checksum/timestamp/auto-sync/error keys remain byte-semantically
+equivalent; only remote identity vocabulary and schema metadata change.
+
+### Backward-compatible decode
+
+For each mapping:
+
+1. Missing `schemaVersion` means version 1. Version 1 defaults missing
+   `providerId` to `google_drive`.
+2. A non-empty `remoteFileId` wins when present; otherwise decoder reads
+   non-empty legacy `driveFileId`.
+3. A non-empty `remoteFileName` wins when present; otherwise decoder reads
+   non-empty legacy `driveFileName`.
+4. Version 2 requires non-empty `providerId`, `remoteFileId` and
+   `remoteFileName`. Unknown provider IDs are retained but are not executable by
+   current Google-only DI.
+5. Conflicting generic and legacy values use valid generic values and ignore
+   legacy aliases. Tests pin this deterministic rule.
+6. Missing/invalid required identity returns a safe metadata-decoding failure.
+   It must not silently drop a mapping, connect a different object, rewrite the
+   metadata file or touch vault bytes.
+7. Existing portable-path decode/encode behavior is unchanged.
+
+### Write-forward
+
+- Reads are side-effect free; opening the app does not rewrite mappings.
+- Any later successful mapping save (`upsert`, move, remove, auto-sync update or
+  sync result) serializes all retained mappings as version 2.
+- Version 2 writes only `providerId`, `remoteFileId` and `remoteFileName`; legacy
+  Drive keys are not emitted.
+- Migration writes only `sync_mappings.json`. It never opens, decrypts, copies,
+  renames or rewrites a `.kdbx`.
+- Failed serialization/write leaves current metadata behavior intact: error
+  propagates safely and no vault operation is added as compensation.
+
+Backout consequence is explicit: an older binary cannot decode a mapping once it
+has been written as version 2. Backout must ship a compatibility patch that reads
+version 2 or restore metadata from an operator/user backup; never downgrade or
+rewrite vault bytes. Local vault usability is unaffected if sync mapping is
+temporarily unavailable.
+
+## Error and security requirements
+
+Provider failures use exactly one provider-neutral type:
+
+```text
+enum CloudStorageErrorCode {
+  cancelled,
+  authenticationFailed,
+  authorizationRequired,
+  forbidden,
+  unsupportedProvider,
+  notFound,
+  conflict,
+  rateLimited,
+  timeout,
+  networkUnavailable,
+  malformedResponse,
+  serverFailure,
+  unknown,
+}
+
+final class CloudStorageException implements Exception {
+  const CloudStorageException(this.code);
+  final CloudStorageErrorCode code;
+  String get safeCode;
+  String get safeMessage;
+  String toString() => safeCode;
+}
+```
+
+No public `cause`, response, provider exception or interpolated detail field is
+allowed. `safeCode` and `safeMessage` are exhaustive constants:
+
+| Enum | Safe code | Fixed safe message |
 | --- | --- | --- |
-| **Protetto** | `conditionalWrite` present | "If another device saves at the same moment, this service refuses the second save. Nothing you save here is replaced by another device without you being asked." |
-| **Recuperabile** | no `conditionalWrite`, `versionHistory` present | "If two devices save at the same moment, one save can replace the other. As long as the device that made the replaced save connects again, KeyVault gets it back from the service and nothing is lost. Until then, that save exists only on that device." |
-| **Ricostruibile** | neither | "If two devices save at the same moment, one save can replace the other. As long as the device that made the replaced save connects again, KeyVault restores it from the copy kept on that device and nothing is lost. If that device never connects again, that save is lost." |
+| `cancelled` | `cloud_storage.cancelled` | `Cloud storage operation was cancelled.` |
+| `authenticationFailed` | `cloud_storage.authentication_failed` | `Unable to authenticate with cloud storage.` |
+| `authorizationRequired` | `cloud_storage.authorization_required` | `Cloud storage authorization is required.` |
+| `forbidden` | `cloud_storage.forbidden` | `Cloud storage access was denied.` |
+| `unsupportedProvider` | `cloud_storage.unsupported_provider` | `Cloud storage provider is not supported by this build.` |
+| `notFound` | `cloud_storage.not_found` | `Remote file was not found.` |
+| `conflict` | `cloud_storage.conflict` | `Remote file changed before the operation completed.` |
+| `rateLimited` | `cloud_storage.rate_limited` | `Cloud storage is temporarily busy. Try again later.` |
+| `timeout` | `cloud_storage.timeout` | `Cloud storage request timed out.` |
+| `networkUnavailable` | `cloud_storage.network_unavailable` | `Cloud storage is unavailable. Check your connection.` |
+| `malformedResponse` | `cloud_storage.malformed_response` | `Cloud storage returned an invalid response.` |
+| `serverFailure` | `cloud_storage.server_failure` | `Cloud storage service is temporarily unavailable.` |
+| `unknown` | `cloud_storage.unknown` | `Cloud storage operation failed.` |
 
-**Every string above states its condition before its reassurance, and that
-ordering is a requirement, not a style choice.** The earlier drafts all ended on
-an unconditional "Nothing is lost". On the two lower tiers that is false: 008's
-guarantee is conditional on the overwritten device resynchronizing, and a device
-that is uninstalled, lost, reset or simply never opened again takes its
-contribution with it (008 §"Out of scope / residual limits", defect C6). On a
-password manager an unconditional promise that does not hold is worse than a
-qualified one — it is exactly the promise a user would rely on when deciding not
-to keep their own backup.
+Google mapping is exhaustive and precedence-ordered:
 
-**Protetto** is the one tier where C6 does **not** apply: with a true
-compare-and-swap the second write is refused, so no contribution is ever
-overwritten and there is no device to wait for. Its copy was still narrowed, for
-a different reason: "Nothing you saved is ever replaced without you being asked"
-promised more than any capability in this taxonomy delivers. `conditionalWrite`
-governs **concurrent remote writes** and nothing else — it says nothing about a
-local write interrupted mid-save, and 008's FR-9 local atomicity rows are
-`not-run` on every platform. The string is therefore scoped to what the
-capability actually guarantees: not replaced **by another device**.
+| Google/transport source | Provider-neutral code |
+| --- | --- |
+| Explicit user-cancel result or `GoogleSignInExceptionCode.canceled` | `cancelled` |
+| Sign-in/configuration failure, missing credentials, token acquisition failure or refresh failure before an HTTP response | `authenticationFailed` |
+| HTTP `401` after the existing single token-refresh attempt | `authorizationRequired` |
+| HTTP `403`, except reason `rateLimitExceeded`, `userRateLimitExceeded`, `dailyLimitExceeded` or `quotaExceeded` | `forbidden` otherwise, `rateLimited` for those four reasons |
+| HTTP `404` | `notFound` |
+| HTTP `409` or `412` | `conflict` |
+| HTTP `429` | `rateLimited` |
+| HTTP `408` or `TimeoutException` | `timeout` |
+| `SocketException`, connection-level `http.ClientException`, DNS/offline/no-response failure | `networkUnavailable` |
+| `FormatException`, invalid JSON/type, or missing required response field | `malformedResponse` |
+| HTTP `500..599` | `serverFailure` |
+| Every unmapped exception/status | `unknown` |
 
-### Naming rationale
+`unsupportedProvider` is not produced by Google SDK/HTTP mapping. Exact trigger:
+a persisted mapping has a syntactically valid non-empty `providerId`, but current
+build has no wired adapter for it. In Google-only build this is exactly
+`mapping.providerId != injectedProvider.providerId`. Check occurs before auth,
+remote I/O, backup, local vault write or mapping mutation. Exception contains only
+the enum; `safeCode`, `safeMessage`, `toString`, logs and UI never interpolate or
+otherwise reveal raw persisted provider ID.
 
-The three names describe **what happens to the user's data**, and they are
-ordered by how the data comes back, not by how the machinery works.
+The existing one-time `401` token refresh remains unchanged; this table does not
+add retries. Status/body inspection may classify a known rate-limit reason, but
+the body is discarded immediately and never copied into the exception.
 
-- **Protetto** — nothing is lost because nothing is overwritten.
-- **Recuperabile** — something is overwritten, and it is recovered from the
-  service.
-- **Ricostruibile** — something is overwritten, and it is rebuilt from the copy
-  on the device.
+Existing static UI copy, action labels (including reconnect guidance) and state
+transitions remain byte-identical. Only the dynamic error-detail slot changes: it
+displays `CloudStorageException.safeMessage` exactly. BLoC/coordinator code must
+never display `exception.toString()` or add a prefix/suffix. Characterization tests
+classify current assertions as static copy or dynamic provider detail; only the
+latter expectations move to the fixed table above. This is the explicit security
+copy exception for immediate slice.
 
-What the names deliberately avoid:
+Additional security rules:
 
-- No jargon. The strings above name no ETag, no CAS, no precondition, no
-  revision, no checksum. A user choosing a cloud provider is not being asked to
-  understand HTTP semantics.
-- No fear words. "base", "weak", "unsafe", "degraded" would be scary and, for
-  the wrong reason, imprecise: on all three tiers the overwritten data **is**
-  recovered. But it is not recovered unconditionally, and the copy no longer
-  pretends otherwise — on the two lower tiers recovery is performed by the
-  overwritten device and therefore requires that device to come back. The tiers
-  differ in *from where*, *how fast* and *on what condition*, and the strings
-  now say all three.
-- No false equivalence either. **Ricostruibile** states the real cost out loud —
-  the other device has to reconnect — so a user who syncs from a device they
-  rarely open can weigh it.
+1. Raw `GoogleSignInException.toString()`, HTTP status/body, token, URL, signed
+   URL, object payload, SDK message and stack text never reach domain/
+   presentation, logs, `lastError` or mapping JSON.
+2. Every enum value and every table row has an exhaustive boundary test: Google/
+   transport rows at adapter, `unsupportedProvider` at orchestrator. Tests inject
+   a unique token-like sentinel into raw exception/body/URL/unsupported-ID fields
+   and assert it is absent from `safeCode`, `safeMessage`, `toString`, logs, state
+   and persistence.
+3. An unmapped status/exception deterministically becomes `unknown`; adapter code
+   has no rethrow-raw branch.
+4. Unsupported-provider tests use a unique provider-ID sentinel and assert zero
+   provider calls/writes plus sentinel absence from exception/string/log/state/
+   persistence.
+5. OAuth access/refresh tokens remain in current data services and secure storage.
+   They never enter provider-neutral models, `Equatable.props`, `toString`, logs
+   or mapping JSON.
+6. Logs must not add account email, remote object ID, raw provider errors or
+   credentials. Existing conflict diagnostics are not broadened by this refactor.
+7. Remote bytes remain encrypted `.kdbx` bytes. Adapter never decrypts them.
+8. Unsupported provider, migration failure and adapter failure are fail-closed:
+   no guessed provider, fallback remote, blind upload or mapping deletion.
+9. Preserve spec 008 safety work: singleton path mutex, writer routing, verified
+   backup/safe-writer boundaries and future write-verify-converge semantics must
+   not be bypassed or duplicated.
 
-### Derivation rules — non-negotiable
+## Functional requirements — immediate Google slice
 
-1. **The category is computed from the declared capabilities. It is never a
-   per-provider constant.** No adapter may hard-code, override or annotate its
-   category. An adapter that gains `conditionalWrite` becomes **Protetto**
-   automatically; one that loses it drops automatically.
-2. An adapter therefore **cannot claim to be safer than its capabilities allow**.
-   The only way to move up a tier is to declare a capability, and the only way to
-   declare a capability is to pass its spike.
-3. The category is visible **before** the choice: rendered on every row of the
-   provider list, in the same visual weight as the provider name.
-4. The category is re-derived and re-displayed whenever an adapter's capability
-   set changes, and the change is surfaced to a user already using that provider.
-5. The copy names consequences for data, never mechanisms.
+### FR-1 — Provider-neutral port
 
-## Candidate providers
+One `CloudStorageProvider` domain port covers current auth/account and object-byte
+operations. Exactly one Google implementation is registered.
 
-**Exactly one cell in this table rests on measurement: Google Drive's
-`conditionalWrite`, which was measured and found *absent*.** The live spike
-established that Drive does **not** have the capability; "verified" here refers
-to the evidence, never to the presence of the feature. Everything else in this
-table — including Drive's other three capabilities — is an **expectation**,
-recorded so the work can be planned, and carries no evidential weight whatsoever.
+### FR-2 — Google adapter
 
-Marking an unverified expectation as fact is the exact error this gate already
-made once and corrected (feasibility report, §"Post-review corrections", C1).
-**It was then repeated in this spec's first draft**, which declared Drive's
-`versionHistory` present from its documented API and derived a **Recuperabile**
-category from it — one tier above what the evidence supported, on the strength of
-a document. Corrected 2026-08-15. AC-9 already required a review to fail on
-exactly this, which is why open question 4 below is closed rather than open: the
-rules answered it.
+Google adapter composes existing Google auth/API technical services, maps their
+results to neutral models and maps all errors to safe storage errors. OAuth,
+scopes, retries, token refresh, HTTP fields and query syntax stay Google-private.
 
-| Provider | `conditionalWrite` | `versionHistory` | `atomicCreateIfAbsent` | `changeNotification` | Category | Evidence |
-| --- | --- | --- | --- | --- | --- | --- |
-| **Google Drive** | **no** | **no** (unmeasured) | **no** | to verify | **Ricostruibile** | `conditionalWrite` **verified absent** — live spike 2026-08-15. `versionHistory` **not measured**, therefore declared absent (see below) |
-| Dropbox | to verify | to verify | to verify | to verify | *to verify* | **not measured** |
-| OneDrive | to verify | to verify | to verify | to verify | *to verify* | **not measured** |
-| iCloud Drive | to verify | to verify | to verify | to verify | *to verify* | **not measured** |
-| WebDAV / Nextcloud | to verify | to verify | to verify | to verify | *to verify* | **not measured** |
-| S3 and compatibles | to verify | to verify | to verify | to verify | *to verify* | **not measured** |
-| Local / network folder | to verify | to verify | to verify | to verify | *to verify* | **not measured** |
+### FR-3 — Neutral orchestrator
 
-No provider other than Drive may ship a category derived from an expected
-capability. Until its spike runs, an adapter is not shippable — there is no
-"assume the lowest tier and ship" path, because a wrong capability declaration is
-what the tier system exists to prevent.
+`DatabaseSyncOrchestrator` imports only provider-neutral domain contracts/models
+for remote work. It has no Google/Drive type, field, method or constructor
+dependency.
 
-### Google Drive — the measured row
+### FR-4 — Neutral application boundary
 
-| Capability | Declared | Basis |
+`DatabaseSyncRepository` and touched coordinators/BLoC state use neutral remote
+models and mapping names. Literal Google Drive UI copy remains unchanged because
+Google remains the only shipped provider.
+
+### FR-5 — Mapping version 2
+
+Legacy mappings decode as Google Drive, retain all baselines/settings, and write
+forward exactly as specified. No vault byte changes occur during migration.
+
+### FR-6 — Behavior parity
+
+Connect/disconnect, account display/fallback, list/search, existing-file download
+and link, new-file create/link, manual sync, auto-sync, conflict resolution,
+mapping move/remove and timeout behavior match pre-refactor characterization.
+
+### FR-7 — Thin presentation flow
+
+Link and sync-now use meaningful atomic use cases. Existing coordinators own
+multi-step flows. Touched BLoC handlers contain state/event translation, not
+provider selection, OAuth or remote sequencing.
+
+## Verifiable acceptance criteria — immediate delivery
+
+1. `DatabaseSyncOrchestrator` constructor accepts `CloudStorageProvider`; source
+   imports/references no `GoogleDriveApiService`, `DriveAuthService` or Drive
+   domain model.
+2. Exactly one provider port and exactly one production implementation exist.
+   No registry/factory/provider map exists.
+3. Domain and presentation import no Google SDK classes. Code has no
+   `DriveRemoteFile`, `DriveAccountSummary`, `DrivePickerData`,
+   `LoadDriveRemoteFiles`, `linkedDriveFileName`, `remoteDriveFiles`,
+   `getDrivePickerData` or `linkDatabaseToDrive` contract/state identifier.
+   `driveFileId`/`driveFileName` remain only quoted v1 serialized keys in decoder
+   and migration fixtures.
+4. `DatabaseSyncRepository` remains the application-facing sync boundary.
+5. DI binds `CloudStorageProvider -> GoogleDriveStorageProvider` directly and
+   injects that same instance into repository/orchestrator paths.
+6. Every newly created mapping persists `schemaVersion: 2`,
+   `providerId: google_drive`, `remoteFileId` and `remoteFileName`, with no legacy
+   Drive keys.
+7. Legacy fixtures without `providerId` decode to `google_drive`, preserve every
+   checksum/timestamp/auto-sync/error value, and write forward on the next
+   successful metadata mutation.
+8. Remote identity and duplicate-link checks use `(providerId, remoteFileId)`.
+   Tests prove equal opaque IDs under different providers are not duplicates.
+9. A valid mapping whose provider ID has no wired adapter throws exactly
+   `unsupportedProvider`, exposes only its fixed code/message, never includes raw
+   ID, and performs no auth, remote call, backup, metadata mutation or `.kdbx`
+   write. Malformed mappings also perform no remote/local write.
+10. Google auth/API failures map exhaustively to the exact enum/code/message table
+    above, including deterministic `unknown`; raw errors and token-bearing values
+    cannot appear in domain/presentation models, logs, mapping JSON or
+    user-visible error state.
+11. Pre-refactor characterization tests and post-refactor parity tests cover all
+    FR-6 branches and remain green.
+12. Shared `DatabasePathMutex`, remote timeout and existing backup/local-write
+    boundaries remain unchanged. No sync algorithm or checksum branch changes.
+13. Existing UI strings and widget behavior remain byte-identical except explicit
+    normalization of unsafe dynamic error detail to fixed safe messages; no provider
+    picker or new settings appear.
+14. `flutter analyze`, targeted suites and full `flutter test` pass.
+15. No native platform or file outside documentation/tests/Dart implementation
+    scope changes during eventual implementation.
+
+## Test matrix
+
+### Automated
+
+| Area | Required evidence |
+| --- | --- |
+| Architecture | source/dependency test rejects Google/Drive imports and identifiers in orchestrator/domain contracts; confirms one port/implementation and no registry |
+| Mapping migration | v1 missing provider, mixed legacy/generic, v2, unknown provider, malformed identity, portable path, write-forward/no-legacy-output, `(providerId, remoteFileId)` preservation |
+| Provider contract | fake provider proves tuple identity, checksum-null fallback, immutable list, fresh metadata, exact typed errors and `unsupportedProvider` fail-closed behavior |
+| Google adapter | auth/account fallback, list/query, metadata/create/update/download mapping, 401 refresh path, every exhaustive error row and unknown fallback |
+| Orchestrator | unchanged first-sync, local-only, remote-only, conflict/cancel/keep-local/use-remote, checksum-download fallback and timeout branches |
+| Concurrency/safety | existing edit-vs-sync, writer lock routing, shared mutex identity and backup tests remain green |
+| Repository/use cases | neutral delegation, provider-ID guard, link and sync-now atomic behavior |
+| Presentation | existing picker, duplicate-link tuple identity (including same opaque ID/different provider), coordinators, background auto-sync, conflict and status tests pass with renamed models only |
+| Regression | full `flutter test` |
+
+Architecture characterization tests land before production changes, so tests
+first describe current behavior and then change only vocabulary/dependency
+expectations.
+
+### Five-platform manual Google smoke
+
+Run independently on Android, iOS, macOS, Windows and Linux. Android/iOS use the
+mobile `google_sign_in` authorization path. macOS/Windows/Linux use desktop browser
+OAuth PKCE plus secure persisted desktop credentials. One platform result never
+qualifies another.
+
+Each platform record is `pass`, `fail` or `not-run`. `not-run` requires an
+approved waiver naming approver, date and concrete environment/release reason;
+blank or “covered on host” is invalid. Store no account, object, path or token.
+
+| Platform | Auth path | Required result |
 | --- | --- | --- |
-| `conditionalWrite` | **no** | Measured. `If-Match` (invented, stale `version`, stale `headRevisionId`), `If-None-Match: *` and `If-Unmodified-Since` with a past date all returned `200` **with the remote bytes actually overwritten**. Counter-probes exclude a transport fault: `Range` on the read path returned `206`, so arbitrary headers do reach and are interpreted; a malformed `If-Match` returned `200` rather than `400`, so the upload path does not parse preconditions at all. No `ETag` header and no `etag` field are returned; `version` and `headRevisionId` exist but are purely descriptive. |
-| `versionHistory` | **no** (`not-run`) | **Demoted 2026-08-15.** Previously declared **yes** on the strength of Drive's documented revisions API. That is a declaration from documentation, which rule 1 above forbids in as many words — *"Documentation alone is not a declaration"* — and rule 2 resolves the uncertainty against the capability: *"when a behaviour is uncertain, the capability is absent"*. Nothing was measured: not retention, not `keepRevisionForever`, not the ceiling on pinned revisions, not quota impact, and not the base claim that an overwritten revision is retrievable. The 2026-08-15 spike did not probe revisions at all. Declared **absent** until an FR-5 spike measures it. |
-| `atomicCreateIfAbsent` | **no** | Drive permits two files with the same name in the same folder, so a create cannot be conditioned on absence. |
-| `changeNotification` | to verify | Drive documents a changes/watch API; not measured. |
-| **Category** | **Ricostruibile** | Derived: no `conditionalWrite`, no declared `versionHistory`. Down from **Recuperabile**, which the 2026-08-15 draft derived from an undeclarable capability. The demotion is cheap to reverse: one FR-5 revisions spike restores `versionHistory`, and the category follows automatically — which is the derivation rule working as intended. |
+| Android | mobile Google Sign-In + Drive scope | `pass|fail|not-run` + waiver when not-run |
+| iOS | mobile Google Sign-In + Drive scope | `pass|fail|not-run` + waiver when not-run |
+| macOS | desktop browser OAuth PKCE + secure token store | `pass|fail|not-run` + waiver when not-run |
+| Windows | desktop browser OAuth PKCE + secure token store | `pass|fail|not-run` + waiver when not-run |
+| Linux | desktop browser OAuth PKCE + secure token store | `pass|fail|not-run` + waiver when not-run |
 
-## Functional requirements
+Every platform run covers the same checklist:
 
-### FR-1 — The storage port
+1. connect and show safe account label/fallback;
+2. list/search remote `.kdbx` files;
+3. link/download existing and create/link new remote file;
+4. manual no-change/local-only/remote-only sync;
+5. restart, then verify persisted mapping and auto-sync after a local edit;
+6. force conflict and exercise Keep local, Use remote and Cancel;
+7. disconnect, revoke authorization externally, observe safe failure, reconnect;
+8. load a legacy mapping without `providerId`, sync it, and verify write-forward;
+9. inspect redacted metadata for schema v2, `google_drive`, generic identity keys,
+   no legacy output keys and no credential/raw provider detail;
+10. open resulting remote `.kdbx` in a KeePass-compatible client.
 
-One domain port exposes `get`, `put`, `list`, `delete` over an opaque remote path
-plus an immutable declared capability set. It is defined in `domain/` and
-implemented once per provider in `data/`.
+## Rollout and backout
 
-The port is content-agnostic: it moves bytes and never knows they are a `.kdbx`.
+Rollout is behavior-preserving and requires no feature flag:
 
-### FR-2 — Capabilities are declared data, not behaviour
+1. Land characterization and migration tests.
+2. Land generic models/schema decode while preserving behavior.
+3. Land port and Google adapter.
+4. Switch orchestrator/repository and DI.
+5. Neutralize touched presentation vocabulary and run full validation.
+6. Release with Google as sole provider and monitor safe sync-error categories.
 
-An adapter exposes its capabilities as an immutable value read at registration.
-Capability checks never take the form of feature detection at call time, `try`/
-`catch` probing in production, or provider-name comparisons anywhere in the
-codebase.
+Do not combine this with spec 008 algorithm/merge changes. Rebase and re-run the
+008 writer/safety suites after any concurrent 008 work touching orchestrator,
+mapping, DI or mutex code.
 
-A capability absent from the declaration is treated as absent even if the backend
-happens to support it.
+Backout never rewrites a vault. Code rollback is safe for local `.kdbx` data, but
+version-2 metadata needs a reader-compatible rollback build as described above.
+If mapping metadata is unavailable, disable sync and retain local vault rather
+than guessing Google identity.
 
-**Every declared capability must be backed by a dated spike artifact, and this is
-enforced structurally, not by review.** The derivation *category ← capabilities*
-is already safe: one pure function, test-enforced, no override (FR-3). The link
-*capabilities ← reality* is not, and that is the gap the Drive `versionHistory`
-demotion came through — an adapter can declare `conditionalWrite: true` with no
-spike behind it and become **Protetto** by doing so. AC-8 catches that only if a
-human reviewer notices, and the bypass was in fact used before any reviewer did.
+## Risks and dependencies
 
-The enforceable form:
+| Risk | Mitigation |
+| --- | --- |
+| Refactor changes sync semantics accidentally | Characterize every branch first; provider substitution only; diff algorithm separately |
+| Mapping migration links wrong remote | Generic-first deterministic decode, strict required fields, stable provider guard, fail closed |
+| Raw Google error leaks token/body | Adapter-owned closed error mapping; tests with token-like sentinel strings |
+| Port grows into speculative framework | One interface, one adapter, direct DI; defer registry/capabilities/picker |
+| Active spec 008 changes same files | Sequence/rebase explicitly; preserve singleton mutex and safe-writer invariants; run 008 gates |
+| Old binary cannot read v2 metadata | Reader-compatible rollback build; never touch vault bytes to downgrade |
+| Presentation rename expands scope | Rename only touched Drive-shaped data identifiers; preserve literal Google UI copy |
 
-1. An adapter declares each capability as a value carrying its evidence:
-   the capability, the artifact path inside `specs/010-multi-cloud-storage/`, and
-   the date the spike ran. A capability cannot be declared present without one —
-   it is not a separate field to remember, it is the only constructor.
-2. A test enumerates every registered adapter, and for every capability declared
-   present asserts that the named artifact file exists, parses, is dated, and
-   names that adapter and that capability. A missing, unparseable or
-   mismatched artifact fails the suite.
-3. The test also asserts the converse: an artifact recording a **negative**
-   result cannot accompany a present declaration.
+Spec 008 is active. Its Gate 0 and deletion model are closed, while writer routing,
+collision-safe backup and safe local writer work remain relevant dependencies.
+010 must consume the shared infrastructure that exists at implementation time and
+must not fork or weaken it. 010 does not implement 008's merge algorithm.
 
-**This test ships with the first adapter, and cannot ship before it.** There is
-no adapter registry today — 010 is a draft with no code, and 008 is behind an
-open Gate 0 — so the test would have an empty set to enumerate and would assert
-nothing. Building a registry now, only to satisfy a test with no members, is
-infrastructure disproportionate to a draft. The obligation is therefore recorded
-here and in AC-13, and the one live instance of the bypass is closed by
-measurement discipline instead: Drive's `versionHistory` is demoted to absent in
-this revision, so no capability in this spec is currently declared without
-evidence.
+## Deferred future-provider phase — not immediate DoD
 
-### FR-3 — Derived categories, no overrides
+Only after a second provider is selected and measured:
 
-The category is a pure function of the declared capability set, defined once. No
-adapter, configuration file, remote flag or build variant can override it. This
-is enforced by test, not by convention.
+- add its adapter and direct selection mechanism appropriate to real UI needs;
+- add provider picker and provider-switch/migration UX;
+- resolve `providerId` to one of multiple implementations (then, and only then,
+  introduce a minimal resolver/registry);
+- measure capabilities against the real service;
+- define migration verification before dropping an old provider mapping;
+- add provider-specific manual/network test evidence.
 
-### FR-4 — Category visible at choice time
+### Capability vocabulary retained for future work
 
-The provider list shows each provider's category, with its plain-language
-consequence sentence, before any account is connected. The category is not
-reachable only through a settings screen, a tooltip, or post-connection state.
+Base operations should remain byte/object operations. Optional capabilities may
+include:
 
-### FR-5 — Every adapter needs a capability spike
+| Capability | Meaning |
+| --- | --- |
+| `conditionalWrite` | server rejects a stale write precondition |
+| `versionHistory` | overwritten object bytes remain retrievable from server |
+| `atomicCreateIfAbsent` | create succeeds only if logical target is absent |
+| `changeNotification` | efficient remote-change scheduling signal; never a safety guarantee |
 
-Before an adapter ships, a manual live-network spike modelled on
-`tool/drive_conditional_spike.dart` must run against the real service and record
-a dated artifact in this spec's folder. The spike:
+Declarations require dated live-service evidence and conservative defaults.
+Google Drive's `conditionalWrite` was measured absent by spec 008; unmeasured
+capabilities remain absent. Future user-facing safety categories from the prior
+draft remain deferred from Google-only refactor, but their derivation constraints
+remain normative for future provider-choice work:
 
-1. attempts each declared capability against the live service and records the
-   observed status **plus a counter-proof** — for a write, re-read the object and
-   compare bytes; an accepted response is not evidence on its own;
-2. includes counter-probes that exclude transport-level explanations for a
-   negative result, as the Drive spike's `Range` → `206` probe did;
-3. runs against a throwaway account, creates and deletes only its own probe
-   object, and touches no `.kdbx` and no pre-existing file;
-4. reads its credential from an environment variable only, and never prints,
-   logs or persists it, not even truncated;
-5. records **no** real account identifier, object ID, path or token in the
-   artifact.
+| Category | Exact derivation | Required condition-first copy |
+| --- | --- | --- |
+| **Protetto** | `conditionalWrite` present | `If another device saves at the same moment, this service refuses the second save. Nothing you save here is replaced by another device without you being asked.` |
+| **Recuperabile** | no `conditionalWrite`; `versionHistory` present | `If two devices save at the same moment, one save can replace the other. As long as the device that made the replaced save connects again, KeyVault gets it back from the service and nothing is lost. Until then, that save exists only on that device.` |
+| **Ricostruibile** | neither present | `If two devices save at the same moment, one save can replace the other. As long as the device that made the replaced save connects again, KeyVault restores it from the copy kept on that device and nothing is lost. If that device never connects again, that save is lost.` |
 
-A capability with no passing spike is declared absent. A negative spike result is
-a valid, publishable outcome — the Drive spike returned one and it produced a
-better spec.
+Category is one pure function of evidence-backed capability set, never an adapter
+constant/override. `changeNotification` changes freshness only and never raises a
+safety category. Category/copy is shown before future provider choice; every
+string states failure condition before reassurance. None of this creates current
+Google UI or immediate acceptance work.
 
-### FR-6 — The single-file invariant is adapter-enforced
+### Deferred adapter eligibility and evidence — normative
 
-Every adapter satisfies the invariant above: exactly one openable `.kdbx` at the
-remote path at every instant, including mid-write where the backend allows it.
-An adapter that cannot is not eligible, and this is checked before capabilities
-are even considered.
+These constraints are outside immediate Google-only refactor DoD, but mandatory
+before any future provider adapter ships or any optional capability is declared:
 
-### FR-7 — Credentials stay in the data layer
+1. **Single-file invariant:** at every instant, including interrupted and
+   mid-write states, the remote is exactly one `.kdbx` directly openable by a
+   KeePass-compatible application. No partial object at the mapped identity, no
+   per-device fragments, duplicate logical vaults, sidecar lock/marker/journal,
+   proprietary wrapper or chunking. An adapter unable to prove this is ineligible
+   regardless of capabilities.
+2. Every base-operation and capability spike runs against the real service with a
+   throwaway account/object. A reported success is paired with a counter-proof:
+   re-read bytes/metadata; stale-write probes verify whether bytes landed;
+   interruption probes verify single-file/openability; negative results include
+   transport counter-probes that rule out dropped headers or a broken request.
+3. Artifacts contain no credential, account identifier/email, object ID, local or
+   remote path, token, signed URL or real vault bytes. Probes use generated
+   non-secret bytes only.
+4. Negative evidence is valid and conservative: `absent` means capability absent;
+   missing, malformed or inconclusive evidence also means absent. Negative
+   evidence can never support a present declaration.
+5. No future adapter ships without passing base-operation/single-file evidence.
+   No capability is declared present without passing capability evidence.
 
-Per 008's secret boundary and constitution principle I: OAuth tokens, refresh
-tokens, S3 keys, WebDAV passwords and every other provider credential are
-resolved, held and refreshed **inside the data layer**, in existing secure
-storage.
+Artifact path and schema are fixed:
 
-- Domain, coordinators, BLoCs and UI hold an opaque provider/account identifier
-  only.
-- No credential enters `Equatable.props`, `toString`, logs or serialization.
-- Adding a provider never widens the surface or lifetime that holds a secret.
-- Errors surfaced upward are safe codes; a provider error string is never
-  forwarded verbatim, since these frequently embed tokens or signed URLs.
+```text
+specs/010-multi-cloud-storage/evidence/<providerId>/<yyyy-mm-dd>-<subject>.json
 
-### FR-8 — Provider migration preserves the invariant
+{
+  "schemaVersion": 1,
+  "providerId": "stable_machine_id",
+  "subject": "base_operations|single_file|conditionalWrite|versionHistory|atomicCreateIfAbsent|changeNotification",
+  "observedAtUtc": "ISO-8601 UTC",
+  "result": "present|absent",
+  "probeSummary": "sanitized non-secret summary",
+  "counterProbes": ["at least one sanitized counter-probe"],
+  "sanitized": true
+}
+```
 
-Switching providers uploads the current vault to the new provider and verifies
-the read-back before the old mapping is dropped — the same
-never-discard-before-verified rule as 008 FR-7, applied to the mapping instead of
-to the merged state.
+When future adapter/capability work starts, a structural test must:
 
-## Acceptance criteria
+- enumerate every shippable adapter from the then-necessary provider resolver;
+- require `base_operations` and `single_file` artifacts with `present` result;
+- require each present capability declaration to use an immutable
+  `VerifiedCapability(capability, artifactPath, observedAtUtc)` value; no bare
+  boolean and no separate optional comment;
+- validate path, schema, UTC date, provider/subject match, non-empty counter-probe
+  list and `sanitized: true`;
+- reject present declarations backed by `absent`, missing, malformed or
+  mismatched artifacts;
+- scan forbidden keys/patterns and fail if an artifact contains credentials,
+  account/object identifiers, paths, tokens, URLs or vault bytes.
 
-1. Exactly one storage port; no provider-specific type reaches domain,
-   coordinator, BLoC or UI.
-2. Base operations are required of every adapter and are not modelled as
-   capabilities.
-3. Category is derived from capabilities by one pure function; a test proves no
-   adapter can declare or override a category directly, and that raising a
-   category requires raising a capability.
-4. Category and its plain-language sentence render on every provider-list row
-   before connection. Golden and semantic assertions cover the list.
-5. Category copy contains no technical term — asserted by a test over the exact
-   strings, forbidding ETag, CAS, precondition, revision, checksum, hash and
-   their Italian equivalents.
-6. 008's coordinator, use cases and merge adapter behave identically against a
-   `conditionalWrite` adapter, a `versionHistory` adapter and a bare adapter.
-   Only the reported category differs.
-7. No production code branches on a provider identity.
-8. Every shipped adapter has a dated capability-spike artifact in this folder;
-   an undeclared or unspiked capability is treated as absent.
-9. The provider table in this spec separates **verified** from **to verify**, and
-   a spec review fails if an unmeasured capability is stated as fact.
-10. The remote path holds exactly one openable `.kdbx` at every instant, for
-    every adapter, including under interrupted writes.
-11. No provider credential appears in domain, coordinator, BLoC or UI types,
-    logs, serialization or error strings.
-12. Provider migration verifies the read-back on the new provider before dropping
-    the old mapping.
-13. **Capability ⇒ artifact, enforced by test.** Every capability an adapter
-    declares present resolves to an existing, parseable, dated spike artifact in
-    this folder naming that adapter and that capability; a negative artifact
-    cannot accompany a present declaration. Ships with the first adapter. Until
-    then no capability may be declared present without its artifact existing.
-14. **Every category string states its condition before its reassurance.**
-    Asserted over the exact strings: no tier's copy ends on an unconditional
-    "nothing is lost" unless its capabilities make it unconditional, and only
-    `conditionalWrite` does. **Protetto**'s copy is scoped to concurrent writes
-    by another device, and claims nothing about a locally interrupted save,
-    which is 008 FR-9's `not-run` territory.
+Do not build this resolver or structural test in the immediate one-provider
+slice: there is no provider choice to enumerate and Google declares no optional
+capability. The obligation activates before future adapter/capability code can
+ship; it is not waived by being outside immediate DoD.
 
-## Out of scope
+The immediate `GoogleDriveStorageProvider` is a boundary refactor around the
+already-shipped Google backend, not approval of a new backend or capability. Its
+gate is complete behavior characterization plus the five-platform matrix above,
+and it declares no optional capability. Changing Google's remote write primitive,
+claiming a capability, or adding another provider activates the artifact and
+single-file eligibility gate before release.
 
-- **Multiple simultaneous remotes** for one vault. One vault, one remote.
-- **Per-device files, sidecar locks, marker files, journals or app-proprietary
-  containers.** Excluded by the invariant above, permanently, not pending a
-  better design.
-- **Cross-provider merge.** 008 owns all merge semantics; 010 moves bytes.
-- **Building a CAS layer on a backend that lacks one.** Measured absence is
-  handled by 008's convergence cycle, not simulated with client-side locking.
-- **Server-side or end-to-end re-encryption.** The `.kdbx` is already the
-  encryption boundary.
-- **Provider-specific sharing, team drives, ACLs and quota management.**
-- **Implementing any adapter.** This draft defines the port, the taxonomy, the
-  categories and the spike requirement. `plan.md` and `tasks.md` follow only when
-  a second provider is actually scheduled.
+## Definition of done — immediate slice
+
+- All immediate acceptance criteria pass.
+- Mapping migration and safe-error tests pass.
+- Targeted sync, mutex/writer, coordinator, BLoC and widget suites pass.
+- `flutter analyze` and full `flutter test` pass.
+- Android, iOS, macOS, Windows and Linux manual rows are recorded; no row is
+  `fail`, and every `not-run` has approved dated waiver/reason.
+- No source behavior, static UI copy, native code or sync algorithm changed beyond
+  provider abstraction, explicit metadata migration and fixed safe replacement
+  of dynamic provider error detail.
+- Deferred second-provider/capability/picker tasks remain unimplemented.
 
 ## Open questions
 
-1. Which provider is second? The candidate list is unordered, and the answer
-   determines which spike runs first.
-2. Does S3 conditional write (`If-None-Match` on `PutObject`) satisfy
-   `conditionalWrite` for our purpose, or only `atomicCreateIfAbsent`? To be
-   settled by the spike, not by reading the documentation.
-3. Does `changeNotification` deserve any user-visible expression at all? Current
-   answer: no — it affects freshness, not safety, and mixing the two would dilute
-   the three categories.
-4. ~~Do the Drive revisions details hold well enough for the **Recuperabile**
-   promise, or does Drive need to be reported one tier lower until they are
-   measured?~~ **Closed 2026-08-15 — the spec's own rules already answered it.**
-   Not one revisions behaviour was measured, so rule 1 ("documentation alone is
-   not a declaration") and rule 2 ("when a behaviour is uncertain, the capability
-   is absent") make `versionHistory` absent, and AC-9 requires a review to
-   **fail** where an unmeasured capability is stated as fact. Drive is reported
-   as **Ricostruibile**. This was never a judgement call; it was a rule already
-   written down and not applied. The live question that remains is only *when the
-   revisions spike runs*, and it is FR-5 work, not an open design question.
+No blocking architecture question remains for immediate slice. Exact Dart file
+grouping for safe error models may follow existing style during implementation,
+provided there is still one provider port and one Google adapter.
 
-5. Which capability should the first FR-5 spike measure? Drive's
-   `versionHistory` is the cheapest candidate with a user-visible payoff — it
-   moves the only shipped provider from **Ricostruibile** back to
-   **Recuperabile** — and it needs no new provider integration.
+Future questions, intentionally deferred: which second provider, which measured
+capabilities it has, and what provider-selection/migration UX it requires.
