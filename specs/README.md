@@ -34,7 +34,7 @@ specs/NNN-slug/spec.md|plan.md|tasks.md
 | 007B | [App icon family — UI/badge integration](007-app-icon-family/spec.md) | Restyle integration | 001, 002, 007A |
 | 008 | [Per-field sync conflict resolution](008-per-field-conflict-resolution/spec.md) | **New feature** | 001, 002, 005 |
 | 009 | [In-page autofill overlay](009-in-page-autofill-overlay/spec.md) | **New feature** | 006 |
-| 010 | [Multi-cloud remote storage](010-multi-cloud-storage/spec.md) | **New feature** (draft) | 005 |
+| 010 | [Cloud storage provider abstraction](010-multi-cloud-storage/spec.md) ([plan](010-multi-cloud-storage/plan.md), [tasks](010-multi-cloud-storage/tasks.md)) | **Architecture refactor** (planned, Google-only first slice) | 005; coordinates with 008 |
 | 011 | [Master password session scope](011-master-password-session-scope/spec.md) | **Security fix** | 003, 006 |
 
 Journey 03 (navigation models) resolved into spec 002; journey 14 (dark mode) is
@@ -49,10 +49,12 @@ carries dark acceptance criteria.
    both prerequisites for every later UI integration, including **007B**.
 3. **003 → 004 → 005 → 006** may then proceed; 004 is the highest-traffic surface.
 4. **007B** follows 001, 002 and 007A. **008** follows 005; **009** follows 006.
-5. **010** is a draft and follows 005. It owns the storage-capability port that
-   **008** consumes, so 010's port shape is frozen before 008's remote-write work
-   (T4xx) starts. 010 needs no `plan.md`/`tasks.md` until a second provider is
-   actually scheduled.
+5. **010** follows 005 and now plans an immediate Google-only abstraction slice:
+   one provider-neutral port, one Google implementation and generic persisted
+   mappings. Its [plan](010-multi-cloud-storage/plan.md) and
+   [tasks](010-multi-cloud-storage/tasks.md) coordinate shared orchestrator,
+   mapping, mutex and safe-writer work with active **008**. A second provider,
+   provider picker, registry and capability UI remain deferred.
 6. **011** is a security fix, independent of the restyle sequence, and takes
    priority over new-feature work: it removes an unbounded plaintext lifetime
    that violates constitution principle I and blocks the accurate privacy claim

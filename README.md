@@ -12,6 +12,12 @@ Flutter password manager with Android/iOS autofill integration and desktop brows
 
 - `docs/google_drive_sync.md`
 
+## Development
+
+- Contributor setup, repository topology, and architecture: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Build, test, workflow, and agent guidelines: [AGENTS.md](AGENTS.md)
+- Product specifications and implementation order: [specs/README.md](specs/README.md)
+
 ## License
 
 Copyright (C) 2026 Camillo Bucciarelli
