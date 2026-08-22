@@ -568,6 +568,65 @@ void main() {
       );
     });
 
+    test('canonicalFieldKey is EXACTLY KdbxKey semantics, not an '
+        'approximation', () {
+      // R1. The rest of the suite pins canonicalFieldKey in ONE direction:
+      // under-normalising dies (that was F1). Over-normalising survived —
+      // `.toLowerCase().trim()` and a stray combining-mark strip both passed
+      // the whole adapter suite.
+      //
+      // That is F1's exact mirror image, with the same consequence. KDBX holds
+      // `Note` and `Note ` as two distinct keys; a canonicaliser that trims
+      // fuses them into one row, the user picks one value, and at apply time a
+      // whole field disappears. It is precisely the edit that arrives as
+      // "harmless cleanup" in a refactoring PR.
+      //
+      // So the property asserted is equivalence with `KdbxKey`, in both
+      // directions, over a battery of the pairs where Unicode case folding is
+      // actually contentious — not a sample of the cases the implementation
+      // happens to handle.
+      const battery = <String>[
+        // Sharp s: uppercases to two characters, so a fold-based
+        // implementation and a lowercase-based one disagree.
+        '\u00df', 'SS', 'ss', 'Stra\u00dfe', 'STRASSE',
+        // Turkish dotted/dotless I — the classic locale-sensitive trap.
+        '\u0130', '\u0131', 'i', 'I', 'i\u0307',
+        // Greek sigma: two lowercase forms for one uppercase.
+        '\u03a3', '\u03c3', '\u03c2',
+        // Singleton case mappings: Kelvin sign, Angstrom sign.
+        '\u212a', 'K', 'k', '\u212b', '\u00c5', '\u00e5',
+        // Titlecase digraphs: three cases, not two.
+        '\u01c4', '\u01c5', '\u01c6',
+        // Ligature: case-folds to two characters under full folding.
+        '\ufb01', 'fi', 'FI',
+        // Astral pair (Deseret): needs surrogate-aware mapping.
+        '\u{10400}', '\u{10428}',
+        // NFC vs NFD — canonically equivalent, different code points.
+        'caf\u00e9', 'cafe\u0301', 'CAF\u00c9', 'CAFE\u0301',
+        // Whitespace: the cases a `.trim()` would destroy.
+        '', ' ', '  ', 'a', 'a ', ' a', 'Note', 'Note ',
+        // Fullwidth forms.
+        '\uff21', '\uff41',
+        // Ordinary keys, so the battery is not all edge cases.
+        'Title', 'title', 'Custom_Totp', 'custom_totp', 'URL',
+      ];
+
+      for (final a in battery) {
+        expect(
+          canonicalFieldKey(a).hashCode,
+          KdbxKey(a).hashCode,
+          reason: 'hash disagrees for ${a.codeUnits}',
+        );
+        for (final b in battery) {
+          expect(
+            canonicalFieldKey(a) == canonicalFieldKey(b),
+            KdbxKey(a) == KdbxKey(b),
+            reason: 'a=${a.codeUnits} b=${b.codeUnits}',
+          );
+        }
+      }
+    });
+
     test('KdbxKey case-insensitivity is a property of the library, not an '
         'assumption of this test', () {
       // If this ever changes upstream, the tests above would keep passing for

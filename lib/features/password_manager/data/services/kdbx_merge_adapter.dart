@@ -117,11 +117,16 @@ final class KdbxFieldPresent extends KdbxFieldPresence {
   /// **Absence of the *key* is the only thing that means missing.** A key
   /// holding an empty value is present.
   ///
-  /// The null [StringValue] branch is defensive and, on kdbx 2.5.0, otherwise
-  /// unreachable: `_strings` is typed `Map<KdbxKey, StringValue?>`, but the XML
-  /// reader always constructs a `PlainValue` (`kdbx_entry.dart:187-197`) and
-  /// `setString(key, null)` **removes** the key rather than storing a null
-  /// (`kdbx_entry.dart:341-352`; `removeString` is an alias for exactly that).
+  /// The null [StringValue] branch is defensive and, on kdbx 2.5.0, unreachable
+  /// through the reader and `setString`: `_strings` is typed
+  /// `Map<KdbxKey, StringValue?>`, but the XML reader always constructs a
+  /// `PlainValue` (`kdbx_entry.dart:187-197`) and `setString(key, null)`
+  /// **removes** the key rather than storing a null (`kdbx_entry.dart:341-352`;
+  /// `removeString` is an alias for exactly that). It is not unreachable in
+  /// general: `renameKey` with an absent `oldKey` writes `_strings[newKey] =
+  /// null` with no guard (`kdbx_entry.dart:355-359`). The adapter never calls
+  /// `renameKey`, so that path cannot originate here — but the branch is kept,
+  /// and is the reason it is not an assertion.
   /// So the three states the type suggests — absent, null, empty — are two in
   /// any vault, and one fewer again after a save: `<Value/>` reads back as an
   /// empty `PlainValue`. It is mapped to present-empty rather than to missing,
