@@ -16,6 +16,46 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 // and no backup file is ever overwritten.
 // =============================================================================
 
+// -----------------------------------------------------------------------------
+// Platform-aware OS error codes for the fault-injection harness.
+//
+// `SafeVaultFileWriter` classifies a permission refusal with a PLATFORM-
+// CONDITIONAL check: Win32 `ERROR_ACCESS_DENIED` (5) on Windows, POSIX `EPERM`
+// (1) / `EACCES` (13) everywhere else. The harness used to hard-code the POSIX
+// numbers as if they were universal, which made every case below assert the
+// OPPOSITE contract once the suite ran on Windows (CI job `test-windows`, added
+// in #114):
+//
+//   * errno 1 is not a refusal on Windows, so the sandbox fallback never
+//     engaged and the five "degrades and succeeds" cases failed;
+//   * POSIX `EIO` is 5, which collides with `ERROR_ACCESS_DENIED`, so the
+//     NEGATIVE control was classified as a refusal, the fallback engaged, and
+//     the two "never mistaken for a sandbox refusal" cases failed by not
+//     throwing.
+//
+// Generating both codes for the host keeps each branch asserted on the platform
+// where it is actually live. Inverting either side of the production check now
+// fails the suite on that platform — see the "platform contract" group.
+// -----------------------------------------------------------------------------
+
+/// The OS error a genuine permission refusal carries on the host platform.
+OSError _permissionDeniedOsError() => Platform.isWindows
+    ? const OSError('Access is denied', 5) // ERROR_ACCESS_DENIED
+    : const OSError('Operation not permitted', 1); // EPERM
+
+/// The `strerror`-style text of [_permissionDeniedOsError], for assertions on
+/// the reason the writer surfaces.
+String get _permissionDeniedReason => _permissionDeniedOsError().message;
+
+/// An OS error that is emphatically NOT a permission refusal on the host.
+///
+/// The negative control. POSIX `EIO` cannot serve on Windows because its number
+/// (5) IS `ERROR_ACCESS_DENIED` there; `ERROR_NOT_READY` (21) is the Windows
+/// stand-in. Neither value is in the permission set of either platform.
+OSError _nonPermissionOsError() => Platform.isWindows
+    ? const OSError('The device is not ready', 21) // ERROR_NOT_READY
+    : const OSError('Input/output error', 5); // EIO
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -700,7 +740,7 @@ void main() {
           isA<FileSystemException>().having(
             (e) => e.message,
             'message',
-            contains('injected: EIO'),
+            contains('injected: non-permission error on the temp'),
           ),
         ),
       );
@@ -1173,7 +1213,7 @@ void main() {
               .having(
                 (e) => e.toString(),
                 'message',
-                contains('Operation not permitted'),
+                contains(_permissionDeniedReason),
               ),
         ),
       );
@@ -1227,7 +1267,7 @@ void main() {
             isA<FileSystemException>().having(
               (e) => e.message,
               'message',
-              contains('injected: EIO on the backup'),
+              contains('injected: non-permission error on the backup'),
             ),
           ),
         );
@@ -1280,7 +1320,7 @@ void main() {
           fail('the refused backup must abort the write');
         } on SafeVaultBackupUnavailableException catch (error) {
           expect(error.osReason, isNot(contains('secret-vault')));
-          expect(error.osReason, contains('Operation not permitted'));
+          expect(error.osReason, contains(_permissionDeniedReason));
         }
       },
     );
@@ -1302,6 +1342,178 @@ void main() {
 
       expect(result.atomic, isFalse);
       expect(await target.readAsBytes(), [7, 7]);
+    });
+  });
+
+  // ===========================================================================
+  // T109 — the replace, with a SECOND handle open on the vault.
+  //
+  // This is the risk the `test-windows` CI job was created for and the one
+  // thing the fault seam cannot stand in for, because it is not an injected
+  // error: it is the real kernel refusing a real `rename`. `SafeVaultFileWriter`
+  // replaces the target with exactly one `rename`, and Win32 `MoveFileEx` onto
+  // an open target can fail with ERROR_ACCESS_DENIED where POSIX `rename(2)`
+  // succeeds silently — the vault held open by a second app instance, or by an
+  // antivirus mid-scan, is the everyday shape of that.
+  //
+  // NOT skipped on either family, and not asserted per-platform either. The
+  // contract the writer actually promises is the same on both:
+  //
+  //     the target is its old content, complete, or the new content, complete.
+  //
+  // So both outcomes are legal and the test pins the invariant plus the
+  // consequence of whichever branch ran — replaced ⇒ new bytes and no stray
+  // temp; refused ⇒ the error propagates AND the old vault is byte-for-byte
+  // intact. A platform that silently truncated, or that swallowed the refusal
+  // and reported success, fails here regardless of which one it is.
+  // ===========================================================================
+  group('T109 replace while another handle holds the vault open', () {
+    /// Runs [body] with a second read handle open on [file], and closes it
+    /// before returning. On Windows a leaked handle also blocks `tearDown`'s
+    /// directory delete, so the close is in a `finally`.
+    Future<T> withOpenHandle<T>(
+      File file,
+      Future<T> Function() body,
+    ) async {
+      final holder = await file.open(mode: FileMode.read);
+      try {
+        // Force a real kernel handle rather than a lazily-opened one.
+        await holder.read(1);
+        return await body();
+      } finally {
+        await holder.close();
+      }
+    }
+
+    test('the vault is either fully replaced or left fully intact', () async {
+      final writer = SafeVaultFileWriter();
+      final target = await targetFile(const [1, 2, 3, 4]);
+      final newBytes = Uint8List.fromList(const [9, 9, 9, 9, 9, 9]);
+
+      final (replaced, error) = await withOpenHandle(target, () async {
+        try {
+          await writer.write(targetPath: target.path, bytes: newBytes);
+          return (true, null);
+        } on FileSystemException catch (e) {
+          return (false, e);
+        }
+      });
+
+      final after = await target.readAsBytes();
+      if (replaced) {
+        expect(
+          after,
+          newBytes,
+          reason:
+              'The rename reported success, so the vault must hold the FULL '
+              'new content. Anything else is a torn write.',
+        );
+      } else {
+        expect(
+          after,
+          [1, 2, 3, 4],
+          reason:
+              'The rename was refused (${error?.osError}), so the OLD vault '
+              'must survive byte-for-byte. A refused replace that still '
+              'damaged the target would be the worst outcome of the three.',
+        );
+      }
+
+      // True either way: a temp that outlives the call leaks a full plaintext
+      // copy of the vault next to it.
+      expect(
+        tempDir.listSync().whereType<File>().where(
+          (f) => f.path.endsWith('.tmp'),
+        ),
+        isEmpty,
+        reason: 'the temp must be cleaned up on both paths',
+      );
+    });
+
+    test('a refused replace still reports failure to the caller', () async {
+      // The half of the contract that a silent-success bug would break: if the
+      // rename cannot happen, `write` must NOT return normally, because callers
+      // treat a normal return as "the vault now holds these bytes" and drop the
+      // in-memory copy.
+      final writer = SafeVaultFileWriter();
+      final target = await targetFile(const [1, 2, 3, 4]);
+
+      final outcome = await withOpenHandle(target, () async {
+        try {
+          await writer.write(
+            targetPath: target.path,
+            bytes: Uint8List.fromList(const [5, 5]),
+          );
+          return 'returned-normally';
+        } on FileSystemException {
+          return 'threw';
+        }
+      });
+
+      final onDisk = await target.readAsBytes();
+      expect(
+        outcome == 'threw' ? const [1, 2, 3, 4] : const [5, 5],
+        onDisk,
+        reason:
+            'Outcome and disk state must agree: a normal return means the new '
+            'bytes are there, a throw means the old ones still are. '
+            'Observed outcome: $outcome.',
+      );
+    });
+
+    test('a backup taken while the vault is held open still verifies', () async {
+      // `createBackup` READS the target — that is a shared-read operation and
+      // must not be affected by another reader on either platform. Pinned
+      // because the sync flows take a backup before every replacement, so a
+      // regression here would stop cloud sync whenever the vault is open twice.
+      final writer = SafeVaultFileWriter();
+      final target = await targetFile(const [7, 7, 7]);
+
+      final backupPath = await withOpenHandle(
+        target,
+        () => writer.createBackup(target.path),
+      );
+
+      expect(await File(backupPath).readAsBytes(), [7, 7, 7]);
+    });
+  });
+
+  // ===========================================================================
+  // The platform contract behind every injection above.
+  //
+  // The two groups before this one are the real killers: they drive the writer
+  // with a host-correct permission code and a host-correct non-permission code
+  // and assert opposite outcomes, so inverting either side of
+  // `_isPermissionDenied` fails the suite ON THE PLATFORM WHERE THAT BRANCH IS
+  // LIVE. This group guards the harness itself — the failure mode where both
+  // helpers drift onto the same number and the "negative control" quietly stops
+  // being negative, which is exactly how the POSIX-only version fooled CI for
+  // as long as CI was POSIX-only.
+  // ===========================================================================
+  group('fault-injection codes match the host platform', () {
+    test('the refusal code and the non-refusal code are never the same', () {
+      expect(
+        _nonPermissionOsError().errorCode,
+        isNot(_permissionDeniedOsError().errorCode),
+        reason:
+            'If these collide the negative control asserts nothing: the same '
+            'injected error would be expected to both engage and not engage '
+            'the fallback.',
+      );
+    });
+
+    test('the codes are the ones the production check looks for', () {
+      // Mirrors `SafeVaultFileWriter._isPermissionDenied` deliberately: the
+      // check is private, so this states the mapping the injections rely on.
+      // A change to the production branch that is not reflected here shows up
+      // as this test plus the behavioural cases going red together.
+      if (Platform.isWindows) {
+        expect(_permissionDeniedOsError().errorCode, 5); // ERROR_ACCESS_DENIED
+        expect(_nonPermissionOsError().errorCode, isNot(5));
+      } else {
+        expect(_permissionDeniedOsError().errorCode, anyOf(1, 13)); // EPERM
+        expect(_nonPermissionOsError().errorCode, isNot(anyOf(1, 13)));
+      }
     });
   });
 }
@@ -1376,10 +1588,10 @@ class _TempIoErrorIo extends SafeVaultFileIo {
   @override
   Future<void> createExclusive(String path) {
     if (path.endsWith('.tmp')) {
-      throw const FileSystemException(
-        'injected: EIO',
+      throw FileSystemException(
+        'injected: non-permission error on the temp',
         'temp',
-        OSError('Input/output error', 5),
+        _nonPermissionOsError(),
       );
     }
     return super.createExclusive(path);
@@ -1496,40 +1708,40 @@ class _FaultyIo extends _RecordingIo {
       throw const FileSystemException('injected: backup create failure');
     }
     if (fault == _Fault.backupIoError && _isBackup(path)) {
-      throw const FileSystemException(
-        'injected: EIO on the backup',
+      throw FileSystemException(
+        'injected: non-permission error on the backup',
         'backup',
-        OSError('Input/output error', 5),
+        _nonPermissionOsError(),
       );
     }
     if (fault == _Fault.backupPermissionDeniedWithPathInMessage &&
         _isBackup(path)) {
       // FINDING-4: the guarantee "no path in the reason" must be enforced by
       // the code, not inherited from whatever `strerror` happens to say.
-      throw const FileSystemException(
+      throw FileSystemException(
         'injected',
         'backup',
         OSError(
-          'Operation not permitted, path = /Users/u/secret-vault.kdbx',
-          1,
+          '$_permissionDeniedReason, path = /Users/u/secret-vault.kdbx',
+          _permissionDeniedOsError().errorCode,
         ),
       );
     }
     if (fault == _Fault.backupPermissionDenied && _isBackup(path)) {
       // MEDIUM-2: the sandbox refuses the backup sibling exactly as it
       // refuses the temp one — same shape as `tempPermissionDenied`.
-      throw const FileSystemException(
+      throw FileSystemException(
         'injected: sandbox refuses the sibling backup',
         'backup',
-        OSError('Operation not permitted', 1),
+        _permissionDeniedOsError(),
       );
     }
     if (fault == _Fault.tempPermissionDenied && path.endsWith('.tmp')) {
       // Shape of a macOS-sandbox refusal on a sibling path: EACCES.
-      throw const FileSystemException(
+      throw FileSystemException(
         'injected: sandbox refuses the sibling temp',
         'temp',
-        OSError('Operation not permitted', 1),
+        _permissionDeniedOsError(),
       );
     }
     return super.createExclusive(path);
@@ -1586,10 +1798,10 @@ class _FaultyIo extends _RecordingIo {
   @override
   Future<Uint8List> readBytes(String path) async {
     if (fault == _Fault.sourceReadPermissionDenied && !_isBackup(path)) {
-      throw const FileSystemException(
+      throw FileSystemException(
         'injected: the vault itself is unreadable',
         'source',
-        OSError('Permission denied', 13),
+        _permissionDeniedOsError(),
       );
     }
     final bytes = await super.readBytes(path);

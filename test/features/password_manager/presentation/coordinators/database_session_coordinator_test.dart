@@ -33,6 +33,7 @@ import 'package:password_manager/features/password_manager/presentation/coordina
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
+import 'package:path/path.dart' as p;
 
 List<String> _paths(List<DatabaseSelectionItem> items) =>
     items.map((item) => item.canonicalPath).toList(growable: false);
@@ -683,7 +684,7 @@ void main() {
 
       expect(resolved.status, DatabaseSessionStatus.unselected);
       expect(await File(targetPath).readAsBytes(), originalBytes);
-      final staging = Directory('${tempDir.path}/database_imports');
+      final staging = Directory(p.join(tempDir.path, 'database_imports'));
       expect(await staging.list().isEmpty, isTrue);
     });
 
@@ -721,7 +722,7 @@ void main() {
       expect(result.path, targetPath);
       expect(await File(targetPath).readAsBytes(), incomingBytes);
       expect(registryRepository.records.single.databaseId, 'db-existing');
-      final staging = Directory('${tempDir.path}/database_imports');
+      final staging = Directory(p.join(tempDir.path, 'database_imports'));
       expect(await staging.list().isEmpty, isTrue);
     });
 
@@ -740,7 +741,7 @@ void main() {
       );
 
       expect(await File(existingPath).readAsBytes(), originalBytes);
-      final staging = Directory('${tempDir.path}/database_imports');
+      final staging = Directory(p.join(tempDir.path, 'database_imports'));
       expect(
         await staging.exists() ? await staging.list().isEmpty : true,
         isTrue,
@@ -867,21 +868,33 @@ void main() {
     );
 
     test('protected key paths include shared profiles once', () async {
-      const sharedPath = '/tmp/shared.key';
+      // Native absolute path, not the `/tmp/...` literal this used to use.
+      // `getProtectedKeyFilePaths` runs every path through `p.normalize`, and
+      // on Windows that rewrites `/tmp/shared.key` into `\tmp\shared.key`, so
+      // the literal could never match. What the test is actually about — two
+      // profiles sharing one key file collapse to a SINGLE protected entry —
+      // is unchanged, and now the expected value is spelled the way the host
+      // spells it instead of assuming POSIX.
+      final sharedPath = p.join(Directory.systemTemp.path, 'shared.key');
       registryRepository.records = [
         _record(id: 'db-a', path: '/tmp/a.kdbx'),
         _record(id: 'db-b', path: '/tmp/b.kdbx'),
       ];
-      securityRepository.profiles['db-a'] = const DatabaseSecurityProfile(
+      securityRepository.profiles['db-a'] = DatabaseSecurityProfile(
         databaseId: 'db-a',
         keyFilePath: sharedPath,
       );
-      securityRepository.profiles['db-b'] = const DatabaseSecurityProfile(
+      securityRepository.profiles['db-b'] = DatabaseSecurityProfile(
         databaseId: 'db-b',
         keyFilePath: sharedPath,
       );
 
       expect(await coordinator.getProtectedKeyFilePaths(), {sharedPath});
+      expect(
+        await coordinator.getProtectedKeyFilePaths(),
+        hasLength(1),
+        reason: 'one key file shared by two databases is one protected path',
+      );
     });
 
     test(
@@ -1313,9 +1326,12 @@ Future<String> _prepareDriveDuplicate(
 }
 
 Future<String> _writeManagedDatabase(Directory root, String fileName) async {
-  final directory = Directory('${root.path}/databases');
+  // `p.join`, not interpolation: production returns this path built with
+  // `p.join`, so an interpolated `/` could never equal it on Windows. The
+  // fixture is otherwise identical.
+  final directory = Directory(p.join(root.path, 'databases'));
   await directory.create(recursive: true);
-  final path = '${directory.path}/$fileName';
+  final path = p.join(directory.path, fileName);
   await File(path).writeAsBytes(<int>[
     0x03,
     0xD9,

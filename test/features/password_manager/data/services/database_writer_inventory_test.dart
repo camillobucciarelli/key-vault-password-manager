@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 
 // =============================================================================
 // spec 008 Gate 0 (T007) — writer/path discovery.
@@ -78,7 +79,7 @@ void main() {
       // be a false positive waiting to happen.
       final offenders = _dartFilesUnder(const ['lib'])
           .where((file) => _kdbxMerge.hasMatch(file.readAsStringSync()))
-          .map((file) => file.path)
+          .map(_posixPath)
           .toList();
       expect(offenders, isEmpty);
     });
@@ -150,10 +151,10 @@ void main() {
           _dartFilesUnder(const ['lib'])
               .where(
                 (f) =>
-                    !f.path.endsWith(fileName) &&
+                    !_posixPath(f).endsWith(fileName) &&
                     f.readAsStringSync().contains(fileName),
               )
-              .map((f) => f.path)
+              .map(_posixPath)
               .toList();
 
       const routedWriters = [
@@ -211,7 +212,7 @@ void main() {
 
       final users = _dartFilesUnder(const ['lib/features/password_manager'])
           .where((f) => f.readAsStringSync().contains('MobileFileStorage'))
-          .map((f) => f.path)
+          .map(_posixPath)
           .toList();
       expect(
         users,
@@ -260,7 +261,7 @@ void main() {
                     '_exportDatabaseBackup(context',
                   ),
                 )
-                .map((f) => f.path)
+                .map(_posixPath)
                 .toList()
               ..sort();
         expect(callers, hasLength(3));
@@ -687,13 +688,23 @@ Map<String, List<String>> _scanWriters() {
       });
     }
     if (found.isNotEmpty) {
-      result[file.path] = found.toList()..sort();
+      result[_posixPath(file)] = found.toList()..sort();
     }
   }
   return Map.fromEntries(
     result.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
   );
 }
+
+/// A discovered file's path in the ONE spelling this suite compares against:
+/// `/`-separated, as every baseline literal and every `spec.md` reference in
+/// this file is written. `Directory.listSync` yields the host separator, so on
+/// Windows the raw `.path` is `lib\core\...` and no literal here can ever
+/// match it — the whole suite went red for that reason alone under the
+/// `test-windows` job. `p.split` accepts both separators, so this normalises
+/// on every platform without changing what is being asserted.
+String _posixPath(FileSystemEntity entity) =>
+    p.posix.joinAll(p.split(entity.path));
 
 List<File> _dartFilesUnder(List<String> roots) => [
   for (final root in roots)

@@ -23,6 +23,7 @@ import 'package:password_manager/features/password_manager/presentation/coordina
 import 'package:password_manager/features/password_manager/presentation/coordinators/vault_session_coordinator.dart';
 import 'fake_database_ports.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
+import 'package:path/path.dart' as p;
 
 void main() {
   group('VaultSessionCoordinator', () {
@@ -339,11 +340,16 @@ void main() {
           throwsA(isA<Exception>()),
         );
 
+        // `p.join`, not string interpolation: production builds the renamed
+        // path with `p.join`, so on Windows it produces a `\` separator while
+        // the interpolated literal kept a `/`. The rollback pair being
+        // asserted (rename forward, then rename back) is unchanged.
+        final renamedPath = p.join(tempDir.path, 'renamed.kdbx');
         expect(oldFile.existsSync(), isTrue);
-        expect(File('${tempDir.path}/renamed.kdbx').existsSync(), isFalse);
+        expect(File(renamedPath).existsSync(), isFalse);
         expect(syncRepository.moves, [
-          (oldFile.path, '${tempDir.path}/renamed.kdbx'),
-          ('${tempDir.path}/renamed.kdbx', oldFile.path),
+          (oldFile.path, renamedPath),
+          (renamedPath, oldFile.path),
         ]);
         expect(localDataSource.selectedKeyFilePath, isNull);
         expect(securityRepository.profiles['db-1'], isNull);
@@ -674,16 +680,19 @@ void main() {
     });
 
     test('protected key paths cover current and shared profiles', () async {
-      const shared = '/tmp/shared.key';
+      // Native absolute path: `getProtectedKeyFilePaths` normalises with
+      // `p.normalize`, which on Windows turns `/tmp/shared.key` into
+      // `\tmp\shared.key`. Same assertion, spelled for the host.
+      final shared = p.join(Directory.systemTemp.path, 'shared.key');
       registryRepository.records = [
         _recordForTest('db-1', '/tmp/a.kdbx'),
         _recordForTest('db-2', '/tmp/b.kdbx'),
       ];
-      securityRepository.profiles['db-1'] = const DatabaseSecurityProfile(
+      securityRepository.profiles['db-1'] = DatabaseSecurityProfile(
         databaseId: 'db-1',
         keyFilePath: shared,
       );
-      securityRepository.profiles['db-2'] = const DatabaseSecurityProfile(
+      securityRepository.profiles['db-2'] = DatabaseSecurityProfile(
         databaseId: 'db-2',
         keyFilePath: shared,
       );

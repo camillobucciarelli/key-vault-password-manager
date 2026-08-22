@@ -151,13 +151,31 @@ void main() {
       final metadata = await Directory(
         p.join(oldDocs.path, 'metadata'),
       ).create(recursive: true);
+      // Built with `jsonEncode` rather than as a hand-written literal. The
+      // literal interpolated the path straight into JSON source, which is only
+      // valid while the path contains no backslash: on Windows `legacyPath` is
+      // `C:\Users\...`, and `\U` is not a legal JSON string escape, so the
+      // fixture failed to parse before the code under test was ever reached.
+      // Production writes this file with `jsonEncode` too, so this is also the
+      // more faithful reproduction of a pre-fix record.
       await File(
         p.join(metadata.path, 'database_registry_records.json'),
-      ).writeAsString('''
-[{"databaseId":"legacy","canonicalPath":"$legacyPath","displayName":"Legacy",
-"sourceType":"local","sourceRef":null,"fileHash":null,
-"createdAt":"2024-01-01T00:00:00.000Z","updatedAt":"2024-01-01T00:00:00.000Z",
-"lastOpenedAt":null,"isFavorite":false}]''');
+      ).writeAsString(
+        jsonEncode([
+          {
+            'databaseId': 'legacy',
+            'canonicalPath': legacyPath,
+            'displayName': 'Legacy',
+            'sourceType': 'local',
+            'sourceRef': null,
+            'fileHash': null,
+            'createdAt': '2024-01-01T00:00:00.000Z',
+            'updatedAt': '2024-01-01T00:00:00.000Z',
+            'lastOpenedAt': null,
+            'isFavorite': false,
+          },
+        ]),
+      );
 
       await relocateContainer();
 

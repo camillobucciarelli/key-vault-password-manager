@@ -188,21 +188,37 @@ void main() {
       expect(PortablePath.encode(file, docs), 'appdocs:vault.kdbx');
     });
 
-    test('case-different documents root stays absolute on a case-sensitive '
-        'filesystem', () {
-      PortablePath.debugFoldsCaseOverride = false;
-      addTearDown(() => PortablePath.debugFoldsCaseOverride = null);
+    test(
+      'case-different documents root stays absolute on a case-sensitive '
+      'filesystem',
+      () {
+        PortablePath.debugFoldsCaseOverride = false;
+        addTearDown(() => PortablePath.debugFoldsCaseOverride = null);
 
-      final docs = p.join(unresolvedRoot, 'Documents');
-      final file = p.join(unresolvedRoot, 'documents', 'vault.kdbx');
-      expect(
-        PortablePath.encode(file, docs),
-        file,
-        reason:
-            'On Linux/Android these are two different directories, so folding '
-            'case would invent a containment that does not exist.',
-      );
-    });
+        final docs = p.join(unresolvedRoot, 'Documents');
+        final file = p.join(unresolvedRoot, 'documents', 'vault.kdbx');
+        expect(
+          PortablePath.encode(file, docs),
+          file,
+          reason:
+              'On Linux/Android these are two different directories, so '
+              'folding case would invent a containment that does not exist.',
+        );
+      },
+      // POSIX-only, and not a coverage gap that can be closed here.
+      // `debugFoldsCaseOverride = false` turns off PortablePath's OWN case
+      // fold, but the first branch of `_relativeWithin` is `p.isWithin`, and
+      // on Windows `package:path` uses its Windows context, which compares
+      // case-insensitively by itself. Containment therefore succeeds before
+      // the override is ever consulted, so a case-SENSITIVE volume cannot be
+      // expressed on this host at all. The scenario stays covered on Linux and
+      // macOS CI, where the override does what it says.
+      skip: Platform.isWindows
+          ? 'a case-sensitive volume cannot be simulated on Windows: '
+                'package:path folds case in p.isWithin before the override '
+                'is consulted'
+          : null,
+    );
 
     test('unnormalized ".." segments are handled', () {
       final docs = p.join(unresolvedRoot, 'Documents');

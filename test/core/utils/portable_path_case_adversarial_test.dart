@@ -58,46 +58,76 @@ void main() {
       final docs = p.join(base, 'Documenti');
       final file = p.join(base, 'documenti', 'Àrchivi', 'Größe', 'Vàult.KDBX');
 
-      expect(PortablePath.encode(file, docs), 'appdocs:Àrchivi/Größe/Vàult.KDBX');
-    });
-
-    test('the filesystem root as documents root yields a full relative tail', () {
-      expect(PortablePath.encode('/Vault.KDBX', '/'), 'appdocs:Vault.KDBX');
-      expect(PortablePath.encode('/A/B/Vault.KDBX', '/'), 'appdocs:A/B/Vault.KDBX');
-    });
-
-    test('a path equal to the root modulo case is not claimed as contained', () {
-      final docs = p.join(base, 'Documents');
-      final file = p.join(base, 'documents');
-
       expect(
         PortablePath.encode(file, docs),
-        file,
-        reason:
-            'p.isWithin excludes equality; the folded branch must not '
-            'disagree with the unfolded one about the root itself.',
+        'appdocs:Àrchivi/Größe/Vàult.KDBX',
       );
     });
 
-    test('a sibling whose name merely starts with the root name stays absolute', () {
-      final docs = p.join(base, 'Documents');
-      final file = p.join(base, 'documents2', 'Vault.KDBX');
+    test(
+      'the filesystem root as documents root yields a full relative tail',
+      () {
+        expect(PortablePath.encode('/Vault.KDBX', '/'), 'appdocs:Vault.KDBX');
+        expect(
+          PortablePath.encode('/A/B/Vault.KDBX', '/'),
+          'appdocs:A/B/Vault.KDBX',
+        );
+      },
+      // POSIX-only: `/` is the filesystem root only on POSIX. On Windows a
+      // leading `\\` is DRIVE-RELATIVE, so `resolveForComparison` resolves it
+      // against the current drive and the synthetic segments may collide with
+      // real directories — on the CI runner `/A` resolves onto the workspace
+      // root `D:\\a`, and `resolveSymbolicLinksSync` then correctly rewrites
+      // `A` to its on-disk spelling `a`. That is the documented behaviour of
+      // the helper, not a defect, and the root-as-documents-root case has no
+      // Windows equivalent to assert.
+      skip: Platform.isWindows
+          ? 'POSIX-only: "/" is drive-relative on Windows, not the '
+                'filesystem root'
+          : null,
+    );
 
-      expect(PortablePath.encode(file, docs), file);
-    });
+    test(
+      'a path equal to the root modulo case is not claimed as contained',
+      () {
+        final docs = p.join(base, 'Documents');
+        final file = p.join(base, 'documents');
 
-    test('folding does not regress /var -> /private/var normalization', () async {
-      // Reproduce the #41 divergence: `link` -> `real`, root spelled through
-      // the link, file spelled through the target, plus a case difference.
-      final real = await Directory(p.join(base, 'real')).create();
-      final linkPath = p.join(base, 'link');
-      await Link(linkPath).create(real.path);
+        expect(
+          PortablePath.encode(file, docs),
+          file,
+          reason:
+              'p.isWithin excludes equality; the folded branch must not '
+              'disagree with the unfolded one about the root itself.',
+        );
+      },
+    );
 
-      final docs = p.join(linkPath, 'Documents');
-      final file = p.join(real.path, 'documents', 'DataBases', 'Vault.KDBX');
+    test(
+      'a sibling whose name merely starts with the root name stays absolute',
+      () {
+        final docs = p.join(base, 'Documents');
+        final file = p.join(base, 'documents2', 'Vault.KDBX');
 
-      expect(PortablePath.encode(file, docs), 'appdocs:DataBases/Vault.KDBX');
-    });
+        expect(PortablePath.encode(file, docs), file);
+      },
+    );
+
+    test(
+      'folding does not regress /var -> /private/var normalization',
+      () async {
+        // Reproduce the #41 divergence: `link` -> `real`, root spelled through
+        // the link, file spelled through the target, plus a case difference.
+        final real = await Directory(p.join(base, 'real')).create();
+        final linkPath = p.join(base, 'link');
+        await Link(linkPath).create(real.path);
+
+        final docs = p.join(linkPath, 'Documents');
+        final file = p.join(real.path, 'documents', 'DataBases', 'Vault.KDBX');
+
+        expect(PortablePath.encode(file, docs), 'appdocs:DataBases/Vault.KDBX');
+      },
+    );
 
     test('round-trip resolves on disk when neither spelling existed at encode '
         'time', () async {
@@ -116,23 +146,45 @@ void main() {
       expect(File(decoded).existsSync(), isTrue);
     });
 
-    test('an already-encoded value is not double-encoded by the fold branch', () {
-      expect(
-        PortablePath.encode('appdocs:DataBases/Vault.KDBX', p.join(base, 'documents')),
-        'appdocs:DataBases/Vault.KDBX',
-      );
-    });
+    test(
+      'an already-encoded value is not double-encoded by the fold branch',
+      () {
+        expect(
+          PortablePath.encode(
+            'appdocs:DataBases/Vault.KDBX',
+            p.join(base, 'documents'),
+          ),
+          'appdocs:DataBases/Vault.KDBX',
+        );
+      },
+    );
   });
 
   group('case-sensitive volume', () {
     setUp(() => PortablePath.debugFoldsCaseOverride = false);
 
-    test('two real directories differing only by case stay distinct', () {
-      final docs = p.join(base, 'Documents');
-      final file = p.join(base, 'documents', 'DataBases', 'Vault.KDBX');
+    test(
+      'two real directories differing only by case stay distinct',
+      () {
+        final docs = p.join(base, 'Documents');
+        final file = p.join(base, 'documents', 'DataBases', 'Vault.KDBX');
 
-      expect(PortablePath.encode(file, docs), file);
-    });
+        expect(PortablePath.encode(file, docs), file);
+      },
+      // POSIX-only, and not a coverage gap that can be closed here.
+      // `debugFoldsCaseOverride = false` turns off PortablePath's OWN case
+      // fold, but the first branch of `_relativeWithin` is `p.isWithin`, and
+      // on Windows `package:path` uses its Windows context, which compares
+      // case-insensitively by itself. Containment therefore succeeds before
+      // the override is ever consulted, so a case-SENSITIVE volume cannot be
+      // expressed on this host at all. The scenario stays covered on Linux and
+      // macOS CI, where the override does what it says.
+      skip: Platform.isWindows
+          ? 'a case-sensitive volume cannot be simulated on Windows: '
+                'package:path folds case in p.isWithin before the override '
+                'is consulted'
+          : null,
+    );
 
     test('a path outside the root stays absolute, unchanged', () {
       final docs = p.join(base, 'Documents');
