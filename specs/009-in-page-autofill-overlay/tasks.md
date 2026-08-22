@@ -6,38 +6,57 @@ land.
 
 ## Slice A0 — baseline and automated security harness
 
-- [ ] **A001** Record current baseline from
+- [x] **A001** Record current baseline from
       `desktop/browser_extension/manifest.json`, `background.js`, `popup.js`,
       `tool/native_host_protocol.dart`, and reveal bridge. Confirm current protocol
       has no overlay/generation capability and current generator settings are
       dialog-local.
-- [ ] **A002** Add `desktop/browser_extension/overlay_security.js` with pure,
+      Evidence: `spec.md` §Current baseline records all five artefacts verbatim,
+      including "It does not support password generation" and the dialog-local
+      generator note.
+- [x] **A002** Add `desktop/browser_extension/overlay_security.js` with pure,
       production-used canonical HTTP(S) origin, strict object-shape, and sender
       classification helpers. No dependency.
-- [ ] **A003** Add Node built-in test harness under
+      Evidence: `canonicalizeOrigin`, `validateExactShape`, `classifySenderRoute`;
+      the file has no `require`/`import` and is loaded by the worker via
+      `importScripts`, by the popup via `<script>`, and by the harness via
+      `require`. Mutations A0-M1, A0-M2, A0-M3, A0-M8.
+- [x] **A003** Add Node built-in test harness under
       `desktop/browser_extension/test/`. Test extension-page sender path separately
       from content sender path; reject sender-path confusion, wrong runtime id,
       extension URL mismatch, missing tab/frame/sender URL, unknown keys, wrong
       types, and oversize values.
-- [ ] **A004** Create shared
+      Evidence: `test/sender_trust.test.js` (`node:test`), one named case per
+      rejection above. Mutations A0-M4, A0-M9.
+- [x] **A004** Create shared
       `desktop/browser_extension/test/fixtures/origin_canonicalization_v1.json`
       with required IDs from `data-model.md`: IDNA Unicode/punycode, IPv6 compact/
       expanded, userinfo, trailing dot, default/non-default ports, canonical and
       odd/noncanonical IPv4, invalid schemes, and phishing suffix. Node tests load
       every fixture case, verify version/count/unique required IDs, and verify body
       origin equals normalized `sender.url`, not `sender.tab.url` or host.
-- [ ] **A005** Test top-frame, same-origin child, permitted cross-origin child,
+      Evidence: fixture is version 1 with 32 cases covering every required id;
+      `test/origin_canonicalization.test.js`. Mutation A0-M6.
+- [x] **A005** Test top-frame, same-origin child, permitted cross-origin child,
       disabled child origin, missing injection, sandboxed/opaque sender, and top
       URL/frame URL disagreement behavior.
-- [ ] **A006** Test focus nonce/token bind, allowed entry id, sender tab/frame/
+      Evidence: `test/frame_context.test.js`, one named case per row.
+      Mutation A0-M10.
+- [x] **A006** Test focus nonce/token bind, allowed entry id, sender tab/frame/
       document/origin, 30-second maximum expiry, one-shot consumption, permission
       revision, database id, cache generation, bridge generation, bounded eviction,
       worker-reset loss, and stale response after focus/navigation/disable. Test
       vault A → B with identical entry UUID + origin: A token and delayed A response
       return `stale_session` and cannot reveal B secret.
-- [ ] **A007** Add shape assertions proving persisted config and all metadata
+      Evidence: `test/focus_grant.test.js`, including
+      `REGRESSION vault A -> B: same entry UUID and same exact origin stay stale`.
+      Mutations A0-M5, A0-M7.
+- [x] **A007** Add shape assertions proving persisted config and all metadata
       messages reject `password`, `secret`, native payload dumps, username, and
       unknown fields. Tests must execute production validators, not copies.
+      Evidence: `test/message_shape.test.js` reads the schema catalogue back out of
+      `overlay_security.js`; `test/helpers.js` builds inputs only and holds no
+      second copy of any validator.
 
 **Gate A0**: `node --test desktop/browser_extension/test/*.test.js` passes before
 overlay markup/CSS begins.
@@ -52,113 +71,195 @@ owns that obligation (see A028).
 
 ## Slice A1 — native exact-origin contract
 
-- [ ] **A008** In `tool/native_host_protocol.dart`, define/advertise
+- [x] **A008** In `tool/native_host_protocol.dart`, define/advertise
       `overlayExactOriginV1` capability and strict overlay query policy (or a new
       request type if old-peer fail-closed behavior cannot be guaranteed). Add
       explicit non-secret `cacheGeneration` per metadata publish and
       `bridgeGeneration` per reveal-bridge start alongside database id.
-- [ ] **A009** Add Dart tests first: exact URL origin matches; implicit/default
+      Evidence: `overlayExactOriginCapability` / `overlayMatchPolicy` in
+      `lib/.../services/browser_exact_origin.dart`, advertised through
+      `nativeHostCapabilities`; both generations are emitted per publish/start by
+      `_overlaySessionBinding`. Test
+      `hello advertises the exact-origin capability and types`.
+- [x] **A009** Add Dart tests first: exact URL origin matches; implicit/default
       port matches; scheme/non-default port/phishing suffix differs; domain-only
       identifier is possible metadata and cannot reveal. Include `www.`, `m.`,
       and `mobile.` label differences so current host-normalization prefix removal
       cannot become fill authorization. Dart tests consume same
       `origin_canonicalization_v1.json` and assert every case; no duplicated Dart
       expected-value table.
-- [ ] **A010** Harden `queryCredentials` overlay mode to return bounded metadata
+      Evidence: `test/.../browser_exact_origin_test.dart` reads the same fixture
+      path; case `www./m./mobile. label stripping cannot become fill
+      authorization`. Mutation A1-M1.
+- [x] **A010** Harden `queryCredentials` overlay mode to return bounded metadata
       only (`entryId`, `title`, `displayService`, exact/possible classification,
       fill eligibility) plus current database/cache/bridge binding. No username/
       password. Echo canonical target and strict policy so background can reject
       old-host downgrade. Snapshot tuple, then re-read/compare immediately before
       response; concurrent republish returns `stale_session`.
-- [ ] **A011** Harden `revealForFill` origin-bound path in
+      Evidence: `_overlayQueryCredentialsResponse` snapshots the binding, then
+      re-reads through `_overlayBindingIsStillCurrent` before answering. Test
+      `a republish during the query returns stale_session`.
+- [x] **A011** Harden `revealForFill` origin-bound path in
       `tool/native_host_protocol.dart`: remove domain/host fallback, require exact
       normalized URL origin, exact entry/database/cacheGeneration/
       bridgeGeneration/policy, and current bridge. Add dedicated exact-origin
       helper; do not reuse current prefix-stripping host matcher. Any binding
       mismatch returns `stale_session` before app request.
-- [ ] **A012** Apply same exact-origin authorization in
+      Evidence: `isExactOriginAuthorized` is a dedicated helper, documented as
+      deliberately distinct from the prefix-stripping
+      `DesktopBrowserAutofillMetadataMapper.isRevealAuthorizedOrigin`. Tests
+      `a domain-only entry can never reveal` and
+      `${mismatch} mismatch is stale_session before the app`.
+      Mutations A1-M1, A1-M2.
+- [x] **A012** Apply same exact-origin authorization in
       `desktop_browser_autofill_reveal_bridge_service.dart`; host check and app
       bridge check must both pass for expected database/cache/bridge binding. App
       checks under one session epoch before lookup and response, then echoes binding.
       Native host re-reads cache/descriptor after bridge response and verifies it.
       Add tests for host-only denial and stale binding before secret response.
-- [ ] **A013** Preserve current framing limits, response id/version checks,
+      Evidence: `/overlay-reveal` reads the whole session under one `_sessionEpoch`
+      taken at entry and re-checks it before responding; the host re-verifies via
+      `_overlayBindingIsStillCurrent` after the bridge answers. Mutation A1-M3.
+- [x] **A013** Preserve current framing limits, response id/version checks,
       2/3-second bridge/background timeouts, direct loopback, bearer auth, redacted
       errors, and clear-on-lock/database-change behavior. Add fake delayed bridge
       regression for vault A → B using same UUID/origin; old request/response must
       be `stale_session`. Add no secret logging.
-- [ ] **A014** Update current popup fill result eligibility/labels if stricter
+      Evidence: `_revealBridgeTimeout` is still 2 s and `NATIVE_TIMEOUT_MS` still
+      3000; loopback + bearer + redacted error table unchanged. Tests
+      `a bridge restart invalidates an older grant`,
+      `a vault republish after the app answered is stale_session`,
+      `the native host persists and logs nothing`.
+- [x] **A014** Update current popup fill result eligibility/labels if stricter
       origin semantics would otherwise present domain-only entries as fillable.
+      Evidence: `popup.js` derives `__fillable = fillAvailable &&
+      r.fillEligible !== false` and drops the Fill button on a strong row the
+      reveal policy refuses. Test
+      `a host-level strong match the reveal policy would refuse is not fillable`.
 
 **Gate A1**: targeted native/reveal tests pass. Old host lacking capability must
 produce `unsupported_capability`, never host-only fallback.
 
 ## Slice A2 — manifest, opt-in, registration, revocation
 
-- [ ] **A015** Update `desktop/browser_extension/manifest.json` only as follows:
+- [x] **A015** Update `desktop/browser_extension/manifest.json` only as follows:
       add `storage`; add
       `"optional_host_permissions": ["http://*/*", "https://*/*"]`. Keep MV3,
       `activeTab`, `nativeMessaging`, `scripting`. Add no `host_permissions`,
       static `content_scripts`, `<all_urls>`, `tabs`, `webNavigation`, clipboard,
       or remote code.
-- [ ] **A016** Implement `overlayConfigV1` from `data-model.md`: sorted unique
+      Evidence: manifest terminal state matches exactly; test
+      `A015: manifest declares optional HTTP(S) hosts and nothing broader`.
+      Deviation of record: `storage` was already granted since spec 006 (see
+      `spec.md` §Current baseline), so the only net manifest change this task made
+      was `optional_host_permissions`.
+- [x] **A016** Implement `overlayConfigV1` from `data-model.md`: sorted unique
       exact origins + revision only. Off by default. Enforce limits and migrate
       invalid/missing state to disabled.
-- [ ] **A017** Add popup **Show the overlay on this site** control. Compute exact
+      Evidence: `validateOverlayConfig` / `loadOverlayConfigOrEmpty` in
+      `overlay_security.js`; six `A016:` cases in `overlay_lifecycle.test.js`.
+      Mutation A2-M13.
+- [x] **A017** Add popup **Show the overlay on this site** control. Compute exact
       active-tab HTTP(S) origin; request one derived optional host pattern only
       from explicit popup user gesture; persist only after grant. Show unsupported,
       denied, enabled, disabled, and reconciliation states.
-- [ ] **A018** Register `content_overlay.js` dynamically in isolated world at
+      Evidence: `popup.js` §"009 A017" plus `computeSiteControlState`; three
+      `A017:` cases. The gesture-bound pending-intent continuation that makes the
+      first grant survive a popup teardown landed later in #77 and is pinned by
+      `test/overlay_enable_intent.test.js` (mutations A2-M17, A2-M18, A2-M19).
+- [x] **A018** Register `content_overlay.js` dynamically in isolated world at
       `document_idle`, including frames where browser allows. Registration match
       is browser permission pattern; bootstrap exact-origin check keeps other
       ports inert. Registration affects future documents, so after grant also
       inject current tab with `chrome.scripting.executeScript({allFrames: true})`;
       make startup idempotent and attach listeners only after bootstrap approval.
-- [ ] **A019** Implement crash-consistent disable exactly: first atomically replace
+      Evidence: `registrationForPattern` emits `runAt: document_idle`,
+      `allFrames: true`, `world: ISOLATED`; enable also calls
+      `scripting.executeScript`. Eight `A018:` cases. Mutations A2-M4, A2-M14
+      (A2-M14 is a declared equivalent mutant, expectedKills 0).
+- [x] **A019** Implement crash-consistent disable exactly: first atomically replace
       durable `overlayConfigV1` with target origin removed and revision incremented;
       await successful write/readback. Only afterward clear grants, broadcast
       teardown, unregister unused dynamic script, then remove unused optional
       permission. No cleanup side effect starts if durable commit fails. Derive
       sharing from committed origins; test two ports sharing one pattern.
-- [ ] **A020** Implement fail-closed reconciliation before serving messages on
+      Evidence: `DISABLE_PHASES` D1–D5 with the durable commit as D1 and a
+      readback before any cleanup; nine `A019:` cases including
+      `disabling one port keeps the pattern the other port still needs`.
+      Mutations A2-M1, A2-M5, A2-M6, A2-M9, A2-M16.
+- [x] **A020** Implement fail-closed reconciliation before serving messages on
       every worker cold start, plus install/startup, popup open, and permission
       changes: validate durable config (invalid/missing = zero enabled), start with
       no grants, then reconcile permissions, registrations, and live teardown.
       Already-injected instance remains inert until approved bootstrap.
-- [ ] **A021** Add deterministic crash injection after each disable phase: durable
+      Evidence: nine `A020:` cases — eight in `overlay_lifecycle.test.js`, one in
+      `test/overlay_permission_race.test.js`.
+      Mutations A2-M3, A2-M7, A2-M8, A2-M10, A2-M12, A2-M15.
+- [x] **A021** Add deterministic crash injection after each disable phase: durable
       commit, grant invalidation, active-frame teardown, script unregister, and
       permission removal. Restart worker after each fault and assert identical
       disabled terminal state. Also test shared-pattern retention and unreachable
       injected script: JS cannot be unloaded, but durable revision denies every
       request immediately and reconciliation completes cleanup.
+      Evidence: `test/overlay_crash_consistency.test.js`, eight `A021:` cases
+      covering a fault after each of D1–D5, shared-pattern retention, and the
+      unreachable injected document. Mutation A2-M11 is a declared equivalent
+      mutant (expectedKills 0).
 
 **Gate A2**: fresh install grants/injects nothing; grant and revoke behavior is
 automated where possible and manually checked in Chrome.
 
 ## Slice A3 — background trust paths and focus grants
 
-- [ ] **A022** Refactor `background.js` into explicit extension-page and content
+- [x] **A022** Refactor `background.js` into explicit extension-page and content
       route allowlists. Preserve current popup routes under extension-page sender
       validator. Unknown sender/type/shape fails deterministically.
-- [ ] **A023** For content bootstrap/matches/fill, derive authoritative frame
+      Refactor of record: the two allowlists no longer live *in* `background.js`.
+      A028+ split the worker into `overlay_routes.js`, and the property now lives
+      there as `CONTENT_ROUTES` / `EXTENSION_PAGE_ROUTES` (with the preserved popup
+      routes in `LEGACY_ROUTES`), driven by the `OverlayRouter` class;
+      `background.js` only constructs it and hands `onMessage` straight to it.
+      Evidence: seven `A022:` cases in `test/overlay_routes.test.js`.
+      Mutations A3-M1, A3-M14.
+- [x] **A023** For content bootstrap/matches/fill, derive authoritative frame
       origin from `sender.url`; validate tab id, frame id, optional document id,
       top context, exact stored origin, permission, and revision before native I/O.
-- [ ] **A024** Issue random short-lived fill token only after exact-origin metadata
+      Evidence: `A023:` and `A023/SR-7:` cases in `test/overlay_routes.test.js`,
+      including the durable revision floor added with A3-M9/A3-M16.
+      Mutations A3-M2, A3-M9, A3-M10, A3-M15, A3-M16.
+- [x] **A024** Issue random short-lived fill token only after exact-origin metadata
       query succeeds. Bind per `data-model.md`; include fill-eligible entry ids
       and exact database/cache/bridge generation only; bound/evict worker map;
       never persist token or binding.
-- [ ] **A025** Consume token on explicit fill before accepting replay. Revalidate
+      Evidence: eleven `A024:` cases, including
+      `the token is never written to durable storage` and
+      `the token map is bounded and evicts the oldest grant`.
+      Mutations A3-M4, A3-M8.
+- [x] **A025** Consume token on explicit fill before accepting replay. Revalidate
       sender, capability, and message/grant binding, then forward sender-derived
       exact origin plus expected database/cache/bridge values to native host.
       Validate echoed success binding before forwarding secret. Never forward body
       URL as origin authority.
-- [ ] **A026** Map timeout, no host, app locked, unsupported capability, disabled,
+      Evidence: nine `A025:` cases, including
+      `a success whose echoed binding drifted does not forward the secret` and
+      `vault A -> B rejects the old token without revealing the B secret`.
+      Mutations A3-M3, A3-M5, A3-M6.
+- [x] **A026** Map timeout, no host, app locked, unsupported capability, disabled,
       unsupported frame, invalid request, forbidden, and stale session to stable
       non-sensitive error codes. Do not log messages/native responses.
-- [ ] **A027** Confirm MV3 worker restart invalidates grants and next request
+      Evidence: `PUBLIC_ERROR_CODES` in `overlay_routes.js` carries all nine plus
+      an `internal_error` fail-closed default; six `A026:` cases, including
+      `the worker logs neither the message nor the native response`.
+      Mutations A3-M11, A3-M12, A3-M13.
+- [x] **A027** Confirm MV3 worker restart invalidates grants and next request
       recovers through fresh metadata query; no reconnect loop or durable token.
       New status/query tuple eagerly clears older grants; vault/cache/bridge
       mismatch still fails natively if worker has not observed republish.
+      Evidence: seven `A027:` cases, including
+      `an MV3 worker restart invalidates every grant` and
+      `a binding the worker never observed still fails at the native host`.
+      Mutation A3-M7.
 
 **Gate A3**: JS harness covers sender validation, message shape, stale response,
 teardown, origin/port/scheme, and frame behavior before visual UI work.
@@ -230,6 +331,34 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
 - [ ] **A040** Manual accessibility checks: keyboard-only; Chrome + NVDA on
       Windows; Chrome + VoiceOver on macOS where available. Record closed-shadow
       active-descendant limitation and verify live announcement fallback.
+
+      **Open.** Partially executed; the remainder is declared debt, not a pass.
+
+      Done — one real VoiceOver session on macOS, with the user driving:
+      - The live region announces (`"N suggestions"`) after the M13 fix.
+      - Two real defects were found, and they were not cosmetic. Arrow keys moved
+        the VoiceOver cursor rather than the overlay selection, and activation was
+        outright impossible: `aria-activedescendant` does not cross a **closed**
+        shadow root, so the anchor pointed at an id AT could not resolve, and
+        Enter fell through to the page as an implicit submit.
+      - Fix merged in #81: a generic light-DOM listbox mirroring the shadow rows,
+        AT `press` handled on the rows themselves, and an `isTrusted` guard on
+        every activation handler so the new light surface cannot be driven by
+        page-synthetic events. Pinned by `test/overlay_at_activation.test.js`
+        (16 cases) and mutations A6-M1–A6-M4.
+
+      Not done:
+      - **Keyboard-only** — the first row of this task's own requirement — was
+        never exercised by hand. Arrow/Enter/Escape/Tab without AT are covered
+        automatically by the six `A037:` cases in
+        `test/overlay_interaction.test.js`, and that automated coverage is the
+        only evidence there is for it.
+      - The #81 fix has **not** been re-confirmed with VoiceOver on the device.
+        The behaviour is pinned by the harness, which is not the same evidence as
+        a screen reader actually announcing and activating it.
+      - Chrome + NVDA on Windows has **never** been run — no Windows machine is
+        available. This is a permanent declared debt of this feature, not a
+        pending step, and it must not be reported as covered.
 - [x] **A041** Only after Gates A0–A3 and tasks A028–A040 pass, capture real
       unpacked-extension browser screenshots because Flutter goldens/widget tests
       do not render this DOM.
@@ -242,6 +371,13 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
       exact basenames only as supplemental check. Reject mutable/mismatched env and
       unapproved baseline updates. Noncanonical Edge/Windows/macOS rely on A039 DOM/
       geometry assertions plus A040/manual smoke. Security wins over pixel parity.
+      Precondition partially unmet, stated honestly: this task is gated on
+      "A028–A040 pass" and **A040 is still open**. It stays checked because the
+      artefact it owns exists and re-verifies independently of A040 — 18 approved
+      baselines, hash- and pixel-compared in the pinned canonical container
+      (A045: exit 0, 18/18) and inventoried by the three `A041:` cases. What A040
+      would add is screen-reader and keyboard evidence, which no screenshot can
+      carry either way, so its outcome cannot invalidate these baselines.
 
 ## Slice A6 — packaging, README, release checks
 
@@ -314,10 +450,80 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
       package reload, and canonical baseline comparison. Edge smoke is not pixel
       authority.
 
-**Slice A done**: all automated security/protocol checks pass before visual signoff;
-no broad always-on permission; explicit exact-origin fill only.
+      **Open.** This task asks for ~16 matrix rows. Every row is accounted for
+      below in exactly one of three sets. Set (b) and set (c) are both *not*
+      manual passes; only set (a) is.
 
-## Slice B0 — app contracts (blocked until Slice A done; no extension Generate yet)
+      **(a) Executed manually and passed** — one guided session, Chrome 151 /
+      macOS, one machine:
+      1. Fresh install — clean, no site access granted.
+      2. Grant/deny — opt-in only under an explicit gesture; revocation from
+         `chrome://extensions` reconciled back to disabled.
+      3. Scheme/port variants — two independent ports sharing one permission
+         pattern, and `https` with a separately granted opt-in.
+      4. Top / same-origin / cross-origin frames — the cross-origin child first
+         denied, then enabled on its own origin.
+      5. Worker termination — terminated between phases and recovered.
+      6. Disable while the overlay was open.
+      7. Navigation — teardown observed. (Only the navigation half of the
+         "navigation/stale native response" row; see (b) for the other half.)
+      8. Package reload from the built ZIP.
+      9. Generate round trip — generate → fill → confirmation banner in the app →
+         confirm → entry present in the vault → consistent re-fill.
+
+      **(b) Covered by automation only — never verified by hand.** These rows have
+      real evidence, but none of it is a manual observation, and this task asked
+      for one:
+      10. App lock — `A027: losing the bridge binding clears grants and reports
+          locked`; `a locked app (no cache) cannot generate` in
+          `test/tool/native_host_test.dart`.
+      11. Host absent / timeout — `A026: native error codes map to the stable
+          public set` (`no_host`, `timeout`); mutation A3-M11.
+      12. Restricted page — non-HTTP(S) schemes rejected by the `scheme-*` fixture
+          cases and `content_overlay: a non-canonicalizable document never speaks
+          at all`; popup `unsupported` state via `A017`.
+      13. Exact vs domain-only match — `a domain-only entry can never reveal` and
+          `revealForFill denies possible/manual non-exact match`; mutation A1-M2.
+      14. Crash/restart after every disable phase — the eight `A021:` cases in
+          `test/overlay_crash_consistency.test.js`, one fault per D1–D5.
+      15. Stale native response — `A025: a success whose echoed binding drifted
+          does not forward the secret`; `a vault republish after the app answered
+          is stale_session`; mutation A3-M6.
+
+      **(c) Never executed in any manual form:**
+      16. Edge subset — never run, on any row.
+      17. Vault A → B with the same entry UUID and origin — one machine, one
+          vault. Automated only: `REGRESSION vault A -> B` in
+          `test/focus_grant.test.js`, `A025: vault A -> B rejects the old token`,
+          and the native-host regression.
+      18. Canonical baseline comparison — the container verify was run under A045
+          (exit 0, 18/18), which is the automated path. No human compared a
+          rendered overlay against an approved baseline.
+      19. Keyboard / pointer — automated only: six `A037:` and five `A038:` cases.
+          No manual pass. (Same gap as the keyboard-only row of A040.)
+      20. AT — deferred to A040, which is itself open. Not covered here.
+
+**Slice A — development complete; the Slice-A-done gate remains OPEN on two
+manual rows (A040, A046).** This heading is deliberately not the bare phrase
+that marks the gate as met: do not read it as met. All
+automated security/protocol checks pass (`node --test
+desktop/browser_extension/test/*.test.js`: 370 passing; `node
+tool/mutation_runner.mjs --check`: exit 0 over 83 mutations, the two
+zero-expectation entries being declared equivalent mutants). No broad always-on
+permission; explicit exact-origin fill only. A001–A039 and A041–A045 are
+verified against the code and pinned by tests and/or mutations.
+
+Still open, and deliberately not closed here:
+
+- **A040** — VoiceOver re-confirmation of the #81 fix on the device, and Chrome +
+  NVDA on Windows. NVDA is a permanent declared debt: no Windows machine.
+- **A046** — the Edge subset, and a manual vault A → B pass.
+
+Both are manual-verification debt over code that is otherwise implemented and
+automatically pinned. Neither is a reason to reopen development, and neither may
+be reported as done.
+
+## Slice B0 — app contracts (blocked until Slice A development completed; no extension Generate yet)
 
 - [x] **B001** After Slice A acceptance, define global non-secret
       `GeneratorSettingsSnapshot` schema v1/revision and app-owned
@@ -347,8 +553,10 @@ no broad always-on permission; explicit exact-origin fill only.
 - [x] **B005** Connect pending record to normal app new-entry/save confirmation.
       App owns vault mutation; page/extension cannot auto-save.
 
-**Gate B0**: Slice A is complete; settings repository/UI and pending-generation
-lifecycle are explicit and tested in app. Otherwise stop; Generate remains
+**Gate B0**: Slice A development is complete — which is what unblocked B0. The
+two open manual rows in the Slice A gate above (A040, A046) are verification
+debt and were not treated as blocking B. Settings repository/UI and
+pending-generation lifecycle are explicit and tested in app. Otherwise stop; Generate remains
 unavailable. Run:
 
 ```bash
@@ -388,5 +596,26 @@ flutter test \
       save confirmation. Do not claim extension saves or remembers generated
       password.
 
-**Slice B done**: B0/B1/B2 gates pass. No fallback generation in extension,
-native host, or default settings.
+**Slice B done.** B0/B1/B2 gates pass; B001–B013 are implemented and tested. No
+fallback generation in extension, native host, or default settings. B005 needed a
+second pass — see the Post-QA fixes below — because the original landing wired the
+pending record to no production caller.
+
+## Post-QA fixes
+
+Defects found by the manual sessions behind A040 and A046, after the slices they
+belong to had already been merged. Recorded here because each one is evidence
+that the automated gates alone did not catch it.
+
+- **#70 + #72** — TCC on macOS Sequoia: the browser autofill store moved to a
+  Team-ID-prefixed group container, and the native host now registers group
+  membership through `containerURL` *before* any store I/O.
+- **#61** — the native host binary was missing the hardened-runtime entitlement.
+- **#71** — the master-password fallback was unreachable from the biometric gate.
+- **#73** — pending-generation confirmation banner: B005 was structurally
+  incomplete and had zero production callers.
+- **#75** — overlay restyle, a real cross-origin iframe hint, and the live region.
+- **#77** — gesture-bound pending intent so the very first Allow completes the
+  enable.
+- **#81** — AT activation (light listbox + row `press`) and an `isTrusted` guard
+  on every activation handler.
