@@ -172,6 +172,24 @@ jobs:
 
           flutter test "${suites[@]}"
 
+      # RESULT on windows-2022 (run 32597088754): 34 passed, 1 failed. The
+      # symlink machinery itself is fine on Windows; the single failure is
+      #   portable_path_symlink_qa_test.dart
+      #   "case-different documents root stays absolute on a case-sensitive
+      #    filesystem"
+      # which is the SAME root cause as the two quarantined portable_path_case
+      # files: `debugFoldsCaseOverride = false` disables PortablePath's own
+      # fold, but `package:path`'s Windows context still compares
+      # case-insensitively, so `p.isWithin` matches before the override is
+      # consulted. The case-sensitive-volume scenario is simply not
+      # expressible on Windows through that switch.
+      #
+      # Deliberately NOT quarantined: excluding the file to go green would
+      # drop 34 passing tests, including the three DEFECT guards this suite
+      # exists for, to hide one case whose cause is already understood. One
+      # named red is worth more than a silent gap. Marking that single case
+      # POSIX-only in the test is the follow-up, and it is the precondition
+      # for flipping this job to blocking.
       - name: Flutter test (symlink QA suites)
         # `always()` so a failure in the step above cannot turn this into a
         # skip. A skipped step reads as "fine" at a glance, and these three
