@@ -84,6 +84,10 @@ void main() {
         'f.copySync(dest);': 'copy',
         'f.deleteSync();': 'delete',
         'sink = f.openWrite();': 'openWrite',
+        'final raf = await file.open(mode: FileMode.write);': 'openWriteMode',
+        'raf.openSync(mode: FileMode.writeOnlyAppend);': 'openWriteMode',
+        'await raf.writeFrom(bytes, 0, bytes.length);': 'writeFrom',
+        'databaseSink.add(chunk);': 'sinkAdd',
         "await di.sl<ClipboardGuard>().copy(t); await f.copy(dest);": 'copy',
         "Clipboard.setData(d); await f.writeAsString(s);": 'writeAsString',
       };
@@ -107,6 +111,10 @@ void main() {
         'final f = KdbxFormat().create(credentials, name);',
         'final pending = pendingGeneration.create(databaseId: databaseId);',
         'final response = await _client.delete(uri, headers: headers);',
+        // LOW-1 negatives: read-only open, FFI open, non-sink `.add`.
+        'final raf = await file.open(mode: FileMode.read);',
+        "final lib = DynamicLibrary.open('/usr/lib/libobjc.A.dylib');",
+        'controller.add(event); results.add(value);',
       ]) {
         final scrubbed = line.replaceAll(_nonFilesystem, '');
         expect(
@@ -117,23 +125,48 @@ void main() {
       }
     });
 
-    test('no shared database path mutex exists yet', () {
-      // Gate 0 must not silently ship Gate 1. If these files appear, the
-      // inventory below has to be re-derived against them first.
+    test('the path mutex exists but no writer routes through it yet', () {
+      // T103/T104 shipped the resolver and the mutex; T105 is what routes
+      // the writers. Until it lands, this slice must change zero behaviour:
+      // the only production reference to the mutex is its DI registration,
+      // and the only reference to the resolver is the mutex itself.
       expect(
         File(
           'lib/features/password_manager/data/services/'
           'database_path_mutex.dart',
         ).existsSync(),
-        isFalse,
+        isTrue,
       );
       expect(
         File(
           'lib/features/password_manager/data/services/'
           'database_path_identity_resolver.dart',
         ).existsSync(),
-        isFalse,
+        isTrue,
       );
+
+      List<String> referencing(String fileName) =>
+          _dartFilesUnder(const ['lib'])
+              .where(
+                (f) =>
+                    !f.path.endsWith(fileName) &&
+                    f.readAsStringSync().contains(fileName),
+              )
+              .map((f) => f.path)
+              .toList();
+
+      expect(
+        referencing('database_path_mutex.dart'),
+        ['lib/features/password_manager/di/password_manager_data_di.dart'],
+        reason:
+            'a writer started importing the mutex before T105 — that routing '
+            'must land as its own reviewed slice, with the frozen inventory '
+            'updated alongside it',
+      );
+      expect(referencing('database_path_identity_resolver.dart'), [
+        'lib/features/password_manager/data/services/'
+            'database_path_mutex.dart',
+      ]);
     });
   });
 
@@ -480,6 +513,18 @@ const _operations = <String, String>{
   'copy': r'\.copy(Sync)?\(',
   'delete': r'\.delete(Sync)?\(',
   'create': r'\.create(Sync)?\(',
+  // LOW-1 (T101 follow-up): RandomAccessFile writers. `File.open` in a
+  // writable mode plus `writeFrom` would otherwise bypass the inventory
+  // entirely. `FileMode.read` deliberately does not match (the validate
+  // use case opens read-only); a `mode:` split across lines evades this
+  // line-based scanner — same known limit as every pattern here.
+  'openWriteMode': r'\.open(Sync)?\([^)]*FileMode\.(write|append)',
+  'writeFrom': r'\.writeFrom(Sync)?\(',
+  // LOW-1: an `IOSink.add` on a sink NOT obtained from `openWrite` (e.g. a
+  // sink passed in or stored on a field). Receiver must look sink-ish —
+  // same trade as `_kdbxMerge`: a bare `.add(` matches every collection in
+  // the codebase.
+  'sinkAdd': r'(?<![A-Za-z0-9_])[A-Za-z0-9_]*[Ss]ink[A-Za-z0-9_]*\.add\(',
 };
 
 /// Same-named methods on non-filesystem receivers.

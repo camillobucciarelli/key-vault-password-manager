@@ -179,18 +179,18 @@ flutter test test/features/password_manager/data/services/sync_merge_convergence
 - [x] **T102 Remove presentation database file writes** — export/copy/delete/
       rename operations use domain ports with data implementations. Architecture
       test rejects new presentation `dart:io` database mutation.
-- [ ] **T103 `database_path_identity_resolver.dart`** — normalize absolute/
+- [x] **T103 `database_path_identity_resolver.dart`** — normalize absolute/
       relative, separators, `.`/`..`, existing symlinks, nonexistent target
       parent, platform case rules and hard-link/file identity. Use global database
       lock fallback where alias identity cannot be proven.
-- [ ] **T104 `database_path_mutex.dart`** — singleton shared by every T101 writer,
+- [x] **T104 `database_path_mutex.dart`** — singleton shared by every T101 writer,
       manual/auto sync and merge. Deduplicate/sort multi-path identities before
       acquisition; independent databases concurrent only when proven distinct.
 - [ ] **T105 Route all writers** — patch `VaultKdbxService`, import service,
       orchestrator, database/session settings flows and exports. No bypass.
 - [ ] **T106 Rename transaction** — lock old+new canonical paths in deterministic
       order through rename, registry/security/sync mapping updates and rollback.
-- [ ] **T107 Alias/deadlock tests** — relative/absolute, separators, `.`/`..`,
+- [x] **T107 Alias/deadlock tests** — relative/absolute, separators, `.`/`..`,
       symlink path/parent, case aliases on relevant filesystem, hard links where
       supported, missing target, source==target and inverse concurrent renames.
 - [ ] **T108 Collision-safe backup** — exclusive-create temp/final; microsecond

@@ -13,6 +13,7 @@ import '../data/repositories/database_session_repository_impl.dart';
 import '../data/repositories/database_sync_repository_impl.dart';
 import '../data/repositories/shared_preferences_password_generator_settings_repository.dart';
 import '../data/services/apple_autofill_v2_method_channel_client.dart';
+import '../data/services/database_path_mutex.dart';
 import '../data/services/database_sync_orchestrator.dart';
 import '../data/services/database_import_service.dart';
 import '../data/services/desktop_oauth_pkce_service.dart';
@@ -97,6 +98,9 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
   sl.registerLazySingleton<AppleAutofillV2Client>(
     () => AppleAutofillV2MethodChannelClient(),
   );
+  // spec 008 T104: one process-wide instance — every database writer must
+  // share it or the serialization guarantee is void. T105 routes the writers.
+  sl.registerLazySingleton(() => DatabasePathMutex());
   sl.registerLazySingleton(() => VaultCsvImportService());
   sl.registerLazySingleton(() => VaultDuplicateService());
   sl.registerLazySingleton(() => VaultKdbxService());
