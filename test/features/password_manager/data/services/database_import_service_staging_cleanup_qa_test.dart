@@ -115,10 +115,22 @@ void main() {
     );
     expect(
       await File(victimPath).exists(),
-      isTrue,
+      isFalse,
       reason:
-          'Cleanup is `unlink`, so it drops the in-app name only -- the same '
-          'reasoning #45 records for hardlinks must hold here too.',
+          'spec 008 T109 follow-up: this path runs through '
+          'MobileFileStorage.saveBytesToAppDirectory, which writes an '
+          'exclusive-created temp and renames it onto the staged name. That '
+          'layer NEVER resolves symlinks -- app storage is plantable, so the '
+          'rename replaces the entry and the external target is never '
+          'created. Pre-T109 the write followed the link, created the '
+          'victim, and cleanup could then only unlink the in-app name '
+          '(#45/#46). '
+          'This is NOT a general property of the T109 writer: '
+          'SafeVaultFileWriter, which handles user-chosen vault/key-file '
+          'paths, deliberately DOES resolve a live leaf symlink so a '
+          '`~/vault.kdbx -> ~/Cloud/vault.kdbx` setup keeps working, and '
+          'declines only on a DANGLING link, which is the shape here. The '
+          'two layers differ on purpose -- see safe_vault_file_writer.dart.',
     );
   });
 

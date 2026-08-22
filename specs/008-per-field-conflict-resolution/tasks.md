@@ -211,6 +211,29 @@ flutter test test/features/password_manager/data/services/sync_merge_convergence
       Follow-up (LOW, T105 tester review): `DatabaseImportService.saveKeyFile`
       and the managed key-file copies write in place today (no temp+rename) —
       route key-file writes through this same safe writer.
+      Follow-up (HIGH-4 residual, T109 tester review): `SafeVaultFileWriter`
+      resolves a live leaf symlink with **no perimeter gate**, while
+      `MobileFileStorage` two files away refuses to follow one in the same
+      directory. Not a regression — `main` write-through is identical, and
+      the backup no longer escapes the caller's directory — but the two
+      layers disagree by construction. Candidate fix: a `followSymlinks:`
+      flag set by the desktop call sites and cleared by the managed-path
+      ones, or a gate on `isPathInAppDirectory`. **Close before the next
+      mobile release.**
+      Follow-up (MEDIUM-2, T109 tester review): the HIGH-3 sandbox fallback
+      covers the target temp only, not the `createBackup` sibling that runs
+      before it. If the HIGH-3 premise holds on sandboxed macOS, routine
+      saves (`backupExistingTarget: false`) degrade and succeed while the
+      three sync replacements fail permanently at the backup step —
+      fail-safe and consistent with the FR-9 hard stop, but an undocumented
+      asymmetry. Recorded in `safe_vault_file_writer.dart`'s doc comment;
+      resolve together with T111 platform evidence.
+      Follow-up (MEDIUM, T109 tester review): `VaultKdbxService`
+      `beginCredentialChange` (`vault_kdbx_service.dart:391-397`) renames the
+      database to the backup name and only then renames the temp into place —
+      a real window in which `databasePath` does not exist. Preexisting
+      (T105/T106), the last delete-then-write left in the codebase; route it
+      through the safe writer's replace instead.
 - [ ] **T110 Failure tests** — backup create/write/flush/verify, disk-full/short
       write, target flush, rename and cleanup failures leave old/full new target.
 - [ ] **T111 Platform harness artifacts** — run target harness separately on

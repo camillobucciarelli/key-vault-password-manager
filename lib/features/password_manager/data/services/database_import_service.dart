@@ -14,6 +14,7 @@ import '../../domain/models/database_import_transaction.dart';
 import '../../domain/repositories/database_file_repository.dart';
 import '../../domain/usecases/validate_database_usecase.dart';
 import 'database_path_mutex.dart';
+import 'safe_vault_file_writer.dart';
 
 /// Data-layer implementation of the [DatabaseFileRepository] domain port
 /// (C-7). Owns every `dart:io`/`FilePicker`/managed-storage detail that the
@@ -22,7 +23,9 @@ class DatabaseImportService implements DatabaseFileRepository {
   DatabaseImportService({
     required this.validateDatabaseUseCase,
     DatabasePathMutex? mutex,
-  }) : _mutex = mutex ?? DatabasePathMutex();
+    SafeVaultFileWriter? safeWriter,
+  }) : _mutex = mutex ?? DatabasePathMutex(),
+       _safeWriter = safeWriter ?? SafeVaultFileWriter();
 
   final ValidateDatabaseUseCase validateDatabaseUseCase;
 
@@ -31,6 +34,10 @@ class DatabaseImportService implements DatabaseFileRepository {
   /// action; multi-step operations (commit, replace) take every involved
   /// path in a single acquisition and use lock-free private helpers.
   final DatabasePathMutex _mutex;
+
+  /// spec 008 T109: lock-free safe writer (temp + fsync + verify + atomic
+  /// rename), invoked only inside the mutex actions of this service.
+  final SafeVaultFileWriter _safeWriter;
 
   /// Prospective app-storage path used as the lock identity for writes whose
   /// final name is decided inside `MobileFileStorage` (unique-name suffixing).
@@ -363,22 +370,15 @@ class DatabaseImportService implements DatabaseFileRepository {
       await stagedFile.rename(targetPath);
       return;
     } on FileSystemException {
-      final installFile = File(
-        '$targetPath.import-install-${DateTime.now().microsecondsSinceEpoch}',
+      // Cross-device fallback: rename failed, so install by bytes. T109: the
+      // safe writer replaces the hand-rolled temp+rename (adds fsync,
+      // exclusive-create and read-back verify; same cleanup-on-failure).
+      await _safeWriter.write(
+        targetPath: targetPath,
+        bytes: await stagedFile.readAsBytes(),
+        operation: 'import install fallback',
       );
-      try {
-        await installFile.writeAsBytes(
-          await stagedFile.readAsBytes(),
-          flush: true,
-        );
-        await installFile.rename(targetPath);
-        await stagedFile.delete();
-      } catch (_) {
-        if (await installFile.exists()) {
-          await installFile.delete();
-        }
-        rethrow;
-      }
+      await stagedFile.delete();
     }
   }
 
@@ -402,9 +402,14 @@ class DatabaseImportService implements DatabaseFileRepository {
     }
 
     return _mutex.withDatabaseLock([outputFile], () async {
-      final file = File(outputFile);
-      await file.writeAsBytes(databaseBytes, flush: true);
-      return file.path;
+      // T109: create the new database through the safe writer too — a crash
+      // mid-creation must never leave a truncated .kdbx at the chosen path.
+      await _safeWriter.write(
+        targetPath: outputFile,
+        bytes: databaseBytes,
+        operation: 'create database',
+      );
+      return outputFile;
     });
   }
 
@@ -458,9 +463,14 @@ class DatabaseImportService implements DatabaseFileRepository {
       throw Exception('No destination selected for key file.');
     }
 
-    final file = File(selectedPath);
-    await file.writeAsBytes(keyFileBytes, flush: true);
-    return file.path;
+    // spec 008 T109 follow-up (LOW): key-file writes are atomic too —
+    // temp + fsync + verify + rename, never an in-place overwrite.
+    final result = await _safeWriter.write(
+      targetPath: selectedPath,
+      bytes: keyFileBytes,
+      operation: 'save key file',
+    );
+    return result.targetPath;
   }
 
   @override

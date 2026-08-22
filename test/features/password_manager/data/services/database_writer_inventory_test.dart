@@ -48,8 +48,6 @@ void main() {
       const fr8Paths = [
         'lib/features/password_manager/data/services/vault_kdbx_service.dart',
         'lib/features/password_manager/data/services/'
-            'database_sync_orchestrator.dart',
-        'lib/features/password_manager/data/services/'
             'database_import_service.dart',
       ];
       for (final path in fr8Paths) {
@@ -59,6 +57,18 @@ void main() {
           reason: 'FR-8 names $path as a writer',
         );
       }
+      // T109: the third FR-8 writer, the sync orchestrator, no longer touches
+      // the filesystem directly at all — its replacement/backup sites
+      // delegate to SafeVaultFileWriter. Asserted instead of `contains`:
+      const orchestrator =
+          'lib/features/password_manager/data/services/'
+          'database_sync_orchestrator.dart';
+      expect(discovered.keys, isNot(contains(orchestrator)));
+      expect(
+        File(orchestrator).readAsStringSync(),
+        contains('_safeWriter.write('),
+        reason: 'the orchestrator lost its safe-writer delegation',
+      );
     });
 
     test('KdbxFile.merge is absent from every production source', () {
@@ -275,13 +285,25 @@ void main() {
 
     test('GAP 4: the sync orchestrator has three replace sites, not one', () {
       // FR-8 describes `syncNow` replacement as a single path. There are three
-      // independent `writeAsBytes` sites plus the backup copy.
+      // independent replacement sites. Pre-T109 they were raw `writeAsBytes`
+      // preceded by a `_backupFile` copy; T108/T109 replaced each pair with a
+      // single `SafeVaultFileWriter.write(backupExistingTarget: true)` call
+      // (verified collision-safe backup + temp/fsync/verify/atomic rename),
+      // so the raw sites are now pinned at ZERO.
       final source = File(
         'lib/features/password_manager/data/services/'
         'database_sync_orchestrator.dart',
       ).readAsStringSync();
-      expect(RegExp(r'\.writeAsBytes\(').allMatches(source), hasLength(3));
-      expect(RegExp(r'_backupFile\(').allMatches(source), hasLength(4));
+      expect(RegExp(r'_safeWriter\.write\(').allMatches(source), hasLength(3));
+      // hasLength(3), not `contains`: with `contains` this passed while two
+      // of the three replace sites silently lost their backup (tester LOW-2).
+      expect(
+        RegExp(r'backupExistingTarget: true').allMatches(source),
+        hasLength(3),
+        reason: 'every replace site must back the target up before writing',
+      );
+      expect(RegExp(r'\.writeAsBytes\(').allMatches(source), isEmpty);
+      expect(RegExp(r'_backupFile\(').allMatches(source), isEmpty);
     });
 
     test('GAP 5: the domain layer builds KDBX bytes directly', () {
@@ -384,28 +406,63 @@ void main() {
       const frozenCounts = <String, Map<String, int>>{
         'lib/features/password_manager/data/services/'
             'vault_kdbx_service.dart': {
-          // saveVault temp write, attachment export, raw byte write
-          'writeAsBytes': 3,
+          // T109: was 3. `_save` and the credential-transaction temp write
+          // now delegate to SafeVaultFileWriter; the one remaining site is
+          // the attachment export to a user-chosen path, which is not a
+          // database write.
+          'writeAsBytes': 1,
           // credential transaction: begin/finalize/rollback renames
           'rename': 6,
           'delete': 3,
         },
         'lib/features/password_manager/data/services/'
             'database_import_service.dart': {
-          // stage/commit/create/web-path/key-file writes
-          'writeAsBytes': 4,
-          // commit/finalize/rollback/move/replace renames
-          'rename': 12,
-          'delete': 8,
+          // T109: was 4. The cross-device install fallback, desktop
+          // createDatabase and desktop saveKeyFile (LOW follow-up) now
+          // delegate to SafeVaultFileWriter. The one remaining site is the
+          // kIsWeb staging copy into a fresh temp directory (GAP 6): a
+          // brand-new file with no overwrite risk, and dart:io is emulated
+          // on web anyway.
+          'writeAsBytes': 1,
+          // T109: was 12 — the install fallback's temp->target rename moved
+          // into the safe writer.
+          'rename': 11,
+          // T109: was 8 — the install fallback's cleanup delete moved into
+          // the safe writer.
+          'delete': 7,
           // T102: DatabaseFileRepository.copyFile implementation
           'copy': 1,
         },
+        // T108/T109: pinned EMPTY. All three replacement sites (GAP 4) and
+        // the `_backupFile` copy now delegate to SafeVaultFileWriter; a raw
+        // filesystem op reappearing here is a Gate 1 regression.
         'lib/features/password_manager/data/services/'
-            'database_sync_orchestrator.dart': {
-          // three independent replacement sites (GAP 4)
-          'writeAsBytes': 3,
-          // _backupFile
-          'copy': 1,
+                'database_sync_orchestrator.dart':
+            {},
+        // T108/T109: the safe writer IS the censited byte-writer now.
+        // exclusive-create (temp + backup names), RandomAccessFile write
+        // path (open/writeFrom — the LOW-1 scanner patterns), the atomic
+        // replace rename and the best-effort cleanup delete.
+        // Counts include both the real `File`/`RandomAccessFile` ops in
+        // `SafeVaultFileIo` and the writer's `_io.*` call sites (the scanner
+        // is receiver-agnostic for these patterns) — hence rename/delete at
+        // 2 and the `openWrite`/`openWriteMode` pair for the single
+        // writable open.
+        //
+        // NOT a complete census of this file's OS interaction: the scanner
+        // vocabulary (`_operations`) has no pattern for `Process.run` or
+        // `FileStat.stat`, both of which this file uses for the permission
+        // handling. They mutate metadata, not content, so they are outside
+        // what FR-8 inventories — but a reader must not take this table as
+        // proof that nothing else here touches the OS.
+        'lib/features/password_manager/data/services/'
+            'safe_vault_file_writer.dart': {
+          'create': 1,
+          'openWrite': 1,
+          'openWriteMode': 1,
+          'writeFrom': 1,
+          'rename': 2,
+          'delete': 2,
         },
         // T106: rename transaction — forward rename + rollback rename.
         'lib/features/password_manager/data/services/'
@@ -414,8 +471,17 @@ void main() {
         },
         'lib/core/utils/mobile_file_storage.dart': {
           'writeAsBytes': 1,
-          'delete': 1,
-          'create': 1,
+          // T109 follow-up (LOW): managed saves (databases AND key-file
+          // copies) now write a same-directory temp and rename it into
+          // place — the rename plus the cleanup delete are the new sites.
+          // Inlined rather than importing the feature-layer safe writer:
+          // core/ must not depend on features/.
+          'rename': 1,
+          'delete': 2,
+          // T109 LOW-3: was 1 (the subdirectory create). The second is the
+          // temp's `create(exclusive: true)` — a residual name clash now
+          // fails loudly instead of silently overwriting.
+          'create': 2,
         },
       };
 
@@ -455,10 +521,16 @@ void main() {
           'finalizeCredentialChange',
           'rollbackCredentialChange',
         ],
+        // T108/T109: `_backupFile` was deleted — backups are produced by
+        // `SafeVaultFileWriter.createBackup` inside the replace call.
         'lib/features/password_manager/data/services/'
             'database_sync_orchestrator.dart': [
           'syncNow',
-          '_backupFile',
+        ],
+        'lib/features/password_manager/data/services/'
+            'safe_vault_file_writer.dart': [
+          'createBackup',
+          'write',
         ],
         'lib/features/password_manager/data/services/'
             'database_import_service.dart': [
@@ -629,9 +701,11 @@ List<File> _dartFilesUnder(List<String> roots) => [
 /// `specs/008-per-field-conflict-resolution/feasibility-report.md`.
 const _baseline = <String, List<String>>{
   // --- unlisted by FR-8 ----------------------------------------------------
+  // T109 follow-up: managed saves gained a temp->final rename.
   'lib/core/utils/mobile_file_storage.dart': [
     'create',
     'delete',
+    'rename',
     'writeAsBytes',
   ],
   // --- non-database local state (must not take the database mutex) ---------
@@ -663,10 +737,18 @@ const _baseline = <String, List<String>>{
     'rename',
     'writeAsBytes',
   ],
+  // T108/T109: the orchestrator's replace/backup sites moved into
+  // SafeVaultFileWriter; it performs no direct filesystem mutation anymore
+  // and so no longer appears in the scan (asserted explicitly in the
+  // `baseline covers every FR-8 writer` test).
   'lib/features/password_manager/data/services/'
-      'database_sync_orchestrator.dart': [
-    'copy',
-    'writeAsBytes',
+      'safe_vault_file_writer.dart': [
+    'create',
+    'delete',
+    'openWrite',
+    'openWriteMode',
+    'rename',
+    'writeFrom',
   ],
   // T106: rename transaction (forward + rollback rename under one lock).
   'lib/features/password_manager/data/services/'
