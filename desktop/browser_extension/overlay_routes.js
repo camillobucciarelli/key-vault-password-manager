@@ -68,7 +68,7 @@ const PUBLIC_ERROR_CODE_SET = new Set(PUBLIC_ERROR_CODES);
 // One public sentence per code. Deliberately generic: no origin beyond the
 // canonical one the caller already knows, no entry id, no native detail.
 const PUBLIC_ERROR_MESSAGES = Object.freeze({
-  disabled: "The overlay is not enabled for this site.",
+  disabled: "The KeyVault overlay is turned off.",
   unsupported_frame: "The overlay is not available in this frame.",
   unsupported_capability: "Update the KeyVault native host to use the overlay.",
   locked: "Open and unlock KeyVault.",
@@ -93,9 +93,12 @@ const VALIDATION_ERROR_CODES = Object.freeze({
   // Authorization state.
   disabled: "disabled",
   permission_missing: "disabled",
-  // Lifecycle refusals on the enable/disable path.
-  unsupported_origin: "invalid_request",
-  too_many_origins: "invalid_request",
+  // SLICE C: `unsupported_origin` and `too_many_origins` are gone from this
+  // table because the lifecycle can no longer produce them — there is no
+  // per-origin enable to reject and no origin list to overflow. An unmapped
+  // code still falls through to `internal_error`, so removing them cannot leak
+  // anything; it only stops the allowlist advertising refusals that no longer
+  // exist.
   // Sender trust failures. All of them are "you are not allowed", never a hint
   // about which field of the sender record was wrong.
   invalid_sender: "forbidden",
@@ -446,22 +449,25 @@ class OverlayRouter {
     if (!shape.ok) return overlayError("error", validationErrorCode(shape.error));
 
     if (type === "getSiteState") {
-      const state = await this._lifecycle.siteState({ tabUrl: message.origin });
+      const state = await this._lifecycle.siteState({ tabUrl: message.tabUrl });
       return { ok: true, type: "siteState", ...state };
     }
-    // setSiteState. The permission grant itself happens in the popup, under the
-    // user gesture; enable refuses to persist unless the browser confirms the
-    // derived pattern is actually held.
-    const result = message.enabled
-      ? await this._lifecycle.enableOrigin({
-          origin: message.origin,
-          tabId: message.tabId,
-        })
-      : await this._lifecycle.disableOrigin({ origin: message.origin });
+    // setSiteState. SLICE C: one global switch, so the message names no origin.
+    // The permission grant itself happens in the popup, under the user gesture;
+    // enable refuses to persist unless the browser confirms the BROAD grant is
+    // actually held.
+    //
+    // `message.enabled === true` rather than a truthy test: the shape validator
+    // already pinned this to a boolean, and an exact comparison keeps the two
+    // from drifting if the schema is ever loosened.
+    const result =
+      message.enabled === true
+        ? await this._lifecycle.enable({ tabId: message.tabId })
+        : await this._lifecycle.disable();
     if (!result.ok) {
       return overlayError("error", validationErrorCode(result.error));
     }
-    const state = await this._lifecycle.siteState({ tabUrl: message.origin });
+    const state = await this._lifecycle.siteState();
     return { ok: true, type: "siteState", ...state };
   }
 

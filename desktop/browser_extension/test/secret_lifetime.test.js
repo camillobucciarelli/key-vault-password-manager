@@ -114,13 +114,13 @@ async function fullStack() {
   const browser = new FakeBrowser({
     storage: {
       [security.OVERLAY_CONFIG_KEY]: {
-        version: 1,
+        version: 2,
         revision: 5,
-        enabledOrigins: [ORIGIN],
+        enabled: true,
       },
       [security.OVERLAY_REVISION_FLOOR_KEY]: 5,
     },
-    granted: [security.permissionPatternForOrigin(ORIGIN)],
+    granted: [...security.GLOBAL_PERMISSION_PATTERNS],
     tabs: [{ id: 42 }],
   });
   const native = new FakeNative();

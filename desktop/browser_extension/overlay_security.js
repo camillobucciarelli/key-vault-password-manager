@@ -32,13 +32,41 @@ const LIMITS = Object.freeze({
   ENTRY_ID: 256,
   TEXT: 512,
   ITEMS: 10,
-  ENABLED_ORIGINS: 500,
   GRANTS: 100,
   TOKEN_TTL_MS: 30000, // SR-3: 30 seconds is the hard ceiling, never a default.
 });
 
 const CHANNEL = "keyvault-overlay-v1";
 const MESSAGE_VERSION = 1;
+
+// ---------------------------------------------------------------------------
+// 009 Slice C — the ONE broad optional host permission the overlay asks for.
+//
+// These two patterns are the literal value of `optional_host_permissions` in
+// `manifest.json`. They are OPTIONAL, never required: A015 is unchanged, the
+// manifest still declares no `host_permissions`, and the browser only ever
+// holds these after the user accepts one prompt raised under a popup gesture.
+// What Slice C changes is the SHAPE of that prompt (one global ask instead of
+// one ask per site), not whether the permission is mandatory.
+//
+// `test/overlay_lifecycle.test.js` asserts this array equals the manifest's
+// `optional_host_permissions` exactly, so the two can never drift: a constant
+// that asked for more than the manifest offers would make every enable fail
+// closed, and one that asked for less would leave frames uninjected.
+const GLOBAL_PERMISSION_PATTERNS = Object.freeze(["http://*/*", "https://*/*"]);
+
+/**
+ * True only when the browser reports BOTH broad patterns as held.
+ *
+ * Deliberately ALL, not some: a half grant (http only) would inject on http
+ * pages while https pages stayed silent, which reads to the user as "the
+ * overlay is broken" rather than "the overlay is off". Fail closed on the
+ * whole set instead.
+ */
+function coversGlobalPermission(patterns) {
+  if (!Array.isArray(patterns)) return false;
+  return GLOBAL_PERMISSION_PATTERNS.every((pattern) => patterns.includes(pattern));
+}
 
 // 009 Slice B2 — the capability the native host advertises via `hello` only
 // when the running app's bridge descriptor lists it (B007). Mirrors
@@ -374,18 +402,25 @@ const EXTENSION_PAGE_ROUTE = "extension-page";
 const CONTENT_SCRIPT_ROUTE = "content-script";
 
 const MESSAGE_SCHEMAS = Object.freeze({
+  // SLICE C — both popup routes address the ONE global switch, so neither
+  // carries an origin any more.
+  //
+  // `tabId` is nullable because the popup can be open on a page that has no
+  // injectable tab context at all (a `chrome://` page, the extensions page).
+  // The toggle still has to work there — above all TURNING OFF has to work
+  // there — so the tab is optional context for the courtesy injection, never
+  // a precondition for the state change.
   getSiteState: {
     route: EXTENSION_PAGE_ROUTE,
     fields: {
-      tabId: { type: "int", min: 0 },
-      origin: { type: "origin" },
+      tabId: { type: "int", min: 0, nullable: true },
+      tabUrl: { type: "string", maxLength: LIMITS.URL, nullable: true },
     },
   },
   setSiteState: {
     route: EXTENSION_PAGE_ROUTE,
     fields: {
-      tabId: { type: "int", min: 0 },
-      origin: { type: "origin" },
+      tabId: { type: "int", min: 0, nullable: true },
       enabled: { type: "bool" },
     },
   },
@@ -602,8 +637,8 @@ function validateExtensionPageRequest(message, sender, runtimeId) {
  * Full content-script admission.
  *
  * `context` supplies the authorization facts the caller owns:
- *   `enabledOrigins`      committed `overlayConfigV1.enabledOrigins`
- *   `revision`            committed `overlayConfigV1.revision`
+ *   `enabled`             committed `overlayConfigV2.enabled`
+ *   `revision`            committed `overlayConfigV2.revision`
  *   `grantedPatterns`     optional host permissions the browser reports
  */
 function validateContentScriptRequest(message, sender, runtimeId, context = {}) {
@@ -619,16 +654,18 @@ function validateContentScriptRequest(message, sender, runtimeId, context = {}) 
     return requestReject("origin_mismatch", "origin");
   }
 
-  const enabledOrigins = Array.isArray(context.enabledOrigins)
-    ? context.enabledOrigins
-    : [];
-  if (!enabledOrigins.includes(senderResult.origin)) {
+  // SLICE C: the durable opt-in is one global boolean. Anything that is not
+  // literally `true` is off — an absent, undefined or truthy-but-not-boolean
+  // context is a caller bug and must not authorize.
+  if (context.enabled !== true) {
     return requestReject("disabled");
   }
 
+  // The broad grant must still be HELD, not merely configured. This is the
+  // check that makes an externally revoked permission fail closed on the very
+  // next request, before reconciliation has had a chance to run.
   if (Array.isArray(context.grantedPatterns)) {
-    const pattern = permissionPatternForOrigin(senderResult.origin);
-    if (pattern === null || !context.grantedPatterns.includes(pattern)) {
+    if (!coversGlobalPermission(context.grantedPatterns)) {
       return requestReject("permission_missing");
     }
   }
@@ -643,23 +680,55 @@ function validateContentScriptRequest(message, sender, runtimeId, context = {}) 
 /**
  * @returns {"top"|"same-origin"|"permitted-cross-origin"|"unsupported"}
  */
-function computeFrameSupport({ frameId, frameOrigin, topOrigin, enabledOrigins }) {
-  const enabled = Array.isArray(enabledOrigins) ? enabledOrigins : [];
+function computeFrameSupport({ frameId, frameOrigin, topOrigin, enabled }) {
   const canonicalFrame = canonicalOriginOrNull(frameOrigin);
   if (canonicalFrame === null) return "unsupported";
-  // Authorization always follows the frame, never the top document.
-  if (!enabled.includes(canonicalFrame)) return "unsupported";
+  // Authorization always follows the frame, never the top document. Under the
+  // global model that is one boolean rather than a membership test, but the
+  // direction is unchanged: a frame is never authorized by its parent.
+  if (enabled !== true) return "unsupported";
   if (frameId === 0) return "top";
+  // A035, STILL REACHABLE UNDER THE BROAD GRANT. The top document's origin is
+  // derived from `sender.tab.url`, which is empty or non-http(s) whenever the
+  // TAB itself is something the extension cannot canonicalize — a `file://`
+  // page, a `view-source:` page, the PDF viewer, a `data:` document — while
+  // the http(s) CHILD frame inside it still matches `http(s)://*/*` and is
+  // still injected. The broad grant makes this case MORE common, not less:
+  // before Slice C such a child was usually not injected at all.
   const canonicalTop = canonicalOriginOrNull(topOrigin);
   if (canonicalTop === null) return "unsupported";
   return canonicalTop === canonicalFrame ? "same-origin" : "permitted-cross-origin";
 }
 
 // ---------------------------------------------------------------------------
-// A007 — persisted `overlayConfigV1`.
+// A007 — persisted `overlayConfigV2`.
+//
+// SLICE C MODEL CHANGE. Slice A2 persisted `overlayConfigV1`
+// `{version, revision, enabledOrigins[]}`: one durable opt-in per exact
+// origin. Slice C replaces that with ONE global boolean, because the
+// per-origin control was unusable in practice — the user had to find the
+// popup and click "Turn on" on every single site before the overlay would
+// ever appear.
+//
+// The key is RENAMED rather than reused. A v1 value left on disk therefore
+// fails to parse under the v2 key (it is simply absent), the fail-closed
+// default applies, and the overlay comes up DISABLED. That is the required
+// migration outcome and it is deliberate: a user who had enabled three sites
+// under v1 never consented to "all sites", so v1 state must never be read as
+// `enabled: true`. `OverlayLifecycle.reconcile()` also revokes every residual
+// per-origin grant and deletes the stale key, so no orphan permission and no
+// orphan storage value survives the upgrade.
+//
+// The REVISION FLOOR key is deliberately NOT renamed (see
+// `OVERLAY_REVISION_FLOOR_KEY`): revision monotonicity has to hold ACROSS the
+// v1→v2 boundary, or a focus grant minted at v1 revision 9 could compare as
+// current against a v2 config that restarted at 1.
 // ---------------------------------------------------------------------------
 
-const OVERLAY_CONFIG_KEY = "overlayConfigV1";
+const OVERLAY_CONFIG_KEY = "overlayConfigV2";
+
+/** Slice A2's key. Read for nothing; deleted on sight so nothing can revive it. */
+const OVERLAY_LEGACY_CONFIG_KEY = "overlayConfigV1";
 
 // ---------------------------------------------------------------------------
 // Pending enable intent (macOS grant race).
@@ -686,14 +755,23 @@ const OVERLAY_ENABLE_INTENT_KEY = "overlayEnableIntentV1";
 const ENABLE_INTENT_TTL_MS = 60000;
 
 /**
- * Strict fail-closed shape check for the stored intent: exactly the three
- * expected keys, canonical origin, integer tabId and createdAt. Anything else
- * is garbage the reader must delete and ignore.
+ * Strict fail-closed shape check for the stored intent: exactly the two
+ * expected keys, integer tabId and createdAt. Anything else is garbage the
+ * reader must delete and ignore.
+ *
+ * SLICE C: the `origin` field is GONE. Under the global model the intent no
+ * longer selects WHICH site to enable — there is one switch — so carrying an
+ * origin here would be a value nothing reads. `tabId` survives because the
+ * enable still injects into the tab the user was looking at, and `createdAt`
+ * survives because the TTL is what stops a stale intent riding an unrelated
+ * later grant.
  */
 function validateEnableIntent(value) {
   const shape = validateExactShape(value, {
-    origin: { type: "origin" },
-    tabId: { type: "int", min: 0 },
+    // Nullable: the popup can be open on a page with no injectable tab. The
+    // enable itself still has to complete there, so a missing tab is context
+    // the consumer skips, never a reason to drop the user's intent.
+    tabId: { type: "int", min: 0, nullable: true },
     createdAt: { type: "int", min: 0 },
   });
   if (!shape.ok) return shape;
@@ -714,40 +792,30 @@ function revisionFloorOrZero(value) {
   return Number.isInteger(value) && value >= 0 ? value : 0;
 }
 
+/** The fail-closed default: a valid, revisioned, DISABLED config. */
 function emptyOverlayConfig(revision = 1) {
-  return { version: 1, revision, enabledOrigins: [] };
+  return { version: 2, revision, enabled: false };
 }
 
 /**
  * Strict validation of the single durable storage value. Anything invalid is a
- * fail-closed "no enabled origins" state, never a partial acceptance.
+ * fail-closed "disabled" state, never a partial acceptance.
+ *
+ * `validateExactShape` rejects UNKNOWN KEYS, which is what makes this the
+ * migration gate as well as the corruption gate: a surviving Slice A2 value
+ * carries `enabledOrigins` and is refused here, so it can only ever become the
+ * disabled default. `version` is pinned to exactly 2 for the same reason —
+ * a v1 value is not a downgrade to tolerate, it is a value this build must not
+ * act on.
  */
 function validateOverlayConfig(value) {
   const shape = validateExactShape(value, {
-    version: { type: "int", min: 1, max: 1 },
+    version: { type: "int", min: 2, max: 2 },
     revision: { type: "int", min: 0 },
-    enabledOrigins: { type: "array", maxLength: LIMITS.ENABLED_ORIGINS },
+    enabled: { type: "bool" },
   });
   if (!shape.ok) return shape;
-
-  const forbidden = assertNoForbiddenKeys(value);
-  if (!forbidden.ok) return forbidden;
-
-  const origins = value.enabledOrigins;
-  const seen = new Set();
-  let previous = null;
-  for (const origin of origins) {
-    if (canonicalOriginOrNull(origin) !== origin) {
-      return shapeError("noncanonical_origin", "enabledOrigins");
-    }
-    if (seen.has(origin)) return shapeError("duplicate_origin", "enabledOrigins");
-    if (previous !== null && origin < previous) {
-      return shapeError("unsorted_origins", "enabledOrigins");
-    }
-    seen.add(origin);
-    previous = origin;
-  }
-  return SHAPE_OK;
+  return assertNoForbiddenKeys(value);
 }
 
 /** Config or the fail-closed empty config. Never throws, never half-accepts. */
@@ -1060,6 +1128,9 @@ const API = {
   GENERATE_CAPABILITY,
   FORBIDDEN_KEYS,
   OVERLAY_CONFIG_KEY,
+  OVERLAY_LEGACY_CONFIG_KEY,
+  GLOBAL_PERMISSION_PATTERNS,
+  coversGlobalPermission,
   OVERLAY_REVISION_FLOOR_KEY,
   OVERLAY_ENABLE_INTENT_KEY,
   ENABLE_INTENT_TTL_MS,

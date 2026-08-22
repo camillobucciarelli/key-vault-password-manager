@@ -162,7 +162,7 @@ test("content script: a valid bootstrap/matches/fill is admitted", () => {
       message,
       contentScriptSender(),
       RUNTIME_ID,
-      contextFor(ENABLED)
+      contextFor()
     );
     assert.equal(result.ok, true, `${message.type} must be admitted`);
     assert.equal(result.sender.route, security.CONTENT_SCRIPT_ROUTE);
@@ -175,7 +175,7 @@ test("content script: wrong runtime id is rejected", () => {
     bootstrapMessage(),
     contentScriptSender({ id: OTHER_RUNTIME_ID }),
     RUNTIME_ID,
-    contextFor(ENABLED)
+    contextFor()
   );
   assert.equal(result.ok, false);
   assert.equal(result.error, "wrong_runtime_id");
@@ -195,7 +195,7 @@ test("content script: a missing tab, tab id, frame id or sender URL is rejected"
       bootstrapMessage(),
       sender,
       RUNTIME_ID,
-      contextFor(ENABLED)
+      contextFor()
     );
     assert.equal(result.ok, false, `expected rejection for ${expected}`);
     assert.equal(result.error, expected);
@@ -208,7 +208,7 @@ test("content script: a non-integer frame id or tab id is rejected", () => {
       bootstrapMessage(),
       contentScriptSender({ frameId }),
       RUNTIME_ID,
-      contextFor(ENABLED)
+      contextFor()
     );
     assert.equal(result.ok, false, `frameId ${String(frameId)} must be rejected`);
     assert.equal(result.error, "missing_frame_id");
@@ -217,7 +217,7 @@ test("content script: a non-integer frame id or tab id is rejected", () => {
     bootstrapMessage(),
     contentScriptSender({ tabId: "42" }),
     RUNTIME_ID,
-    contextFor(ENABLED)
+    contextFor()
   );
   assert.equal(badTab.ok, false);
   assert.equal(badTab.error, "missing_tab_id");
@@ -235,22 +235,42 @@ test("content script: a non-HTTP(S) sender URL is rejected", () => {
       bootstrapMessage(),
       contentScriptSender({ frameUrl: url, topUrl: url }),
       RUNTIME_ID,
-      contextFor(ENABLED)
+      contextFor()
     );
     assert.equal(result.ok, false, `${url} must be rejected`);
     assert.equal(result.error, "invalid_sender_origin");
   }
 });
 
-test("content script: a disabled origin is rejected even when fully well formed", () => {
+// SLICE C: the per-origin form of this test ("an origin absent from
+// enabledOrigins is rejected") no longer has a subject. The property that
+// replaces it is the one that still carries the weight: a fully well-formed
+// request from an unimpeachable sender is refused whenever the global switch
+// is off.
+test("content script: the switch being off rejects an otherwise perfect request", () => {
   const result = security.validateContentScriptRequest(
-    bootstrapMessage("https://other.example"),
-    contentScriptSender({ frameUrl: "https://other.example/login" }),
+    bootstrapMessage(),
+    contentScriptSender(),
     RUNTIME_ID,
-    contextFor(ENABLED)
+    contextFor({ enabled: false })
   );
   assert.equal(result.ok, false);
   assert.equal(result.error, "disabled");
+});
+
+// Fail-closed on the TYPE, not just the value: a caller that forgets to pass
+// `enabled`, or passes a truthy non-boolean, must not authorize.
+test("content script: a missing or non-boolean enabled flag never authorizes", () => {
+  for (const enabled of [undefined, null, "true", 1, {}]) {
+    const result = security.validateContentScriptRequest(
+      bootstrapMessage(),
+      contentScriptSender(),
+      RUNTIME_ID,
+      contextFor({ enabled })
+    );
+    assert.equal(result.ok, false);
+    assert.equal(result.error, "disabled");
+  }
 });
 
 test("content script: a missing host permission is rejected even when enabled", () => {
@@ -258,10 +278,25 @@ test("content script: a missing host permission is rejected even when enabled", 
     bootstrapMessage(),
     contentScriptSender(),
     RUNTIME_ID,
-    contextFor(ENABLED, { grantedPatterns: [] })
+    contextFor({ grantedPatterns: [] })
   );
   assert.equal(result.ok, false);
   assert.equal(result.error, "permission_missing");
+});
+
+// The broad grant is ALL-OR-NOTHING. Half of it is not a smaller permission,
+// it is a broken one: http pages would inject while https pages stayed silent.
+test("content script: a partial broad grant is rejected like no grant at all", () => {
+  for (const partial of [["http://*/*"], ["https://*/*"], ["https://example.com/*"]]) {
+    const result = security.validateContentScriptRequest(
+      bootstrapMessage(),
+      contentScriptSender(),
+      RUNTIME_ID,
+      contextFor({ grantedPatterns: partial })
+    );
+    assert.equal(result.ok, false);
+    assert.equal(result.error, "permission_missing");
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -303,7 +338,7 @@ test("an extension-page message is never admitted by the content-script validato
       message,
       extensionPageSender(),
       RUNTIME_ID,
-      contextFor(ENABLED)
+      contextFor()
     );
     assert.equal(withExtensionSender.ok, false);
     assert.equal(withExtensionSender.error, "missing_tab");
@@ -314,7 +349,7 @@ test("an extension-page message is never admitted by the content-script validato
       message,
       contentScriptSender(),
       RUNTIME_ID,
-      contextFor(ENABLED)
+      contextFor()
     );
     assert.equal(withContentSender.ok, false);
     assert.equal(withContentSender.error, "wrong_route");
@@ -339,7 +374,7 @@ test("route classification and validation disagree safely", () => {
     bootstrapMessage(),
     bogus,
     RUNTIME_ID,
-    contextFor(ENABLED)
+    contextFor()
   );
   assert.equal(result.ok, false);
   assert.equal(result.error, "missing_tab_id");
@@ -361,7 +396,7 @@ test("the envelope must carry the exact channel and version", () => {
       message,
       contentScriptSender(),
       RUNTIME_ID,
-      contextFor(ENABLED)
+      contextFor()
     );
     assert.equal(result.ok, false);
     assert.equal(result.error, expected);
@@ -374,7 +409,7 @@ test("an unknown message type is rejected on both routes", () => {
     message,
     contentScriptSender(),
     RUNTIME_ID,
-    contextFor(ENABLED)
+    contextFor()
   );
   assert.equal(asContent.error, "unknown_message_type");
 
@@ -391,7 +426,7 @@ test("unknown keys are rejected, not ignored", () => {
     { ...bootstrapMessage(), extra: "surprise" },
     contentScriptSender(),
     RUNTIME_ID,
-    contextFor(ENABLED)
+    contextFor()
   );
   assert.equal(result.ok, false);
   assert.equal(result.error, "unknown_key");
@@ -405,7 +440,7 @@ test("missing required keys are rejected per message type", () => {
     message,
     contentScriptSender(),
     RUNTIME_ID,
-    contextFor(ENABLED)
+    contextFor()
   );
   assert.equal(result.ok, false);
   assert.equal(result.error, "missing_key");
@@ -430,7 +465,7 @@ test("wrong field types are rejected", () => {
           message,
           contentScriptSender(),
           RUNTIME_ID,
-          contextFor(ENABLED)
+          contextFor()
         );
     assert.equal(result.ok, false, `${message.type}.${key} must be rejected`);
     assert.equal(result.error, "invalid_type");
@@ -444,7 +479,7 @@ test("oversize values are rejected", () => {
     requestMatchesMessage({ focusNonce: huge }),
     contentScriptSender(),
     RUNTIME_ID,
-    contextFor(ENABLED)
+    contextFor()
   );
   assert.equal(overlong.ok, false);
   assert.equal(overlong.error, "invalid_type");
@@ -455,7 +490,7 @@ test("oversize values are rejected", () => {
     fillMessage({ entryId: hugeEntryId }),
     contentScriptSender(),
     RUNTIME_ID,
-    contextFor(ENABLED)
+    contextFor()
   );
   assert.equal(overlongEntry.ok, false);
   assert.equal(overlongEntry.key, "entryId");
@@ -480,7 +515,7 @@ test("a prototype-polluting or exotic message object is rejected", () => {
       message,
       contentScriptSender(),
       RUNTIME_ID,
-      contextFor(ENABLED)
+      contextFor()
     );
     assert.equal(result.ok, false, `${String(message)} must be rejected`);
   }

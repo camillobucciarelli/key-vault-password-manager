@@ -1,8 +1,19 @@
-// 009 Slice A2 — A015..A020.
+// 009 Slice A2 — A015..A020, as revised by Slice C.
 //
 // Every assertion drives the shipped `overlay_lifecycle.js` against the fake
 // browser. The fake owns browser state only; all policy under test lives in
 // the production module.
+//
+// SLICE C: the durable opt-in became ONE GLOBAL BOOLEAN instead of a list of
+// enabled origins. A015 is deliberately unchanged and must stay that way — the
+// manifest still declares no mandatory `host_permissions`, and the broad pair
+// is still only ever OPTIONAL. What changed is the shape of what the popup
+// asks for at runtime, not whether the extension can demand it up front.
+//
+// Tests that pinned per-origin bookkeeping are RETIRED in place, each with a
+// comment naming the property and why it no longer has a subject. Tests that
+// pinned crash-consistency, fail-closed parsing, monotonic revisions, orphan
+// cleanup and exact-origin binding are ADAPTED, never relaxed.
 
 "use strict";
 
@@ -18,13 +29,17 @@ const lifecycleModule = require("../overlay_lifecycle.js");
 
 const {
   OverlayLifecycle,
-  computeSiteControlState,
+  computeGlobalControlState,
   registrationIdForPattern,
   isOverlayRegistrationId,
+  GLOBAL_REGISTRATION_ID,
 } = lifecycleModule;
 
 const CONFIG_KEY = security.OVERLAY_CONFIG_KEY;
 const EXT_DIR = path.join(__dirname, "..");
+
+const GLOBAL_PATTERNS = security.GLOBAL_PERMISSION_PATTERNS;
+const RUNTIME_ID = "abcdefghijklmnopabcdefghijklmnop";
 
 const HTTPS_EXAMPLE = "https://example.com";
 const HTTPS_EXAMPLE_8443 = "https://example.com:8443";
@@ -37,10 +52,34 @@ function newWorker(browser, options = {}) {
 }
 
 /** Grant + enable, the way the popup does it (gesture first, persist after). */
-async function grantAndEnable(browser, worker, origin, tabId) {
-  const pattern = security.permissionPatternForOrigin(origin);
-  await browser.permissions.request({ origins: [pattern] });
-  return worker.enableOrigin({ origin, tabId });
+async function grantAndEnable(browser, worker, tabId) {
+  await browser.permissions.request({ origins: [...GLOBAL_PATTERNS] });
+  return worker.enable({ tabId });
+}
+
+/**
+ * A well-formed bootstrap call from a top-level document at `frameUrl`.
+ *
+ * `claimedOrigin` defaults to the frame's real canonical origin; passing a
+ * different one models a content script LYING about where it runs, which the
+ * worker must refuse rather than believe.
+ */
+function bootstrapCall(frameUrl, claimedOrigin) {
+  return {
+    message: {
+      channel: security.CHANNEL,
+      version: security.MESSAGE_VERSION,
+      type: "bootstrap",
+      origin: claimedOrigin ?? security.canonicalOriginOrNull(frameUrl),
+    },
+    sender: {
+      id: RUNTIME_ID,
+      url: frameUrl,
+      frameId: 0,
+      tab: { id: 42, url: frameUrl },
+    },
+    runtimeId: RUNTIME_ID,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +208,7 @@ test("A042: package allowlist names every runtime file and no test artifact", ()
 });
 
 // ---------------------------------------------------------------------------
-// A016 — overlayConfigV1.
+// A016 — overlayConfigV2, and the v1 -> v2 migration.
 // ---------------------------------------------------------------------------
 
 test("A016: default state is off and reading never writes", async () => {
@@ -177,46 +216,50 @@ test("A016: default state is off and reading never writes", async () => {
   const worker = newWorker(browser);
 
   const config = await worker.readCommittedConfig();
-  assert.deepEqual(config.enabledOrigins, []);
+  assert.equal(config.enabled, false);
   assert.equal(browser.callsMatching("storage.set").length, 0);
 });
 
-test("A016: enable commits sorted unique origins and bumps the revision", async () => {
+test("A016: enable commits the switch on and bumps the revision exactly once", async () => {
   const browser = new FakeBrowser();
   const worker = newWorker(browser);
   await worker.reconcile();
 
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE_8443, 7);
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 7);
+  await grantAndEnable(browser, worker, 7);
 
   const stored = browser.config();
-  assert.deepEqual(stored.enabledOrigins, [HTTPS_EXAMPLE, HTTPS_EXAMPLE_8443]);
+  assert.equal(stored.enabled, true);
   assert.equal(security.validateOverlayConfig(stored).ok, true);
-  assert.equal(stored.version, 1);
-  assert.ok(stored.revision >= 2);
+  assert.equal(stored.version, 2);
+  assert.ok(stored.revision >= 1);
 
-  // Re-enabling an already enabled origin is a no-op, not a duplicate.
+  // Re-enabling an already enabled switch is a no-op, not a second commit.
   const revisionBefore = stored.revision;
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 7);
-  assert.deepEqual(browser.config().enabledOrigins, [HTTPS_EXAMPLE, HTTPS_EXAMPLE_8443]);
+  await grantAndEnable(browser, worker, 7);
+  assert.equal(browser.config().enabled, true);
   assert.equal(browser.config().revision, revisionBefore);
 });
 
-test("A016: enable refuses a non-canonical or non-HTTP(S) origin", async () => {
-  const browser = new FakeBrowser();
-  const worker = newWorker(browser);
-  for (const bad of [
-    "ftp://example.com",
-    "https://alice@example.com",
-    "https://127.1",
-    "chrome-extension://abc/page.html",
-    "not a url",
-  ]) {
-    const result = await worker.enableOrigin({ origin: bad, tabId: 1 });
-    assert.equal(result.ok, false, bad);
-    assert.equal(result.error, "unsupported_origin", bad);
+// SLICE C RETIREMENT. "A016: enable refuses a non-canonical or non-HTTP(S)
+// origin" is gone: `enable()` takes no origin, so `unsupported_origin` has no
+// producer left. The property that replaces it is below — the only thing that
+// can now stop an enable is the browser not actually holding the broad grant.
+
+test("A016: enable refuses unless the browser holds the WHOLE broad grant", async () => {
+  for (const granted of [[], [PATTERN_HTTP], [PATTERN_HTTPS], ["https://example.com/*"]]) {
+    const browser = new FakeBrowser({ granted });
+    const worker = newWorker(browser);
+    await worker.reconcile();
+
+    const result = await worker.enable({ tabId: 1 });
+    assert.deepEqual(
+      result,
+      { ok: false, error: "permission_missing" },
+      `granted=${JSON.stringify(granted)} must not enable`
+    );
+    assert.equal(browser.config().enabled, false);
+    assert.deepEqual(browser.registrationIds(), []);
   }
-  assert.equal(browser.config(), undefined);
 });
 
 test("A016: invalid or missing durable state migrates to disabled", async () => {
@@ -224,54 +267,148 @@ test("A016: invalid or missing durable state migrates to disabled", async () => 
     undefined,
     null,
     "nope",
-    { version: 2, revision: 1, enabledOrigins: [] },
-    { version: 1, revision: 1, enabledOrigins: ["https://example.com", "https://a.com"] },
-    { version: 1, revision: 1, enabledOrigins: ["https://example.com", "https://example.com"] },
-    { version: 1, revision: 1, enabledOrigins: ["HTTPS://EXAMPLE.COM"] },
-    { version: 1, revision: 1, enabledOrigins: [], password: "kv-test-only-not-a-real-password" },
-    { version: 1, revision: -1, enabledOrigins: [] },
+    { version: 1, revision: 1, enabled: true },
+    { version: 3, revision: 1, enabled: true },
+    { version: 2, revision: 1, enabled: "true" },
+    { version: 2, revision: 1, enabled: true, dismissed: false },
+    { version: 2, revision: 1, enabled: true, password: "kv-test-only-not-a-real-value" },
+    { version: 2, revision: -1, enabled: false },
+    { version: 2, revision: 1 },
   ]) {
     const browser = new FakeBrowser({
       storage: corrupt === undefined ? {} : { [CONFIG_KEY]: corrupt },
-      granted: [PATTERN_HTTPS],
+      granted: [...GLOBAL_PATTERNS],
     });
     const worker = newWorker(browser);
     await worker.reconcile();
 
     const stored = browser.config();
     assert.equal(security.validateOverlayConfig(stored).ok, true, JSON.stringify(corrupt));
-    assert.deepEqual(stored.enabledOrigins, [], JSON.stringify(corrupt));
-    // Nothing may be registered on behalf of an unreadable config.
+    assert.equal(stored.enabled, false, JSON.stringify(corrupt));
+    // Nothing may be registered or held on behalf of an unreadable config.
     assert.deepEqual(browser.registrationIds(), []);
     assert.deepEqual(browser.grantedPatterns(), []);
   }
 });
 
+// ===========================================================================
+// THE MIGRATION. Slice C's single highest-risk behaviour: an upgrade must not
+// turn a per-site opt-in into a global one, and must not leave the per-site
+// permissions it can no longer justify lying around.
+// ===========================================================================
+
+test("A016: a Slice A2 config with enabled origins migrates to DISABLED", async () => {
+  for (const origins of [
+    [],
+    [HTTPS_EXAMPLE],
+    [HTTPS_EXAMPLE, HTTPS_EXAMPLE_8443, HTTP_EXAMPLE].sort(),
+  ]) {
+    const browser = new FakeBrowser({
+      storage: {
+        overlayConfigV1: { version: 1, revision: 12, enabledOrigins: origins },
+        overlayRevisionFloorV1: 12,
+      },
+      granted: origins.length > 0 ? [PATTERN_HTTPS, PATTERN_HTTP] : [],
+      tabs: [{ id: 1 }],
+    });
+
+    await newWorker(browser).ready();
+
+    const stored = browser.config();
+    assert.equal(security.validateOverlayConfig(stored).ok, true);
+    assert.equal(
+      stored.enabled,
+      false,
+      `v1 with ${JSON.stringify(origins)} must never become enabled`
+    );
+    // Revision monotonicity holds ACROSS the version boundary: the floor key
+    // is deliberately not renamed with the config key.
+    assert.ok(stored.revision > 12, "the v1 revision must not be rewound");
+  }
+});
+
+// The hard case, and the one the other migration tests cannot see.
+//
+// Chrome lets the user set "Site access -> On all sites" by hand from
+// chrome://extensions, which grants exactly the broad pair this build asks
+// for. A Slice A2 install can therefore arrive at the upgrade with a v1 config
+// listing origins AND the broad grant already held — so the fail-closed grant
+// check in `reconcile` never fires, and the migration rule is the only thing
+// standing between the old per-site opt-in and a global one.
+//
+// A browser permission is not consent to the feature. The switch starts off.
+test("A016: a v1 config migrates to disabled even when the broad grant is already held", async () => {
+  const browser = new FakeBrowser({
+    storage: {
+      overlayConfigV1: {
+        version: 1,
+        revision: 12,
+        enabledOrigins: [HTTP_EXAMPLE, HTTPS_EXAMPLE].sort(),
+      },
+      overlayRevisionFloorV1: 12,
+    },
+    granted: [...GLOBAL_PATTERNS],
+    tabs: [{ id: 1 }],
+  });
+
+  await newWorker(browser).ready();
+
+  assert.equal(
+    browser.config().enabled,
+    false,
+    "a held browser permission must not be read as consent to the feature"
+  );
+  assert.deepEqual(browser.registrationIds(), []);
+  // And the broad grant is handed back, because no committed config justifies
+  // it any more.
+  assert.deepEqual(browser.grantedPatterns(), []);
+  assert.equal(browser.legacyConfig(), undefined);
+});
+
+test("A016: migration revokes every residual per-origin grant and registration", async () => {
+  const browser = new FakeBrowser({
+    storage: {
+      overlayConfigV1: {
+        version: 1,
+        revision: 5,
+        enabledOrigins: [HTTP_EXAMPLE, HTTPS_EXAMPLE].sort(),
+      },
+      overlayRevisionFloorV1: 5,
+    },
+    granted: [PATTERN_HTTPS, PATTERN_HTTP],
+    tabs: [{ id: 1 }],
+  });
+  // Exactly what Slice A2 persisted: one registration per pattern, surviving
+  // the browser restart via persistAcrossSessions.
+  await browser.scripting.registerContentScripts([
+    { id: registrationIdForPattern(PATTERN_HTTPS), matches: [PATTERN_HTTPS], js: ["x.js"] },
+    { id: registrationIdForPattern(PATTERN_HTTP), matches: [PATTERN_HTTP], js: ["x.js"] },
+  ]);
+
+  await newWorker(browser).ready();
+
+  // No orphan permission: the user is not left with an "can read example.com"
+  // grant that no committed config justifies.
+  assert.deepEqual(browser.grantedPatterns(), []);
+  // No orphan registration: those scripts would otherwise keep injecting.
+  assert.deepEqual(browser.registrationIds(), []);
+  // No orphan storage value that a later bug could resurrect as an opt-in.
+  assert.equal(browser.legacyConfig(), undefined);
+});
+
 test("A016: a corrupt config cannot rewind the revision", async () => {
   const browser = new FakeBrowser({
-    storage: { [CONFIG_KEY]: { version: 1, revision: 41, enabledOrigins: ["nope"] } },
+    storage: { [CONFIG_KEY]: { version: 2, revision: 41, enabled: "nope" } },
   });
   await newWorker(browser).reconcile();
   assert.equal(browser.config().revision > 41, true);
 });
 
-test("A016: the enabled-origin ceiling is enforced", async () => {
-  const origins = [];
-  for (let index = 0; index < security.LIMITS.ENABLED_ORIGINS; index += 1) {
-    origins.push(`https://site${String(index).padStart(4, "0")}.example`);
-  }
-  const patterns = origins.map((origin) => security.permissionPatternForOrigin(origin));
-  const browser = new FakeBrowser({
-    storage: { [CONFIG_KEY]: { version: 1, revision: 3, enabledOrigins: [...origins].sort() } },
-    granted: patterns,
-  });
-  const worker = newWorker(browser);
-
-  const overflowPattern = security.permissionPatternForOrigin("https://one-too-many.example");
-  await browser.permissions.request({ origins: [overflowPattern] });
-  const result = await worker.enableOrigin({ origin: "https://one-too-many.example" });
-  assert.deepEqual(result, { ok: false, error: "too_many_origins" });
-});
+// SLICE C RETIREMENT. "A016: the enabled-origin ceiling is enforced" is gone
+// with `LIMITS.ENABLED_ORIGINS`: a boolean has no length to overflow, so
+// `too_many_origins` has no producer. Nothing replaces it — the resource the
+// ceiling protected (unbounded storage growth from an unbounded origin list)
+// no longer exists.
 
 // ---------------------------------------------------------------------------
 // Slice A acceptance criterion 1 — fresh install.
@@ -287,29 +424,18 @@ test("criterion 1: fresh install grants nothing, registers nothing, injects noth
   assert.deepEqual(browser.registrationIds(), []);
   assert.deepEqual(browser.callsMatching("scripting.execute"), []);
   assert.deepEqual(browser.callsMatching("permissions.request"), []);
-  assert.deepEqual(browser.config().enabledOrigins, []);
-  assert.equal(await worker.siteState({ tabUrl: "https://example.com/login" }).then((s) => s.state), "disabled");
+  assert.equal(browser.config().enabled, false);
+  assert.equal(
+    await worker.siteState({ tabUrl: "https://example.com/login" }).then((s) => s.state),
+    "disabled"
+  );
 });
 
 test("criterion 1: a fresh worker denies bootstrap from an uninvited document", async () => {
   const browser = new FakeBrowser();
   const worker = newWorker(browser);
 
-  const result = await worker.authorizeBootstrap({
-    message: {
-      channel: security.CHANNEL,
-      version: security.MESSAGE_VERSION,
-      type: "bootstrap",
-      origin: HTTPS_EXAMPLE,
-    },
-    sender: {
-      id: "abcdefghijklmnopabcdefghijklmnop",
-      url: "https://example.com/login",
-      frameId: 0,
-      tab: { id: 42, url: "https://example.com/login" },
-    },
-    runtimeId: "abcdefghijklmnopabcdefghijklmnop",
-  });
+  const result = await worker.authorizeBootstrap(bootstrapCall("https://example.com/login"));
 
   assert.equal(result.ok, false);
   assert.equal(result.error.code, "disabled");
@@ -319,22 +445,39 @@ test("criterion 1: a fresh worker denies bootstrap from an uninvited document", 
 // A018 — dynamic registration.
 // ---------------------------------------------------------------------------
 
-test("A018: enable registers an isolated-world document_idle all-frames script", async () => {
+test("A018: enable registers ONE isolated-world document_idle all-frames script", async () => {
   const browser = new FakeBrowser();
   const worker = newWorker(browser);
   await worker.reconcile();
 
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 9);
+  await grantAndEnable(browser, worker, 9);
 
   const registered = await browser.scripting.getRegisteredContentScripts();
   assert.equal(registered.length, 1);
   const script = registered[0];
-  assert.equal(script.id, registrationIdForPattern(PATTERN_HTTPS));
-  assert.deepEqual(script.matches, [PATTERN_HTTPS]);
+  assert.equal(script.id, GLOBAL_REGISTRATION_ID);
+  assert.deepEqual(script.matches, ["http://*/*", "https://*/*"]);
   assert.equal(script.runAt, "document_idle");
   assert.equal(script.allFrames, true);
   assert.equal(script.world, "ISOLATED");
   assert.deepEqual(script.js, ["overlay_security.js", "content_overlay.js"]);
+});
+
+test("A018: the registration matches exactly the manifest's optional hosts", () => {
+  // The registration may not reach beyond what the user can even be asked to
+  // grant. A `matches` entry with no corresponding optional host permission is
+  // a script that either never injects or injects without a grant.
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(EXT_DIR, "manifest.json"), "utf8")
+  );
+  assert.deepEqual(
+    [...security.GLOBAL_PERMISSION_PATTERNS],
+    manifest.optional_host_permissions
+  );
+  assert.deepEqual(
+    lifecycleModule.globalRegistration().matches,
+    manifest.optional_host_permissions
+  );
 });
 
 test("A018: the registration id is injective, including on lossy-encoding twins", () => {
@@ -369,6 +512,15 @@ test("A018: the registration id is injective, including on lossy-encoding twins"
     seen.set(id, pattern);
   }
   assert.equal(seen.size, patterns.size);
+
+  // SLICE C: injectivity is what makes the upgrade clean. The global id must
+  // differ from every per-origin id a Slice A2 install could have registered,
+  // so those are classified as orphans instead of mistaken for this one.
+  assert.equal(isOverlayRegistrationId(GLOBAL_REGISTRATION_ID), true);
+  assert.equal(seen.has(GLOBAL_REGISTRATION_ID), false);
+  for (const pattern of ["https://example.com/*", "http://*/*", "https://*/*"]) {
+    assert.notEqual(registrationIdForPattern(pattern), GLOBAL_REGISTRATION_ID);
+  }
 });
 
 test("A018: enable also injects the current tab in all frames", async () => {
@@ -381,7 +533,7 @@ test("A018: enable also injects the current tab in all frames", async () => {
     return original(options);
   };
 
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 77);
+  await grantAndEnable(browser, worker, 77);
 
   assert.deepEqual(executed.target, { tabId: 77, allFrames: true });
   assert.deepEqual(executed.files, ["overlay_security.js", "content_overlay.js"]);
@@ -394,15 +546,31 @@ test("A018: a failed injection does not undo the committed opt-in", async () => 
   };
   const worker = newWorker(browser);
 
-  const result = await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 5);
+  const result = await grantAndEnable(browser, worker, 5);
   assert.equal(result.ok, true);
-  assert.deepEqual(browser.config().enabledOrigins, [HTTPS_EXAMPLE]);
+  assert.equal(browser.config().enabled, true);
+});
+
+test("A018: enabling without a tab still commits and registers", async () => {
+  // The popup can be open on a `chrome://` page. Turning the overlay ON there
+  // is legitimate: the grant is global, and the next http(s) page picks up the
+  // registration. Only the courtesy injection is skipped.
+  const browser = new FakeBrowser();
+  const worker = newWorker(browser);
+  await browser.permissions.request({ origins: [...GLOBAL_PATTERNS] });
+
+  const result = await worker.enable({ tabId: null });
+
+  assert.equal(result.ok, true);
+  assert.equal(browser.config().enabled, true);
+  assert.deepEqual(browser.registrationIds(), [GLOBAL_REGISTRATION_ID]);
+  assert.deepEqual(browser.callsMatching("scripting.execute"), []);
 });
 
 test("A018: repeated startup reconciliation is idempotent", async () => {
   const browser = new FakeBrowser({
-    storage: { [CONFIG_KEY]: { version: 1, revision: 4, enabledOrigins: [HTTPS_EXAMPLE] } },
-    granted: [PATTERN_HTTPS],
+    storage: { [CONFIG_KEY]: { version: 2, revision: 4, enabled: true } },
+    granted: [...GLOBAL_PATTERNS],
   });
 
   for (let restart = 0; restart < 3; restart += 1) {
@@ -411,51 +579,52 @@ test("A018: repeated startup reconciliation is idempotent", async () => {
     await worker.ready(); // second call in the same worker must not re-run
   }
 
-  assert.deepEqual(browser.registrationIds(), [registrationIdForPattern(PATTERN_HTTPS)]);
+  assert.deepEqual(browser.registrationIds(), [GLOBAL_REGISTRATION_ID]);
   assert.equal(browser.callsMatching("scripting.register").length, 1);
   assert.equal(browser.callsMatching("scripting.unregister").length, 0);
   assert.equal(browser.config().revision, 4);
 });
 
-test("A018: two ports of one host share one registration", async () => {
+// SLICE C RETIREMENT. "A018: two ports of one host share one registration" and
+// "A019: a different scheme is a different pattern and survives independently"
+// are gone. Both asserted refcount-like behaviour over a SET of per-origin
+// patterns; there is one registration and one permission pair now, so there is
+// no sharing to get wrong. The risk they covered — revoking a permission a
+// still-authorized origin needed — cannot occur when the only two states are
+// "all" and "none".
+
+test("A018: every http(s) origin bootstraps once the switch is on, each bound to itself", async () => {
+  // SLICE C MODEL CHANGE, stated as a test rather than left implicit. Under
+  // Slice A2 only the exactly-enabled origin bootstrapped; now every http(s)
+  // origin does. What did NOT change is the binding: each frame is admitted as
+  // its own exact origin, and a frame claiming a different one is refused.
   const browser = new FakeBrowser();
   const worker = newWorker(browser);
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 1);
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE_8443, 1);
+  await grantAndEnable(browser, worker, 1);
 
-  assert.deepEqual(browser.registrationIds(), [registrationIdForPattern(PATTERN_HTTPS)]);
-  assert.deepEqual(browser.grantedPatterns(), [PATTERN_HTTPS]);
-});
+  for (const frameUrl of [
+    "https://example.com/login",
+    "https://example.com:8443/login",
+    "http://example.com/login",
+    "https://example.com.evil.test/login",
+  ]) {
+    const result = await worker.authorizeBootstrap(bootstrapCall(frameUrl));
+    assert.equal(result.ok, true, `${frameUrl} must bootstrap`);
+    assert.equal(
+      result.origin,
+      security.canonicalOriginOrNull(frameUrl),
+      `${frameUrl} must be bound to its own exact origin`
+    );
+  }
 
-test("A018: the non-enabled port stays inert even though it is injected", async () => {
-  const browser = new FakeBrowser();
-  const worker = newWorker(browser);
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 1);
-
-  const runtimeId = "abcdefghijklmnopabcdefghijklmnop";
-  const bootstrapFrom = (frameUrl) =>
-    worker.authorizeBootstrap({
-      message: {
-        channel: security.CHANNEL,
-        version: security.MESSAGE_VERSION,
-        type: "bootstrap",
-        origin: security.canonicalOriginOrNull(frameUrl),
-      },
-      sender: {
-        id: runtimeId,
-        url: frameUrl,
-        frameId: 0,
-        tab: { id: 42, url: frameUrl },
-      },
-      runtimeId,
-    });
-
-  assert.equal((await bootstrapFrom("https://example.com/login")).ok, true);
-  // Chromium patterns cannot express a port, so this document IS injected.
-  // Only the exact-origin check keeps it inert.
-  assert.equal((await bootstrapFrom("https://example.com:8443/login")).ok, false);
-  assert.equal((await bootstrapFrom("http://example.com/login")).ok, false);
-  assert.equal((await bootstrapFrom("https://example.com.evil.test/login")).ok, false);
+  // The exact-origin binding is still enforced against a lying body: a frame
+  // on :8443 cannot present itself as the default-port origin to widen what
+  // the app will reveal to it.
+  const spoofed = await worker.authorizeBootstrap(
+    bootstrapCall("https://example.com:8443/login", HTTPS_EXAMPLE)
+  );
+  assert.equal(spoofed.ok, false);
+  assert.equal(spoofed.error.code, "origin_mismatch");
 });
 
 // ---------------------------------------------------------------------------
@@ -465,10 +634,10 @@ test("A018: the non-enabled port stays inert even though it is injected", async 
 test("A019: the durable commit is the FIRST browser mutation of the disable", async () => {
   const browser = new FakeBrowser({ tabs: [{ id: 42 }] });
   const worker = newWorker(browser);
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 42);
+  await grantAndEnable(browser, worker, 42);
 
   browser.calls.length = 0;
-  await worker.disableOrigin({ origin: HTTPS_EXAMPLE });
+  await worker.disable();
 
   // This assertion is the whole of SR-8. If `_commitConfig` is moved after any
   // cleanup phase, the first entry stops being the storage write and this
@@ -482,64 +651,77 @@ test("A019: the durable commit is the FIRST browser mutation of the disable", as
   ]);
 });
 
+test("A019: disable hands the broad permission back and drops the registration", async () => {
+  const browser = new FakeBrowser({ tabs: [{ id: 42 }] });
+  const worker = newWorker(browser);
+  await grantAndEnable(browser, worker, 42);
+  assert.deepEqual(browser.grantedPatterns(), [...GLOBAL_PATTERNS].sort());
+  assert.deepEqual(browser.registrationIds(), [GLOBAL_REGISTRATION_ID]);
+
+  await worker.disable();
+
+  // Leaving either behind is the failure this pins: a revoked opt-in that
+  // still shows "can read all sites" on the extension page, or a registration
+  // that keeps injecting into every page the user visits.
+  assert.equal(browser.config().enabled, false);
+  assert.deepEqual(browser.grantedPatterns(), []);
+  assert.deepEqual(browser.registrationIds(), []);
+});
+
 test("A019: a failed durable commit starts no cleanup at all", async () => {
   const browser = new FakeBrowser({ tabs: [{ id: 42 }] });
   const worker = newWorker(browser);
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 42);
+  await grantAndEnable(browser, worker, 42);
 
   browser.calls.length = 0;
   browser.failNextSet = "QUOTA_BYTES quota exceeded";
-  await assert.rejects(() => worker.disableOrigin({ origin: HTTPS_EXAMPLE }));
+  await assert.rejects(() => worker.disable());
 
   assert.deepEqual(browser.calls, []);
-  assert.deepEqual(browser.config().enabledOrigins, [HTTPS_EXAMPLE]);
-  assert.deepEqual(browser.registrationIds(), [registrationIdForPattern(PATTERN_HTTPS)]);
-  assert.deepEqual(browser.grantedPatterns(), [PATTERN_HTTPS]);
+  assert.equal(browser.config().enabled, true);
+  assert.deepEqual(browser.registrationIds(), [GLOBAL_REGISTRATION_ID]);
+  assert.deepEqual(browser.grantedPatterns(), [...GLOBAL_PATTERNS].sort());
 });
 
 // The readback comparison in `_commitConfig` is a security guard, not a
 // paranoia knob: it is what refuses to authorize cleanup against a storage
 // layer that accepted the write and then reported something else. One test
 // would leave the guard silently uncovered the day that test is renamed, so
-// each distinct failure mode gets its own assertion: a divergent revision, an
-// over-truncated array, and an absent field.
+// each distinct failure mode gets its own assertion: a divergent revision, a
+// divergent VALUE at the expected revision, and an absent field.
 
 test("A019: a mismatched readback aborts the disable before any cleanup", async () => {
   const browser = new FakeBrowser({ tabs: [{ id: 42 }] });
   const worker = newWorker(browser);
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 42);
+  await grantAndEnable(browser, worker, 42);
 
   browser.calls.length = 0;
-  browser.corruptNextReadback = { version: 1, revision: 99, enabledOrigins: [HTTPS_EXAMPLE] };
-  await assert.rejects(() => worker.disableOrigin({ origin: HTTPS_EXAMPLE }));
+  browser.corruptNextReadback = { version: 2, revision: 99, enabled: false };
+  await assert.rejects(() => worker.disable());
 
   assert.deepEqual(browser.calls, ["storage.set"]);
   assert.deepEqual(browser.callsMatching("permissions.remove"), []);
   assert.deepEqual(browser.callsMatching("scripting.unregister"), []);
 });
 
-test("A019: a TRUNCATED readback aborts the disable before any cleanup", async () => {
+test("A019: a readback with the RIGHT revision and the WRONG switch aborts", async () => {
+  // The Slice A2 form of this case was a truncated `enabledOrigins` array. The
+  // v2 analogue is sharper: the revision is exactly the expected one, so a
+  // revision-only check waves it through, but the committed switch says the
+  // opposite of what was written. Running D2–D5 against that value would tear
+  // down an overlay the durable state still reports as ON.
   const browser = new FakeBrowser({ tabs: [{ id: 42 }] });
   const worker = newWorker(browser);
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 42);
-  await grantAndEnable(browser, worker, HTTP_EXAMPLE, 42);
+  await grantAndEnable(browser, worker, 42);
 
   browser.calls.length = 0;
-  // A partial write: the revision is exactly the expected one, so a
-  // revision-only check would wave this through, but an origin that is still
-  // authorized has vanished from the array. Removing the permission for
-  // `HTTP_EXAMPLE` on the strength of this value would revoke a site the user
-  // never disabled.
   const expectedRevision = browser.config().revision + 1;
   browser.corruptNextReadback = {
-    version: 1,
+    version: 2,
     revision: expectedRevision,
-    enabledOrigins: [],
+    enabled: true,
   };
-  await assert.rejects(
-    () => worker.disableOrigin({ origin: HTTPS_EXAMPLE }),
-    /overlay_config_readback_mismatch/
-  );
+  await assert.rejects(() => worker.disable(), /overlay_config_readback_mismatch/);
 
   assert.deepEqual(browser.calls, ["storage.set"]);
   assert.deepEqual(browser.callsMatching("permissions.remove"), []);
@@ -550,38 +732,35 @@ test("A019: a TRUNCATED readback aborts the disable before any cleanup", async (
 test("A019: a readback missing a field aborts the disable before any cleanup", async () => {
   const browser = new FakeBrowser({ tabs: [{ id: 42 }] });
   const worker = newWorker(browser);
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 42);
+  await grantAndEnable(browser, worker, 42);
 
   browser.calls.length = 0;
-  browser.corruptNextReadback = { version: 1, revision: browser.config().revision + 1 };
-  await assert.rejects(
-    () => worker.disableOrigin({ origin: HTTPS_EXAMPLE }),
-    /overlay_config_readback_mismatch/
-  );
+  browser.corruptNextReadback = { version: 2, revision: browser.config().revision + 1 };
+  await assert.rejects(() => worker.disable(), /overlay_config_readback_mismatch/);
 
   assert.deepEqual(browser.calls, ["storage.set"]);
-  assert.deepEqual(browser.grantedPatterns(), [PATTERN_HTTPS]);
-  assert.deepEqual(browser.registrationIds(), [registrationIdForPattern(PATTERN_HTTPS)]);
+  assert.deepEqual(browser.grantedPatterns(), [...GLOBAL_PATTERNS].sort());
+  assert.deepEqual(browser.registrationIds(), [GLOBAL_REGISTRATION_ID]);
 });
 
 test("A018: a partial readback aborts the enable before anything is registered", async () => {
   // Same guard on the other transaction. Registering a script on the strength
-  // of a value storage never confirmed would inject into a site whose opt-in
-  // may not have survived.
+  // of a value storage never confirmed would inject into every page the user
+  // visits without a durable opt-in behind it.
   const browser = new FakeBrowser({ tabs: [{ id: 42 }] });
   const worker = newWorker(browser);
   await worker.reconcile();
-  await browser.permissions.request({ origins: [PATTERN_HTTPS] });
+  await browser.permissions.request({ origins: [...GLOBAL_PATTERNS] });
 
   browser.calls.length = 0;
-  // The write claims to have landed, but the new origin is absent from it.
+  // The write claims to have landed, but the switch is absent from it.
   browser.corruptNextReadback = {
-    version: 1,
+    version: 2,
     revision: browser.config().revision + 1,
-    enabledOrigins: [],
+    enabled: false,
   };
   await assert.rejects(
-    () => worker.enableOrigin({ origin: HTTPS_EXAMPLE, tabId: 42 }),
+    () => worker.enable({ tabId: 42 }),
     /overlay_config_readback_mismatch/
   );
 
@@ -593,26 +772,22 @@ test("A018: a partial readback aborts the enable before anything is registered",
 // ---------------------------------------------------------------------------
 // Gate A2 (real-Chrome smoke): `chrome.storage.local.get` returns objects with
 // keys in ALPHABETICAL order, not insertion order (measured on Chrome 151:
-// set {version, revision, enabledOrigins} reads back as
-// {enabledOrigins, revision, version}). The first test PINS that behaviour in
-// the fake — without it, every other test here runs against a storage layer
-// real Chrome does not ship. The second proves the commit readback survives it.
+// set {version, revision, enabled} reads back as {enabled, revision, version}).
+// The first test PINS that behaviour in the fake — without it, every other test
+// here runs against a storage layer real Chrome does not ship. The second
+// proves the commit readback survives it.
 // ---------------------------------------------------------------------------
 
 test("Gate A2: the fake's storage.local.get returns keys alphabetically, like real Chrome", async () => {
   const browser = new FakeBrowser();
-  // Insertion order is deliberately NOT alphabetical, at both depths.
+  // Insertion order is deliberately NOT alphabetical.
   await browser.storage.local.set({
-    probe: { version: 1, revision: 7, enabledOrigins: ["https://example.com"] },
+    probe: { version: 2, revision: 7, enabled: true },
   });
   const readback = (await browser.storage.local.get(["probe"])).probe;
-  assert.deepEqual(Object.keys(readback), ["enabledOrigins", "revision", "version"]);
+  assert.deepEqual(Object.keys(readback), ["enabled", "revision", "version"]);
   // The VALUE is still intact — only key order changed.
-  assert.deepEqual(readback, {
-    version: 1,
-    revision: 7,
-    enabledOrigins: ["https://example.com"],
-  });
+  assert.deepEqual(readback, { version: 2, revision: 7, enabled: true });
 });
 
 test("Gate A2: enable commits despite Chrome's alphabetical readback key order", async () => {
@@ -621,62 +796,27 @@ test("Gate A2: enable commits despite Chrome's alphabetical readback key order",
   await worker.reconcile();
 
   // Must not throw overlay_config_readback_mismatch on the reordered readback.
-  const result = await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 42);
+  const result = await grantAndEnable(browser, worker, 42);
   assert.equal(result.ok, true);
-  assert.deepEqual(browser.config().enabledOrigins, [HTTPS_EXAMPLE]);
+  assert.equal(browser.config().enabled, true);
   // The phases AFTER the commit actually ran: registration + explicit inject.
-  assert.deepEqual(browser.registrationIds(), [registrationIdForPattern(PATTERN_HTTPS)]);
+  assert.deepEqual(browser.registrationIds(), [GLOBAL_REGISTRATION_ID]);
   assert.equal(browser.callsMatching("scripting.execute").length, 1);
-});
-
-test("A019: disabling one port keeps the pattern the other port still needs", async () => {
-  const browser = new FakeBrowser({ tabs: [{ id: 42 }] });
-  const worker = newWorker(browser);
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 42);
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE_8443, 42);
-
-  await worker.disableOrigin({ origin: HTTPS_EXAMPLE_8443 });
-
-  assert.deepEqual(browser.config().enabledOrigins, [HTTPS_EXAMPLE]);
-  // Shared pattern is retained; the removed port is nevertheless unauthorized.
-  assert.deepEqual(browser.grantedPatterns(), [PATTERN_HTTPS]);
-  assert.deepEqual(browser.registrationIds(), [registrationIdForPattern(PATTERN_HTTPS)]);
-
-  await worker.disableOrigin({ origin: HTTPS_EXAMPLE });
-  assert.deepEqual(browser.config().enabledOrigins, []);
-  assert.deepEqual(browser.grantedPatterns(), []);
-  assert.deepEqual(browser.registrationIds(), []);
-});
-
-test("A019: a different scheme is a different pattern and survives independently", async () => {
-  const browser = new FakeBrowser();
-  const worker = newWorker(browser);
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 1);
-  await grantAndEnable(browser, worker, HTTP_EXAMPLE, 1);
-
-  await worker.disableOrigin({ origin: HTTP_EXAMPLE });
-
-  assert.deepEqual(browser.grantedPatterns(), [PATTERN_HTTPS]);
-  assert.deepEqual(browser.config().enabledOrigins, [HTTPS_EXAMPLE]);
 });
 
 test("A019: disable broadcasts teardown to every tab, naming no origin", async () => {
   const browser = new FakeBrowser({ tabs: [{ id: 1 }, { id: 2 }, { id: 3 }] });
   const worker = newWorker(browser);
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 1);
-  await grantAndEnable(browser, worker, HTTP_EXAMPLE, 1);
+  await grantAndEnable(browser, worker, 1);
 
-  await worker.disableOrigin({ origin: HTTP_EXAMPLE });
+  await worker.disable();
 
   assert.equal(browser.deliveredTeardowns.length, 3);
   for (const { message } of browser.deliveredTeardowns) {
     assert.equal(message.type, "teardown");
     assert.equal(security.assertNoForbiddenKeys(message).ok, true);
-    // Without the `tabs` permission this cannot be targeted, so it reaches the
-    // document on the STILL-ENABLED origin too. Naming the disabled origin
-    // would hand that document a cross-origin fact about the user's settings
-    // for free. Only the revision travels; the receiver revalidates its own
-    // origin against the worker.
+    // Without the `tabs` permission this cannot be targeted. Only the revision
+    // travels; the receiver revalidates its own origin against the worker.
     assert.deepEqual(Object.keys(message).sort(), [
       "channel",
       "revision",
@@ -690,13 +830,13 @@ test("A019: disable broadcasts teardown to every tab, naming no origin", async (
 test("A019: disable is idempotent and still reconciles", async () => {
   const browser = new FakeBrowser({ tabs: [{ id: 1 }] });
   const worker = newWorker(browser);
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 1);
+  await grantAndEnable(browser, worker, 1);
 
-  await worker.disableOrigin({ origin: HTTPS_EXAMPLE });
+  await worker.disable();
   const revisionAfterFirst = browser.config().revision;
-  await worker.disableOrigin({ origin: HTTPS_EXAMPLE });
+  await worker.disable();
 
-  assert.deepEqual(browser.config().enabledOrigins, []);
+  assert.equal(browser.config().enabled, false);
   assert.equal(browser.config().revision, revisionAfterFirst + 1);
   assert.deepEqual(browser.grantedPatterns(), []);
   assert.deepEqual(browser.registrationIds(), []);
@@ -706,32 +846,66 @@ test("A019: disable is idempotent and still reconciles", async () => {
 // A020 — fail-closed reconciliation.
 // ---------------------------------------------------------------------------
 
-test("A020: a permission revoked outside the popup durably disables the origin", async () => {
-  const browser = new FakeBrowser({
-    storage: {
-      [CONFIG_KEY]: {
-        version: 1,
-        revision: 8,
-        enabledOrigins: [HTTPS_EXAMPLE, HTTP_EXAMPLE].sort(),
-      },
-    },
-    granted: [PATTERN_HTTPS],
-    tabs: [{ id: 1 }],
-  });
+test("A020: a permission revoked outside the popup durably disables the overlay", async () => {
+  // The user goes to chrome://extensions and takes "on all sites" away. The
+  // durable opt-in must follow, or the config would keep claiming an
+  // authorization the browser no longer backs.
+  for (const surviving of [[], [PATTERN_HTTPS], ["http://*/*"], ["https://*/*"]]) {
+    const browser = new FakeBrowser({
+      storage: { [CONFIG_KEY]: { version: 2, revision: 8, enabled: true } },
+      granted: surviving,
+      tabs: [{ id: 1 }],
+    });
 
-  await newWorker(browser).ready();
+    await newWorker(browser).ready();
 
-  assert.deepEqual(browser.config().enabledOrigins, [HTTPS_EXAMPLE]);
-  assert.equal(browser.config().revision, 9);
-  assert.deepEqual(browser.registrationIds(), [registrationIdForPattern(PATTERN_HTTPS)]);
-  // Reconciliation still nudges injected documents to revalidate, and still
-  // without naming which origin lost its permission.
-  assert.equal(browser.deliveredTeardowns.length > 0, true);
-  for (const { message } of browser.deliveredTeardowns) {
-    assert.equal(message.type, "teardown");
-    assert.equal(message.revision, 9);
-    assert.equal(Object.prototype.hasOwnProperty.call(message, "origin"), false);
+    assert.equal(
+      browser.config().enabled,
+      false,
+      `granted=${JSON.stringify(surviving)} must disable`
+    );
+    assert.equal(browser.config().revision, 9);
+    assert.deepEqual(browser.registrationIds(), []);
+    // The RESIDUAL half is handed back too, and this is asserted on the
+    // revocation-induced path specifically.
+    //
+    // The partial-revoke cases above are the ones that need it: the user took
+    // one pattern away from chrome://extensions and the other is still granted.
+    // Once the config commits `enabled: false` nothing justifies that leftover,
+    // so leaving it would hand the user an extension that still reports host
+    // access for a feature they have switched off. C-M4 pins the same sweep on
+    // the DISABLE path (D5) and would stay green through a regression here, so
+    // this assertion is not redundant with it — see C-M8.
+    assert.deepEqual(
+      browser.grantedPatterns(),
+      [],
+      `granted=${JSON.stringify(surviving)} must leave no residual permission`
+    );
+    // Reconciliation still nudges injected documents to revalidate, and still
+    // without naming any origin.
+    assert.equal(browser.deliveredTeardowns.length > 0, true);
+    for (const { message } of browser.deliveredTeardowns) {
+      assert.equal(message.type, "teardown");
+      assert.equal(message.revision, 9);
+      assert.equal(Object.prototype.hasOwnProperty.call(message, "origin"), false);
+    }
   }
+});
+
+test("A020: an externally revoked grant fails the very next request closed", async () => {
+  // Belt and braces: even BEFORE any reconciliation has run, a request that
+  // arrives while the config still says `enabled: true` must be refused,
+  // because `authorizeContentRequest` re-reads the browser's granted patterns
+  // on every call rather than trusting the committed config alone.
+  const browser = new FakeBrowser({
+    storage: { [CONFIG_KEY]: { version: 2, revision: 8, enabled: true } },
+    granted: [PATTERN_HTTPS], // a leftover narrow grant, not the broad pair
+  });
+  const worker = newWorker(browser);
+
+  const result = await worker.authorizeBootstrap(bootstrapCall("https://example.com/login"));
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "disabled");
 });
 
 test("A020: reconciliation makes an outstanding fill token unusable, at an unchanged revision", async () => {
@@ -751,14 +925,9 @@ test("A020: reconciliation makes an outstanding fill token unusable, at an uncha
   // comparison that is the reason this survivor was not exploitable. With the
   // revision pinned, the only remaining reason a consume can fail after this
   // reconcile is that reconcile dropped the grant.
-  //
-  // `reconcile()` is invoked directly because that is the production path:
-  // background.js wires `permissions.onAdded` / `onRemoved` straight to it.
   const browser = new FakeBrowser({
-    storage: {
-      [CONFIG_KEY]: { version: 1, revision: 8, enabledOrigins: [HTTPS_EXAMPLE] },
-    },
-    granted: [PATTERN_HTTPS],
+    storage: { [CONFIG_KEY]: { version: 2, revision: 8, enabled: true } },
+    granted: [...GLOBAL_PATTERNS],
     tabs: [{ id: 1 }],
   });
   const worker = newWorker(browser);
@@ -830,12 +999,19 @@ test("A020: reconciliation makes an outstanding fill token unusable, at an uncha
 
 test("A020: a registration no config justifies is removed on cold start", async () => {
   const browser = new FakeBrowser({
-    storage: { [CONFIG_KEY]: { version: 1, revision: 2, enabledOrigins: [] } },
+    storage: { [CONFIG_KEY]: { version: 2, revision: 2, enabled: false } },
   });
+  // Both shapes: a Slice A2 per-origin registration, and this build's own
+  // global one left over from a config that has since been turned off.
   await browser.scripting.registerContentScripts([
     {
       id: registrationIdForPattern(PATTERN_HTTPS),
       matches: [PATTERN_HTTPS],
+      js: ["overlay_security.js", "content_overlay.js"],
+    },
+    {
+      id: GLOBAL_REGISTRATION_ID,
+      matches: [...GLOBAL_PATTERNS],
       js: ["overlay_security.js", "content_overlay.js"],
     },
   ]);
@@ -847,8 +1023,8 @@ test("A020: a registration no config justifies is removed on cold start", async 
 
 test("A020: a granted permission no config justifies is removed on cold start", async () => {
   const browser = new FakeBrowser({
-    storage: { [CONFIG_KEY]: { version: 1, revision: 2, enabledOrigins: [] } },
-    granted: [PATTERN_HTTPS, PATTERN_HTTP],
+    storage: { [CONFIG_KEY]: { version: 2, revision: 2, enabled: false } },
+    granted: [PATTERN_HTTPS, PATTERN_HTTP, ...GLOBAL_PATTERNS],
   });
 
   await newWorker(browser).ready();
@@ -858,7 +1034,7 @@ test("A020: a granted permission no config justifies is removed on cold start", 
 
 test("A020: reconciliation never touches a registration the extension does not own", async () => {
   const browser = new FakeBrowser({
-    storage: { [CONFIG_KEY]: { version: 1, revision: 2, enabledOrigins: [] } },
+    storage: { [CONFIG_KEY]: { version: 2, revision: 2, enabled: false } },
   });
   await browser.scripting.registerContentScripts([
     { id: "some-other-feature", matches: ["https://other.test/*"], js: ["other.js"] },
@@ -871,37 +1047,20 @@ test("A020: reconciliation never touches a registration the extension does not o
 
 test("A020: bootstrap is served only after reconciliation has run", async () => {
   const browser = new FakeBrowser({
-    storage: {
-      [CONFIG_KEY]: { version: 1, revision: 6, enabledOrigins: [HTTPS_EXAMPLE] },
-    },
+    storage: { [CONFIG_KEY]: { version: 2, revision: 6, enabled: true } },
     granted: [], // permission gone: config is stale and must fail closed
   });
   const worker = newWorker(browser);
-  const runtimeId = "abcdefghijklmnopabcdefghijklmnop";
 
-  const result = await worker.authorizeBootstrap({
-    message: {
-      channel: security.CHANNEL,
-      version: security.MESSAGE_VERSION,
-      type: "bootstrap",
-      origin: HTTPS_EXAMPLE,
-    },
-    sender: {
-      id: runtimeId,
-      url: "https://example.com/login",
-      frameId: 0,
-      tab: { id: 42, url: "https://example.com/login" },
-    },
-    runtimeId,
-  });
+  const result = await worker.authorizeBootstrap(bootstrapCall("https://example.com/login"));
 
   assert.equal(result.ok, false);
-  assert.deepEqual(browser.config().enabledOrigins, []);
+  assert.equal(browser.config().enabled, false);
 });
 
 test("A020: a failing reconciliation is retried, never cached as ready", async () => {
   const browser = new FakeBrowser({
-    storage: { [CONFIG_KEY]: { version: 1, revision: 1, enabledOrigins: ["bogus"] } },
+    storage: { [CONFIG_KEY]: { version: 2, revision: 1, enabled: "bogus" } },
   });
   const worker = newWorker(browser);
 
@@ -909,67 +1068,83 @@ test("A020: a failing reconciliation is retried, never cached as ready", async (
   await assert.rejects(() => worker.ready());
 
   await worker.ready();
-  assert.deepEqual(browser.config().enabledOrigins, []);
+  assert.equal(browser.config().enabled, false);
 });
 
 test("A020: concurrent mutations are serialized, never interleaved", async () => {
-  const browser = new FakeBrowser();
+  const browser = new FakeBrowser({ tabs: [{ id: 1 }] });
   const worker = newWorker(browser);
-  const patterns = ["https://a.test", "https://b.test", "https://c.test"];
-  for (const origin of patterns) {
-    await browser.permissions.request({
-      origins: [security.permissionPatternForOrigin(origin)],
-    });
-  }
+  await browser.permissions.request({ origins: [...GLOBAL_PATTERNS] });
 
-  await Promise.all(patterns.map((origin) => worker.enableOrigin({ origin, tabId: 1 })));
+  // Enable and disable racing inside one worker. Whatever order the lock
+  // picks, the committed value must be a valid config and the browser state
+  // must agree with it — never "off but still registered", never "on but the
+  // permission was swept".
+  await Promise.all([
+    worker.enable({ tabId: 1 }),
+    worker.disable(),
+    worker.enable({ tabId: 1 }),
+  ]);
 
-  assert.deepEqual(browser.config().enabledOrigins, patterns);
-  assert.equal(security.validateOverlayConfig(browser.config()).ok, true);
+  const stored = browser.config();
+  assert.equal(security.validateOverlayConfig(stored).ok, true);
+  assert.deepEqual(
+    browser.registrationIds(),
+    stored.enabled ? [GLOBAL_REGISTRATION_ID] : []
+  );
+  assert.deepEqual(
+    browser.grantedPatterns(),
+    stored.enabled ? [...GLOBAL_PATTERNS].sort() : []
+  );
 });
 
 // ---------------------------------------------------------------------------
 // A017 — popup control states.
 // ---------------------------------------------------------------------------
 
-test("A017: control state covers unsupported, reconciliation, enabled, disabled, denied", () => {
-  const config = security.emptyOverlayConfig(1);
-  const enabled = { version: 1, revision: 2, enabledOrigins: [HTTPS_EXAMPLE] };
+test("A017: control state covers unsupported, reconciling, enabled, disabled, denied", () => {
+  const off = security.emptyOverlayConfig(1);
+  const on = { version: 2, revision: 2, enabled: true };
+  const httpsTab = "https://example.com/login";
 
   assert.equal(
-    computeSiteControlState({ tabUrl: "chrome://extensions", config }).state,
+    computeGlobalControlState({ tabUrl: "chrome://extensions", config: off }).state,
     "unsupported"
   );
   assert.equal(
-    computeSiteControlState({ tabUrl: "file:///tmp/a.html", config }).state,
+    computeGlobalControlState({ tabUrl: "file:///tmp/a.html", config: off }).state,
     "unsupported"
   );
-  assert.equal(computeSiteControlState({ tabUrl: "", config }).state, "unsupported");
+  assert.equal(computeGlobalControlState({ tabUrl: "", config: off }).state, "unsupported");
+  // No tab NAMED at all is not the same as a tab that cannot host the overlay:
+  // a caller that supplied nothing gets the plain global answer.
+  assert.equal(computeGlobalControlState({ config: off }).state, "disabled");
+  assert.equal(computeGlobalControlState({ tabUrl: null, config: off }).state, "disabled");
   assert.equal(
-    computeSiteControlState({ tabUrl: "https://example.com/login", config, ready: false }).state,
+    computeGlobalControlState({ tabUrl: httpsTab, config: off, ready: false }).state,
     "reconciling"
   );
+  assert.equal(computeGlobalControlState({ tabUrl: httpsTab, config: on }).state, "enabled");
+  assert.equal(computeGlobalControlState({ tabUrl: httpsTab, config: off }).state, "disabled");
   assert.equal(
-    computeSiteControlState({ tabUrl: "https://example.com/login", config: enabled }).state,
-    "enabled"
-  );
-  assert.equal(
-    computeSiteControlState({ tabUrl: "https://example.com/login", config }).state,
-    "disabled"
-  );
-  assert.equal(
-    computeSiteControlState({
-      tabUrl: "https://example.com/login",
-      config,
-      lastRequestDenied: true,
-    }).state,
+    computeGlobalControlState({ tabUrl: httpsTab, config: off, lastRequestDenied: true }).state,
     "denied"
   );
-  // An enabled sibling port must not make this one look enabled.
-  assert.equal(
-    computeSiteControlState({ tabUrl: "https://example.com:8443/login", config: enabled }).state,
-    "disabled"
-  );
+});
+
+test("A017: the OFF switch is reachable from a page the overlay cannot run on", () => {
+  // A permission the user cannot withdraw from where they are standing is a
+  // permission they effectively cannot withdraw. `unsupported` must therefore
+  // never mask an ON switch: the popup renders "Turn off" on a chrome:// page
+  // exactly as it does on an http(s) one.
+  const on = { version: 2, revision: 2, enabled: true };
+  for (const tabUrl of ["chrome://extensions", "file:///tmp/a.html", "", null]) {
+    assert.equal(
+      computeGlobalControlState({ tabUrl, config: on }).state,
+      "enabled",
+      `${String(tabUrl)} must still offer the off switch`
+    );
+  }
 });
 
 test("A017: a declined prompt persists nothing", async () => {
@@ -977,23 +1152,38 @@ test("A017: a declined prompt persists nothing", async () => {
   const worker = newWorker(browser);
   await worker.ready();
 
-  // The popup never calls enableOrigin without a grant; if it ever did, the
-  // worker still refuses, because the browser is the authority on the grant.
-  const result = await worker.enableOrigin({ origin: HTTPS_EXAMPLE, tabId: 1 });
+  // The popup never calls enable without a grant; if it ever did, the worker
+  // still refuses, because the browser is the authority on the grant.
+  const result = await worker.enable({ tabId: 1 });
 
   assert.deepEqual(result, { ok: false, error: "permission_missing" });
-  assert.deepEqual(browser.config().enabledOrigins, []);
+  assert.equal(browser.config().enabled, false);
   assert.deepEqual(browser.registrationIds(), []);
 });
 
-test("A017: siteState reports the committed origin, not the requested one", async () => {
+test("A017: siteState is global — the same answer whatever tab is open", async () => {
+  // SLICE C REPLACEMENT for "siteState reports the committed origin, not the
+  // requested one". There is no per-origin answer to report any more, and the
+  // property worth pinning is the inverse: the tab must not be able to change
+  // the reported state of a global switch.
   const browser = new FakeBrowser();
   const worker = newWorker(browser);
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 1);
+  await grantAndEnable(browser, worker, 1);
 
-  assert.equal((await worker.siteState({ tabUrl: "https://example.com/x?y#z" })).state, "enabled");
-  assert.equal((await worker.siteState({ tabUrl: "https://example.com:8443/x" })).state, "disabled");
-  assert.equal((await worker.siteState({ tabUrl: "http://example.com/x" })).state, "disabled");
+  for (const tabUrl of [
+    "https://example.com/x?y#z",
+    "https://example.com:8443/x",
+    "http://example.com/x",
+    "https://unrelated.test/",
+    "chrome://extensions",
+    null,
+  ]) {
+    assert.equal(
+      (await worker.siteState({ tabUrl })).state,
+      "enabled",
+      `${String(tabUrl)} must report the global state`
+    );
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -1003,18 +1193,21 @@ test("A017: siteState reports the committed origin, not the requested one", asyn
 test("no secret-shaped key is ever written to storage", async () => {
   const browser = new FakeBrowser({ tabs: [{ id: 1 }] });
   const worker = newWorker(browser);
-  await grantAndEnable(browser, worker, HTTPS_EXAMPLE, 1);
-  await worker.disableOrigin({ origin: HTTPS_EXAMPLE });
+  await grantAndEnable(browser, worker, 1);
+  await worker.disable();
 
   const serialized = JSON.stringify(browser.store);
   for (const forbidden of security.FORBIDDEN_KEYS) {
     assert.equal(serialized.includes(`"${forbidden}"`), false, forbidden);
   }
-  // The permission pattern/refcount is derived, never stored.
+  // The permission patterns are derived from a constant, never stored.
   assert.equal(serialized.includes("/*"), false);
   assert.deepEqual(Object.keys(browser.config()).sort(), [
-    "enabledOrigins",
+    "enabled",
     "revision",
     "version",
   ]);
+  // No origin is persisted at all any more — the durable value cannot leak
+  // which sites the user visits, because it never knew.
+  assert.equal(serialized.includes("example.com"), false);
 });

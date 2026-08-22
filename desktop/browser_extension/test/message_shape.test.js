@@ -18,11 +18,11 @@ const {
   fillMessage,
   bootstrapMessage,
   bindingA,
-  configWith,
+  overlayConfig,
+  legacyConfigV1,
   contextFor,
 } = require("./helpers.js");
 
-const ENABLED = ["https://example.com"];
 
 function validMatchesResult(overrides = {}) {
   return {
@@ -48,22 +48,75 @@ function validMatchesResult(overrides = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Persisted overlayConfigV1
+// Persisted overlayConfigV2 — shape, fail-closed parsing, and the v1 migration
+//
+// SLICE C. The durable value is now one global boolean. The strict parser is
+// what performs the v1 -> v2 migration: a Slice A2 value carries
+// `enabledOrigins` and declares `version: 1`, both of which this validator
+// refuses, so such a value can only ever load as the DISABLED default. That
+// is not incidental — a user who opted three sites in under v1 never
+// consented to "all sites", so silently reading v1 state as `enabled: true`
+// would be a privilege escalation performed by an upgrade.
 // ---------------------------------------------------------------------------
 
-test("a well-formed overlayConfigV1 is accepted", () => {
-  assert.equal(
-    security.validateOverlayConfig(
-      configWith(["https://example.com", "https://example.com:8443"])
-    ).ok,
-    true
-  );
+test("a well-formed overlayConfigV2 is accepted", () => {
+  assert.equal(security.validateOverlayConfig(overlayConfig(true)).ok, true);
+  assert.equal(security.validateOverlayConfig(overlayConfig(false)).ok, true);
   assert.equal(security.validateOverlayConfig(security.emptyOverlayConfig()).ok, true);
+});
+
+test("the fail-closed default is disabled, valid and revisioned", () => {
+  const empty = security.emptyOverlayConfig(9);
+  assert.equal(empty.enabled, false);
+  assert.equal(empty.version, 2);
+  assert.equal(empty.revision, 9);
+  assert.equal(security.validateOverlayConfig(empty).ok, true);
+});
+
+// THE MIGRATION INVARIANT. Every shape a Slice A2 install could have left on
+// disk — including one with origins enabled — is refused by the v2 parser and
+// loads as disabled. There is no v1 branch to fall back to, by design.
+test("a Slice A2 overlayConfigV1 value never loads as enabled", () => {
+  const v1Values = [
+    legacyConfigV1([]),
+    legacyConfigV1(["https://example.com"]),
+    legacyConfigV1(["https://a.example", "https://b.example", "https://c.example"], 41),
+    { version: 1, revision: 0, enabledOrigins: ["https://example.com"] },
+  ];
+  for (const v1 of v1Values) {
+    const result = security.validateOverlayConfig(v1);
+    assert.equal(result.ok, false, `${JSON.stringify(v1)} must be refused`);
+
+    const loaded = security.loadOverlayConfigOrEmpty(v1);
+    assert.equal(loaded.enabled, false, `${JSON.stringify(v1)} must load disabled`);
+    assert.equal(loaded.version, 2);
+    assert.equal(security.validateOverlayConfig(loaded).ok, true);
+  }
+});
+
+// The narrower half of the same rule: it is `version` AND the unknown key that
+// refuse a v1 value, so neither alone can be relaxed into acceptance.
+test("neither a v1 version nor a stray enabledOrigins key is tolerated", () => {
+  const wrongVersionOnly = { version: 1, revision: 3, enabled: true };
+  assert.equal(security.validateOverlayConfig(wrongVersionOnly).ok, false);
+  assert.equal(security.loadOverlayConfigOrEmpty(wrongVersionOnly).enabled, false);
+
+  const strayOriginsKey = {
+    version: 2,
+    revision: 3,
+    enabled: true,
+    enabledOrigins: ["https://example.com"],
+  };
+  const strayResult = security.validateOverlayConfig(strayOriginsKey);
+  assert.equal(strayResult.ok, false);
+  assert.equal(strayResult.error, "unknown_key");
+  assert.equal(strayResult.key, "enabledOrigins");
+  assert.equal(security.loadOverlayConfigOrEmpty(strayOriginsKey).enabled, false);
 });
 
 test("persisted config rejects password, secret, username and payload dumps", () => {
   for (const key of security.FORBIDDEN_KEYS) {
-    const polluted = { ...configWith(ENABLED), [key]: "anything" };
+    const polluted = { ...overlayConfig(true), [key]: "anything" };
     const result = security.validateOverlayConfig(polluted);
     assert.equal(result.ok, false, `config must reject key "${key}"`);
     // Either named as forbidden or refused as unknown — never accepted.
@@ -73,36 +126,29 @@ test("persisted config rejects password, secret, username and payload dumps", ()
 });
 
 test("persisted config rejects a nested secret at any depth", () => {
-  const nested = {
-    ...configWith(ENABLED),
-    // Not even an allowlisted key may smuggle one in as a sub-object.
-    revision: 17,
-  };
-  nested.enabledOrigins = [{ origin: "https://example.com", password: "x" }];
-  const result = security.validateOverlayConfig(nested);
-  assert.equal(result.ok, false);
-  // The forbidden-key sweep runs before origin canonicalization, so the
-  // secret is named as such rather than being reported as a bad origin.
-  assert.equal(result.error, "forbidden_key");
-  assert.equal(result.key, "password");
-
-  const deep = { version: 1, revision: 1, enabledOrigins: [], meta: { secret: "x" } };
+  const deep = { version: 2, revision: 1, enabled: false, meta: { secret: "x" } };
   const deepResult = security.validateOverlayConfig(deep);
   assert.equal(deepResult.ok, false);
   assert.equal(deepResult.error, "unknown_key");
+  assert.equal(security.loadOverlayConfigOrEmpty(deep).enabled, false);
 });
 
 test("persisted config rejects unknown keys, wrong versions and wrong types", () => {
   const cases = [
-    [{ ...configWith(ENABLED), dismissed: true }, "unknown_key"],
-    [{ ...configWith(ENABLED), version: 2 }, "invalid_type"],
-    [{ ...configWith(ENABLED), revision: -1 }, "invalid_type"],
-    [{ ...configWith(ENABLED), revision: "17" }, "invalid_type"],
-    [{ ...configWith(ENABLED), enabledOrigins: "https://example.com" }, "invalid_type"],
-    [{ version: 1, revision: 1 }, "missing_key"],
+    [{ ...overlayConfig(true), dismissed: true }, "unknown_key"],
+    [{ ...overlayConfig(true), version: 1 }, "invalid_type"],
+    [{ ...overlayConfig(true), version: 3 }, "invalid_type"],
+    [{ ...overlayConfig(true), revision: -1 }, "invalid_type"],
+    [{ ...overlayConfig(true), revision: "17" }, "invalid_type"],
+    // The switch must be a real boolean. A truthy string is exactly the shape
+    // a sloppy hand-edit of storage would produce, and it must not enable.
+    [{ ...overlayConfig(true), enabled: "true" }, "invalid_type"],
+    [{ ...overlayConfig(true), enabled: 1 }, "invalid_type"],
+    [{ ...overlayConfig(true), enabled: null }, "invalid_type"],
+    [{ version: 2, revision: 1 }, "missing_key"],
     [null, "not_an_object"],
     [[], "not_an_object"],
-    ["overlayConfigV1", "not_an_object"],
+    ["overlayConfigV2", "not_an_object"],
   ];
   for (const [value, expected] of cases) {
     const result = security.validateOverlayConfig(value);
@@ -111,51 +157,17 @@ test("persisted config rejects unknown keys, wrong versions and wrong types", ()
   }
 });
 
-test("persisted config rejects non-canonical, duplicate, unsorted or oversized origins", () => {
-  const cases = [
-    [["https://EXAMPLE.com"], "noncanonical_origin"],
-    [["https://example.com/"], "noncanonical_origin"],
-    [["https://example.com:443"], "noncanonical_origin"],
-    [["example.com"], "noncanonical_origin"],
-    [["https://alice@example.com"], "noncanonical_origin"],
-    [["https://example.com", "https://example.com"], "duplicate_origin"],
-    [["https://z.example", "https://a.example"], "unsorted_origins"],
-  ];
-  for (const [origins, expected] of cases) {
-    const result = security.validateOverlayConfig({
-      version: 1,
-      revision: 1,
-      enabledOrigins: origins,
-    });
-    assert.equal(result.ok, false, `${JSON.stringify(origins)} must be rejected`);
-    assert.equal(result.error, expected);
-  }
-
-  const tooMany = Array.from(
-    { length: security.LIMITS.ENABLED_ORIGINS + 1 },
-    (_, i) => `https://host${String(i).padStart(4, "0")}.example`
-  );
-  const overflow = security.validateOverlayConfig({
-    version: 1,
-    revision: 1,
-    enabledOrigins: tooMany,
-  });
-  assert.equal(overflow.ok, false);
-  assert.equal(overflow.error, "invalid_type");
-  assert.equal(overflow.key, "enabledOrigins");
-});
-
-test("an invalid stored config loads as zero enabled origins, never partially", () => {
+test("an invalid stored config loads as disabled, never partially", () => {
   for (const broken of [
     undefined,
     null,
     "{}",
-    { version: 2, revision: 1, enabledOrigins: ["https://example.com"] },
-    { version: 1, revision: 1, enabledOrigins: ["https://example.com"], password: "x" },
-    { version: 1, revision: 1, enabledOrigins: ["https://EXAMPLE.com"] },
+    { version: 2, revision: 1, enabled: "yes" },
+    { version: 2, revision: 1, enabled: true, password: "x" },
+    { version: 1, revision: 1, enabledOrigins: ["https://example.com"] },
   ]) {
     const loaded = security.loadOverlayConfigOrEmpty(broken);
-    assert.deepEqual(loaded.enabledOrigins, []);
+    assert.equal(loaded.enabled, false);
     assert.equal(security.validateOverlayConfig(loaded).ok, true);
   }
 });
@@ -166,7 +178,7 @@ test("a config recovered from an invalid value authorizes nothing", () => {
     bootstrapMessage(),
     contentScriptSender(),
     RUNTIME_ID,
-    { enabledOrigins: loaded.enabledOrigins }
+    { enabled: loaded.enabled }
   );
   assert.equal(result.ok, false);
   assert.equal(result.error, "disabled");
@@ -298,7 +310,7 @@ test("inbound content messages reject credential fields outright", () => {
         { ...base, [key]: "leak" },
         contentScriptSender(),
         RUNTIME_ID,
-        contextFor(ENABLED)
+        contextFor()
       );
       assert.equal(result.ok, false, `${base.type} must reject "${key}"`);
       assert.equal(result.error, "forbidden_key");
@@ -345,7 +357,7 @@ test("error results never echo the offending value, only the key name", () => {
     { ...bootstrapMessage(), password: leaked },
     contentScriptSender(),
     RUNTIME_ID,
-    contextFor(ENABLED)
+    contextFor()
   );
   assert.equal(result.ok, false);
   assert.ok(!JSON.stringify(result).includes(leaked));

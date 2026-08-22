@@ -4,7 +4,7 @@
 // user accepts the popup's `permissions.request`, BEFORE the popup's
 // `setSiteState` message reaches the worker. The reconcile that listener
 // triggers then sees a granted pattern that no committed config justifies,
-// classifies it as an orphan, and revokes it — so `enableOrigin`'s own
+// classifies it as an orphan, and revokes it — so `enable`'s own
 // `permissions.contains` re-check (a defence pinned by mutation A2-M3) fails
 // and the enable dies silently.
 //
@@ -37,6 +37,7 @@ const {
 
 const ORIGIN = "https://example.com";
 const PATTERN = "https://example.com/*";
+const GLOBAL_PATTERNS = [...security.GLOBAL_PERMISSION_PATTERNS];
 const PAGE_URL = "https://example.com/login";
 
 const nativeStub = async () => ({ ok: true, data: {} });
@@ -67,7 +68,7 @@ test("Gate A2: onAdded reconcile between grant and setSiteState does not revoke 
   await lifecycle.ready();
 
   // Popup flow step 1: the user accepts the permission prompt.
-  await browser.permissions.request({ origins: [PATTERN] });
+  await browser.permissions.request({ origins: [...GLOBAL_PATTERNS] });
 
   // Chrome fires onAdded immediately; worst case, the triggered reconcile runs
   // to completion before the popup's setSiteState message arrives. Awaiting
@@ -76,7 +77,7 @@ test("Gate A2: onAdded reconcile between grant and setSiteState does not revoke 
 
   // Popup flow step 2: setSiteState enable, through the production route.
   const enabled = await router.dispatch(
-    overlayMessage("setSiteState", { tabId: 42, origin: ORIGIN, enabled: true }),
+    overlayMessage("setSiteState", { tabId: 42, enabled: true }),
     extensionPageSender()
   );
   assert.equal(enabled.ok, true, "enable must survive the onAdded reconcile");
@@ -84,7 +85,7 @@ test("Gate A2: onAdded reconcile between grant and setSiteState does not revoke 
 
   // The permission granted seconds ago is still held — not auto-revoked.
   assert.equal(
-    await browser.permissions.contains({ origins: [PATTERN] }),
+    await browser.permissions.contains({ origins: [...GLOBAL_PATTERNS] }),
     true,
     "the just-granted permission must not be revoked as an orphan"
   );
@@ -105,7 +106,11 @@ test("Gate A2: the onAdded reconcile still reconciles everything except the perm
   // must clean up the registration but leave the permission for the enable
   // that is about to arrive.
   const browser = new FakeBrowser({ tabs: [{ id: 42 }] });
-  const stale = lifecycleModule.registrationForPattern("https://stale.example/*");
+  const stale = {
+    id: lifecycleModule.registrationIdForPattern("https://stale.example/*"),
+    matches: ["https://stale.example/*"],
+    js: ["overlay_security.js", "content_overlay.js"],
+  };
   browser.registered.set(stale.id, stale);
   const { lifecycle } = makeWorker(browser);
   await lifecycle.ready();
@@ -114,7 +119,7 @@ test("Gate A2: the onAdded reconcile still reconciles everything except the perm
   // hygiene.
   browser.registered.set(stale.id, stale);
 
-  await browser.permissions.request({ origins: [PATTERN] });
+  await browser.permissions.request({ origins: [...GLOBAL_PATTERNS] });
   await Promise.all(browser.permissionEvents);
 
   assert.deepEqual(
@@ -123,7 +128,7 @@ test("Gate A2: the onAdded reconcile still reconciles everything except the perm
     "orphan registrations are still removed on the onAdded trigger"
   );
   assert.equal(
-    await browser.permissions.contains({ origins: [PATTERN] }),
+    await browser.permissions.contains({ origins: [...GLOBAL_PATTERNS] }),
     true,
     "the fresh permission is retained on the onAdded trigger"
   );
@@ -137,9 +142,9 @@ test("A020/A2-M9 regression: cold-start reconcile still removes truly orphan per
     granted: [PATTERN],
     storage: {
       [security.OVERLAY_CONFIG_KEY]: {
-        version: 1,
+        version: 2,
         revision: 3,
-        enabledOrigins: [],
+        enabled: false,
       },
       [security.OVERLAY_REVISION_FLOOR_KEY]: 3,
     },

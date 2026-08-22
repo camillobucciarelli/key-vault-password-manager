@@ -215,7 +215,7 @@ test("body origin is derived from sender.url, not sender.tab.url and not the hos
     bootstrapMessage(frameOrigin),
     sender,
     RUNTIME_ID,
-    contextFor([frameOrigin])
+    contextFor()
   );
   assert.equal(accepted.ok, true);
   assert.equal(accepted.sender.origin, frameOrigin);
@@ -227,7 +227,7 @@ test("body origin is derived from sender.url, not sender.tab.url and not the hos
     bootstrapMessage(topOrigin),
     sender,
     RUNTIME_ID,
-    contextFor([frameOrigin, topOrigin])
+    contextFor()
   );
   assert.equal(spoofedTop.ok, false);
   assert.equal(spoofedTop.error, "origin_mismatch");
@@ -237,7 +237,7 @@ test("body origin is derived from sender.url, not sender.tab.url and not the hos
     bootstrapMessage("child.example"),
     sender,
     RUNTIME_ID,
-    contextFor([frameOrigin])
+    contextFor()
   );
   assert.equal(spoofedHost.ok, false);
   assert.equal(spoofedHost.key, "origin");
@@ -255,7 +255,7 @@ test("a non-canonical spelling of the correct origin is still rejected in the bo
       bootstrapMessage(spelling),
       sender,
       RUNTIME_ID,
-      contextFor(["https://example.com"])
+      contextFor()
     );
     assert.equal(result.ok, false, `${spelling} must not be accepted verbatim`);
   }

@@ -97,7 +97,7 @@ function fillMessage(overrides = {}) {
 function getSiteStateMessage(overrides = {}) {
   return overlayMessage("getSiteState", {
     tabId: 42,
-    origin: "https://example.com",
+    tabUrl: "https://example.com/login",
     ...overrides,
   });
 }
@@ -105,7 +105,6 @@ function getSiteStateMessage(overrides = {}) {
 function setSiteStateMessage(overrides = {}) {
   return overlayMessage("setSiteState", {
     tabId: 42,
-    origin: "https://example.com",
     enabled: true,
     ...overrides,
   });
@@ -132,24 +131,28 @@ function bindingB() {
   };
 }
 
-/** Committed `overlayConfigV1` with the given origins enabled. */
-function configWith(origins, revision = 17) {
-  return {
-    version: 1,
-    revision,
-    enabledOrigins: [...origins].sort(),
-  };
+/** Committed `overlayConfigV2`. Slice C: one global switch, no origin list. */
+function overlayConfig(enabled = true, revision = 17) {
+  return { version: 2, revision, enabled };
+}
+
+/**
+ * A Slice A2 `overlayConfigV1` value, for the migration tests ONLY.
+ *
+ * Built here rather than by the shipped code on purpose: this build has no
+ * v1 writer any more, so the fixture has to be spelled out to prove that a
+ * value written by the PREVIOUS build cannot be read as an opt-in by this one.
+ */
+function legacyConfigV1(origins, revision = 17) {
+  return { version: 1, revision, enabledOrigins: [...origins].sort() };
 }
 
 /** Authorization context for `validateContentScriptRequest`. */
-function contextFor(origins, overrides = {}) {
-  const enabledOrigins = [...origins].sort();
+function contextFor(overrides = {}) {
   return {
-    enabledOrigins,
+    enabled: true,
     revision: 17,
-    grantedPatterns: enabledOrigins
-      .map((origin) => security.permissionPatternForOrigin(origin))
-      .filter((pattern) => pattern !== null),
+    grantedPatterns: [...security.GLOBAL_PERMISSION_PATTERNS],
     ...overrides,
   };
 }
@@ -171,6 +174,7 @@ module.exports = {
   setSiteStateMessage,
   bindingA,
   bindingB,
-  configWith,
+  overlayConfig,
+  legacyConfigV1,
   contextFor,
 };

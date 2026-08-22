@@ -604,7 +604,20 @@ async function renderMatchesState(tab, origin, response) {
   void reportMatchCountForBadge(tab.id, strong.length, possible.length);
 }
 
-// ---------- 009 A017 — "Show the overlay on this site" ----------
+// ---------- 009 Slice C — the single global overlay switch ----------
+//
+// Slice A2 shipped this as a PER-SITE control: the user had to open the popup
+// and click "Turn on" once for every site they wanted the overlay on. That is
+// unusable in practice, so Slice C replaces it with one switch that asks for
+// the broad optional host permission once.
+//
+// The copy below is deliberately explicit about the size of that grant. It
+// says what is being handed over (every http(s) site), why it is needed (the
+// overlay is a content script and Chromium has no "ask me later, per site"
+// injection), and what it does NOT imply (the extension does not read page
+// content, and the app still only ever reveals credentials for an exact
+// origin match). Understating a broad permission is the failure mode worth
+// engineering against here.
 
 const overlaySecurity = globalThis.KeyVaultOverlaySecurity;
 
@@ -612,39 +625,56 @@ const overlaySecurity = globalThis.KeyVaultOverlaySecurity;
 // state and must never be persisted.
 let overlayRequestDenied = false;
 
+const OVERLAY_TITLE = "In-page autofill overlay";
+
 function overlayControlCopy(state) {
   switch (state) {
     case "unsupported":
+      // The switch is OFF and this page is not an http(s) page. Turning it on
+      // from here would visibly do nothing, so the honest answer is where it
+      // works — and the switch is still offered, because the grant is global.
       return {
-        title: "Overlay unavailable here",
-        meta: "The in-page overlay works only on http(s) pages.",
-        action: null,
+        title: OVERLAY_TITLE,
+        meta: "Off. It appears on http(s) pages; this page is not one.",
+        action: "Turn on",
       };
     case "reconciling":
-      return { title: "Show the overlay on this site", meta: "Checking\u2026", action: null };
+      return { title: OVERLAY_TITLE, meta: "Checking\u2026", action: null };
     case "enabled":
       return {
-        title: "Show the overlay on this site",
-        meta: "On for this exact site, scheme and port.",
+        title: OVERLAY_TITLE,
+        meta: "On for all sites. KeyVault still shows only exact matches.",
         action: "Turn off",
       };
     case "denied":
       return {
-        title: "Show the overlay on this site",
-        meta: "Site access was declined. Nothing was saved.",
+        title: OVERLAY_TITLE,
+        meta: "Access was declined. Nothing was saved or turned on.",
         action: "Try again",
       };
     default:
       return {
-        title: "Show the overlay on this site",
-        meta: "Off. KeyVault asks for access to this site first.",
+        title: OVERLAY_TITLE,
+        meta: "Off. Turning it on asks for access to all http(s) sites.",
         action: "Turn on",
       };
   }
 }
 
+/**
+ * The one honest sentence about what the broad grant does and does not mean.
+ * Rendered under the switch in every state, so it is present when the user is
+ * deciding, not only after they have decided.
+ */
+const OVERLAY_SCOPE_NOTE =
+  "The overlay needs access to every http(s) site because Chrome cannot grant " +
+  "it site by site as you browse. It does not read page content: it shows a " +
+  "suggestion box next to a login field, and only for entries already saved " +
+  "in your vault that match the exact site, scheme and port.";
+
 function renderOverlayControl(state, onToggle) {
   const copy = overlayControlCopy(state);
+  const wrapper = el("div");
   const row = el("div", "tab-row");
   const info = el("div", "tab-info");
   info.appendChild(el("div", "tab-title", copy.title));
@@ -657,7 +687,9 @@ function renderOverlayControl(state, onToggle) {
     button.addEventListener("click", onToggle);
     row.appendChild(button);
   }
-  return row;
+  wrapper.appendChild(row);
+  wrapper.appendChild(renderFooterNote(OVERLAY_SCOPE_NOTE));
+  return wrapper;
 }
 
 async function sendOverlayMessage(type, fields) {
@@ -674,25 +706,26 @@ async function sendOverlayMessage(type, fields) {
  * gesture, so it is issued synchronously from the click handler before any
  * await. Only after the browser reports a grant does the background worker get
  * asked to persist the opt-in — and it re-verifies the grant before writing.
+ *
+ * SLICE C: one request for the whole broad set, taken from the shipped
+ * constant rather than spelled here, so the popup can never ask for something
+ * the manifest does not offer as optional.
  */
-function requestOverlayPermission(origin) {
-  const pattern = overlaySecurity.permissionPatternForOrigin(origin);
-  if (pattern === null) return Promise.resolve(false);
-  return chrome.permissions.request({ origins: [pattern] }).catch(() => false);
+function requestOverlayPermission() {
+  return chrome.permissions
+    .request({ origins: [...overlaySecurity.GLOBAL_PERMISSION_PATTERNS] })
+    .catch(() => false);
 }
 
 async function appendOverlayControl() {
   const tab = await getActiveTab();
-  const origin = overlaySecurity.canonicalOriginOrNull(tab?.url || "");
-  if (origin === null || typeof tab?.id !== "number") {
-    bodyElement.appendChild(renderOverlayControl("unsupported", null));
-    return;
-  }
+  // The tab is OPTIONAL context now, never a precondition: `tabId` drives the
+  // courtesy injection of the page the user is looking at, and `tabUrl` only
+  // decides whether the off state says "this page is not an http(s) page".
+  const tabId = typeof tab?.id === "number" ? tab.id : null;
+  const tabUrl = typeof tab?.url === "string" && tab.url.length > 0 ? tab.url : null;
 
-  const response = await sendOverlayMessage("getSiteState", {
-    tabId: tab.id,
-    origin,
-  });
+  const response = await sendOverlayMessage("getSiteState", { tabId, tabUrl });
   const state =
     response?.ok === true
       ? response.state
@@ -702,7 +735,7 @@ async function appendOverlayControl() {
 
   bodyElement.appendChild(
     renderOverlayControl(state, () => {
-      void toggleOverlayForSite(state, tab.id, origin);
+      void toggleOverlay(state, tabId);
     })
   );
 }
@@ -718,11 +751,10 @@ async function appendOverlayControl() {
  * default access level (TRUSTED_CONTEXTS) already covers popup + worker while
  * excluding content scripts — no `setAccessLevel` call needed.
  */
-function writeEnableIntent(origin, tabId) {
+function writeEnableIntent(tabId) {
   return chrome.storage.session
     .set({
       [overlaySecurity.OVERLAY_ENABLE_INTENT_KEY]: {
-        origin,
         tabId,
         createdAt: Date.now(),
       },
@@ -736,10 +768,13 @@ function clearEnableIntent() {
     .catch(() => {});
 }
 
-async function toggleOverlayForSite(state, tabId, origin) {
+async function toggleOverlay(state, tabId) {
   if (state === "enabled") {
     overlayRequestDenied = false;
-    await sendOverlayMessage("setSiteState", { tabId, origin, enabled: false });
+    // Turning OFF never depends on the tab, the page kind, or the permission
+    // still being held: withdrawing consent must work from wherever the user
+    // happens to be when they change their mind.
+    await sendOverlayMessage("setSiteState", { tabId, enabled: false });
     void initializePopup();
     return;
   }
@@ -747,8 +782,8 @@ async function toggleOverlayForSite(state, tabId, origin) {
   // Not awaited before the request on purpose: `permissions.request` must stay
   // synchronous with the click gesture. The storage IPC completes long before
   // the user can answer the prompt, so the onAdded consumer always sees it.
-  void writeEnableIntent(origin, tabId);
-  const granted = await requestOverlayPermission(origin);
+  void writeEnableIntent(tabId);
+  const granted = await requestOverlayPermission();
   if (granted !== true) {
     // Declined (or the request failed): the intent must not linger for a later
     // unrelated grant. TTL is the backstop, this is the prompt cleanup.
@@ -758,10 +793,10 @@ async function toggleOverlayForSite(state, tabId, origin) {
     return;
   }
   overlayRequestDenied = false;
-  await sendOverlayMessage("setSiteState", { tabId, origin, enabled: true });
+  await sendOverlayMessage("setSiteState", { tabId, enabled: true });
   // Popup survived (Linux/Windows): the enable completed here, burn the
   // intent. If the worker's onAdded path consumed it first, both ran through
-  // the same idempotent enableOrigin — one coherent outcome either way.
+  // the same idempotent enable — one coherent outcome either way.
   void clearEnableIntent();
   void initializePopup();
 }

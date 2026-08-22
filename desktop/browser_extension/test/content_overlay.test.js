@@ -69,18 +69,19 @@ function teardownMessage(revision = 4) {
 }
 
 /**
- * A world whose background is the real lifecycle worker, with `origins`
- * already opted in. `sender` is synthesised from the page URL the way Chromium
- * stamps it, so `validateContentScriptRequest` sees a genuine sender.
+ * A world whose background is the real lifecycle worker, with the global
+ * switch already on (or off, via `{ enabled: false }`). `sender` is synthesised
+ * from the page URL the way Chromium stamps it, so
+ * `validateContentScriptRequest` sees a genuine sender.
  */
-async function pageBackedByWorker(url, enabledOrigins) {
+async function pageBackedByWorker(url, { enabled = true } = {}) {
   const browser = new FakeBrowser({ tabs: [{ id: 1 }] });
   const worker = new OverlayLifecycle({ browser });
-  for (const origin of enabledOrigins) {
+  if (enabled) {
     await browser.permissions.request({
-      origins: [security.permissionPatternForOrigin(origin)],
+      origins: [...security.GLOBAL_PERMISSION_PATTERNS],
     });
-    await worker.enableOrigin({ origin, tabId: 1 });
+    await worker.enable({ tabId: 1 });
   }
 
   const page = new FakePage({ url });
@@ -154,30 +155,50 @@ test("content_overlay: a released guard lets a later valid enable bootstrap agai
 // Exact-origin gate.
 // ---------------------------------------------------------------------------
 
-test("content_overlay: an injected non-enabled port attaches no listener", async () => {
-  // Chromium injects this document because `https://example.com/*` is the only
-  // pattern it can express. Nothing but the exact-origin check keeps it inert.
-  const { page } = await pageBackedByWorker(
+// SLICE C SUBSTITUTION for "an injected non-enabled port attaches no listener"
+// and "the enabled port on the same host does attach". Both encoded the Slice
+// A2 asymmetry: Chromium injects `https://example.com:8443` whenever
+// `https://example.com` is enabled, and only the exact-origin check kept the
+// sibling port inert. The global switch enables both, so the asymmetry is gone
+// BY DESIGN and asserting it would now be asserting the old product decision.
+//
+// What must not be lost is the other half: each document still claims and is
+// bound to its OWN exact origin, so the sibling port is a separate identity
+// even though both now attach. "the bootstrap claims this document's own exact
+// origin" below is that property, and it is unchanged.
+test("content_overlay: every http(s) document attaches once the switch is on", async () => {
+  for (const url of [
+    "https://example.com/login",
     "https://example.com:8443/login",
-    [HTTPS_EXAMPLE]
-  );
-
-  await page.inject();
-
-  assert.deepEqual(page.sentOfType("bootstrap").map((m) => m.origin), [
-    HTTPS_EXAMPLE_8443,
-  ]);
-  assert.equal(page.listenerCount, 0);
-  assert.equal(page.guarded, false);
+    "http://example.com/login",
+    "https://example.com.evil.test/login",
+  ]) {
+    const { page } = await pageBackedByWorker(url);
+    await page.inject();
+    assert.equal(page.listenerCount, 1, url);
+    assert.equal(page.guarded, true, url);
+    // Bound to itself, never to a neighbour.
+    assert.deepEqual(
+      page.sentOfType("bootstrap").map((m) => m.origin),
+      [security.canonicalOriginOrNull(url)],
+      url
+    );
+  }
 });
 
-test("content_overlay: the enabled port on the same host does attach", async () => {
-  const { page } = await pageBackedByWorker("https://example.com/login", [HTTPS_EXAMPLE]);
-
-  await page.inject();
-
-  assert.equal(page.listenerCount, 1);
-  assert.equal(page.guarded, true);
+test("content_overlay: with the switch off, no document attaches", async () => {
+  // The inverse, and the one that actually protects the user: turning the
+  // overlay off must silence every page, not just the one they were on.
+  for (const url of [
+    "https://example.com/login",
+    "https://example.com:8443/login",
+    "http://example.com/login",
+  ]) {
+    const { page } = await pageBackedByWorker(url, { enabled: false });
+    await page.inject();
+    assert.equal(page.listenerCount, 0, url);
+    assert.equal(page.guarded, false, url);
+  }
 });
 
 test("content_overlay: an enabled origin in an unsupported frame is display-only — no query, no fill, honest state", async () => {
@@ -225,18 +246,14 @@ test("content_overlay: an approval missing frameSupport is not an approval", asy
   assert.equal(page.guarded, false);
 });
 
-test("content_overlay: a sibling scheme and a suffix lookalike both stay inert", async () => {
-  for (const url of [
-    "http://example.com/login",
-    "https://example.com.evil.test/login",
-    "https://evil.test/?next=https://example.com",
-  ]) {
-    const { page } = await pageBackedByWorker(url, [HTTPS_EXAMPLE]);
-    await page.inject();
-    assert.equal(page.listenerCount, 0, url);
-    assert.equal(page.guarded, false, url);
-  }
-});
+// SLICE C RETIREMENT. "a sibling scheme and a suffix lookalike both stay
+// inert" asserted that `http://example.com` and `https://example.com.evil.test`
+// attached nothing while only `https://example.com` was enabled. Under the
+// global switch they attach like any other http(s) page. The danger the test
+// was really about — a look-alike host being served `example.com`'s
+// credentials — is not addressed by inertness at all but by exact-origin
+// binding, which "the bootstrap claims this document's own exact origin" and
+// the router's exact-origin query both still pin.
 
 test("content_overlay: the bootstrap claims this document's own exact origin", async () => {
   for (const [url, expected] of [
@@ -359,28 +376,25 @@ test("content_overlay: no listener exists before the approval arrives", async ()
 test("content_overlay: teardown for a still-authorized document keeps the listener", async () => {
   // A2/G3: the broadcast names no origin, so an enabled document must not be
   // torn down just because some other origin was disabled.
-  const { page, worker } = await pageBackedByWorker("https://example.com/login", [
-    HTTPS_EXAMPLE,
-    HTTP_EXAMPLE,
-  ]);
+  const { page } = await pageBackedByWorker("https://example.com/login");
   await page.inject();
   assert.equal(page.listenerCount, 1);
 
-  await worker.disableOrigin({ origin: HTTP_EXAMPLE });
+  // A teardown broadcast arrives while the switch is still ON — exactly what a
+  // reconcile-triggered broadcast looks like to a document that is still
+  // authorized. The message names no origin, so the receiver has to revalidate
+  // rather than assume it was the target.
   await page.deliver(teardownMessage());
 
-  assert.equal(page.listenerCount, 1, "an unrelated disable tore down this document");
+  assert.equal(page.listenerCount, 1, "a broadcast tore down a still-authorized document");
   assert.equal(page.guarded, true);
 });
 
-test("content_overlay: teardown after this origin is disabled removes the listener", async () => {
-  const { page, worker } = await pageBackedByWorker("https://example.com/login", [
-    HTTPS_EXAMPLE,
-    HTTP_EXAMPLE,
-  ]);
+test("content_overlay: teardown after the switch is off removes the listener", async () => {
+  const { page, worker } = await pageBackedByWorker("https://example.com/login");
   await page.inject();
 
-  await worker.disableOrigin({ origin: HTTPS_EXAMPLE });
+  await worker.disable();
   await page.deliver(teardownMessage());
 
   assert.equal(page.listenerCount, 0);

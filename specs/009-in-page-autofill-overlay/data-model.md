@@ -113,6 +113,86 @@ parser normalization can erase evidence. Both test suites assert fixture version
 unique ids, required-id set, total case count, validity, canonical origin,
 effective port, permission pattern, and error code.
 
+## Extension persistence — Slice C (supersedes the Slice A block below)
+
+> The Slice A block that follows describes the per-origin model as built and
+> shipped in slices A0–A3. It is kept because the crash-consistency,
+> reconciliation and registration rules in it are still normative word for
+> word; only the SHAPE of the durable value and the meaning of "desired
+> permissions/registrations" changed. Where the two disagree, this section
+> wins.
+
+Only `chrome.storage.local`:
+
+```json
+{
+  "overlayConfigV2": {
+    "version": 2,
+    "revision": 17,
+    "enabled": false
+  },
+  "overlayRevisionFloorV1": 17
+}
+```
+
+Constraints:
+
+- exactly these three keys, exact types; `enabled` must be a real boolean, and
+  a truthy non-boolean is corruption, not a yes;
+- `revision` increments on enable, disable, reconciliation correction, and
+  permission removal;
+- no origins are persisted at all — the durable value cannot leak which sites
+  the user visits, because it never knows;
+- no credential ids, match results, usernames, titles, focus tokens, pending
+  ids, page titles, paths, queries, fragments, passwords, or native responses;
+- no persisted dismissed/session state;
+- permission patterns and the registration id are derived from a constant, not
+  persisted.
+
+Derived browser state while `enabled` is true:
+
+```text
+optional host permissions : ["http://*/*", "https://*/*"]   (both, or none)
+content-script registration: one, matches ["http://*/*", "https://*/*"],
+                             ISOLATED world, document_idle, allFrames
+```
+
+The permission is all-or-nothing. Losing either pattern is a revocation, not a
+smaller grant: a half-injected overlay is not a state the user consented to.
+
+### Migration from `overlayConfigV1`
+
+The key is renamed, not reused, and the v1 shape is refused by the strict
+parser (`version` is pinned to 2 and `enabledOrigins` is an unknown key). A v1
+value therefore takes the normal fail-closed corruption path and produces
+`enabled: false`. This is required, not incidental:
+
+```text
+v1 { enabledOrigins: [a, b, c] }  ->  v2 { enabled: false }     ALWAYS
+```
+
+Reconciliation additionally removes every granted pattern the new config does
+not justify (which is all of them while disabled), unregisters every
+`kv-overlay-` registration whose id is not the global one, and deletes the
+stale `overlayConfigV1` key. The registration-id encoding is injective, which
+is what guarantees a per-origin id can never be mistaken for the global one.
+
+`overlayRevisionFloorV1` keeps its name across the version bump on purpose:
+revision monotonicity must hold across the boundary, or a focus grant minted at
+a v1 revision could compare as current against a v2 counter that restarted.
+
+### Crash-consistent disable transaction — Slice C phases
+
+Order and rules unchanged; targets updated:
+
+```text
+D1 durable commit: enabled = false; revision += 1
+D2 clear all worker focus grants
+D3 broadcast teardown to all injected frames (revision only, no origin)
+D4 unregister the content script
+D5 remove both optional host permissions
+```
+
 ## Extension persistence — Slice A
 
 Only `chrome.storage.local`:

@@ -102,6 +102,12 @@ class FakeBrowser {
           self._lastOpWasSet = true;
           Object.assign(self.store, JSON.parse(JSON.stringify(values)));
         },
+        async remove(key) {
+          self.calls.push("storage.local.remove");
+          self._lastOpWasSet = false;
+          const keys = Array.isArray(key) ? key : [key];
+          for (const entry of keys) delete self.store[entry];
+        },
       },
       session: {
         async get(key) {
@@ -301,9 +307,21 @@ class FakeBrowser {
     return this.actionCalls.filter((c) => c.tabId === tabId).map((c) => c.api);
   }
 
-  /** Committed durable value, exactly as stored. */
-  config(key = "overlayConfigV1") {
+  /**
+   * Committed durable value, exactly as stored.
+   *
+   * The default key is spelled literally rather than imported from the shipped
+   * module on purpose: if a future slice renames the storage key, this helper
+   * must NOT follow it silently. A rename is a migration, and the tests have to
+   * be made to say so.
+   */
+  config(key = "overlayConfigV2") {
     return this.store[key];
+  }
+
+  /** The Slice A2 value, for migration tests. */
+  legacyConfig() {
+    return this.store.overlayConfigV1;
   }
 
   registrationIds() {
