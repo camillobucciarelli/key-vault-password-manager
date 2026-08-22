@@ -1371,10 +1371,7 @@ void main() {
     /// Runs [body] with a second read handle open on [file], and closes it
     /// before returning. On Windows a leaked handle also blocks `tearDown`'s
     /// directory delete, so the close is in a `finally`.
-    Future<T> withOpenHandle<T>(
-      File file,
-      Future<T> Function() body,
-    ) async {
+    Future<T> withOpenHandle<T>(File file, Future<T> Function() body) async {
       final holder = await file.open(mode: FileMode.read);
       try {
         // Force a real kernel handle rather than a lazily-opened one.
@@ -1398,6 +1395,16 @@ void main() {
           return (false, e);
         }
       });
+
+      // Printed, not asserted: which branch a platform takes is exactly the
+      // thing this job exists to observe, and an outcome that is only implied
+      // by a green tick is an outcome nobody can quote. Same shape as
+      // `GUARD_PROBE` in mobile_file_storage_guard_qa_test.dart.
+      // ignore: avoid_print
+      print(
+        'RENAME_PROBE platform=${Platform.operatingSystem} '
+        'replaced=$replaced osError=${error?.osError}',
+      );
 
       final after = await target.readAsBytes();
       if (replaced) {

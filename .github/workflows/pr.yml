@@ -52,15 +52,21 @@ jobs:
   # the release build's host agrees.
   test-windows:
     runs-on: windows-2022
-    # NON-BLOCKING FOR NOW, deliberately and temporarily. This job has never run
-    # against this codebase, so its first failures are as likely to be CI
-    # environment artifacts as real defects, and a brand-new required check that
-    # is red on arrival is a check that gets bypassed (same reasoning as the
-    # mutation `--check` note below). The point is to make the failures VISIBLE,
-    # not to ignore them: the step summary below names every Windows-only result
-    # explicitly. Flip this to blocking once the job has been green across a few
-    # PRs — that is a follow-up, not an open-ended exemption.
-    continue-on-error: true
+    # Blocking as of the change that emptied the quarantine. `continue-on-error`
+    # was the right call while 8 files were excluded and one red was known: the
+    # job could not have been required without either lying or blocking every
+    # PR. Both reasons are now gone — the excluded files were fixed rather than
+    # skipped, the one red carries an explicit per-test `skip:` with its reason,
+    # and the suite is green on windows-2022 (1187 + 34 passed, 10 skipped, and
+    # every skip is a `skip:` that names why).
+    #
+    # Leaving it non-blocking past that point would defeat the purpose: a job
+    # nobody has to satisfy is a job that rots, which is exactly what the
+    # `after merge, in release.yml` situation was before #114.
+    #
+    # NOTE: this only makes a Windows failure fail the WORKFLOW RUN. Adding
+    # `test-windows` to the branch's required status checks is a repository
+    # setting and has to be done in branch protection separately.
     steps:
       - uses: actions/checkout@v7.0.1
 
