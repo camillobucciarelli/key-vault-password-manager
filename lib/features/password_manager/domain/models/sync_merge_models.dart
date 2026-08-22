@@ -376,6 +376,19 @@ enum MergeFailureCode {
   /// mapping is not marked synced.
   unresolvedConflict,
   cancelled,
+
+  /// The state that made this review possible no longer exists: the database
+  /// id names nothing in the registry, or the database has no remote mapping
+  /// to merge against.
+  ///
+  /// Added by the Phase 3 slice-2 amendment (see `data-model.md` D16). Before
+  /// it, both refusals had to borrow [sessionInvalidated], which gave one code
+  /// two meanings — and Phase 6 derives the user-facing remedy from these
+  /// codes, so a code that means two things produces the wrong remedy for one
+  /// of them. A missing *local file* deliberately stays [staleLocal]: "the
+  /// local side is not what the registry recorded, resynchronize instead of
+  /// writing" is the correct remedy for an absent file too.
+  mergePreconditionFailed,
   sessionInvalidated,
   platformDisabled,
 }

@@ -64,6 +64,52 @@ const mergeContractFiles = <String>[
 /// test can check today, before the repository implementation exists.
 const mergeDataImplementationFiles = <String>[
   'lib/features/password_manager/data/services/kdbx_merge_adapter.dart',
+  'lib/features/password_manager/data/services/kdbx_semantic_manifest.dart',
+  'lib/features/password_manager/data/repositories/sync_merge_repository_impl.dart',
+];
+
+/// Bucket 5 — the composition root.
+///
+/// **Why this bucket has to exist, and why it is not a loophole.** The T303
+/// boundary check below asks whether a `domain/` or `presentation/` file can
+/// *reach* the data implementation through any chain of imports or exports.
+/// Dependency injection makes that question degenerate: the composition root
+/// must name `SyncMergeRepositoryImpl` to construct it, presentation screens
+/// import `injection_container.dart` to resolve services, and the chain
+/// `presentation -> injection_container -> di -> impl -> adapter` therefore
+/// exists in every app that has DI at all. Without a barrier the check would
+/// report six presentation files as offenders for doing the one thing DI is
+/// for.
+///
+/// The barrier is sound for a specific reason rather than for convenience:
+/// **Dart imports are not transitive for name resolution.** A file that imports
+/// the DI module cannot name `SyncMergeRepositoryImpl`, let alone
+/// `KdbxFieldPresent.semanticValue` — it would have to add its own import,
+/// which the check still catches. The one construct that *would* republish
+/// those names through the barrier is `export`, so
+/// `sync_merge_domain_architecture_test.dart` asserts these files contain no
+/// export directive at all. That assertion is what keeps the barrier from
+/// becoming the laundering path it is exempting.
+const mergeCompositionRootFiles = <String>[
+  'lib/features/password_manager/di/password_manager_data_di.dart',
+  'lib/features/password_manager/di/password_manager_domain_di.dart',
+];
+
+/// Where a composition-root file may live.
+const mergeCompositionRootDirectory = 'lib/features/password_manager/di/';
+
+/// The **only** public top-level names a barrier file may declare.
+///
+/// Round 5 finding (HIGH-1): checking a barrier for `export` checks one member
+/// of a family. `typedef QaLeaked = KdbxFieldPresent;`, a public function
+/// returning `KdbxMergeAdapter`, and a public top-level variable of an adapter
+/// type all re-publish the same names through the same hole, with `analyze`
+/// clean. So the exemption is bounded by construction instead: a barrier
+/// declares these two functions, private declarations, and nothing else at all
+/// — including constructs that do not exist yet.
+const mergeCompositionRootPublicNames = <String>[
+  'registerPasswordManagerDataDependencies',
+  'registerPasswordManagerDomainDependencies',
 ];
 
 /// The merge **domain** module. Both domain gates derive their scope from this,
@@ -77,6 +123,21 @@ const mergeModuleFiles = <String>[
 /// Every file accounted for by the registry, in any layer. The completeness
 /// check uses this; the redaction and layering gates use [mergeModuleFiles].
 const mergeRegisteredFiles = <String>[
+  ...mergeModuleFiles,
+  ...mergeDataImplementationFiles,
+  ...mergeCompositionRootFiles,
+];
+
+/// Files whose declared top-level names make a file elsewhere a merge-module
+/// participant.
+///
+/// The composition root is deliberately **excluded**. Its declarations are
+/// generic DI entry points (`registerPasswordManagerDataDependencies`), not
+/// merge types, and feeding them into the completeness pattern would classify
+/// `injection_container.dart` — and, one hop further, every screen that
+/// resolves a service — as an unregistered merge file. The rule is about who
+/// can name a merge TYPE; a DI function is not one.
+const mergeSymbolSourceFiles = <String>[
   ...mergeModuleFiles,
   ...mergeDataImplementationFiles,
 ];
@@ -101,6 +162,13 @@ const mergeFieldDisplayImporters = <String>[
   'lib/features/password_manager/domain/models/merge_field_display.dart',
   'lib/features/password_manager/domain/repositories/sync_merge_repository.dart',
   'lib/features/password_manager/domain/usecases/load_sync_merge_field_display_usecase.dart',
+  // T302: the port declares `Future<MergeFieldDisplay> loadFieldDisplay(...)`,
+  // so its implementation cannot avoid naming the type — and it is the one
+  // place the plaintext legitimately originates. This is not the F6 hole: F6 is
+  // about a CONSUMER copying `.value` into a durable `String`, and the producer
+  // already holds the decrypted values by construction. The retention test
+  // T603 owes still applies to every consumer added later.
+  'lib/features/password_manager/data/repositories/sync_merge_repository_impl.dart',
 ];
 
 /// What makes a file part of the merge module.
@@ -139,16 +207,21 @@ const nonSpec008MergeIdentifiers = <String, Set<String>>{
   },
 };
 
-/// Phase 3 types that have not been implemented yet. Kept separate from the
-/// identifier pattern because these names do not match it.
+/// Types belonging to a phase that has not started yet. Kept separate from the
+/// identifier pattern because such a name need not match it.
 ///
-/// `KdbxMergeAdapter` was removed on 2026-08-22: Gate 2 exited with PR #89 and
-/// T301/T304/T305/T306 landed the adapter, so the name is now expected to exist
-/// — in exactly one registered file, which
-/// `sync_merge_domain_architecture_test.dart` still checks. The list is not
-/// emptied: `SyncMergeRepositoryImpl` (T302) has not started, and a DI binding
-/// or a coordinator naming it early is still the failure this guard catches.
-const phase3TypeNames = <String>['SyncMergeRepositoryImpl'];
+/// `KdbxMergeAdapter` was removed on 2026-08-22 when T301's read half landed.
+/// `SyncMergeRepositoryImpl` was removed in Phase 3 slice 2 (T302/T310) for the
+/// same reason: the type now exists, in exactly one registered file, and
+/// `sync_merge_domain_architecture_test.dart` checks where that file lives and
+/// who can reach it.
+///
+/// The list is deliberately kept rather than deleted with its test. It is empty
+/// because nothing is currently owed — every remaining unbuilt type
+/// (`SyncMergeCoordinator`, T501) already matches [mergeIdentifierPattern], so
+/// the completeness check catches it without help. A future type that does not
+/// match the pattern goes here.
+const phase3TypeNames = <String>[];
 
 /// Every registered file must live here. Registering a `presentation/` or
 /// `data/` file into a merge bucket would otherwise pass the layering gate,

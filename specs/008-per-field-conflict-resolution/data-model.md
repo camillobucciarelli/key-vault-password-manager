@@ -378,6 +378,8 @@ enum MergeFailureCode {
   uploadConflict,
   unresolvedConflict, // FR-7: retry budget (3) or review re-entry cap (3) spent
   cancelled,
+  mergePreconditionFailed, // D16: the state that made this review possible is gone
+
   sessionInvalidated,
   platformDisabled,
 }
@@ -670,6 +672,7 @@ stated. Nothing was resolved toward the older text of this file.
 | **D13** | The attachment display had prose ("name/size/hash prefix, never bytes") but **no fields** to carry it. | `MergeDisplaySide` gains `sizeBytes` and `fingerprint`, attachment-only, never bytes. | this document's own §`MergeFieldDisplay` |
 | **D14** | FR-11's ">200 conflicts shows shortcuts only" had no model surface, so the threshold would have been duplicated in the widget. | `MergeReviewSummary.exceedsPerDecisionReviewLimit`. | `spec.md` FR-11 |
 | **D15** | `startReview` returns a summary and has no outcome type, so FR-2/FR-4 pre-session refusals had **no way to be reported** through the frozen port. | Added `SyncMergeFailure`, carrying a safe code and the post-boundary flag and nothing else. | `spec.md` FR-2, FR-8 |
+| **D16** | **Amended 2026-08-22, during Gate 3 slice 2 (T302), and ratified by the PM.** `MergeFailureCode` had no code for two distinct pre-session refusals the implementation actually reaches: a `MergeDatabaseId` that names nothing in the registry, and a database with no remote mapping to merge against. Both had to borrow `sessionInvalidated`, which then meant two different things at once. | Added **one** code, `mergePreconditionFailed` — "the state that made this review possible no longer exists" — for both. `sessionInvalidated` returns to its single real meaning: the session you are holding is no longer valid. **A missing local database file deliberately stays `staleLocal`**: it is the least-wrong code that exists, because its user-facing remedy — "the local side is not what the registry recorded, resynchronize instead of writing" — is correct for an absent file too. The reason this is worth one enum member rather than a comment: Phase 6 (T602/T604) derives the user-facing remedy from these codes, so a code carrying two meanings produces the wrong remedy for one of them. | Gate 3 slice-2 implementation; `tasks.md` T302 |
 
 Two things were considered and deliberately **not** added, so that their absence
 reads as a decision rather than an oversight:

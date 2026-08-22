@@ -77,7 +77,7 @@ void main() {
     // therefore also derived from the SYMBOLS the registered files declare —
     // no hand-maintained second list, so it cannot drift from the code.
     final declaredSymbols = <String>{
-      for (final relative in mergeRegisteredFiles)
+      for (final relative in mergeSymbolSourceFiles)
         ..._declaredTopLevelNames(p.join(root, relative)),
     };
     final symbolPattern = RegExp(
@@ -226,7 +226,21 @@ void main() {
     // So the check is now over the TRANSITIVE closure of the import/export
     // graph: it asks "can this file reach the adapter at all", which is the
     // question the boundary is actually about. Any chain length, any file name.
-    final reaching = _filesReaching(root, mergeDataImplementationFiles.toSet());
+    //
+    // ONE barrier, and it is argued rather than convenient: the composition
+    // root. DI must name `SyncMergeRepositoryImpl` to construct it and
+    // presentation must import `injection_container.dart` to resolve services,
+    // so `presentation -> injection_container -> di -> impl -> adapter` exists
+    // in any app with DI. Dart imports are not transitive for name resolution,
+    // so importing the DI module does NOT let a screen name an adapter type —
+    // it would need its own import, which this check still catches. The one
+    // construct that would republish names through the barrier is `export`,
+    // and the test below proves the barrier files contain none.
+    final reaching = _filesReaching(
+      root,
+      mergeDataImplementationFiles.toSet(),
+      barriers: mergeCompositionRootFiles.toSet(),
+    );
     final offenders = <String>[];
 
     for (final relative in reaching) {
@@ -246,6 +260,112 @@ void main() {
           'can name its types and read decrypted values (T303):\n'
           '${offenders.map((o) => '  - $o').join('\n')}',
     );
+  });
+
+  test('the composition root re-publishes NOTHING — bounded by construction, '
+      'not by a list of forbidden constructs', () {
+    // The T303 reachability check stops at these files, and the exemption is
+    // sound only while a barrier gives its importers no way to name what it
+    // imports. The first version of this test checked for `export`, which is
+    // one member of a family: a tester walked straight past it with
+    //
+    //     typedef QaLeakedFieldPresent = KdbxFieldPresent;
+    //     KdbxMergeAdapter qaLeakAdapter() => const KdbxMergeAdapter();
+    //
+    // and read `semanticValue` — decrypted plaintext — from `presentation/`,
+    // with `analyze` clean and every T303 test green. A public top-level
+    // variable of an adapter type is the same hole again.
+    //
+    // So the rule is not "these constructs are forbidden" but "these two
+    // functions are permitted, and nothing else is" — the Gate 2 lesson, in the
+    // one place Gate 2's own judge does not reach. A construct that does not
+    // exist yet fails here the first time it is used.
+    final dataTypeNames = <String>{
+      for (final relative in mergeDataImplementationFiles)
+        ..._declaredTopLevelNames(p.join(root, relative)),
+    };
+
+    for (final relative in mergeCompositionRootFiles) {
+      expect(
+        relative,
+        startsWith(mergeCompositionRootDirectory),
+        reason:
+            '$relative is registered as a composition root but does not live '
+            'under $mergeCompositionRootDirectory',
+      );
+
+      final path = p.join(root, relative);
+      final unit = parseString(
+        content: File(path).readAsStringSync(),
+        path: path,
+      ).unit;
+
+      // `export` republishes; `part` moves declarations somewhere this walker
+      // never looks. Only `import` and `library` are evaluable here.
+      for (final directive in unit.directives) {
+        expect(
+          directive is ImportDirective || directive is LibraryDirective,
+          isTrue,
+          reason:
+              '$relative declares a ${directive.runtimeType}. A barrier may '
+              'only import: anything that republishes or relocates its '
+              'declarations reopens the T303 hole.',
+        );
+      }
+
+      for (final declaration in unit.declarations) {
+        if (declaration is FunctionDeclaration) {
+          final name = declaration.name.lexeme;
+          if (name.startsWith('_')) continue; // unreachable from outside.
+          expect(
+            mergeCompositionRootPublicNames,
+            contains(name),
+            reason:
+                '$relative declares the public function "$name". A barrier may '
+                'declare only $mergeCompositionRootPublicNames.',
+          );
+          // ...and even an allowlisted name must not carry a data type out
+          // through its own signature.
+          //
+          // Joined with a separator, and each part null-coalesced, because the
+          // obvious `'$a$b$c'` form is a **no-op on the return type**: an
+          // absent `typeParameters` interpolates as the literal `null`, glued
+          // straight onto the type name, so the signature of the real function
+          // read `KdbxMergeAdapternull(GetIt sl)` and `\bKdbxMergeAdapter\b`
+          // did not match. Parameters stayed covered — they are fenced by
+          // parentheses and commas — but the return type is the laundering
+          // direction that matters here: a barrier leaks by *returning* the
+          // adapter, not by accepting one.
+          final signature = [
+            declaration.returnType,
+            declaration.functionExpression.typeParameters,
+            declaration.functionExpression.parameters,
+          ].map((node) => node?.toString() ?? '').join(' ');
+          for (final type in dataTypeNames) {
+            expect(
+              RegExp('\\b${RegExp.escape(type)}\\b').hasMatch(signature),
+              isFalse,
+              reason:
+                  '$relative exposes "$type" through the signature of "$name"',
+            );
+          }
+          continue;
+        }
+        if (declaration is TopLevelVariableDeclaration &&
+            declaration.variables.variables.every(
+              (variable) => variable.name.lexeme.startsWith('_'),
+            )) {
+          continue; // private: no importer can name it.
+        }
+        fail(
+          '$relative declares a ${declaration.runtimeType} at top level. A '
+          'T303 barrier may declare only '
+          '$mergeCompositionRootPublicNames, plus private declarations. This '
+          'check refuses what it cannot evaluate: if the construct is '
+          'genuinely safe, argue it here rather than widening the rule.',
+        );
+      }
+    }
   });
 
   test('the data-layer merge implementation imports no presentation code', () {
@@ -307,7 +427,11 @@ void main() {
 /// Export edges are followed for the same reason imports are: a re-export makes
 /// the target's declarations nameable from the re-exporting library, which is
 /// precisely the laundering path this replaced.
-Set<String> _filesReaching(String root, Set<String> targets) {
+Set<String> _filesReaching(
+  String root,
+  Set<String> targets, {
+  Set<String> barriers = const <String>{},
+}) {
   // Forward edges file -> its direct import/export targets, then invert.
   final reachedBy = <String, Set<String>>{};
   for (final entry in _dartFilesUnder(p.join(root, 'lib'))) {
@@ -323,7 +447,12 @@ Set<String> _filesReaching(String root, Set<String> targets) {
   final closure = <String>{...targets};
   final queue = [...targets];
   while (queue.isNotEmpty) {
-    for (final importer in reachedBy[queue.removeLast()] ?? const <String>{}) {
+    final current = queue.removeLast();
+    // A barrier is still IN the closure — it does reach the target, and that
+    // is correct — but propagation stops there: its importers cannot name what
+    // it imports.
+    if (barriers.contains(current)) continue;
+    for (final importer in reachedBy[current] ?? const <String>{}) {
       if (closure.add(importer)) queue.add(importer);
     }
   }

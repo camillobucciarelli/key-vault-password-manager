@@ -12,6 +12,7 @@ import '../data/repositories/database_security_repository_impl.dart';
 import '../data/repositories/database_session_repository_impl.dart';
 import '../data/repositories/database_sync_repository_impl.dart';
 import '../data/repositories/shared_preferences_password_generator_settings_repository.dart';
+import '../data/repositories/sync_merge_repository_impl.dart';
 import '../data/services/apple_autofill_v2_method_channel_client.dart';
 import '../data/services/database_path_mutex.dart';
 import '../data/services/database_rename_transaction.dart';
@@ -34,6 +35,7 @@ import '../domain/repositories/database_session_repository.dart';
 import '../domain/repositories/database_sync_repository.dart';
 import '../domain/repositories/autofill_ports.dart';
 import '../domain/repositories/password_generator_settings_repository.dart';
+import '../domain/repositories/sync_merge_repository.dart';
 import '../domain/services/apple_autofill_v2_payload_mapper.dart';
 import '../domain/services/vault_autofill_matcher.dart';
 
@@ -53,6 +55,18 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
   sl.registerLazySingleton<PasswordGeneratorSettingsRepository>(
     () => SharedPreferencesPasswordGeneratorSettingsRepository(
       sharedPreferences: sl(),
+    ),
+  );
+  // spec 008 T310 — the merge port's data implementation. Registered only now
+  // that the frozen T204 contract and this implementation both compile; the
+  // presentation layer depends on the T205 use cases and never on this type.
+  sl.registerLazySingleton<SyncMergeRepository>(
+    () => SyncMergeRepositoryImpl(
+      registryRepository: sl(),
+      securityRepository: sl(),
+      syncRepository: sl(),
+      secureDataSource: sl(),
+      localDataSource: sl(),
     ),
   );
   sl.registerLazySingleton<DatabaseSessionRepository>(
