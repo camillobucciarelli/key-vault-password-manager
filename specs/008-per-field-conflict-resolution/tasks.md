@@ -202,10 +202,10 @@ flutter test test/features/password_manager/data/services/sync_merge_convergence
 - [x] **T107 Alias/deadlock tests** — relative/absolute, separators, `.`/`..`,
       symlink path/parent, case aliases on relevant filesystem, hard links where
       supported, missing target, source==target and inverse concurrent renames.
-- [ ] **T108 Collision-safe backup** — exclusive-create temp/final; microsecond
+- [x] **T108 Collision-safe backup** — exclusive-create temp/final; microsecond
       timestamp + random/counter suffix; no overwrite. Test frozen same timestamp,
       preexisting backup, repeated collision and content preservation.
-- [ ] **T109 Safe target writer** — same-directory temp, flush/fsync/close, verified
+- [x] **T109 Safe target writer** — same-directory temp, flush/fsync/close, verified
       backup before target write, atomic replace without delete-first, directory
       sync where supported.
       Follow-up (LOW, T105 tester review): `DatabaseImportService.saveKeyFile`
@@ -369,9 +369,15 @@ itself green** — the T009/T009b precedent.
 
 ## Phase 3 — Data-owned full-fidelity implementation and DI
 
-- [ ] **T301 `data/services/kdbx_merge_adapter.dart`** — production
+- [x] **T301 `data/services/kdbx_merge_adapter.dart`** — production
       full-fidelity open/import/apply/serialize/reopen/manifest validation based on
       private T003 spike; no `VaultSnapshot` write model, no `KdbxFile.merge`.
+      *(Landed 2026-08-22 as the **read half**: open, per-side/lineage/cross-side
+      validation and the FR-4 presence diff — the file is read-only and touches
+      no filesystem. The mutating half — import one-sided objects, apply
+      decisions, serialize, reopen, validate the manifest — lands with the tasks
+      whose tests exercise it, T308 and T309, rather than shipping untested
+      vault-mutating code ahead of them.)*
 - [ ] **T302 `data/repositories/sync_merge_repository_impl.dart`** — implement
       already-compiling T204 port; resolve credentials internally and own private
       session store with `KdbxFile`, plaintext, UUID maps, paths, checksums/tokens
@@ -393,16 +399,16 @@ itself green** — the T009/T009b precedent.
 - [ ] **T303 Secret boundary** — port returns only domain models. Password,
       key-file path/bytes, KDBX types, plaintext store and preconditions never
       cross port. Dispose store on cancel/lock/invalidate/completion.
-- [ ] **T304 Pre-diff UUID validation** — per side, require globally unique non-nil
+- [x] **T304 Pre-diff UUID validation** — per side, require globally unique non-nil
       live root/group/entry UUIDs. Reject duplicate entry, duplicate group,
       group-entry collision, nil UUID and cross-side object-kind mismatch as
       `unsupportedKdbxData` before session/write/upload.
-- [ ] **T305 Lineage/unsupported guards** — wrong root UUID and other unsupported
+- [x] **T305 Lineage/unsupported guards** — wrong root UUID and other unsupported
       data fail before review/backup/write/upload.
-- [ ] **T306 Field presence diff** — explicit present/missing model; empty string
+- [x] **T306 Field presence diff** — explicit present/missing model; empty string
       and zero-byte attachment remain present. Missing without explicit marker is
       automatic union.
-- [ ] **T307 Presence/UUID tests** — all T304 failures plus same entry UUID with
+- [x] **T307 Presence/UUID tests** — all T304 failures plus same entry UUID with
       local-only/remote-only custom fields and attachments, empty-vs-missing,
       zero-byte-vs-missing, protection flags and equal-name/different bytes.
 - [ ] **T308 Shortcut/deletion tests** — Prefer local/remote never choose missing/
@@ -441,6 +447,31 @@ UUID/lineage, presence, deletion, shortcut, secret boundary and DI tests pass.
       the operand order of the deterministic notes concatenation. Never "prefer
       local": that is perspective-dependent and makes the merge non-commutative.
       Promote the T009 model properties to adapter-level tests.
+      **Blocked on a design decision, raised by T301 (2026-08-22): KDBX has no
+      per-field modification time.** `KdbxTimes` is on `KdbxObject`, so the
+      finest available granularity is one `lastModificationTime` per entry.
+      Rules 1 and 2 of the total order therefore cannot discriminate two fields
+      of the same entry, and **every intra-entry field conflict falls through to
+      rule 3** (the UTF-8 value order) as a block. Decide and record which it
+      is before implementing: (a) accept entry-level LWW and rewrite FR-3's
+      "newer modification time wins" to say so; (b) treat every field timestamp
+      as unknown and rely on rule 3 alone; or (c) source a per-field time from
+      history revisions, if one can be derived at all. The adapter deliberately
+      emits **no** timestamp today rather than passing off an entry time as a
+      field time. See `feasibility-report.md` §"Where the T301 adapter's
+      evidence does NOT line up with T009's model". T401a must also extend the
+      model to cover the protection dimension the adapter compares.
+      **Third open item from T301: `KdbxFieldDiff.keySpellingDiverges`.** The
+      adapter emits it and nothing reads it today, so T401a must treat it
+      deliberately rather than discover it. It cannot be deferred again: KDBX
+      admits exactly one key, so even the `identical` case — equal values,
+      different spelling, e.g. local `Custom_Totp` vs remote `custom_totp` —
+      forces the apply step to pick one. The three candidates are already
+      analysed and two are ruled out: "keep local" is perspective-dependent and
+      forbidden by FR-3; promoting it to a conflict contradicts FR-4's
+      "present, equal → identical" row by asking the user about values that
+      agree; FR-3's deterministic UTF-8 order is probably right but needs the
+      comparator this task builds, which is why the decision lives here.
 - [ ] **T401b Sticky decision ledger** — record explicit user decisions keyed by
       object UUID plus field key/attachment name, re-apply after every re-merge
       ahead of LWW/tie-break/shortcuts, and return the session to review when a

@@ -48,11 +48,37 @@ const mergeContractFiles = <String>[
   'lib/features/password_manager/domain/services/sync_merge_policy.dart',
 ];
 
-/// Every registered merge file. Both gates derive their scope from this.
+/// Bucket 4 — the data-layer merge implementation (Phase 3).
+///
+/// These files legitimately own what buckets 1-3 forbid: `KdbxFile`,
+/// `Credentials`, decrypted values, attachment bytes, object UUIDs, canonical
+/// paths and checksums. They are registered here **not** so the redaction rules
+/// apply to them — those rules would be nonsense for a data file — but so that
+/// the completeness check keeps working: a file naming a merge identifier must
+/// be accounted for somewhere, and "somewhere" must be an explicit decision.
+///
+/// The rules that DO apply to this bucket are the boundary ones, in
+/// `sync_merge_domain_architecture_test.dart`: nothing in `domain/` or
+/// `presentation/` may import these files, and these files may not import
+/// `presentation/`. That is the T303 secret boundary stated in the direction a
+/// test can check today, before the repository implementation exists.
+const mergeDataImplementationFiles = <String>[
+  'lib/features/password_manager/data/services/kdbx_merge_adapter.dart',
+];
+
+/// The merge **domain** module. Both domain gates derive their scope from this,
+/// so it stays domain-only: every entry must live under [mergeModuleDirectory].
 const mergeModuleFiles = <String>[
   ...mergeSafeModelFiles,
   ...mergeTransientFiles,
   ...mergeContractFiles,
+];
+
+/// Every file accounted for by the registry, in any layer. The completeness
+/// check uses this; the redaction and layering gates use [mergeModuleFiles].
+const mergeRegisteredFiles = <String>[
+  ...mergeModuleFiles,
+  ...mergeDataImplementationFiles,
 ];
 
 /// Files judged by the strict field/getter/static/serializer rules.
@@ -113,10 +139,16 @@ const nonSpec008MergeIdentifiers = <String, Set<String>>{
   },
 };
 
-/// Phase 3+ types that must not exist yet (Gate 2 exit condition). Kept
-/// separate from the identifier pattern because `KdbxMergeAdapter` does not
-/// match it.
-const phase3TypeNames = <String>['SyncMergeRepositoryImpl', 'KdbxMergeAdapter'];
+/// Phase 3 types that have not been implemented yet. Kept separate from the
+/// identifier pattern because these names do not match it.
+///
+/// `KdbxMergeAdapter` was removed on 2026-08-22: Gate 2 exited with PR #89 and
+/// T301/T304/T305/T306 landed the adapter, so the name is now expected to exist
+/// — in exactly one registered file, which
+/// `sync_merge_domain_architecture_test.dart` still checks. The list is not
+/// emptied: `SyncMergeRepositoryImpl` (T302) has not started, and a DI binding
+/// or a coordinator naming it early is still the failure this guard catches.
+const phase3TypeNames = <String>['SyncMergeRepositoryImpl'];
 
 /// Every registered file must live here. Registering a `presentation/` or
 /// `data/` file into a merge bucket would otherwise pass the layering gate,
