@@ -246,25 +246,92 @@ overwrite, and enabled platform has its own artifact.
 
 ## Phase 2 — Compile-safe domain contract
 
-- [ ] **T201 Freeze `data-model.md`** from T008 report.
-- [ ] **T202 Safe domain models** — `MergeReviewSummary`, opaque session/decision
+- [x] **T201 Freeze `data-model.md`** from T008 report. **FROZEN 2026-08-22.**
+      15 divergences between the document and the executed evidence found and
+      resolved toward the report (or toward `spec.md`/`tasks.md` where the
+      report is silent, stated per row); recorded in `data-model.md`
+      §"T201 freeze log — divergences resolved". Two additions were considered
+      and deliberately refused, with the reason recorded: the backend guarantee
+      tier (AC 15c forbids the branch it would create; spec 010 owns it) and a
+      deletion-evidence model beyond `keep`/`delete` (T009b's G1–G4 resolve in
+      the data-layer evidence join).
+- [x] **T202 Safe domain models** — `MergeReviewSummary`, opaque session/decision
       IDs, redacted categories/choices/counts, typed commit/recovery outcomes and
       `staleRecoveryLocal`. No path, UUID, checksum/token, plaintext or plaintext
       handles in Equatable/serialization.
-- [ ] **T203 `MergeFieldDisplay`** — transient non-Equatable/non-serializable
+      `domain/models/sync_merge_models.dart`. Ids are **types, not `String`s**
+      (`MergeSessionId`/`MergeDecisionId`/`MergeDatabaseId`), shape-validated so
+      a canonical path, a KDBX UUID or an MD5 checksum is rejected on
+      construction. `unsupportedKdbxConstruct` (T008 model correction),
+      `unresolvedConflict` and `MergeNeedsReview` added — FR-7's return-to-review
+      and budget exhaustion previously had no representation at all.
+- [x] **T203 `MergeFieldDisplay`** — transient non-Equatable/non-serializable
       response with redacted `toString`; only field widget may own it.
-- [ ] **T204 `domain/repositories/sync_merge_repository.dart`** — compile against
+      `domain/models/merge_field_display.dart`, its **own library**: the safe
+      models neither import nor export it, and Dart imports are not transitive,
+      so a coordinator/BLoC cannot name the type without adding an import the
+      architecture test rejects. Disposable, and a read after disposal throws.
+- [x] **T204 `domain/repositories/sync_merge_repository.dart`** — compile against
       T202/T203 models; opaque/redacted port for start, update decision, commit,
       cancel, invalidate, recover pending and transient load-field-display.
-- [ ] **T205 Focused domain use cases** under `domain/usecases/` for every T204
-      operation. No data imports.
-- [ ] **T206 Domain policy/tests** — visible defaults, deterministic notes both,
+      Plus `SyncMergeFailure` (safe code only) for the pre-session FR-2/FR-4
+      refusals, which had no way to be reported through the frozen port.
+- [x] **T205 Focused domain use cases** under `domain/usecases/` for every T204
+      operation. No data imports. Six command use cases in
+      `sync_merge_usecases.dart`; `LoadSyncMergeFieldDisplayUseCase` is in its
+      own library so importing the commands cannot bring the plaintext response
+      into scope.
+- [x] **T206 Domain policy/tests** — visible defaults, deterministic notes both,
       shortcut decision set excludes one-sided rows, missing side cannot be
       selected, safe `props`/`toString`; `flutter analyze` and domain tests compile
       without any data implementation.
+      Policy in `domain/services/sync_merge_policy.dart`; the FR-4/FR-5/FR-6
+      rules are **constructor invariants** on `RedactedMergeDecision`, so a
+      one-sided row without deletion evidence is unrepresentable as a decision
+      rather than merely skipped by the shortcut. Redaction is enforced
+      structurally by a source-parsing test (safe type AND safe name per field,
+      `String` only at three listed shape-validated ids, no serializer in the
+      module), and an architecture test asserts no `data/` import and that no
+      `SyncMergeRepositoryImpl`/DI binding exists yet. Three mutations
+      hand-verified as killed.
 
 **Gate 2 exit**: domain models, port, use cases and tests compile/pass standalone.
 No `SyncMergeRepositoryImpl` or DI task starts before exit.
+
+**T201–T206 executed 2026-08-22** on `feat/008-t201-t206-domain-contract`:
+`flutter analyze` clean, `flutter test` green, zero files added under `data/`,
+zero DI registrations.
+
+**Validated in two rounds.** Round 1 (author): 3 mutations, all killed. Round 2
+(independent tester): 15 mutations, **6 survived — verdict NOT VALIDATED**. The
+contract was sound; the *enforcement* was not, which is precisely what Gate 2
+hands to Phase 3. Both gates read hardcoded file lists, so a new leaking model
+in `domain/models/` was inspected by nothing. All six are closed, each
+re-verified by replaying the tester's exact mutant:
+
+- **F1** scope now derives from `sync_merge_module_registry.dart`, and a file in
+  `lib/` naming a merge identifier while absent from the registry fails the
+  suite. Killed both unregistered and registered.
+- **F2** the field/getter/static rules run on every strictly-redacted registry
+  file, so `SyncMergeFailure` is covered — it is the object that reaches logs
+  and crash telemetry.
+- **F3** getters and statics are walked; a private static may only be a
+  `RegExp`.
+- **F4** methods are judged by **return type**, not by a name blacklist.
+- **F5** the false non-derivability claim is struck from the frozen contract and
+  relocated to **T302a**; the shape check's actual acceptances are pinned by
+  assertions.
+- **F6** registered as a gate condition on **T603**, not implemented now.
+
+Tracked, not implemented: **F7** `RedactedMergeDecision.withChoice` throws
+`ArgumentError` while the port declares `SyncMergeFailure` its only error — the
+port comment now states the distinction; converting it into a total variant is a
+Phase 5 decision. **F8** `MergeDatabaseId`'s path heuristic accepts
+`C:vault.kdb` and `Users_me_Documents_Vault`. **F9** `MergeReviewSummary` is the
+one `ArgumentError.value` that does not pass `'<redacted>'`.
+
+**The gate closes on PM acceptance of this evidence, not on the suite declaring
+itself green** — the T009/T009b precedent.
 
 ## Phase 3 — Data-owned full-fidelity implementation and DI
 
@@ -275,6 +342,20 @@ No `SyncMergeRepositoryImpl` or DI task starts before exit.
       already-compiling T204 port; resolve credentials internally and own private
       session store with `KdbxFile`, plaintext, UUID maps, paths, checksums/tokens
       and generation.
+- [ ] **T302a Opaque id minting** — the data layer mints `MergeSessionId` and
+      `MergeDecisionId` tokens from a CSPRNG (`Random.secure()`) with **at least
+      128 bits of entropy**, never derived from any input: not the canonical
+      path, object UUID, field key, attachment name, checksum, credential or any
+      user value. Test asserts the source is `Random.secure()`, that the token
+      length carries the declared entropy, that N tokens minted for the same
+      database/decision are all distinct across sessions, and that no minted
+      token equals a digest of the inputs in scope.
+      **This task carries the T202 "not derivable into sensitive values"
+      requirement.** It was previously claimed by the id *type*, which cannot
+      deliver it: the `ms-`/`md-` + 32-hex shape is a typo guard, and an MD5 is
+      itself 32 lowercase hex, so `'ms-' + md5(path)` is accepted — measured by
+      the Phase 2 tester (F5). The frozen contract now says so, and the
+      guarantee lives here, where there is code to enforce it.
 - [ ] **T303 Secret boundary** — port returns only domain models. Password,
       key-file path/bytes, KDBX types, plaintext store and preconditions never
       cross port. Dispose store on cancel/lock/invalidate/completion.
@@ -418,6 +499,16 @@ recovery tests pass.
 - [ ] **T603 Field diff** — widget-local transient display, protected masked,
       present/missing labels non-selectable for one-sided data, explicit deletion
       choice only with evidence.
+      **Gate condition (F6), required in the same commit that adds the field
+      widget to `mergeFieldDisplayImporters`.** The import allowlist is the only
+      real containment layer `MergeFieldDisplay` has: an already-allowlisted file
+      can still copy `.value`/`.label` into a durable `String`, put it in
+      `props`/`toString`, or cache it statically — verified green by the Phase 2
+      tester. So the widget may not be allowlisted until a test over the
+      allowlisted files rejects (a) any `String` field or static initialized from
+      `.value`/`.label`, and (b) any retention of a `MergeFieldDisplay` outside a
+      `State` whose `dispose()` disposes it. Adding the widget without that test
+      re-opens the hole the allowlist appears to close.
 - [ ] **T604 Ready/progress/recovery** — safety gates listed; cancellation hidden
       after atomic boundary; ambiguous upload has recovery status, never success.
 - [ ] **T605 Scale** — generate 250 conflicts in memory, shortcuts-only. Binary
