@@ -300,6 +300,45 @@ void main() {
       );
     });
 
+    test('D16: an unknown database id is a PRECONDITION failure, not a stale '
+        'session', () async {
+      // The amendment exists so Phase 6 can derive a user-facing remedy from
+      // the code. `sessionInvalidated` here would mean "the session you hold
+      // expired", and the remedy for that ("start the review again") is wrong
+      // for a database the registry no longer knows.
+      final harness = await _Harness.build(temp);
+
+      await expectLater(
+        harness.repository.startReview(MergeDatabaseId('db-not-here')),
+        _failsWith(MergeFailureCode.mergePreconditionFailed),
+      );
+    });
+
+    test(
+      'D16: a database with no remote mapping is a PRECONDITION failure',
+      () async {
+        final harness = await _Harness.build(temp, withoutRemoteMapping: true);
+
+        await expectLater(
+          harness.repository.startReview(harness.databaseId),
+          _failsWith(MergeFailureCode.mergePreconditionFailed),
+        );
+      },
+    );
+
+    test('D16: a MISSING LOCAL FILE stays staleLocal, deliberately', () async {
+      // Not `mergePreconditionFailed`: the remedy "the local side is not what
+      // the registry recorded, resynchronize instead of writing" is correct
+      // for an absent file too, and the amendment says so in as many words.
+      final harness = await _Harness.build(temp);
+      await File(harness.databasePath).delete();
+
+      await expectLater(
+        harness.repository.startReview(harness.databaseId),
+        _failsWith(MergeFailureCode.staleLocal),
+      );
+    });
+
     test('a revoked credential is a safe code, not a raw exception', () async {
       final harness = await _Harness.build(temp);
       harness.secure.password = null;
@@ -1585,6 +1624,7 @@ class _Harness {
     bool foreignRemote = false,
     bool tiedTimestamps = false,
     bool mirrored = false,
+    bool withoutRemoteMapping = false,
     _FixturePair? fixture,
   }) async {
     final built =
@@ -1606,11 +1646,13 @@ class _Harness {
     await File(databasePath).writeAsBytes(localBytes);
 
     final sync = _FakeSyncRepository(
-      mapping: DatabaseSyncMapping(
-        databasePath: databasePath,
-        driveFileId: _driveFileId,
-        driveFileName: 'fixture.kdbx',
-      ),
+      mapping: withoutRemoteMapping
+          ? null
+          : DatabaseSyncMapping(
+              databasePath: databasePath,
+              driveFileId: _driveFileId,
+              driveFileName: 'fixture.kdbx',
+            ),
       remoteBytes: remoteBytes,
     );
     final secure = _FakeSecureDataSource(_password);
@@ -1808,7 +1850,7 @@ class _FakeSecurityRepository implements DatabaseSecurityRepository {
 class _FakeSyncRepository implements DatabaseSyncRepository {
   _FakeSyncRepository({required this.mapping, required this.remoteBytes});
 
-  final DatabaseSyncMapping mapping;
+  final DatabaseSyncMapping? mapping;
   final Uint8List remoteBytes;
 
   /// Deliberately never written to. T302 uploads nothing; a test asserting it
@@ -1817,11 +1859,11 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
 
   @override
   Future<DatabaseSyncMapping?> getMapping(String databasePath) async =>
-      databasePath == mapping.databasePath ? mapping : null;
+      databasePath == mapping?.databasePath ? mapping : null;
 
   @override
   Future<Uint8List> downloadRemoteFile(String fileId) async {
-    if (fileId != mapping.driveFileId) {
+    if (fileId != mapping?.driveFileId) {
       throw StateError('unexpected remote file id');
     }
     return remoteBytes;

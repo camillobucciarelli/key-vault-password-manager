@@ -510,12 +510,44 @@ imports to the end of the target group — needs FR-3's total order, T401a) and
 nothing says merge). Both matter to FR-7 step 5, which arbitrates on the
 canonical manifest. Reported as T401/T401a input.
 
+**Round 3** (independent tester): two HIGH, both closed.
+
+- **HIGH-6** the wall-clock exception above was ratified on a convergence that
+  did not exist. `_unionTombstones` was add-if-missing, with no comparison, so
+  two devices deleting the same record seconds apart each froze their own clock
+  forever — `ROUND2_CONVERGED=false`, `ROUND3_CONVERGED=false` — while the
+  method's own doc claimed FR-5's "preserve newest supported deletion data".
+  The join is now a real max; the three-round replay converges in round 1.
+- **HIGH-5** `applyMerge` never merged `KdbxMeta`, so every metadata field came
+  unconditionally from the local side: a database renamed on one device lost
+  its name after a merge on the other, with no conflict, decision or refusal —
+  and a device whose local side had no recycle bin imported the bin group as a
+  one-sided union while `recycleBinUUID` stayed null, leaving an orphan group
+  of deleted entries in the ordinary tree and creating a second bin on the next
+  delete. **Merged, not refused**: KDBX stores a change clock beside each
+  metadata field (`DatabaseNameChanged`, `RecycleBinChanged`, `SettingsChanged`
+  and the rest), so FR-3's automatic policy has the evidence it needs and no
+  new conflict category is required. The clocks are now part of the canonical
+  manifest, since they are the evidence the merge resolves on.
+- **MEDIUM-4** the direction of the time join is asserted directly (the
+  commutativity test is blind to it — both directions are commutative).
+  **LOW-2** D16's code placement is asserted. **LOW-3** the override-vs-stamp
+  imprecision is annotated, with its conservative damage direction.
+
+**Frozen-contract insufficiency found and NOT resolved.** An automatic metadata
+adoption is invisible in `MergeReviewSummary`: `localOnlyRecordCount`,
+`remoteOnlyRecordCount` and `oneSidedFieldCount` are record- and field-scoped,
+and there is no counter, decision row or category for "the database name came
+from the other side". The merge is correct and silent. Phase 6 cannot show the
+user what changed at metadata level without a contract change; raised here, not
+worked around.
+
 One wall clock is left in the apply step by decision: the tombstone of a
 **fresh** explicit Delete. A Delete is a user decision taken at a real moment
-and is per-device by T009b's G4, and a tombstone clock is join-convergent —
-FR-5's "preserve newest supported deletion data" is a max — so two devices
-converge on the next round instead of rewriting each other forever, which is
-precisely what a modification time under a wall clock does not do.
+and is per-device by T009b's G4, and — now that `_unionTombstones` really is a
+max — the clock is join-convergent, so two devices converge on the next round
+instead of rewriting each other forever, which is precisely what a modification
+time under a wall clock does not do.
 
 ## Phase 4 — Preconditions, commit and remote recovery
 

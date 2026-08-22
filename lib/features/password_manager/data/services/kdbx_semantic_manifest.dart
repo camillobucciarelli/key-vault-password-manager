@@ -88,6 +88,22 @@ Map<String, Object?> _headerManifest(KdbxFile file) {
 
 Map<String, Object?> _metaManifest(KdbxMeta meta) => {
   'databaseName': meta.databaseName.get(),
+  // The per-field change clocks are the EVIDENCE the metadata merge resolves
+  // on (`KdbxMergeAdapter._mergeMeta`), so they are semantic content: two
+  // devices agreeing on a name while disagreeing on when it was set have not
+  // converged, and the next round would decide differently.
+  'databaseNameChanged': meta.databaseNameChanged.get()?.toIso8601String(),
+  'databaseDescriptionChanged': meta.databaseDescriptionChanged
+      .get()
+      ?.toIso8601String(),
+  'defaultUserNameChanged': meta.defaultUserNameChanged
+      .get()
+      ?.toIso8601String(),
+  'recycleBinChanged': meta.recycleBinChanged.get()?.toIso8601String(),
+  'entryTemplatesGroupChanged': meta.entryTemplatesGroupChanged
+      .get()
+      ?.toIso8601String(),
+  'settingsChanged': meta.settingsChanged.get()?.toIso8601String(),
   'databaseDescription': meta.databaseDescription.get(),
   'defaultUserName': meta.defaultUserName.get(),
   'recycleBinEnabled': meta.recycleBinEnabled.get(),
