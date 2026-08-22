@@ -225,6 +225,7 @@ class DatabaseSyncOrchestrator {
         targetPath: databasePath,
         bytes: downloaded,
         backupExistingTarget: true,
+        operation: 'sync replace from remote',
       );
       final refreshedLocal = md5.convert(downloaded).toString();
 
@@ -306,6 +307,7 @@ class DatabaseSyncOrchestrator {
         targetPath: databasePath,
         bytes: downloaded,
         backupExistingTarget: true,
+        operation: 'sync replace from remote',
       );
       final refreshedLocal = md5.convert(downloaded).toString();
 
@@ -348,6 +350,7 @@ class DatabaseSyncOrchestrator {
         targetPath: databasePath,
         bytes: downloaded,
         backupExistingTarget: true,
+        operation: 'sync replace from remote',
       );
       final refreshedLocal = md5.convert(downloaded).toString();
 

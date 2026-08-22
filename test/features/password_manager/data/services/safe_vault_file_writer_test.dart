@@ -130,6 +130,13 @@ void main() {
         backupExistingTarget: true,
       );
 
+      expect(
+        result.atomic,
+        isTrue,
+        reason:
+            'the happy path must report an atomic replace — without this the '
+            'flag can be flipped off for every write and no test notices',
+      );
       expect(await target.readAsBytes(), [2, 2, 2]);
       expect(result.backupPath, isNotNull);
       expect(await File(result.backupPath!).readAsBytes(), [1, 1, 1]);
@@ -154,6 +161,7 @@ void main() {
 
       expect(await File(path).readAsBytes(), [7, 8]);
       expect(result.backupPath, isNull);
+      expect(result.atomic, isTrue);
     });
 
     test('temp lives in the SAME directory as the target, the write is '
@@ -454,7 +462,9 @@ void main() {
           bytes: Uint8List.fromList(const [1]),
         );
 
-        expect(await modeOf(path), SafeVaultFileWriter.defaultVaultMode);
+        // Literal, NOT `SafeVaultFileWriter.defaultVaultMode`: comparing the
+        // constant against itself let a mutation of it to 0644 stay green.
+        expect(await modeOf(path), 0x180); // 0600
       },
       skip: Platform.isWindows ? 'POSIX modes are not meaningful' : null,
     );
@@ -543,7 +553,8 @@ void main() {
       },
     );
 
-    test('the backup lands next to the REAL file, on its filesystem', () async {
+    test('the backup lands next to the CALLER path, never inside the cloud '
+        'folder the link points at', () async {
       final writer = SafeVaultFileWriter();
       final realDir = await Directory(p.join(tempDir.path, 'cloud')).create();
       final real = File(p.join(realDir.path, 'real.kdbx'));
@@ -557,11 +568,25 @@ void main() {
         backupExistingTarget: true,
       );
 
-      // Compared through `resolveSymbolicLinksSync` because the writer
-      // resolves the FULL path: on macOS the host temp dir is itself
-      // `/var -> /private/var`, which is not what this test is about.
-      expect(p.dirname(result.backupPath!), realDir.resolveSymbolicLinksSync());
+      // MEDIUM-4 / HIGH-4: the backup belongs next to the CALLER's path, not
+      // next to the link's destination. Naming it next to the resolved path
+      // dropped every `.bak` into the cloud folder (uploaded, unbounded, no
+      // cleanup) and, under a planted link, into a directory of the
+      // attacker's choosing. The temp is the opposite — it MUST be a sibling
+      // of the resolved target so the rename stays same-filesystem.
+      expect(
+        p.dirname(result.backupPath!),
+        p.dirname(linkPath),
+        reason: 'the .bak escaped the caller directory',
+      );
+      expect(
+        p.dirname(result.backupPath!),
+        isNot(realDir.resolveSymbolicLinksSync()),
+      );
       expect(await File(result.backupPath!).readAsBytes(), [1]);
+      // ...and the write still went THROUGH the link.
+      expect(await real.readAsBytes(), [2]);
+      expect(FileSystemEntity.isLinkSync(linkPath), isTrue);
     });
 
     test(
@@ -650,10 +675,8 @@ void main() {
       expect(result.atomic, isFalse);
       expect(await File(path).readAsBytes(), [1]);
       if (!Platform.isWindows) {
-        expect(
-          (await FileStat.stat(path)).mode & 0x1FF,
-          SafeVaultFileWriter.defaultVaultMode,
-        );
+        // Literal for the same reason as above.
+        expect((await FileStat.stat(path)).mode & 0x1FF, 0x180); // 0600
       }
     });
 

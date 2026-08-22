@@ -74,10 +74,20 @@ class SafeVaultFileIo {
     }
   }
 
+  /// Whether POSIX permission bits are worth managing on this platform.
+  ///
+  /// Windows has no POSIX mode at all. iOS and Android are excluded for a
+  /// different reason: every file lives in a per-app private container that
+  /// no other app can read, so there is nothing to tighten — and the iOS
+  /// sandbox forbids spawning a process, so a `chmod` there is a guaranteed
+  /// failure plus a warning line on EVERY save.
+  static bool get _managesPosixModes =>
+      !Platform.isWindows && !Platform.isIOS && !Platform.isAndroid;
+
   /// POSIX permission bits of [path], or `null` when they are not meaningful
-  /// or not readable: Windows (no POSIX mode), or a missing file.
+  /// or not readable: a platform without managed modes, or a missing file.
   Future<int?> permissionBits(String path) async {
-    if (Platform.isWindows) {
+    if (!_managesPosixModes) {
       return null;
     }
     final stat = await FileStat.stat(path);
@@ -87,16 +97,17 @@ class SafeVaultFileIo {
     return stat.mode & 0xFFF;
   }
 
-  /// Applies [bits] to [path]. No-op on Windows, which has no POSIX mode.
+  /// Applies [bits] to [path]. No-op where [_managesPosixModes] is false.
   ///
   /// Dart exposes no `chmod`, so this shells out. Callers treat a failure as
   /// non-fatal — see [SafeVaultFileWriter.write].
   Future<void> setPermissionBits(String path, int bits) async {
-    if (Platform.isWindows) {
+    if (!_managesPosixModes) {
       return;
     }
     final octal = bits.toRadixString(8).padLeft(4, '0');
-    final result = await Process.run('chmod', [octal, path]);
+    // `--` so a path that begins with `-` is never parsed as an option.
+    final result = await Process.run('chmod', [octal, '--', path]);
     if (result.exitCode != 0) {
       throw FileSystemException('chmod $octal failed: ${result.stderr}', path);
     }
@@ -134,6 +145,12 @@ class SafeVaultFileWriteResult {
 
   /// `false` when the sandbox fallback ran: content is complete and verified,
   /// but it was written in place rather than atomically renamed.
+  ///
+  /// Production surfacing of a degraded write is the writer's own
+  /// `logWarning`, which names the `operation` — see
+  /// [SafeVaultFileWriter.write]. This flag exists so a caller that wants to
+  /// branch (or a test that wants to pin the happy path) can, without every
+  /// call site having to duplicate that log line.
   final bool atomic;
 }
 
@@ -189,8 +206,19 @@ class SafeVaultFileWriter {
     final resolved = _io.resolveLeafLink(targetPath);
     final mode = await _io.permissionBits(resolved);
     final source = await _io.readBytes(resolved);
+    // The backup is named next to the CALLER's path, deliberately NOT next to
+    // the resolved one — unlike the temp, which must be a sibling of the
+    // resolved target to keep the rename same-filesystem and atomic.
+    //
+    // Naming it next to the resolved path put every `.bak` wherever the link
+    // pointed: inside Dropbox/iCloud for a `~/vault.kdbx -> ~/Cloud/...`
+    // setup, so full vault copies accumulated at the provider with nobody
+    // cleaning them up (MEDIUM-4); and under a planted symlink it handed an
+    // attacker complete vault copies in a directory of their choosing
+    // (HIGH-4). Both close here: backups stay in the caller's perimeter,
+    // which is also what the pre-slice `_backupFile` copy did.
     final backupPath = await _claimFreshName(
-      (micros, suffix) => '$resolved.$micros-$suffix.bak',
+      (micros, suffix) => '$targetPath.$micros-$suffix.bak',
       mode: mode,
     );
     try {
@@ -228,22 +256,36 @@ class SafeVaultFileWriter {
   /// `Operation not permitted` where a direct write succeeds. The same shape
   /// exists for Android SAF and the iOS document picker. When the temp cannot
   /// be created for a permission reason, this falls back to writing the
-  /// authorized path in place (pre-slice behaviour) and logs the degradation.
+  /// authorized path in place (pre-slice behaviour) and logs the degradation,
+  /// naming [operation] so the flow that degraded is identifiable.
   /// **Trade-off: the fallback is NOT atomic** — a crash mid-write can leave
   /// a truncated target. It is chosen over failing the save outright because
   /// the backup (when requested) still exists and losing the ability to save
   /// at all is the worse outcome. [SafeVaultFileWriteResult.atomic] reports
   /// which path ran.
+  ///
+  /// **Known asymmetry, MEDIUM-2 — the fallback covers the temp only.**
+  /// [createBackup] runs first and also creates a sibling; nothing catches a
+  /// permission refusal there. So IF the HIGH-3 premise holds on sandboxed
+  /// macOS, a `backupExistingTarget: false` write (every routine vault save)
+  /// degrades and succeeds, while a `backupExistingTarget: true` write (the
+  /// three sync replacements) fails permanently at the backup step. That
+  /// failure is fail-safe — target intact, and FR-9 mandates a hard stop
+  /// when the backup cannot be made — but the asymmetry is undocumented
+  /// elsewhere and unproven either way; tracked as a T109 follow-up.
   Future<SafeVaultFileWriteResult> write({
     required String targetPath,
     required Uint8List bytes,
     bool backupExistingTarget = false,
+    String? operation,
   }) async {
     final resolved = _io.resolveLeafLink(targetPath);
 
     String? backupPath;
     if (backupExistingTarget && await _io.exists(resolved)) {
-      backupPath = await createBackup(resolved);
+      // Caller's path, not `resolved`: see createBackup on why the backup
+      // stays in the caller's perimeter while the temp follows the link.
+      backupPath = await createBackup(targetPath);
     }
 
     // Mode of the file we are about to replace; absent target -> owner-only.
@@ -265,9 +307,10 @@ class SafeVaultFileWriter {
         rethrow;
       }
       logWarning(
-        'Safe writer degraded to a non-atomic in-place write: the sandbox '
-        'refused a sibling temp file in $directory ($error). The target is '
-        'still fully written and verified, but a crash mid-write can '
+        'Safe writer degraded to a non-atomic in-place write during '
+        '"${operation ?? 'unnamed operation'}": the sandbox refused a sibling '
+        'temp file in ${_shape(directory)} (${_osReason(error)}). The target '
+        'is still fully written and verified, but a crash mid-write can '
         'truncate it.',
       );
       // Create-then-chmod-then-write, so a brand-new target is owner-only
@@ -345,8 +388,9 @@ class SafeVaultFileWriter {
     } catch (error) {
       logWarning(
         'Safe writer could not set permission bits '
-        '0${mode.toRadixString(8)} on $path ($error); the file keeps the '
-        'filesystem default, which may be more permissive.',
+        '0${mode.toRadixString(8)} on ${_shape(path)} '
+        '(${_osReason(error)}); the file keeps the filesystem default, which '
+        'may be more permissive.',
       );
     }
   }
@@ -407,6 +451,26 @@ class SafeVaultFileWriter {
     return Platform.isWindows
         ? code == 5
         : code == 1 || code == 13; // EPERM, EACCES
+  }
+
+  /// A path reduced to something that identifies nothing: depth and
+  /// extension only.
+  ///
+  /// AGENTS.md requires paths to be logged as a *shape*, never verbatim. On a
+  /// password manager the vault's location is itself sensitive — a verbatim
+  /// path written on every save ends up in crash reporters and support logs.
+  static String _shape(String path) {
+    final extension = p.extension(path);
+    return '<depth ${p.split(path).length}>/*$extension';
+  }
+
+  /// The OS-level reason for [error] WITHOUT its path: a
+  /// [FileSystemException]'s own `toString` embeds the offending path.
+  static String _osReason(Object error) {
+    if (error is FileSystemException) {
+      return error.osError?.message ?? error.message;
+    }
+    return error.runtimeType.toString();
   }
 
   static bool _bytesEqual(Uint8List a, Uint8List b) {

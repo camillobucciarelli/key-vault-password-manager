@@ -376,6 +376,7 @@ class DatabaseImportService implements DatabaseFileRepository {
       await _safeWriter.write(
         targetPath: targetPath,
         bytes: await stagedFile.readAsBytes(),
+        operation: 'import install fallback',
       );
       await stagedFile.delete();
     }
@@ -403,7 +404,11 @@ class DatabaseImportService implements DatabaseFileRepository {
     return _mutex.withDatabaseLock([outputFile], () async {
       // T109: create the new database through the safe writer too — a crash
       // mid-creation must never leave a truncated .kdbx at the chosen path.
-      await _safeWriter.write(targetPath: outputFile, bytes: databaseBytes);
+      await _safeWriter.write(
+        targetPath: outputFile,
+        bytes: databaseBytes,
+        operation: 'create database',
+      );
       return outputFile;
     });
   }
@@ -463,6 +468,7 @@ class DatabaseImportService implements DatabaseFileRepository {
     final result = await _safeWriter.write(
       targetPath: selectedPath,
       bytes: keyFileBytes,
+      operation: 'save key file',
     );
     return result.targetPath;
   }

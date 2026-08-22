@@ -85,10 +85,12 @@ class MobileFileStorage {
     await tempFile.create(exclusive: true);
     try {
       await tempFile.writeAsBytes(bytes, flush: true);
-      final written = await tempFile.readAsBytes();
-      if (written.length != bytes.length) {
+      // Full byte compare, not just a length check: a short write and a
+      // corrupt write are both "not what we asked for", and the comment
+      // above promises a read-back verify.
+      if (!listEquals(await tempFile.readAsBytes(), bytes)) {
         throw FileSystemException(
-          'short write: ${written.length} of ${bytes.length} bytes',
+          'read-back verify failed: short or corrupt write',
           tempFile.path,
         );
       }

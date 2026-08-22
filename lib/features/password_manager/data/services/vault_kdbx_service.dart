@@ -378,7 +378,11 @@ class VaultKdbxService {
           // T109: fsync the temp before it is verified and renamed over the
           // database — a rename of an un-fsynced temp is the classic
           // post-crash corruption.
-          await _safeWriter.write(targetPath: tempFile.path, bytes: bytes);
+          await _safeWriter.write(
+            targetPath: tempFile.path,
+            bytes: bytes,
+            operation: 'credential change temp',
+          );
         } else {
           await writer(tempFile, bytes);
         }
@@ -904,7 +908,11 @@ class VaultKdbxService {
     // T109: same-directory temp + fsync + verify + atomic rename. No backup
     // here: routine saves never produced one (user behaviour unchanged); the
     // old bytes stay intact until the atomic replace.
-    await _safeWriter.write(targetPath: databasePath, bytes: bytes);
+    await _safeWriter.write(
+      targetPath: databasePath,
+      bytes: bytes,
+      operation: 'vault save',
+    );
   }
 
   KdbxGroup _findGroupById(List<KdbxGroup> groups, String id) {

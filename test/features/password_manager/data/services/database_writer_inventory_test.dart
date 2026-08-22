@@ -448,6 +448,13 @@ void main() {
         // is receiver-agnostic for these patterns) — hence rename/delete at
         // 2 and the `openWrite`/`openWriteMode` pair for the single
         // writable open.
+        //
+        // NOT a complete census of this file's OS interaction: the scanner
+        // vocabulary (`_operations`) has no pattern for `Process.run` or
+        // `FileStat.stat`, both of which this file uses for the permission
+        // handling. They mutate metadata, not content, so they are outside
+        // what FR-8 inventories — but a reader must not take this table as
+        // proof that nothing else here touches the OS.
         'lib/features/password_manager/data/services/'
             'safe_vault_file_writer.dart': {
           'create': 1,
