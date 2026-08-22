@@ -36,6 +36,126 @@ jobs:
       # Goldens remain a local pre-push check per AGENTS.md.
       - run: flutter test $(find test -name '*_test.dart' ! -path 'test/goldens/*')
 
+  # Windows is the only supported platform whose filesystem semantics the code
+  # actually depends on AND that no PR check has ever exercised: `release.yml`
+  # builds on `windows-2022`, but that runs after merge, so a Windows-only
+  # divergence is found by a release, not by a review. What this job is looking
+  # for, concretely:
+  #   - `File.rename` onto a target another handle has open fails with
+  #     ERROR_ACCESS_DENIED on Windows where POSIX `rename(2)` succeeds. That is
+  #     the exact primitive `SafeVaultFileWriter` uses for its atomic replace.
+  #   - `\` as separator, and case-insensitive path comparison, which
+  #     `PortablePath` containment folds on.
+  #   - `SafeVaultFileWriter` classifies Windows as "never app-private" and so
+  #     resolves symlinks there, a branch nothing else runs.
+  # Same runner label as the release job on purpose: a green PR here should mean
+  # the release build's host agrees.
+  test-windows:
+    runs-on: windows-2022
+    # NON-BLOCKING FOR NOW, deliberately and temporarily. This job has never run
+    # against this codebase, so its first failures are as likely to be CI
+    # environment artifacts as real defects, and a brand-new required check that
+    # is red on arrival is a check that gets bypassed (same reasoning as the
+    # mutation `--check` note below). The point is to make the failures VISIBLE,
+    # not to ignore them: the step summary below names every Windows-only result
+    # explicitly. Flip this to blocking once the job has been green across a few
+    # PRs — that is a follow-up, not an open-ended exemption.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - run: flutter pub get
+
+      # Three QA suites build a `/var`→`/private/var`-style divergence with
+      # `Link.create`. On Windows that needs SeCreateSymbolicLinkPrivilege,
+      # which normally means Developer Mode or an elevated shell — and the
+      # runner-images docs make no promise either way. So we MEASURE it here
+      # instead of assuming, and the answer drives the two steps below.
+      - name: Probe whether this runner can create symlinks
+        id: symlink
+        shell: bash
+        run: |
+          cat > "${RUNNER_TEMP}/symlink_probe.dart" <<'DART'
+          import 'dart:io';
+
+          void main() {
+            final root = Directory.systemTemp.createTempSync('symlink_probe_');
+            try {
+              final target = Directory('${root.path}/target')..createSync();
+              Link('${root.path}/link').createSync(target.path);
+              print('SYMLINK_CAPABLE=true');
+            } catch (error) {
+              print('SYMLINK_CAPABLE=false');
+              print('reason: $error');
+            } finally {
+              root.deleteSync(recursive: true);
+            }
+          }
+          DART
+          dart "${RUNNER_TEMP}/symlink_probe.dart" | tee "${RUNNER_TEMP}/probe.txt"
+          if grep -q 'SYMLINK_CAPABLE=true' "${RUNNER_TEMP}/probe.txt"; then
+            echo "capable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "capable=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The main suite, minus goldens (same reason as the Linux job) and minus
+      # the three symlink suites, which are run separately below so their
+      # outcome is never confused with this step's.
+      - name: Flutter test (portable suites)
+        shell: bash
+        run: |
+          mapfile -t suites < <(
+            find test -name '*_test.dart' \
+              ! -path 'test/goldens/*' \
+              ! -path 'test/features/password_manager/data/portable_path_symlink_qa_test.dart' \
+              ! -path 'test/core/utils/mobile_file_storage_guard_qa_test.dart' \
+              ! -path 'test/core/utils/mobile_file_storage_guard_bypass_qa_test.dart'
+          )
+          (( ${#suites[@]} > 0 )) || { echo "No test files matched"; exit 1; }
+          flutter test "${suites[@]}"
+
+      - name: Flutter test (symlink QA suites)
+        if: steps.symlink.outputs.capable == 'true'
+        shell: bash
+        run: |
+          flutter test \
+            test/features/password_manager/data/portable_path_symlink_qa_test.dart \
+            test/core/utils/mobile_file_storage_guard_qa_test.dart \
+            test/core/utils/mobile_file_storage_guard_bypass_qa_test.dart
+
+      # A test that did not run must never look like a test that passed. When
+      # the probe says this runner cannot create symlinks, the step above is
+      # skipped and this one states exactly which suites went unverified, as a
+      # warning annotation on the job — not as a silent green tick.
+      - name: Report unrun symlink QA suites
+        if: steps.symlink.outputs.capable != 'true'
+        shell: bash
+        run: |
+          echo "::warning title=Symlink QA suites NOT RUN on Windows::\
+          This runner cannot create symlinks (no SeCreateSymbolicLinkPrivilege / \
+          Developer Mode), so portable_path_symlink_qa, \
+          mobile_file_storage_guard_qa and mobile_file_storage_guard_bypass_qa \
+          were skipped. They are UNVERIFIED on Windows, not passing."
+          {
+            echo "### Windows: symlink QA suites NOT RUN"
+            echo
+            echo "\`Link.create\` is unavailable on this runner. Probe output:"
+            echo
+            echo '```'
+            cat "${RUNNER_TEMP}/probe.txt"
+            echo '```'
+            echo
+            echo "Unverified on Windows:"
+            echo "- \`test/features/password_manager/data/portable_path_symlink_qa_test.dart\`"
+            echo "- \`test/core/utils/mobile_file_storage_guard_qa_test.dart\`"
+            echo "- \`test/core/utils/mobile_file_storage_guard_bypass_qa_test.dart\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # Separate from the Flutter jobs on purpose: these checks share no toolchain
   # with them, so a failure here names the extension directly instead of hiding
   # inside a red `test` job, and it does not wait on `flutter pub get`.
