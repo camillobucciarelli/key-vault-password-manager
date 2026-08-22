@@ -275,6 +275,9 @@
       }
     }
     if (s.overlayHost != null) s.overlayHost.remove();
+    // A040 — the light-DOM fallback listbox dies with the session too.
+    if (s.lightListboxEl != null) s.lightListboxEl.remove();
+    s.lightListboxEl = null;
     s.anchorEl = null;
     s.usernameEl = null;
     s.passwordEl = null;
@@ -298,6 +301,34 @@
       session.savedAria.set(name, anchor.getAttribute(name));
     }
     anchor.setAttribute(name, value);
+  };
+
+  /** Record-once, then remove: same restore contract as setAnchorAria. */
+  const removeAnchorAria = (name) => {
+    const anchor = session.anchorEl;
+    if (!session.savedAria.has(name)) {
+      session.savedAria.set(name, anchor.getAttribute(name));
+    }
+    anchor.removeAttribute(name);
+  };
+
+  /**
+   * A040 — true when `node` lives inside this session's overlay surface: the
+   * shadow host (a composed focusin from inside the closed shadow retargets
+   * to the host; the fake and some AT paths hand the inner element itself)
+   * or the light-DOM fallback listbox. Walks parentNode and, at a shadow
+   * root, its `host`.
+   */
+  const isOverlayNode = (node) => {
+    if (session === null || node == null) return false;
+    let cur = node;
+    while (cur != null) {
+      if (cur === session.overlayHost || cur === session.lightListboxEl) {
+        return true;
+      }
+      cur = cur.parentNode ?? cur.host ?? null;
+    }
+    return false;
   };
 
   // -------------------------------------------------------------------------
@@ -462,6 +493,120 @@
     }
   };
 
+  // A040 — the light-DOM fallback listbox is visually sr-only via the clip
+  // pattern: zero rendered pixels (1px box, clipped), still exposed to AT.
+  // Never `display:none`/`visibility:hidden` (those hide it from AT too).
+  const LIGHT_LISTBOX_STYLE = [
+    "position:fixed",
+    "top:0",
+    "left:0",
+    "width:1px",
+    "height:1px",
+    "margin:-1px",
+    "padding:0",
+    "border:0",
+    "overflow:hidden",
+    "clip:rect(0 0 0 0)",
+    "clip-path:inset(50%)",
+    "white-space:nowrap",
+  ].join(";");
+
+  /**
+   * A040 — activate the option at `index` from the light fallback listbox
+   * (or from a direct AT press on the shadow row of the same index). Routes
+   * through the EXACT same one-shot paths as a pointer click on the shadow
+   * row: attemptFill / attemptGenerate, token + nonce + teardown identical.
+   */
+  const activateLightOption = (index) => {
+    if (session === null) return;
+    const itemCount = session.items === null ? 0 : session.items.length;
+    if (session.generateToken !== null && index === itemCount) {
+      session.selectedIndex = index;
+      updateSelection({ announce: false });
+      attemptGenerate();
+      return;
+    }
+    const entry = session.items?.[index];
+    if (entry == null || entry.fillEligible !== true) return;
+    session.selectedIndex = index;
+    updateSelection({ announce: false });
+    attemptFill(entry.entryId);
+  };
+
+  /** A press delivered to an option element: Enter/Space, click semantics. */
+  const isPressKey = (event) => event.key === "Enter" || event.key === " ";
+
+  /**
+   * A040 — (re)build the GENERIC light-DOM options. SECURITY INVARIANT: the
+   * text and attributes written here are static labels and indices ONLY —
+   * never the entry title, displayService, username, or entryId. The light
+   * listbox lives in the page DOM, so anything written here is readable by
+   * the page; the A032 light-DOM scan enforces this.
+   */
+  const renderLightOptions = () => {
+    if (session === null || session.lightListboxEl === null) return;
+    const signal = session.teardownController.signal;
+    const listEl = session.lightListboxEl;
+    clearChildren(listEl);
+    const items = session.items ?? [];
+    const count = items.length;
+    const addOption = (index, label, enabled, activate) => {
+      const opt = document.createElement("button");
+      opt.id = `kv-light-option-${index}`;
+      opt.setAttribute("type", "button");
+      opt.setAttribute("role", "option");
+      opt.setAttribute("aria-selected", "false");
+      opt.setAttribute("tabindex", "-1");
+      opt.textContent = label;
+      if (enabled) {
+        // A040 SECURITY — the light options live in the PAGE DOM, so page
+        // code can getElementById + dispatchEvent a synthetic click at them.
+        // Only user-agent-generated events (isTrusted) may activate: a fill
+        // without a real user gesture is credential exfiltration. The guard
+        // sits on the EVENT HANDLER, the most upstream point — never inside
+        // attemptFill/attemptGenerate, which have legitimate internal
+        // callers (the anchor keyboard path).
+        opt.addEventListener(
+          "click",
+          (event) => {
+            if (event.isTrusted !== true) return;
+            activate();
+          },
+          { signal }
+        );
+        opt.addEventListener(
+          "keydown",
+          (event) => {
+            if (event.isTrusted !== true) return;
+            if (!isPressKey(event)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            activate();
+          },
+          { signal }
+        );
+      } else {
+        opt.disabled = true;
+        opt.setAttribute("disabled", "");
+        opt.setAttribute("aria-disabled", "true");
+      }
+      listEl.appendChild(opt);
+    };
+    items.forEach((entry, index) => {
+      addOption(
+        index,
+        `Suggestion ${index + 1} of ${count}`,
+        entry.fillEligible === true,
+        () => activateLightOption(index)
+      );
+    });
+    if (session.generateToken !== null) {
+      addOption(count, "Generate a password", true, () =>
+        activateLightOption(count)
+      );
+    }
+  };
+
   const buildOverlay = () => {
     const signal = session.teardownController.signal;
     const host = document.createElement("div");
@@ -506,9 +651,24 @@
     // Inert until a matchesResult advertises the capability with a token;
     // attemptGenerate refuses while `session.generateToken` is null, so a
     // click delivered to the disabled control cannot do anything either.
+    // A040 SECURITY — isTrusted guard on every activation handler (see
+    // renderLightOptions): only user-agent events may generate.
     generateEl.addEventListener(
       "click",
-      () => {
+      (event) => {
+        if (event.isTrusted !== true) return;
+        attemptGenerate();
+      },
+      { signal }
+    );
+    // A040 — direct AT press (keydown form) on the Generate row.
+    generateEl.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.isTrusted !== true) return;
+        if (!isPressKey(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
         attemptGenerate();
       },
       { signal }
@@ -520,7 +680,35 @@
     shadow.appendChild(styleEl);
     shadow.appendChild(sectionEl);
 
-    (document.body ?? document.documentElement).appendChild(host);
+    const parent = document.body ?? document.documentElement;
+    parent.appendChild(host);
+
+    if (session.kind === "fill") {
+      // A040 — the light-DOM fallback listbox, sibling of the host. VoiceOver
+      // cannot reach or actuate the closed-shadow rows through
+      // aria-activedescendant (an IDREF never crosses a shadow boundary), so
+      // this GENERIC listbox is the AT-activatable surface: indices and
+      // static labels only — zero entry metadata in the page DOM.
+      const lightListbox = document.createElement("div");
+      lightListbox.id = "kv-light-listbox";
+      lightListbox.setAttribute("role", "listbox");
+      lightListbox.setAttribute("aria-label", "KeyVault suggestions");
+      lightListbox.setAttribute("style", LIGHT_LISTBOX_STYLE);
+      // Same pending-action protocol as the shadow section (A038): a pointer
+      // press here keeps the anchor focused and holds the deferred blur off.
+      lightListbox.addEventListener("mousedown", markPendingAction, { signal });
+      lightListbox.addEventListener(
+        "click",
+        () => {
+          settlePendingAction();
+        },
+        { signal }
+      );
+      parent.appendChild(lightListbox);
+      session.lightListboxEl = lightListbox;
+      // Same-root IDREFs now exist: point the anchor at the light listbox.
+      setAnchorAria("aria-controls", "kv-light-listbox");
+    }
 
     session.overlayHost = host;
     session.shadowRoot = shadow;
@@ -548,7 +736,12 @@
   const renderState = (code) => {
     if (session === null) return;
     setStatusText(STATE_TEXT[code] ?? STATE_TEXT.stale_session);
-    if (code !== "matches") clearChildren(session.listEl);
+    if (code !== "matches") {
+      clearChildren(session.listEl);
+      // A040 — the light fallback never offers options the shadow list does
+      // not; handleMatches re-adds the generate-only option when applicable.
+      if (session.lightListboxEl !== null) clearChildren(session.lightListboxEl);
+    }
 
     const wantRetry = code === "stale_session";
     if (wantRetry && session.retryEl === null) {
@@ -598,6 +791,23 @@
     if (session.generateEl !== null && session.generateToken !== null) {
       session.generateEl.setAttribute("aria-selected", onGenerate ? "true" : "false");
     }
+    // A040 — mirror the selection onto the GENERIC light options and point
+    // the anchor's aria-activedescendant at the light id (same DOM root, so
+    // the IDREF resolves — unlike the closed-shadow ids). The Generate row is
+    // the light option at index === itemCount by construction.
+    const lightRows =
+      session.lightListboxEl === null ? [] : session.lightListboxEl.childNodes;
+    for (let at = 0; at < lightRows.length; at += 1) {
+      lightRows[at].setAttribute(
+        "aria-selected",
+        at === index ? "true" : "false"
+      );
+    }
+    if (index >= 0 && index < lightRows.length) {
+      setAnchorAria("aria-activedescendant", `kv-light-option-${index}`);
+    } else if (session.savedAria.has("aria-activedescendant")) {
+      removeAnchorAria("aria-activedescendant");
+    }
     if (onGenerate) {
       session.listEl.removeAttribute("aria-activedescendant");
       if (announce) {
@@ -637,9 +847,29 @@
       row.appendChild(titleEl);
       row.appendChild(serviceEl);
       if (entry.fillEligible === true) {
+        // A040 SECURITY — isTrusted guard on every activation handler.
+        // Page code cannot reach these closed-shadow rows, but the guard is
+        // defence in depth and keeps one uniform rule: only user-agent
+        // events activate a fill.
         row.addEventListener(
           "click",
-          () => {
+          (event) => {
+            if (event.isTrusted !== true) return;
+            attemptFill(entry.entryId);
+          },
+          { signal: session.teardownController.signal }
+        );
+        // A040 — direct AT press on the row: an AXPress can arrive as a
+        // keydown on the (focusable) row instead of a synthetic click. Only
+        // the press that activates is consumed (A037 stays intact: this
+        // listener lives on the row, never on the page).
+        row.addEventListener(
+          "keydown",
+          (event) => {
+            if (event.isTrusted !== true) return;
+            if (!isPressKey(event)) return;
+            event.preventDefault();
+            event.stopPropagation();
             attemptFill(entry.entryId);
           },
           { signal: session.teardownController.signal }
@@ -651,6 +881,7 @@
       }
       listEl.appendChild(row);
     });
+    renderLightOptions();
     session.selectedIndex = 0;
     updateSelection({ announce: false });
     updatePosition();
@@ -755,6 +986,9 @@
       // explicitly arrows onto the Generate row (when it is active).
       session.selectedIndex = -1;
       renderState("no-matches");
+      // A040 — an active Generate capability is still AT-reachable through
+      // the light fallback even with zero matches.
+      renderLightOptions();
       updateSelection({ announce: false });
       return;
     }
@@ -854,10 +1088,17 @@
       teardownSession();
       return;
     }
-    // The anchor must still be the live, focused element it was when the user
-    // clicked. Anything else fills an input the user is not looking at.
+    // The anchor must still be live, and focus must still sit on the anchor
+    // OR on the overlay surface the user just pressed (A040: an AT press can
+    // move DOM focus onto the row/light option that triggered this fill).
+    // Anything else fills an input the user is not looking at.
     const anchor = session.anchorEl;
-    if (anchor == null || anchor.isConnected !== true || document.activeElement !== anchor) {
+    if (
+      anchor == null ||
+      anchor.isConnected !== true ||
+      (document.activeElement !== anchor &&
+        !isOverlayNode(document.activeElement))
+    ) {
       teardownSession();
       return;
     }
@@ -976,9 +1217,15 @@
       teardownSession();
       return;
     }
-    // The anchor must still be the live, focused element the user acted on.
+    // The anchor must still be live, and focus must still sit on the anchor
+    // OR on the overlay surface the user just pressed (A040).
     const anchor = session.anchorEl;
-    if (anchor == null || anchor.isConnected !== true || document.activeElement !== anchor) {
+    if (
+      anchor == null ||
+      anchor.isConnected !== true ||
+      (document.activeElement !== anchor &&
+        !isOverlayNode(document.activeElement))
+    ) {
       teardownSession();
       return;
     }
@@ -1027,6 +1274,11 @@
    * Escape, Tab, everything unhandled — passes through untouched.
    */
   const onSessionKeyDown = (event) => {
+    // A040 SECURITY — the anchor is a PAGE element: page code can dispatch
+    // synthetic keydowns at it (ArrowDown + Enter would be a no-gesture
+    // fill). Only user-agent-generated keys drive the session; a real
+    // VO/user key press is always trusted, so the AT path is unaffected.
+    if (event.isTrusted !== true) return;
     if (session === null) return;
     if (event.key === "Escape") {
       // Dismisses the current focus session. Not prevented: only the fill
@@ -1100,6 +1352,7 @@
       usernameEl: fieldInfo === null ? null : fieldInfo.usernameEl,
       passwordEl: fieldInfo === null ? null : fieldInfo.passwordEl,
       overlayHost: null,
+      lightListboxEl: null,
       shadowRoot: null,
       statusEl: null,
       listEl: null,
@@ -1152,8 +1405,13 @@
 
   const onFocusIn = (event) => {
     const target = event.target;
-    if (session !== null && session.anchorEl === target) {
-      // Focus returned to the anchor: a scheduled outside-blur teardown is
+    if (
+      session !== null &&
+      (session.anchorEl === target || isOverlayNode(target))
+    ) {
+      // Focus returned to the anchor — or entered the overlay itself (A040:
+      // an AT press can move DOM focus onto a row or a light option; that is
+      // NOT an outside departure) — so a scheduled outside-blur teardown is
       // obsolete.
       if (session.blurTimerId !== 0) {
         clearTimeout(session.blurTimerId);
@@ -1224,7 +1482,13 @@
     // also blur programmatically mid-pointer-sequence. A038: defer the
     // teardown past the current pointer task; a pending overlay action
     // cancels it, anything else lets it run.
-    if (session === null || event.target !== session.anchorEl) return;
+    if (session === null) return;
+    // A040 — focus leaving the overlay surface itself (a focused row or
+    // light option) is a departure too; focus HOPPING between anchor and
+    // overlay is rescued by the focusin handler cancelling this timer.
+    if (event.target !== session.anchorEl && !isOverlayNode(event.target)) {
+      return;
+    }
     if (session.pendingAction === true) return;
     if (session.blurTimerId !== 0) return;
     const s = session;

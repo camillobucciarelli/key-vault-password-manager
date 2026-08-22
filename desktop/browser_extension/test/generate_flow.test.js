@@ -685,6 +685,7 @@ test("B012: a generate answer for a previous session (stale nonce via refocus) i
       bubbles: true,
       cancelable: true,
       composed: true,
+      isTrusted: true, // a REAL user Escape (A040: untrusted keys are ignored)
       key: "Escape",
     })
   );

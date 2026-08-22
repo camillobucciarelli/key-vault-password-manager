@@ -74,6 +74,14 @@ class FakeEvent {
     this.bubbles = init.bubbles === true;
     this.cancelable = init.cancelable === true;
     this.composed = init.composed === true;
+    // Chrome fidelity: ONLY user-agent-generated events are trusted. A
+    // constructor-created event (page-synthetic dispatchEvent, or the
+    // overlay's own input/change events) reads isTrusted false. The harness
+    // sets `isTrusted: true` exactly where it plays the UA: `click()`,
+    // `pressKey()`, and the focus transitions in `_moveFocus`. A test that
+    // hand-builds an event models PAGE code by default — the adversarial
+    // case — and must opt in to `isTrusted: true` to model a real gesture.
+    this.isTrusted = init.isTrusted === true;
     this.key = init.key;
     this.relatedTarget = init.relatedTarget ?? null;
     this.target = null;
@@ -633,6 +641,7 @@ class FakePage {
         new FakeEvent("focusout", {
           bubbles: true,
           composed: true,
+          isTrusted: true,
           relatedTarget: intoFrame ? null : next,
         })
       );
@@ -646,7 +655,12 @@ class FakePage {
     if (next && next !== this.document.body) {
       this._propagate(
         next,
-        new FakeEvent("focusin", { bubbles: true, composed: true, relatedTarget: prev })
+        new FakeEvent("focusin", {
+          bubbles: true,
+          composed: true,
+          isTrusted: true,
+          relatedTarget: prev,
+        })
       );
     }
   }
@@ -694,6 +708,7 @@ class FakePage {
       bubbles: true,
       cancelable: true,
       composed: true,
+      isTrusted: true,
     });
     this._propagate(el, mousedown);
     if (!mousedown.defaultPrevented) {
@@ -702,11 +717,21 @@ class FakePage {
     }
     this._propagate(
       el,
-      new FakeEvent("mouseup", { bubbles: true, cancelable: true, composed: true })
+      new FakeEvent("mouseup", {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        isTrusted: true,
+      })
     );
     this._propagate(
       el,
-      new FakeEvent("click", { bubbles: true, cancelable: true, composed: true })
+      new FakeEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        isTrusted: true,
+      })
     );
     await this.settle();
   }
@@ -723,6 +748,7 @@ class FakePage {
       bubbles: true,
       cancelable: true,
       composed: true,
+      isTrusted: true,
       key,
     });
     this._propagate(target, event);
@@ -850,6 +876,35 @@ class FakePage {
       }
     }
     chunks.push(...this.consoleLines);
+    return chunks.join("\n");
+  }
+
+  /**
+   * A040 — every observable surface of the LIGHT DOM ONLY: the page tree
+   * (tags, ids, attributes, dataset, inline style, text) with every shadow
+   * root EXCLUDED, plus `document.title`. This is exactly what page code can
+   * read without shadow access; the extended A032 scan asserts that entry
+   * TITLES (not only secrets) never appear here — the light fallback listbox
+   * may carry indices and static labels only.
+   */
+  captureLightDomState() {
+    const chunks = [this.document.title];
+    const walk = (node) => {
+      for (const child of node.childNodes ?? []) {
+        if (child instanceof FakeElement) {
+          chunks.push(child.tagName, child.id, child._text);
+          for (const [name, value] of child._attributes) chunks.push(name, value);
+          for (const [name, value] of Object.entries(child.dataset)) {
+            chunks.push(name, String(value));
+          }
+          for (const [name, value] of Object.entries(child.style)) {
+            chunks.push(name, String(value));
+          }
+          walk(child); // NEVER descends into child._shadow — light DOM only.
+        }
+      }
+    };
+    walk(this.document.documentElement);
     return chunks.join("\n");
   }
 

@@ -58,7 +58,8 @@
     "The general rule: a number in a PR body was true once and is now unowned;",
     "a number in this file is re-measured on every run and fails the build when",
     "it drifts. Do not 'correct' this file to match a PR — re-run the runner.",
-    "  * A0-M2, A4-M4, A4-M6, A4-M8, A4-M9, IN SLICE A5. The Node suite went from 286 to 306 tests (overlay_interaction.test.js and the five required A039 named DOM assertions in content_overlay.test.js). None of these mutations was weakened — broken canonicalization, submit-on-fill, DOM-visible entry ids, surviving watchdogs and surviving hosts now also kill the new interaction and geometry tests. Blast radius only. A4-M10 was RETARGETED: A038 replaced the anonymous mousedown preventDefault with the named markPendingAction handler, so the mutation now removes the preventDefault inside it; the property (pointer-down must not steal anchor focus) is unchanged and the kill set got wider, not narrower."
+    "  * A0-M2, A4-M4, A4-M6, A4-M8, A4-M9, IN SLICE A5. The Node suite went from 286 to 306 tests (overlay_interaction.test.js and the five required A039 named DOM assertions in content_overlay.test.js). None of these mutations was weakened — broken canonicalization, submit-on-fill, DOM-visible entry ids, surviving watchdogs and surviving hosts now also kill the new interaction and geometry tests. Blast radius only. A4-M10 was RETARGETED: A038 replaced the anonymous mousedown preventDefault with the named markPendingAction handler, so the mutation now removes the preventDefault inside it; the property (pointer-down must not steal anchor focus) is unchanged and the kill set got wider, not narrower.",
+    "  * A0-M2, A2-M9, A3-M1, A4-M4, A4-M9, A5-M6, A5-M8, IN SLICE A6 (A040). The Node suite went from 353 to 368 tests (overlay_at_activation.test.js plus the extended light-DOM A032 scan). None of these mutations was weakened — the new AT-activation and light-fallback tests sit in their blast radius. A4-M10 is the one deliberate NARROWING: A040 makes DOM focus entering the overlay a survivable event by design (the focusin handler cancels the deferred outside-blur teardown), so the mutant that lets mousedown steal the anchor focus no longer cascades into mass teardown-before-click failures — the overlay now survives that focus move on purpose. The property (pointer-down must not steal anchor focus) is still pinned by the direct A038 assertions; 3 kills, re-measured."
   ],
   "version": 1,
   "slices": {
@@ -68,7 +69,8 @@
     "A3": "background trust paths and focus grants (A022-A027) — PR #55",
     "A4": "metadata overlay and explicit fill in content_overlay.js (A028-A034) — this PR",
     "A5": "iframe policy surface, ARIA, keyboard, click-vs-blur, geometry (A035-A039) — this PR",
-    "B2": "explicit Generate UI: capability-gated row, one-shot generate token, app-owned pending (B010-B013) — this PR"
+    "B2": "explicit Generate UI: capability-gated row, one-shot generate token, app-owned pending (B010-B013) — this PR",
+    "A6": "AT activation (A040): direct press on shadow rows + generic light-DOM fallback listbox — this PR"
   },
   "suites": {
     "node-extension": {
@@ -117,7 +119,7 @@
     },
     {
       "id": "A0-M2",
-      "expectedKills": 223,
+      "expectedKills": 240,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -514,7 +516,7 @@
     },
     {
       "id": "A2-M9",
-      "expectedKills": 73,
+      "expectedKills": 75,
       "slice": "A2",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_lifecycle.js",
@@ -646,7 +648,7 @@
     },
     {
       "id": "A3-M1",
-      "expectedKills": 67,
+      "expectedKills": 69,
       "slice": "A3",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_routes.js",
@@ -1159,7 +1161,7 @@
     },
     {
       "id": "A4-M4",
-      "expectedKills": 6,
+      "expectedKills": 8,
       "slice": "A4",
       "suite": "node-extension",
       "file": "desktop/browser_extension/content_overlay.js",
@@ -1243,7 +1245,7 @@
     },
     {
       "id": "A4-M9",
-      "expectedKills": 34,
+      "expectedKills": 42,
       "slice": "A4",
       "suite": "node-extension",
       "file": "desktop/browser_extension/content_overlay.js",
@@ -1258,7 +1260,7 @@
     },
     {
       "id": "A4-M10",
-      "expectedKills": 17,
+      "expectedKills": 3,
       "slice": "A4",
       "suite": "node-extension",
       "file": "desktop/browser_extension/content_overlay.js",
@@ -1384,7 +1386,7 @@
           "replace": "    teardownSession();"
         }
       ],
-      "expectedKills": 1
+      "expectedKills": 4
     },
     {
       "id": "A5-M7",
@@ -1414,7 +1416,7 @@
           "replace": "        if (original !== null) anchor.setAttribute(name, original);"
         }
       ],
-      "expectedKills": 2
+      "expectedKills": 3
     },
     {
       "id": "A5-M9",
@@ -1593,6 +1595,66 @@
         {
           "find": "    session.generateToken =\n      response.generateAvailable === true &&\n      typeof response.generateToken === \"string\"\n        ? response.generateToken\n        : null;",
           "replace": "    session.generateToken =\n      response.generateAvailable === true\n        ? response.generateToken\n        : null;"
+        }
+      ]
+    },
+    {
+      "id": "A6-M1",
+      "expectedKills": 2,
+      "slice": "A6",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "the light option label becomes the entry title",
+      "property": "A040/A032: the light-DOM fallback carries GENERIC labels only — an entry title written into a light option is a metadata leak into the page DOM and must be killed by the extended light-DOM scan",
+      "edits": [
+        {
+          "find": "      addOption(\n        index,\n        `Suggestion ${index + 1} of ${count}`,\n        entry.fillEligible === true,\n        () => activateLightOption(index)\n      );",
+          "replace": "      addOption(\n        index,\n        entry.title,\n        entry.fillEligible === true,\n        () => activateLightOption(index)\n      );"
+        }
+      ]
+    },
+    {
+      "id": "A6-M2",
+      "expectedKills": 2,
+      "slice": "A6",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "light activation bypasses the one-shot attemptFill path and sends the fill request directly",
+      "property": "A040: light activation must route through the EXACT same one-shot token/nonce path as a shadow-row click — a direct send skips the eligibility guard and the client-side token burn",
+      "edits": [
+        {
+          "find": "    const entry = session.items?.[index];\n    if (entry == null || entry.fillEligible !== true) return;\n    session.selectedIndex = index;\n    updateSelection({ announce: false });\n    attemptFill(entry.entryId);\n  };",
+          "replace": "    const entry = session.items?.[index];\n    if (entry == null) return;\n    session.selectedIndex = index;\n    updateSelection({ announce: false });\n    chrome.runtime.sendMessage(\n      {\n        channel: security.CHANNEL,\n        version: security.MESSAGE_VERSION,\n        type: \"fill\",\n        origin: session.origin,\n        focusNonce: session.focusNonce,\n        fillToken: session.fillToken,\n        entryId: entry.entryId,\n        sessionBinding: { ...session.sessionBinding },\n      },\n      (response) => {\n        if (chrome.runtime.lastError) return;\n        handleFill(response, entry.entryId);\n      }\n    );\n  };"
+        }
+      ]
+    },
+    {
+      "id": "A6-M3",
+      "expectedKills": 3,
+      "slice": "A6",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "focus entering the overlay no longer cancels the outside-blur teardown",
+      "property": "A040: DOM focus moving onto a shadow row or a light option is NOT an outside departure — dropping the isOverlayNode branch reinstates the teardown that kills the row before the AT press lands",
+      "edits": [
+        {
+          "find": "    if (\n      session !== null &&\n      (session.anchorEl === target || isOverlayNode(target))\n    ) {",
+          "replace": "    if (session !== null && session.anchorEl === target) {"
+        }
+      ]
+    },
+    {
+      "id": "A6-M4",
+      "expectedKills": 2,
+      "slice": "A6",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "the isTrusted guard on the light-option click handler is removed",
+      "property": "A040 SECURITY: the light options are page-reachable DOM — without the isTrusted guard, page code can dispatchEvent a synthetic click and obtain a real fill with zero user gesture (credential exfiltration, tester-proven). Only user-agent events may activate.",
+      "edits": [
+        {
+          "find": "        opt.addEventListener(\n          \"click\",\n          (event) => {\n            if (event.isTrusted !== true) return;\n            activate();\n          },\n          { signal }\n        );",
+          "replace": "        opt.addEventListener(\n          \"click\",\n          () => {\n            activate();\n          },\n          { signal }\n        );"
         }
       ]
     }
