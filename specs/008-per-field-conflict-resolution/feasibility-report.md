@@ -961,8 +961,9 @@ remove, and a mutation check of the same standard applied to T009.
 Recorded 2026-08-22 when T301/T304-T307 landed, on tester review of the first
 slice. The adapter supplies the presence evidence T009 takes as given, so any
 place the two disagree is a place the proof does not reach the implementation.
-Three were found. The first is fixed; the other two are **open limits** and are
-listed here so nobody reads "T009 passed" as covering them.
+Three were found. The first is fixed; the second is **decided** (2026-08-23,
+below); the third remains an **open limit**, listed here so nobody reads
+"T009 passed" as covering it.
 
 1. **Key space — fixed in T301.** T009 keys a document by a case-sensitive
    `Map<String, …>`. KDBX does not: `KdbxKey` compares on `key.toLowerCase()`
@@ -975,7 +976,8 @@ listed here so nobody reads "T009 passed" as covering them.
    key and carries both verbatim spellings as payload. **T009's model remains
    case-sensitive**, so the model's key space is still not KDBX's; the
    implementation is correct against KDBX, not against the model.
-2. **No per-field modification time — OPEN, blocks T401a.** T009's `Field` is
+2. **No per-field modification time — DECIDED 2026-08-23, option (a). No longer
+   blocks T401a.** T009's `Field` is
    `(value, mtime)` and FR-3's total order consumes that `mtime`. **KDBX has no
    per-field time.** `KdbxTimes` lives on `KdbxObject`, so the finest granularity
    available is one `lastModificationTime` per *entry*. Every field of an entry
@@ -986,8 +988,52 @@ listed here so nobody reads "T009 passed" as covering them.
    deterministic and convergent — but it means the LWW behaviour FR-3 describes
    is, in practice, entry-level, and the "newer field wins" reading of the spec
    is not implementable on KDBX. The adapter emits **no timestamp at all** today
-   rather than emitting an entry time dressed up as a field time. **T401a must
-   decide this explicitly** before implementing the comparator; see `tasks.md`.
+   rather than emitting an entry time dressed up as a field time.
+
+   **Decision (product, 2026-08-23): option (a) — accept entry-level LWW and say
+   so in FR-3.** The adapter will emit the entry's `lastModificationTime` for
+   every field of that entry; rules 1 and 2 elect the newer *entry*, and its
+   side wins for all of that entry's conflicting fields at once. Rule 3 still
+   decides field by field on equal or unknown times, with the new FR-3a
+   credential block (`UserName`/`Password`/`URL`) as the single exception, moved
+   as one unit. The declared consequence: two devices editing **different
+   fields of the same entry** no longer get an automatic per-field union — both
+   fields become FR-4 review rows resolved by one default.
+
+   **Option (c) — derive a per-field time from history revisions — is excluded
+   by measurement, not by preference.** Three findings, each disqualifying on
+   its own:
+
+   - *granularity is wrong by one level*: `KdbxObject.modify` fires
+     `onBeforeModify` only on the first modification after the object last
+     became clean (`kdbx` 2.5.0, `kdbx_object.dart`), and `KdbxEntry` overrides
+     it to push one history revision — so a revision is one **save cycle**, not
+     one field. `VaultKdbxService.updateEntry` writes `Title`, `UserName`,
+     `Password`, `URL` and `Notes` in a single cycle, and that is the app's
+     ordinary edit path;
+   - *it does not converge*: the derived time is a function of the local
+     history, which is per-replica. Two devices holding identical final values
+     derive different times for the same field, because our own adapter adds a
+     revision the peer does not have. Measured `DIVERGED_FIELDS=2`, and on a
+     second round the divergence **inverts a winner** (`CONVERGED=false`) — the
+     same perspective-dependence class FR-3 forbids when it forbids
+     "prefer local";
+   - *external pruning yields a wrong time presented as known*: KeePassXC's
+     `Merger::mergeHistory` deduplicates revisions sharing the same second and
+     warns explicitly about possible data loss. Under rule 1 a known time beats
+     an unknown one, so the wrong derived value would outrank the true evidence.
+
+   **Option (d) is recorded as a future improvement and not adopted**: persist a
+   per-field time in the entry's `CustomData`, anchored to
+   `lastModificationTime`, so the time travels with the value instead of being
+   inferred from one replica's edit log; a broken anchor makes staleness
+   detectable and degrades the field to *unknown*, which rule 1 already handles.
+   It changes what is written into every vault and must first pass its own
+   commutativity/associativity test of the T009 standard.
+
+   Full text: `spec.md` FR-3 §"The timestamp in rules 1 and 2 is the entry's"
+   and §"Why a per-field time is not derived from history revisions"; tasks
+   T401a and T401c.
 3. **Protection status is outside the T009 proof — OPEN, low risk.** The adapter
    treats a plain→protected change at equal text as a `fieldConflict`, on the
    FR-1 grounds that protected/plain status is preserved semantics. T009's
@@ -997,9 +1043,10 @@ listed here so nobody reads "T009 passed" as covering them.
    argument, and an argument is what T009 exists to replace. To be folded into
    the model when T401a extends it.
 
-Items 2 and 3 **survive the Gate 3 close of 2026-08-22**: closing Phase 3 does
-not close them, and they are indexed together with the rest of T401's input in
-`tasks.md` under T401.
+Items 2 and 3 **survived the Gate 3 close of 2026-08-22**: closing Phase 3 did
+not close them. Item 2 was closed on 2026-08-23 by the product decision above
+and is now an implementation instruction (T401a, T401c). Item 3 is still open
+and is indexed with the rest of T401's input in `tasks.md` under T401.
 
 #### Gate 3 final validation (2026-08-22) — VALIDATED
 

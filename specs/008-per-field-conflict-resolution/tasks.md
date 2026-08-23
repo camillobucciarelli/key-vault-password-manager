@@ -641,11 +641,13 @@ time under a wall clock does not do.
         nothing.** It has not been shown non-commutative either; it needs an
         assertion that settles which of the two it is.
 
+      *Removed from this list on 2026-08-23, decided:* **no per-field
+      modification time.** Product decision, option (a): FR-3's LWW is
+      entry-level, and the credential block of FR-3a is the one exception to
+      per-field resolution. No longer an open question — it is an instruction,
+      in **T401a** and **T401c** below and in `spec.md` FR-3/FR-3a.
+
       *Already open, carried forward — grouped here, stated where they live:*
-      - **No per-field modification time**: FR-3 is entry-level LWW in practice.
-        The three candidate answers (a) / (b) / (c) are in **T401a** below, and
-        in `feasibility-report.md` §"Where the T301 adapter's evidence does NOT
-        line up with T009's model", item 2.
       - **`KdbxFieldDiff.keySpellingDiverges` is emitted and read by nobody.**
         Full statement and the three analysed candidates: **T401a** below.
       - **Sibling order and entry history are not commutative.** Both are
@@ -662,20 +664,28 @@ time under a wall clock does not do.
       the operand order of the deterministic notes concatenation. Never "prefer
       local": that is perspective-dependent and makes the merge non-commutative.
       Promote the T009 model properties to adapter-level tests.
-      **Blocked on a design decision, raised by T301 (2026-08-22): KDBX has no
-      per-field modification time.** `KdbxTimes` is on `KdbxObject`, so the
-      finest available granularity is one `lastModificationTime` per entry.
-      Rules 1 and 2 of the total order therefore cannot discriminate two fields
-      of the same entry, and **every intra-entry field conflict falls through to
-      rule 3** (the UTF-8 value order) as a block. Decide and record which it
-      is before implementing: (a) accept entry-level LWW and rewrite FR-3's
-      "newer modification time wins" to say so; (b) treat every field timestamp
-      as unknown and rely on rule 3 alone; or (c) source a per-field time from
-      history revisions, if one can be derived at all. The adapter deliberately
-      emits **no** timestamp today rather than passing off an entry time as a
-      field time. See `feasibility-report.md` §"Where the T301 adapter's
-      evidence does NOT line up with T009's model". T401a must also extend the
-      model to cover the protection dimension the adapter compares.
+      **Unblocked 2026-08-23 — the timestamp question is decided, option (a).**
+      This is now an instruction, not a question. The adapter emits the
+      **entry's** `lastModificationTime` as the timestamp for every field of
+      that entry, in place of today's "no timestamp at all", so rules 1 and 2
+      elect the newer *entry* and its side wins for all of that entry's
+      conflicting fields at once; rule 3 decides field by field on equal or
+      unknown entry times, with the FR-3a credential block as the single
+      exception. Options (b) — treat every timestamp as unknown — and (c) —
+      derive a per-field time from history revisions — are **rejected**;
+      (c) by measurement (revision granularity is one save cycle, the derived
+      time is per-replica and does not converge, and a pruned history yields a
+      wrong time that rule 1 would rank above the truth). Option (d), a
+      per-field time persisted in the entry's `CustomData` behind an anchor on
+      `lastModificationTime`, is a recorded future improvement and is **not in
+      scope here**; adopting it requires its own commutativity/associativity
+      test of the T009 standard. Full statement and evidence: `spec.md` FR-3
+      §"The timestamp in rules 1 and 2 is the entry's" and §"Why a per-field
+      time is not derived from history revisions". Acceptance: criterion 15l,
+      plus 15g/15j/15k which stand unchanged.
+      T401a must also extend the model to cover the protection dimension the
+      adapter compares, and must expose the byte comparator as a reusable
+      primitive: **T401c** and **LOW-4** both consume it.
       **Third open item from T301: `KdbxFieldDiff.keySpellingDiverges`.** The
       adapter emits it and nothing reads it today, so T401a must treat it
       deliberately rather than discover it. It cannot be deferred again: KDBX
@@ -687,8 +697,38 @@ time under a wall clock does not do.
       "present, equal → identical" row by asking the user about values that
       agree; FR-3's deterministic UTF-8 order is probably right but needs the
       comparator this task builds, which is why the decision lives here.
+- [ ] **T401c Atomic credential block** — implement FR-3a. Product decision of
+      2026-08-23: per-field merge is kept, and `UserName`, `Password` and `URL`
+      become the one exception, moving together as a block. Not expressible
+      inside T401a, which owns the comparator and not the diff/apply/review
+      shape.
+      Scope, all of it verifiable against FR-3a and criteria 15m/15n:
+      - **membership** by canonical key only — `canonicalFieldKey(key)` ∈
+        {`username`, `password`, `url`} — so it is case-insensitive by
+        construction and closed; `Title`, `Notes`, OTP, other custom strings and
+        all attachments stay per-field;
+      - **engagement** on ≥1 conflicting shared member, at which point every
+        *shared* member takes value, protected/plain flag and verbatim key
+        spelling from the same winning side;
+      - **one winner per block**: FR-3 rules 1/2 on the entry time, then rule 3
+        applied **once** to the side's block image — members in the fixed
+        canonical order `password`, `url`, `username`, joined by `0x1E`, an
+        absent member contributing an empty sequence — using T401a's comparator;
+      - **no deletion**: FR-4 is unweakened; one-sided members are preserved
+        under every shortcut, and a fully one-sided block stays dormant;
+      - **one review row** per engaged block, `category` = highest-priority
+        engaged member (`password` > `username` > `url`), `bothNotes`
+        unavailable, shortcuts selecting the whole block;
+      - **ledger keying** by entry UUID + block identity, coordinated with
+        T401b, so a re-merge re-applies one decision and never re-splits it.
+      Known contract gap, deliberately not worked around: `MergeFieldCategory`
+      has no `credentialBlock`, so the summary names the row by its anchor only.
+      Recorded beside the metadata-visibility insufficiency under T401; the row
+      copy must state the scope in words (T602/T603).
 - [ ] **T401b Sticky decision ledger** — record explicit user decisions keyed by
-      object UUID plus field key/attachment name, re-apply after every re-merge
+      object UUID plus field key/attachment name — and, for an FR-3a credential
+      block, by entry UUID plus the block identity rather than per member —
+      re-apply after every re-merge
       ahead of LWW/tie-break/shortcuts, and return the session to review when a
       re-merge introduces a conflict the user has never been shown.
 - [ ] **T402 Local/remote staleness** — recompute local checksum and refetch remote
@@ -776,6 +816,9 @@ recovery tests pass.
 - [ ] **T602 Review** — automatic record/field union sections, real conflicts,
       deletion evidence, **Prefer local/Prefer remote**, “unique data preserved”,
       “nothing written yet”.
+      **FR-3a copy duty**: an engaged credential block is one row, and
+      `MergeFieldCategory` cannot say so, so the row's copy must state in words
+      that answering it also moves the entry's other credential fields.
 - [ ] **T603 Field diff** — widget-local transient display, protected masked,
       present/missing labels non-selectable for one-sided data, explicit deletion
       choice only with evidence.
