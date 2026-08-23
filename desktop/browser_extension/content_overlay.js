@@ -32,9 +32,23 @@
 
   // Idempotent startup: the browser can run the registered script and an
   // explicit `executeScript` injection against the same document (that is the
-  // normal case right after a grant). The guard lives in the isolated world,
-  // is non-secret, and is cleared on teardown so a later valid enable can
-  // bootstrap again.
+  // normal case right after a grant). The guard lives in the isolated world
+  // and is non-secret.
+  //
+  // WHERE IT IS RELEASED, exactly — this extension registers and injects its
+  // content script dynamically and ships no `content_scripts` manifest block,
+  // so a guard left set is the difference between a tab a new worker can
+  // re-serve and a tab that is dead until the user reloads:
+  //   * an origin that cannot be canonicalized, and every bootstrap that is
+  //     not an explicit approval (including a dead worker) — released below;
+  //   * a revalidation that comes back unapproved — released;
+  //   * an instance evaluated into an ALREADY-orphaned world — released:
+  //     nothing was built and nothing was shown;
+  //   * the orphan exit (goInert) — released ONLY when it left no tombstone.
+  //     A tombstone on screen has told the user to reload, so a second overlay
+  //     must not mount beside it and contradict the notice.
+  // It is NOT released by ordinary session teardown, which ends a focus
+  // session and leaves this instance live and serving.
   const GUARD = "__keyVaultOverlayBootstrapV1";
   if (globalThis[GUARD] === true) return;
   globalThis[GUARD] = true;
@@ -42,6 +56,38 @@
   const clearGuard = () => {
     globalThis[GUARD] = false;
   };
+
+  /**
+   * MV3 ORPHANED INSTANCE detection (009 QA, measured live via CDP).
+   *
+   * When the extension is reloaded, updated, or disabled while a page stays
+   * open, the content-script instance already injected into that page is
+   * ORPHANED: Chrome tears the API bridge out from under it. `chrome.runtime`
+   * reads back `undefined` (and any handle that does survive has no `id`), so
+   * EVERY `chrome.runtime.*` access from an orphan throws
+   * `TypeError: Cannot read properties of undefined (reading 'sendMessage')`.
+   *
+   * This is why the `chrome.runtime.lastError` branch inside each response
+   * callback is not enough on its own: it lives INSIDE a callback that an
+   * orphan can never reach, because the `sendMessage` access that would
+   * schedule it throws first. The QA trace was exactly that — Enter on the
+   * Generate row, an unhandled TypeError, and an overlay that died in silence.
+   *
+   * `chrome.runtime?.id == null` is the canonical probe and is true for both
+   * observed shapes (`runtime` undefined, `runtime.id` undefined). `chrome`
+   * itself is also probed: it always exists in a live isolated world, so this
+   * only costs a `typeof` and removes the last way in.
+   *
+   * ALL 14 `chrome.*` call sites in this file are behind this probe — the six
+   * `sendMessage`/`lastError` pairs (matches, fill, generate), the bootstrap
+   * pair, the revalidation pair, three `onMessage` (un)registrations, and the
+   * best-effort `removeListener` in goInert, which additionally tests
+   * callability because the probe and "the API still works" are not the same
+   * question in the `id`-undefined shape. Add a 15th and it needs a guard too;
+   * the count is stated so that omission is visible in review.
+   */
+  const extensionContextLost = () =>
+    typeof chrome === "undefined" || chrome.runtime?.id == null;
 
   // Canonicalize THIS frame's own exact origin.
   //
@@ -118,6 +164,13 @@
     // an old app (B007 advertises generation only when the app declares it).
     unsupported_capability: "Update KeyVault to use this feature.",
     stale_session: "KeyVault session changed.",
+    // MV3 orphan (see extensionContextLost). Deliberately cause-neutral: a
+    // reload, an update and a disable/enable cycle all produce it, and this
+    // world cannot tell which. It promises NO automatic retry, because there
+    // is none — an orphan has no way back to the worker — and names the one
+    // action that actually fixes it.
+    extension_lost:
+      "This page lost its connection to KeyVault. Reload the page to use autofill.",
   });
 
   // B010/B013 — honest copy for both Generate states. The row is ACTIVE only
@@ -134,6 +187,10 @@
   // Codes that render an A030 state. Anything else — disabled, forbidden,
   // invalid_request, internal_error, an unknown code — is an authorization or
   // contract failure and tears the session down instead of rendering.
+  //
+  // `extension_lost` is deliberately ABSENT: it is a locally-derived state,
+  // never a worker verdict. Listing it here would let a compromised or
+  // confused peer push "reload the page" copy into the page at will.
   const RENDERABLE_ERRORS = new Set([
     "locked",
     "no_host",
@@ -264,7 +321,7 @@
    * watchdog interval. Anchor disconnect and timeout are detected by the
    * watchdog rather than an observer — one timer covers both.
    */
-  const teardownSession = () => {
+  const teardownSession = ({ keepHost = false } = {}) => {
     if (session === null) return;
     const s = session;
     session = null;
@@ -288,8 +345,13 @@
         else anchor.setAttribute(name, original);
       }
     }
-    if (s.overlayHost != null) s.overlayHost.remove();
-    // A040 — the light-DOM fallback listbox dies with the session too.
+    // `keepHost` is used by ONE caller — the MV3 orphan exit (goInert) — which
+    // leaves the already-rendered status node on screen as an inert tombstone.
+    // Everything that can act is still dropped here; only the node survives.
+    if (s.overlayHost != null && !keepHost) s.overlayHost.remove();
+    // A040 — the light-DOM fallback listbox dies with the session too. It goes
+    // even for a tombstone: an empty listbox whose rows no longer activate is
+    // worse for AT than no listbox at all.
     if (s.lightListboxEl != null) s.lightListboxEl.remove();
     s.lightListboxEl = null;
     s.anchorEl = null;
@@ -768,9 +830,27 @@
     setStatusText(STATE_TEXT[code] ?? STATE_TEXT.stale_session);
     if (code !== "matches") {
       clearChildren(session.listEl);
+      // A036 — the rows this IDREF pointed at are gone. Leaving
+      // `aria-activedescendant` behind hands AT a dangling reference to
+      // `kv-option-0`, which no longer exists.
+      session.listEl.removeAttribute("aria-activedescendant");
       // A040 — the light fallback never offers options the shadow list does
       // not; handleMatches re-adds the generate-only option when applicable.
       if (session.lightListboxEl !== null) clearChildren(session.lightListboxEl);
+    }
+
+    // The orphan notice is ONE sentence, and that is a contract, not a
+    // description. `generateEl` is a SIBLING of the list inside the section,
+    // not a child of it, so clearing the rows above does not touch it: without
+    // this it survives into the notice still reading "Generate a password —
+    // confirm the save in KeyVault.", still `aria-selected`, still enabled. A
+    // control that looks live and does nothing is the precise micro-failure
+    // this state exists to abolish, so it must not appear inside the warning
+    // about it. Removed rather than disabled: a disabled control still
+    // occupies the notice and still reads as an offer.
+    if (code === "extension_lost" && session.generateEl !== null) {
+      session.generateEl.remove();
+      session.generateEl = null;
     }
 
     const wantRetry = code === "stale_session";
@@ -922,6 +1002,13 @@
   // -------------------------------------------------------------------------
 
   const requestMatches = () => {
+    // Orphan guard. Reachable from startSession and from the stale_session
+    // "Try again" button — a retry is exactly when an orphan is most likely,
+    // and the access below would throw before any callback could run.
+    if (extensionContextLost()) {
+      goInert();
+      return;
+    }
     const nonce = session.focusNonce;
     chrome.runtime.sendMessage(
       {
@@ -933,6 +1020,12 @@
         fieldKind: session.fieldKind,
       },
       (response) => {
+        // Orphaned BETWEEN the send and the callback: reading `lastError` is
+        // itself a `chrome.runtime` access and would throw here.
+        if (extensionContextLost()) {
+          goInert();
+          return;
+        }
         if (chrome.runtime.lastError) {
           // Dead worker: nothing can be authorized, so nothing may render.
           teardownSession();
@@ -1066,6 +1159,13 @@
   };
 
   const attemptFill = (entryId) => {
+    // Orphan guard, BEFORE the one-shot token is spent. The user just pressed
+    // Enter (or clicked a row): failing here without a state is the silent
+    // death the QA session reported.
+    if (extensionContextLost()) {
+      goInert();
+      return;
+    }
     if (session === null || session.filling === true) return;
     if (typeof session.fillToken !== "string") return;
     const item = session.items.find(
@@ -1090,6 +1190,10 @@
     session.fillToken = null;
 
     chrome.runtime.sendMessage(request, (response) => {
+      if (extensionContextLost()) {
+        goInert();
+        return;
+      }
       if (chrome.runtime.lastError) {
         teardownSession();
         return;
@@ -1189,6 +1293,14 @@
    * dies before the worker answers, so a second activation sends nothing.
    */
   const attemptGenerate = () => {
+    // Orphan guard. THIS is the path the 009 QA trace died on: Enter on the
+    // arrow-selected Generate row, `chrome.runtime` undefined, unhandled
+    // TypeError, overlay gone with no message. Guard before the token is spent
+    // and before the row is flipped to its busy state.
+    if (extensionContextLost()) {
+      goInert();
+      return;
+    }
     if (session === null || session.filling === true || session.generating === true) {
       return;
     }
@@ -1217,6 +1329,10 @@
     }
 
     chrome.runtime.sendMessage(request, (response) => {
+      if (extensionContextLost()) {
+        goInert();
+        return;
+      }
       if (chrome.runtime.lastError) {
         teardownSession();
         return;
@@ -1588,8 +1704,8 @@
     window.addEventListener("blur", onWindowBlur, { signal });
   };
 
-  const deactivate = () => {
-    teardownSession();
+  const deactivate = ({ keepHost = false } = {}) => {
+    teardownSession({ keepHost });
     clearHintPoll();
     if (instanceAbort !== null) {
       instanceAbort.abort();
@@ -1597,13 +1713,113 @@
     }
   };
 
+  /** Latched by goInert. An orphan never speaks, renders or rebuilds again. */
+  let inert = false;
+  /** The registered `chrome.runtime.onMessage` handler, for best-effort removal. */
+  let workerListener = null;
+
+  /**
+   * The single exit path for an ORPHANED instance (see extensionContextLost).
+   *
+   * Honest first, then inert. When the user is looking at an open overlay —
+   * which is the whole reported bug: Enter on a row, then nothing — the state
+   * machine renders `extension_lost` into it, and the status node is LEFT in
+   * the page as a tombstone. Ripping the overlay off screen instead would
+   * reproduce the exact silent death this guard exists to prevent ("nessuno
+   * stato d'errore, nessun messaggio, poi smontato").
+   *
+   * The tombstone is inert by construction, not by promise: the session's
+   * AbortController has fired (no row, anchor, scroll, resize or retry
+   * listener left), the watchdog interval and both deferred timers are
+   * cleared, the light listbox is gone, the anchor's ARIA is restored, and
+   * every token, item and binding is dropped. It holds one frozen English
+   * sentence and no entry metadata, and it dies with the page reload its own
+   * copy asks for.
+   *
+   * The bootstrap GUARD is released EXACTLY when no tombstone was left.
+   *
+   * This extension ships no `content_scripts` manifest block: every instance
+   * arrives through `scripting.registerContentScripts` / `executeScript`, so a
+   * held guard is the difference between a tab that a new worker can re-serve
+   * and a tab that is dead until the user reloads it. Holding it
+   * unconditionally regressed the no-session case into exactly the silent,
+   * unrecoverable death this whole path exists to abolish: inert, no notice,
+   * and re-injection refused.
+   *
+   * The guard's only job is to stop a second overlay mounting NEXT TO a
+   * tombstone that just told the user to reload. With no tombstone there is
+   * nothing to contradict, so it goes. With one, it stays — the notice on
+   * screen is the promise being kept.
+   */
+  const goInert = () => {
+    if (inert) return;
+    inert = true;
+    const tombstone = session !== null && session.statusEl !== null;
+    if (tombstone) {
+      // Clears the rows and the light options, and swaps in the honest text.
+      renderState("extension_lost");
+      // M13 defers every status write by a macrotask; the teardown on the next
+      // line would cancel that timer and leave the tombstone blank. This is
+      // the one place the text is painted synchronously — the live region has
+      // long since been registered by AT, so the M13 ordering it protects has
+      // already happened.
+      if (session.statusTimerId !== 0) {
+        clearTimeout(session.statusTimerId);
+        session.statusTimerId = 0;
+      }
+      session.statusEl.textContent = STATE_TEXT.extension_lost;
+    }
+    deactivate({ keepHost: tombstone });
+    // Nothing was shown, so nothing was promised: let a new worker re-inject
+    // and serve this tab rather than stranding it.
+    if (!tombstone) clearGuard();
+
+    // Best effort, and honest about why. The runtime listener can only be
+    // unregistered while the API that registered it still exists — in the
+    // "runtime undefined" shape it does not, and `removeListener` would throw
+    // exactly like the call that got us here. It does not matter: the same
+    // bridge teardown that removed the API removed every path the worker had
+    // to deliver on, and the handler is orphan-guarded at its own entrance, so
+    // it is unreachable and inert either way.
+    // The condition is "is `removeListener` still callable", NOT "is the
+    // context alive": in the `id`-only shape the context is gone by the
+    // canonical probe while the API is still perfectly callable, and that is
+    // precisely the case where the listener CAN and therefore MUST be dropped.
+    if (
+      workerListener !== null &&
+      typeof chrome !== "undefined" &&
+      typeof chrome.runtime?.onMessage?.removeListener === "function"
+    ) {
+      try {
+        chrome.runtime.onMessage.removeListener(workerListener);
+      } catch (_) {
+        // A binding that refuses the removal changes nothing above.
+      }
+    }
+    workerListener = null;
+  };
+
   // =========================================================================
   // Bootstrap handshake (Slice A2, unchanged in substance).
   // =========================================================================
 
+  // Orphan guard at the very entrance. An instance evaluated into a world
+  // whose bridge is already gone must not speak and must not build: no
+  // handshake, no listeners, no overlay. Unlike goInert this DOES clear the
+  // guard — nothing has been rendered, so a later valid injection into this
+  // world is free to bootstrap properly.
+  if (extensionContextLost()) {
+    clearGuard();
+    return;
+  }
+
   chrome.runtime.sendMessage(bootstrap, (response) => {
     // Reading lastError is what suppresses the "unchecked runtime.lastError"
     // console noise when the worker is gone.
+    if (extensionContextLost()) {
+      clearGuard();
+      return;
+    }
     if (chrome.runtime.lastError) {
       clearGuard();
       return;
@@ -1624,6 +1840,13 @@
     activate();
 
     const onMessage = (message) => {
+      // An orphan cannot legitimately be delivered anything, but the handler
+      // below reaches for `chrome.runtime` twice; guard the entrance rather
+      // than reason about whether the delivery is possible.
+      if (extensionContextLost()) {
+        goInert();
+        return;
+      }
       if (message?.channel !== security.CHANNEL || message.type !== "teardown") return;
 
       // A033: any teardown broadcast — disable, permission removal, stale
@@ -1640,6 +1863,14 @@
       // other than an explicit approval — including a dead worker — tears this
       // instance down.
       chrome.runtime.sendMessage(bootstrap, (revalidation) => {
+        // Orphaned mid-revalidation: `lastError` and `removeListener` below
+        // are both `chrome.runtime` accesses and would throw. goInert drops
+        // the instance listeners; the orphaned onMessage handle dies with the
+        // world it was registered in, and is inert either way.
+        if (extensionContextLost()) {
+          goInert();
+          return;
+        }
         if (chrome.runtime.lastError) {
           deactivate();
           chrome.runtime.onMessage.removeListener(onMessage);
@@ -1657,6 +1888,7 @@
         }
       });
     };
+    workerListener = onMessage;
     chrome.runtime.onMessage.addListener(onMessage);
   });
 })();

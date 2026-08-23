@@ -131,7 +131,61 @@
     "disable path's D5. The missing assertion was added in the same commit; the",
     "counterfactual was run (mutant applied, assertion removed) and confirms the",
     "target test passes without it, so the assertion is load-bearing rather than",
-    "riding on C-M8's other kills."
+    "riding on C-M8's other kills.",
+    "",
+    "SLICE A8 \u2014 MV3 ORPHANED CONTENT-SCRIPT INSTANCE (manual QA, CDP trace).",
+    "",
+    "The extension was reloaded while a login page stayed open. Chrome does not",
+    "notify the injected content script; it removes the API bridge underneath it,",
+    "so `chrome.runtime` reads back `undefined`. Enter on the Generate row hit",
+    "`chrome.runtime.sendMessage` and the ACCESS threw",
+    "`TypeError: Cannot read properties of undefined (reading 'sendMessage')`.",
+    "The overlay died in silence. Reported as \"I can't select an entry with the",
+    "keyboard any more\" \u2014 the arrows were fine, the ACTION was dead.",
+    "",
+    "The `lastError` branch each callback already carried was no defence: it lives",
+    "inside a callback an orphan can never reach, because the access that would",
+    "schedule it is the access that throws. The fix is a sweep, not a patch at the",
+    "reported line \u2014 all 14 `chrome.*` call sites in content_overlay.js are behind",
+    "the `chrome.runtime?.id == null` probe, and A8-M4 pins the probe itself.",
+    "",
+    "A8-M6 is the user-visible half: not throwing is necessary but not sufficient,",
+    "so the mutant that exits silently (no honest state) is killed separately from",
+    "the mutants that crash.",
+    "",
+    "COUNTS RE-MEASURED IN SLICE A8. The Node suite went from 406 to 437 tests",
+    "(orphaned_context.test.js). A0-M2 203\u2192222, A4-M3 1\u21923, A4-M4 8\u21929,",
+    "A4-M8 10\u219213, A4-M9 48\u219255, A5-M5 2\u21924, A5-M8 3\u21924. None was weakened:",
+    "broken canonicalization, a surviving watchdog, a surviving host and the",
+    "light-listbox leak now also kill the orphan tests, which drive focus, fill,",
+    "generate, teardown, re-injection and bootstrap end to end. Blast radius only.",
+    "",
+    "A4-M9 was RETARGETED, not weakened: teardown grew a `keepHost` option with",
+    "exactly one caller (the orphan exit, which leaves an honest tombstone on",
+    "screen). The mutation still deletes the host removal outright, so the",
+    "property \u2014 teardown removes the host on every normal trigger \u2014 is unchanged.",
+    "",
+    "SLICE A8 POST-REVIEW. Five findings, one blocking.",
+    "",
+    "  * A8-M8 (BLOCKING, regression). goInert held the bootstrap guard",
+    "    unconditionally. With no `content_scripts` manifest block, every instance",
+    "    arrives via registerContentScripts/executeScript, so a held guard blocks",
+    "    re-injection outright. An orphan that latched inert with NO tombstone",
+    "    (no session open) therefore left the tab silent AND unrecoverable \u2014 the",
+    "    exact failure mode this slice exists to remove, reintroduced by its own",
+    "    fix. origin/main survived the reproduced sequence, confirming a",
+    "    behavioural regression rather than a pre-existing gap. The guard is now",
+    "    released exactly when no tombstone was left; A8-M9 pins the other half.",
+    "  * A8-M10. The tombstone was not one sentence: `generateEl` is a sibling of",
+    "    the list, so clearing the rows left it alive, enabled and aria-selected",
+    "    inside the notice. Nothing pinned the notice's CONTENT before this.",
+    "  * A8-M11. `kv-list` kept `aria-activedescendant` after every non-match",
+    "    state emptied it \u2014 a dangling IDREF on `timeout`/`locked`/`no_host` too,",
+    "    not only on the orphan state.",
+    "  * Doc fixes, no mutation: the guard-lifecycle comment at the top of",
+    "    content_overlay.js was false after goInert (now enumerates every release",
+    "    point), and the guarded-site count is 14, not 13 \u2014 the 13 pre-existing",
+    "    sites plus the best-effort removeListener goInert itself added."
   ],
   "version": 1,
   "slices": {
@@ -143,7 +197,8 @@
     "A5": "iframe policy surface, ARIA, keyboard, click-vs-blur, geometry (A035-A039) \u2014 this PR",
     "B2": "explicit Generate UI: capability-gated row, one-shot generate token, app-owned pending (B010-B013) \u2014 this PR",
     "A6": "AT activation (A040): direct press on shadow rows + generic light-DOM fallback listbox \u2014 this PR",
-    "A7": "post-QA polish: badge paint against a closed tab (spec 007) and the iframe\u2192iframe hint re-anchor (M7) \u2014 this PR"
+    "A7": "post-QA polish: badge paint against a closed tab (spec 007) and the iframe\u2192iframe hint re-anchor (M7) \u2014 this PR",
+    "A8": "MV3 orphaned content-script instance: the extension is reloaded, updated or disabled while a page stays open, Chrome removes the API bridge under the already-injected script, and every `chrome.runtime.*` access from it throws \u2014 this PR"
   },
   "suites": {
     "node-extension": {
@@ -192,7 +247,7 @@
     },
     {
       "id": "A0-M2",
-      "expectedKills": 203,
+      "expectedKills": 222,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -1251,7 +1306,7 @@
     },
     {
       "id": "A4-M3",
-      "expectedKills": 1,
+      "expectedKills": 3,
       "slice": "A4",
       "suite": "node-extension",
       "file": "desktop/browser_extension/content_overlay.js",
@@ -1266,7 +1321,7 @@
     },
     {
       "id": "A4-M4",
-      "expectedKills": 8,
+      "expectedKills": 9,
       "slice": "A4",
       "suite": "node-extension",
       "file": "desktop/browser_extension/content_overlay.js",
@@ -1335,7 +1390,7 @@
     },
     {
       "id": "A4-M8",
-      "expectedKills": 10,
+      "expectedKills": 13,
       "slice": "A4",
       "suite": "node-extension",
       "file": "desktop/browser_extension/content_overlay.js",
@@ -1350,7 +1405,7 @@
     },
     {
       "id": "A4-M9",
-      "expectedKills": 48,
+      "expectedKills": 55,
       "slice": "A4",
       "suite": "node-extension",
       "file": "desktop/browser_extension/content_overlay.js",
@@ -1358,9 +1413,16 @@
       "property": "A033: teardown removes the overlay host from the page immediately, on every trigger",
       "edits": [
         {
-          "find": "    if (s.overlayHost != null) s.overlayHost.remove();",
+          "find": "    if (s.overlayHost != null && !keepHost) s.overlayHost.remove();",
           "replace": "    // mutation: the host stays in the page"
         }
+      ],
+      "$comment": [
+        "RETARGETED by the A8 orphan slice, not weakened. Teardown grew a",
+        "`keepHost` option with exactly one caller (the orphan exit, which leaves",
+        "an honest tombstone on screen); the mutation still deletes the removal",
+        "outright, so the property \u2014 teardown removes the host on every normal",
+        "trigger \u2014 is pinned exactly as before."
       ]
     },
     {
@@ -1491,7 +1553,7 @@
           "replace": "    session.listEl.setAttribute(\"aria-activedescendant\", \"kv-option-999\");"
         }
       ],
-      "expectedKills": 2
+      "expectedKills": 4
     },
     {
       "id": "A5-M6",
@@ -1536,7 +1598,7 @@
           "replace": "        if (original !== null) anchor.setAttribute(name, original);"
         }
       ],
-      "expectedKills": 3
+      "expectedKills": 4
     },
     {
       "id": "A5-M9",
@@ -2138,6 +2200,259 @@
         {
           "find": "      if (prunePermissions) await this._reconcilePermissions(config);",
           "replace": "      // mutation: reconcile never sweeps orphan permissions"
+        }
+      ]
+    },
+    {
+      "id": "A8-M1",
+      "expectedKills": 7,
+      "slice": "A8",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "the fill action reaches for chrome.runtime without probing for an orphan",
+      "property": "an orphaned instance refuses the fill action instead of throwing on the API access, and the user is told why",
+      "$comment": [
+        "The reported bug, on the fill row rather than Generate. `attemptFill` calls",
+        "`chrome.runtime.sendMessage`; on an orphan that ACCESS throws, so the",
+        "`lastError` branch inside the callback is unreachable and defends nothing.",
+        "",
+        "Without the guard the user gets an unhandled TypeError and an overlay that",
+        "vanishes with no message \u2014 read in QA as \"I can't select an entry with the",
+        "keyboard\", because the arrows still worked and only the action was dead."
+      ],
+      "edits": [
+        {
+          "find": "  const attemptFill = (entryId) => {\n    // Orphan guard, BEFORE the one-shot token is spent. The user just pressed\n    // Enter (or clicked a row): failing here without a state is the silent\n    // death the QA session reported.\n    if (extensionContextLost()) {\n      goInert();\n      return;\n    }\n    if (session === null || session.filling === true) return;",
+          "replace": "  const attemptFill = (entryId) => {\n    if (session === null || session.filling === true) return;"
+        }
+      ]
+    },
+    {
+      "id": "A8-M2",
+      "expectedKills": 6,
+      "slice": "A8",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "the generate action reaches for chrome.runtime without probing for an orphan",
+      "property": "an orphaned instance refuses the generate action instead of throwing on the API access, and the user is told why",
+      "$comment": [
+        "The exact path from the 009 QA CDP trace: Enter on the arrow-selected",
+        "Generate row against a reloaded extension produced",
+        "`TypeError: Cannot read properties of undefined (reading 'sendMessage')`",
+        "and a silently dead overlay."
+      ],
+      "edits": [
+        {
+          "find": "  const attemptGenerate = () => {\n    // Orphan guard. THIS is the path the 009 QA trace died on: Enter on the\n    // arrow-selected Generate row, `chrome.runtime` undefined, unhandled\n    // TypeError, overlay gone with no message. Guard before the token is spent\n    // and before the row is flipped to its busy state.\n    if (extensionContextLost()) {\n      goInert();\n      return;\n    }\n    if (session === null || session.filling === true || session.generating === true) {",
+          "replace": "  const attemptGenerate = () => {\n    if (session === null || session.filling === true || session.generating === true) {"
+        }
+      ]
+    },
+    {
+      "id": "A8-M3",
+      "expectedKills": 2,
+      "slice": "A8",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "bootstrap runs the handshake without probing for an orphan",
+      "property": "an instance evaluated into a world whose bridge is already gone neither speaks nor builds anything",
+      "$comment": [
+        "A script can be evaluated into an already-orphaned isolated world. Without",
+        "the entry guard the very first statement of the handshake throws, and",
+        "whether any listener survives that throw is left to chance rather than",
+        "decided."
+      ],
+      "edits": [
+        {
+          "find": "  // Orphan guard at the very entrance. An instance evaluated into a world\n  // whose bridge is already gone must not speak and must not build: no\n  // handshake, no listeners, no overlay. Unlike goInert this DOES clear the\n  // guard \u2014 nothing has been rendered, so a later valid injection into this\n  // world is free to bootstrap properly.\n  if (extensionContextLost()) {\n    clearGuard();\n    return;\n  }\n\n  chrome.runtime.sendMessage(bootstrap, (response) => {",
+          "replace": "  chrome.runtime.sendMessage(bootstrap, (response) => {"
+        }
+      ]
+    },
+    {
+      "id": "A8-M4",
+      "expectedKills": 21,
+      "slice": "A8",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "orphan detection always reports a live context",
+      "property": "the liveness probe actually probes: `chrome.runtime?.id == null` is what distinguishes an orphan, and nothing else in this file can",
+      "$comment": [
+        "Neutralises the primitive every other guard is built on. A guard that is",
+        "always false is worse than no guard: it reads as defence in review while",
+        "restoring the original crash in full."
+      ],
+      "edits": [
+        {
+          "find": "  const extensionContextLost = () =>\n    typeof chrome === \"undefined\" || chrome.runtime?.id == null;",
+          "replace": "  const extensionContextLost = () => false;"
+        }
+      ]
+    },
+    {
+      "id": "A8-M5",
+      "expectedKills": 2,
+      "slice": "A8",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "a new session queries for matches without probing for an orphan",
+      "property": "a session opened on an already-orphaned instance sends no query and renders the honest state",
+      "$comment": [
+        "The realistic ordering: the extension is reloaded first, and only then does",
+        "the user click a login field. `requestMatches` is also the \"Try again\"",
+        "target on the stale_session state \u2014 a retry is exactly when an orphan is",
+        "most likely to be hit."
+      ],
+      "edits": [
+        {
+          "find": "  const requestMatches = () => {\n    // Orphan guard. Reachable from startSession and from the stale_session\n    // \"Try again\" button \u2014 a retry is exactly when an orphan is most likely,\n    // and the access below would throw before any callback could run.\n    if (extensionContextLost()) {\n      goInert();\n      return;\n    }\n    const nonce = session.focusNonce;",
+          "replace": "  const requestMatches = () => {\n    const nonce = session.focusNonce;"
+        }
+      ]
+    },
+    {
+      "id": "A8-M6",
+      "expectedKills": 15,
+      "slice": "A8",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "the orphan exit rips the overlay off screen instead of leaving an honest tombstone",
+      "property": "an orphan detected during a user action leaves an honest, visible state behind \u2014 it never dies in silence",
+      "$comment": [
+        "The USER-VISIBLE half of the fix, and the half a purely defensive patch",
+        "would miss. Not throwing is necessary but not sufficient: the QA report was",
+        "\"no error state, no message, then unmounted\". Tearing the overlay off on",
+        "the way out reproduces exactly that silent death while keeping every",
+        "no-throw assertion green."
+      ],
+      "edits": [
+        {
+          "find": "    const tombstone = session !== null && session.statusEl !== null;",
+          "replace": "    const tombstone = false;"
+        }
+      ]
+    },
+    {
+      "id": "A8-M7",
+      "expectedKills": 1,
+      "slice": "A8",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "the orphan exit skips listener removal whenever the context probe says lost",
+      "property": "the runtime listener is unregistered whenever `removeListener` is still callable, which is not the same question as whether the context is alive",
+      "$comment": [
+        "A real bug made while writing this fix, kept as a mutation. In the",
+        "`id`-undefined shape the canonical probe reports the context lost while the",
+        "API is still perfectly callable \u2014 and that is precisely the case where the",
+        "listener CAN, and therefore must, be dropped. Gating removal on the",
+        "liveness probe instead of on callability leaks the listener in the one",
+        "shape where it is removable."
+      ],
+      "edits": [
+        {
+          "find": "      workerListener !== null &&\n      typeof chrome !== \"undefined\" &&\n      typeof chrome.runtime?.onMessage?.removeListener === \"function\"\n    ) {",
+          "replace": "      workerListener !== null &&\n      !extensionContextLost()\n    ) {"
+        }
+      ]
+    },
+    {
+      "id": "A8-M8",
+      "expectedKills": 2,
+      "slice": "A8",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "the orphan exit holds the bootstrap guard even when it left no tombstone",
+      "property": "an orphan that shows the user NOTHING must release the bootstrap guard, so a new worker can re-inject and re-serve the tab instead of stranding it",
+      "$comment": [
+        "THE REGRESSION THIS SLICE SHIPPED AND REVIEW CAUGHT. This extension has no",
+        "`content_scripts` manifest block \u2014 every instance arrives through",
+        "`scripting.registerContentScripts` / `executeScript` \u2014 so a held guard is",
+        "the difference between a tab a new worker can re-serve and a tab that is",
+        "dead until the user reloads it.",
+        "",
+        "Reproduced sequence: no field focused, context invalidated in the",
+        "`id`-undefined shape, teardown broadcast arrives, the instance latches inert",
+        "with NO tombstone, and the guard stays set. The user clicks the password",
+        "field and gets nothing, forever. origin/main survived this exact sequence,",
+        "so holding the guard unconditionally was a behavioural regression \u2014 silent",
+        "death reintroduced through the back door of the fix for silent death.",
+        "",
+        "The release is conditional, not unconditional: A8-M9 pins the other half."
+      ],
+      "edits": [
+        {
+          "find": "    deactivate({ keepHost: tombstone });\n    // Nothing was shown, so nothing was promised: let a new worker re-inject\n    // and serve this tab rather than stranding it.\n    if (!tombstone) clearGuard();",
+          "replace": "    deactivate({ keepHost: tombstone });"
+        }
+      ]
+    },
+    {
+      "id": "A8-M9",
+      "expectedKills": 1,
+      "slice": "A8",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "the orphan exit releases the bootstrap guard unconditionally",
+      "property": "a tombstone on screen keeps the guard held, so no working overlay ever mounts beside a notice telling the user autofill is broken",
+      "$comment": [
+        "The complement of A8-M8, and the reason the release is conditional. Freeing",
+        "the guard while a tombstone is displayed lets a re-injection mount a live",
+        "overlay next to a notice that just said the page lost its connection \u2014 two",
+        "contradictory answers on screen at once."
+      ],
+      "edits": [
+        {
+          "find": "    if (!tombstone) clearGuard();",
+          "replace": "    clearGuard();"
+        }
+      ]
+    },
+    {
+      "id": "A8-M10",
+      "expectedKills": 2,
+      "slice": "A8",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "the orphan notice keeps the Generate row alive inside itself",
+      "property": "the orphan notice is ONE sentence: no control survives into it that looks actionable and does nothing",
+      "$comment": [
+        "Found in review by measuring the tombstone rather than trusting it.",
+        "`renderState` clears `listEl`'s children, but `generateEl` is a SIBLING",
+        "inside the section, not a child \u2014 so it survived into the notice still",
+        "reading \"Generate a password \u2014 confirm the save in KeyVault.\", still",
+        "`disabled=false`, still `aria-selected=true`.",
+        "",
+        "A control that looks live and does nothing is precisely the micro-failure",
+        "the extension_lost state exists to abolish, so finding one INSIDE the",
+        "warning about it is the worst possible place for it. Nothing else pinned",
+        "the notice's content: the pre-existing assertions covered entry title and",
+        "service only."
+      ],
+      "edits": [
+        {
+          "find": "    if (code === \"extension_lost\" && session.generateEl !== null) {\n      session.generateEl.remove();\n      session.generateEl = null;\n    }",
+          "replace": "    void 0;"
+        }
+      ]
+    },
+    {
+      "id": "A8-M11",
+      "expectedKills": 1,
+      "slice": "A8",
+      "suite": "node-extension",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "title": "an emptied listbox keeps pointing at the row it just deleted",
+      "property": "A036: clearing the rows clears `aria-activedescendant` with them \u2014 no state ever leaves AT a dangling IDREF",
+      "$comment": [
+        "`kv-list` kept `aria-activedescendant=\"kv-option-0\"` after every non-match",
+        "state swap emptied it, so assistive tech was handed a reference to an",
+        "element that no longer existed. Not orphan-specific: the same dangling",
+        "reference sat on `timeout`, `locked`, `no_host` and the rest."
+      ],
+      "edits": [
+        {
+          "find": "      // A036 \u2014 the rows this IDREF pointed at are gone. Leaving\n      // `aria-activedescendant` behind hands AT a dangling reference to\n      // `kv-option-0`, which no longer exists.\n      session.listEl.removeAttribute(\"aria-activedescendant\");\n",
+          "replace": ""
         }
       ]
     }

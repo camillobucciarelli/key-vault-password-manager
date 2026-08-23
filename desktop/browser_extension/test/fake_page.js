@@ -55,6 +55,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
+// The canonical fake extension id, shared with the worker-side sender fixtures
+// so both halves of a test agree on who the runtime is.
+const { RUNTIME_ID } = require("./helpers.js");
+
 const EXT_DIR = path.join(__dirname, "..");
 
 function extensionSource(file) {
@@ -446,6 +450,14 @@ class FakePage {
     const self = this;
     const chrome = {
       runtime: {
+        /**
+         * Real Chrome exposes the extension id here in every live content
+         * script. It is modelled because it is the canonical liveness probe:
+         * an ORPHANED instance (extension reloaded/updated/disabled while the
+         * page stayed open) reads `chrome.runtime` as `undefined`, or keeps a
+         * handle whose `id` is gone. See `invalidateExtensionContext`.
+         */
+        id: RUNTIME_ID,
         get lastError() {
           return self._activeLastError;
         },
@@ -542,6 +554,9 @@ class FakePage {
       },
     });
 
+    /** The live `runtime` handle, kept so it can be put back (see restore). */
+    this._liveRuntime = chrome.runtime;
+
     this._vmParse = vm.runInContext("(s) => JSON.parse(s)", this.context);
 
     if (loadSecurity) this.evaluate("overlay_security.js");
@@ -572,6 +587,57 @@ class FakePage {
   async inject() {
     this.evaluate("content_overlay.js");
     await this.settle();
+  }
+
+  /**
+   * MV3 ORPHANED INSTANCE — extension reloaded, updated, or disabled while
+   * this page stayed open. Chrome does not notify the already-injected
+   * content script; it removes the API bridge underneath it. Every later
+   * `chrome.runtime.*` access from that instance throws, and no `lastError`
+   * is ever produced, because the call that would schedule the callback is
+   * the call that throws.
+   *
+   * Two shapes are observed in the wild depending on when the teardown lands,
+   * and a guard is only proven if it survives both:
+   *
+   *   "runtime-undefined"  `chrome.runtime` reads back `undefined`. Any
+   *                        access THROWS TypeError — the shape in the 009 QA
+   *                        CDP trace ("Cannot read properties of undefined
+   *                        (reading 'sendMessage')").
+   *   "id-undefined"       the `runtime` handle survives but `id` is gone.
+   *                        Nothing throws, so ONLY an explicit liveness probe
+   *                        can catch it; without one the instance keeps
+   *                        talking into a void.
+   *
+   * Deliberately models the BROWSER, not the policy: it removes capability
+   * and asserts nothing about what the content script should do next.
+   */
+  invalidateExtensionContext(mode = "runtime-undefined") {
+    if (mode === "runtime-undefined") {
+      this.context.chrome.runtime = undefined;
+    } else if (mode === "id-undefined") {
+      delete this.context.chrome.runtime.id;
+    } else {
+      throw new Error(`unknown invalidation mode ${mode}`);
+    }
+  }
+
+  /**
+   * The counterpart of `invalidateExtensionContext`. This extension has no
+   * `content_scripts` manifest block: instances arrive only through
+   * `scripting.registerContentScripts` / `executeScript`. A re-injection
+   * therefore comes from a NEW worker and runs against a LIVE bridge, which is
+   * what this restores — so "an orphaned tab can be re-served" is drivable end
+   * to end instead of being asserted at the guard flag and hoped for.
+   */
+  restoreExtensionContext() {
+    this.context.chrome.runtime = this._liveRuntime;
+    this._liveRuntime.id = RUNTIME_ID;
+  }
+
+  /** Live zero-delay timers + intervals. Proves the exit path leaves none. */
+  get pendingTimerCount() {
+    return this._timeouts.size + this._intervals.size;
   }
 
   /**
