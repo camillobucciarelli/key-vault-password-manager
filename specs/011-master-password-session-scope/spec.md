@@ -1,6 +1,7 @@
 # 011 — Master password session scope
 
-**Status**: Draft · **not started**
+**Status**: Implemented on `main` (slices 1-3, PRs #74, #76, #78) · **manual
+per-platform verification outstanding**, see [`tasks.md`](tasks.md) T019-T024
 **Kind**: Security fix
 **Depends on**: 003 (database selection & unlock), 006 (security, autofill, extension)
 **Constitution**: governed by principle I (secrets never leak into the shell) and

@@ -58,10 +58,10 @@ one sitting; S3 is the only one worth splitting in two.
 
 - **Spec 011** — slices 1–3 are **merged on main** (`027641d`, `29e4164`). The
   per-database keystore key (`MASTER_PASSWORD.<databaseId>`) and the legacy-entry
-  deletion exist in `secure_data_source.dart`. The header of
-  `specs/011-master-password-session-scope/spec.md` still reads
-  *"Draft · not started"* and is stale; trust the code, not that header. The AC
-  items below are therefore runnable **now**.
+  deletion exist in `secure_data_source.dart`. The AC items below are therefore
+  runnable **now**. The items are tracked as tasks T019–T024 in
+  `specs/011-master-password-session-scope/tasks.md`; tick a box there only once
+  the corresponding row in the status table above is filled in.
 - **Spec 009** — Slice A and Slice B are implemented; Slice C replaced the
   per-origin opt-in with a single global toggle (PR #113). A040 and A046 remain
   open manual debt.
