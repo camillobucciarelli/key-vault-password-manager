@@ -221,7 +221,9 @@ mismatch.
 ### FR-3 — Entry/group diff
 
 Match entries/groups by KDBX UUID, never title/path. One-sided records/groups are
-automatic union members. Conflicting fields use newer KDBX modification time.
+automatic union members. Conflicting fields use the newer KDBX modification time
+of **the entry that carries them** — KDBX has no per-field time, so the LWW here
+is entry-level; see "The timestamp in rules 1 and 2 is the entry's" below.
 
 **The default is decided by a globally deterministic total order, never by the
 observer's perspective.** "Prefer local" as a tie-break is forbidden: it makes
@@ -282,6 +284,81 @@ user choice supersedes it under FR-7's sticky-decision rule.
 Ordering by the involved object UUIDs is explicitly rejected: in a field
 conflict both candidates sit under the same entry UUID and the same field key,
 so the UUID does not discriminate them. Only the values do.
+
+#### The timestamp in rules 1 and 2 is the entry's, and LWW is therefore entry-level
+
+*Amended 2026-08-23 on a product decision (T401a option (a)). The shape of the
+total order, rule 1, rule 3 and the Notes section are unchanged; only the origin
+of the timestamp is settled here. Acceptance criteria 15g, 15j and 15k stand as
+written.*
+
+**KDBX has no per-field modification time.** `KdbxTimes` lives on `KdbxObject`,
+so the finest granularity the format offers is one `lastModificationTime` per
+*entry*. The earlier reading of this requirement — "the newer **field** wins" —
+is not implementable on KDBX, and a specification that promises it is promising
+something the format cannot deliver.
+
+The rule is therefore, exactly:
+
+- rules 1 and 2 consume the **entry's** `lastModificationTime`. **The newer
+  entry wins**, and it wins for every conflicting field of that entry at once;
+- rule 3 — the UTF-8 value order — decides **field by field** when the two
+  entries carry the same known time, or when both times are unknown. KDBX times
+  are second-granular, so this is an ordinary path, not an exotic one;
+- the exception to "field by field" is FR-3a: the credential block is compared
+  once, as a block.
+
+**The consequence, stated rather than left implicit.** Two devices that edit
+**different fields of the same entry** no longer produce an automatic per-field
+union. Both fields differ across the two sides, so both are `fieldConflict` rows
+under FR-4, and the automatic default takes **both** from the newer entry — or,
+on equal entry times, from the UTF-8 order applied to each field. Either way the
+older device's edit is not merged in beside the newer one; it is decided against
+by the default and survives only if the user overrides the row in review. This
+is a promise the specification made until today and the format cannot keep, and
+it is written down here so that no later reader has to rediscover it from the
+adapter.
+
+#### Why a per-field time is not derived from history revisions (option (c))
+
+Excluded **by measurement, not by preference**, so the question does not reopen.
+The proposal was to reconstruct a per-field time by walking an entry's history
+revisions and dating each field at the revision in which its value last changed.
+Three findings, each independently disqualifying:
+
+1. **The granularity is wrong by one level.** `KdbxObject.modify` calls
+   `onBeforeModify` only on the *first* modification after the object last
+   became clean (`kdbx` 2.5.0, `kdbx_object.dart`), and `KdbxEntry` overrides it
+   to push one history revision. A revision is therefore **one save cycle**, not
+   one field. That is not a corner case in this app: `VaultKdbxService.updateEntry`
+   writes `Title`, `UserName`, `Password`, `URL` and `Notes` inside a single
+   cycle, which is the ordinary edit path. Five fields, one revision, one time.
+2. **It does not converge.** The derived time is a function of the *local*
+   history, and history is per-replica: two devices whose final values are
+   identical derive different times for the same field, because our own adapter
+   adds a revision the other side does not have. Measured: `DIVERGED_FIELDS=2`,
+   and on a second exchange the divergence actually **inverts a winner**
+   (`CONVERGED=false`). That is perspective dependence — the same defect class
+   FR-3 forbids outright when it forbids "prefer local", and it is fatal for the
+   same reason.
+3. **A third-party client can produce a wrong time presented as a known one.**
+   KeePassXC's `Merger::mergeHistory` deduplicates revisions sharing the same
+   second, and emits an explicit `qWarning` about the possible loss of data. A
+   pruned history yields a *plausible but wrong* derived time — and under rule 1
+   a known time beats an unknown one, so the wrong value would outrank the real
+   evidence rather than defer to it.
+
+**Option (d) is a possible future improvement and is not adopted.** Instead of
+*deriving* the time from local history, persist it: store a per-field
+modification time in the entry's `CustomData`, anchored to the entry's
+`lastModificationTime`, so the time **travels with the value** across devices
+rather than being inferred from one replica's edit log. Staleness is then
+detectable — the anchor no longer matches the entry's own time — and a stale
+per-field time degrades to *unknown*, where rule 1 already handles it safely. It
+is not adopted now: it changes what is written into every vault, and it must
+first pass its own commutativity and associativity test of the T009 standard.
+Recorded here so the option is not lost, and gated so it cannot be adopted by
+assertion.
 
 #### Notes are an ordered union of segments, not a concatenation
 
@@ -366,6 +443,165 @@ Residual cost, now stated completely:
 - splitting is only ever applied to a field that is **already in conflict**, and
   a field with no conflict is never rewritten;
 - the operation is idempotent, so it does not degrade further on each sync.
+
+### FR-3a — Credential fields move as one atomic block
+
+*Added 2026-08-23 on a product decision. Per-field merge is retained; username,
+password and URL become the one exception.*
+
+#### Why the constraint exists
+
+KeePass 2 — the format's own author — does not merge at field level, and says
+why, in the official documentation's description of its synchronization
+algorithm:
+
+> "The synchronization is performed on entry level. This e.g. means that a
+> combination of user name / password is always consistent (synchronization on
+> field level will not be implemented, because combinations could become
+> inconsistent with this)."
+>
+> — KeePass 2 Help Center, *Synchronization* → *Technical Details*
+
+That is a reasoned refusal, not an omission. A per-field merge can elect one
+device's **new username** beside the other device's **old password**, and the
+result is a credential **that never existed on any device**. On a password
+manager that is not a cosmetic inconsistency: it is a login that does not work,
+produced silently by the tool that was supposed to protect it. The whole
+ecosystem lands in the same place — KeePassXC merges at entry level
+(`Merger.cpp`), KeePassDX likewise (`DatabaseKDBXMerger.kt`), KeePass 2 by
+design as quoted; KeePassium does not merge at all.
+
+**The exposure is concentrated on the automatic path**, and that is why FR-4's
+review is not by itself an answer. A conflict the user reviews is a conflict a
+human looks at and decides: the review screen is already a mitigation, because
+the person choosing "local" or "remote" chooses a *side*, not a field soup. The
+danger lives where nobody is looking — FR-3's automatic defaults, the
+prefer-local / prefer-remote shortcuts, and the re-merges FR-7 performs between
+rounds. That path resolves per field, mechanically, with no human able to notice
+that the surviving pair is a chimera. The constraint below is therefore needed
+**even though** the review exists, and it applies to the automatic path first.
+
+#### Membership — the exact key set
+
+The block is exactly the three KDBX **string** fields whose canonical key —
+`canonicalFieldKey(key)`, i.e. `key.toLowerCase()`, the same relation `KdbxKey`
+itself matches on — is one of:
+
+| Canonical key | KDBX canonical spelling | `MergeFieldCategory` |
+| --- | --- | --- |
+| `username` | `UserName` | `username` |
+| `password` | `Password` | `password` |
+| `url` | `URL` | `url` |
+
+and nothing else. `Title`, `Notes`, OTP, every other custom string field and
+**every attachment** stay per-field. The set is closed: it is not configurable
+and it does not grow with the entry's contents.
+
+Membership is decided **case-insensitively**, and that is a consequence of the
+format rather than a convenience. KDBX stores one field per canonical key, so a
+custom field a user named `password` **is** the Password field — the same field,
+the same XML node, matched by the same relation the adapter already uses. There
+is consequently no case where a "user-defined `url`" could be excluded from the
+block while the canonical `URL` is included: KDBX cannot represent the two
+separately, so neither can this requirement. Membership is tested on the
+canonical key only, never on either side's verbatim spelling.
+
+The block is scoped to one entry UUID. Two entries never share a block, and no
+group has one.
+
+#### When the block engages
+
+Terms, both defined against FR-4's presence table for members of the block:
+
+- a **shared member** is present on both sides;
+- a **conflicting member** is a shared member classified `fieldConflict`.
+
+The block is **dormant** when it has no conflicting member. Every member then
+resolves exactly as FR-4 already says, and this requirement adds nothing.
+
+The block is **engaged** when it has at least one conflicting member. Every
+**shared** member of an engaged block — including the ones whose values happen
+to be equal — then takes its value, its protected/plain flag and its verbatim
+key spelling from the **same winning side**. Extending the block to shared
+members that do not themselves conflict is the whole point; restricted to the
+conflicting ones the constraint would be vacuous, since a mismatched pair is
+built precisely out of one field that conflicts and one that does not.
+
+#### Choosing the winning side — one comparison per block
+
+1. FR-3 rules 1 and 2 apply to the entry's `lastModificationTime`. Because every
+   member belongs to the same entry, this already elects one side for the whole
+   block. Atomicity does not change the outcome here; it makes the scope
+   explicit.
+2. On equal known entry times, and when both are unknown, FR-3 rule 3 is applied
+   **once to the block** rather than three times. The compared byte sequence is
+   that side's **block image**: for each canonical key in the fixed order
+   `password`, `url`, `username` — ascending UTF-8 over the canonical keys
+   themselves — the UTF-8 bytes of that member's value on that side, joined by
+   the single byte `0x1E`. A member absent on that side contributes an empty
+   sequence. The greater block image wins, under the same unsigned
+   lexicographic relation as rule 3, shortest-is-smaller on a common prefix.
+3. Applying rule 3 per member instead is exactly the failure this requirement
+   removes: three independent comparisons can elect local's password and
+   remote's username from the same pair of entries.
+
+The block image collapses "absent" and "present but empty" — both encode as an
+empty sequence. That is confined to the **tie-break** and is harmless: both
+devices compute the same image from the same unordered pair, so the order stays
+total and perspective-free, and presence itself is never decided by the
+tie-break. FR-4 decides presence, before and independently.
+
+Criterion 15g extends to the block: mirrored perspectives elect the same side.
+
+#### One-sided members, and one side holding no block at all
+
+**FR-4's no-deletion invariant is stronger than atomicity and is not weakened by
+it.** A member present on one side only (`fieldLocalOnly` / `fieldRemoteOnly`)
+is preserved, whether the block is dormant or engaged, under every shortcut.
+Atomicity governs which side the **shared** members come from; it never
+authorises dropping a field the other side never had.
+
+**One side holds the block, the other holds none of it.** All three members are
+one-sided, so there is no conflicting member, the block stays **dormant**, and
+FR-4's automatic union preserves all three together from the side that has them.
+No inconsistent credential is constructible, because only one device ever held a
+credential for that entry. The same holds when both sides hold the entry and one
+of them has all three members absent.
+
+**Residual, declared not hidden.** When a block is engaged *and* at least one
+member is one-sided, the result pairs the winner's shared members with the
+loser's one-sided member, and that triple existed on neither device. The
+fabrication KeePass names is still impossible — a username/password pair that
+both sides hold always moves together — and the reachable case is narrower: one
+device added a credential field the other never had. It is not resolved in
+silence: an engaged block always produces a review row. It is listed under "Out
+of scope / residual limits".
+
+#### What the user sees
+
+An engaged block is **one** decision row, never three.
+
+- `choice` is `local` or `remote` and applies to every shared member at once.
+  `bothNotes` is unavailable, since Notes is not a member.
+- `category` is the highest-priority engaged member, in the order `password` >
+  `username` > `url`, so a row that includes the password always presents as a
+  password row.
+- `presence` is `presentBoth`; a one-sided member is still counted in
+  `oneSidedFieldCount` exactly as FR-4 already counts it.
+- Prefer-local / prefer-remote select the whole block from that side.
+- The FR-7 sticky ledger keys the decision by entry UUID plus **the block
+  identity**, not by member key, so a re-merge re-applies one decision to all
+  members and cannot re-split them.
+
+**Frozen-contract consequence, raised and not worked around.**
+`MergeFieldCategory` has no `credentialBlock` member, so the summary can name
+the row only by its anchor category: the user is told which credential is in
+conflict, but not, from the contract alone, that answering it also moves the
+other two. The remedy — a `credentialBlock` category, or a member list on the
+decision — is a contract change and is **not adopted here**. It is recorded
+beside the metadata-visibility insufficiency already carried under T401, and the
+review UI must state the row's scope in words (T602/T603) until the contract
+changes.
 
 ### FR-4 — Field-level presence semantics
 
@@ -882,6 +1118,30 @@ navigation/list and detail landmark containers.
     two unknowns fall back to the value order, mirrored perspectives still agree,
     and a set of sides mixing known and unknown timestamps is order-independent
     at three and four devices.
+15l. **Entry-level LWW test**: the timestamp consumed by rules 1 and 2 is the
+    entry's `lastModificationTime`, and the newer entry wins for **every**
+    conflicting field of that entry at once. Two devices editing two different
+    fields of the same entry produce two `fieldConflict` rows whose defaults
+    both name the newer entry's side — asserted as *not* a per-field union, so
+    the criterion fails if a future change silently reintroduces one. On equal
+    entry times the two rows fall to the UTF-8 value order independently, except
+    for the FR-3a block.
+15m. **Credential-block atomicity test**: for an entry whose `UserName` and
+    `Password` both conflict and whose per-field UTF-8 order would elect
+    **opposite** sides, the merged entry takes both from one side. Asserted from
+    both mirrored perspectives, and asserted to fail against a per-field
+    comparator, so it is not vacuous. Membership is asserted case-insensitively
+    (`USERNAME`, `userName`, `Url` are members) and asserted closed (`Title`,
+    `Notes`, OTP, custom fields and attachments are not). A shared member that
+    does not itself conflict is asserted to follow the block winner, including
+    its protected/plain flag and its verbatim key spelling.
+15n. **Block presence test**: a block fully one-sided stays dormant and all
+    three members survive together under every shortcut. A block engaged with
+    one one-sided member preserves that member — no shortcut deletes it — and
+    still produces exactly **one** decision row, whose `category` is the
+    highest-priority engaged member and whose single `local`/`remote` answer
+    moves every shared member. The same decision survives a re-merge as one
+    unit and is never re-split into per-member rows.
 15c. **Capability-parity test**: the coordinator, use cases and merge adapter
     produce identical decisions against a CAS adapter, a `versionHistory`
     adapter and a bare `get`/`put` adapter. Only the guarantee tier reported to
@@ -932,6 +1192,20 @@ navigation/list and detail landmark containers.
   refusing the overwrite in the first place. Every user-facing promise derived
   from this guarantee must state the condition before the reassurance; see spec
   010's safety-category copy.
+- **Per-field LWW is not available on KDBX.** The format carries one
+  modification time per entry, so FR-3's automatic default is entry-level:
+  two devices editing different fields of the same entry do not get an
+  automatic per-field union, and the older device's edit survives only through
+  an explicit review choice. Option (d) — a per-field time persisted in the
+  entry's `CustomData` — would lift this and is deliberately not adopted; see
+  FR-3.
+- **An engaged credential block with a one-sided member can yield a triple that
+  existed on neither device.** FR-4 forbids deleting the one-sided member and
+  FR-3a forbids splitting the shared ones, so the two invariants together admit
+  exactly this case: the winner's shared members beside the loser's one-sided
+  member. The username/password inconsistency FR-3a exists to prevent is still
+  impossible; the reachable case is an entry to which one device added a
+  credential field the other never had, and it always surfaces as a review row.
 - The FR-7 window is narrowed to the revalidate-then-write interval, not
   eliminated. Two devices writing inside that interval both converge, but the
   user may see one extra conflict round.
