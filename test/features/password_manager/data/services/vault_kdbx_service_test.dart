@@ -980,6 +980,9 @@ void main() {
       final untouchedBefore = _manifestExcluding(
         local,
         entryUuids: {_fixtureRichEntryUuid, _fixtureConflictEntryUuid},
+        // The import below adds a child group to the root, which re-stamps the
+        // root's own lastModificationTime. Symmetric with the `after` call.
+        remodifiedGroupUuids: {local.body.rootGroup.uuid.uuid},
       );
 
       // --- apply the adapter operations on the open object graph ----------
@@ -1023,6 +1026,7 @@ void main() {
         candidate,
         entryUuids: {_fixtureRichEntryUuid, _fixtureConflictEntryUuid},
         excludeGroupUuids: {importedGroup.uuid.uuid},
+        remodifiedGroupUuids: {candidate.body.rootGroup.uuid.uuid},
       );
       expect(
         untouchedAfter,
@@ -1504,10 +1508,20 @@ Map<String, Object?> _manifest(KdbxFile file) {
 
 /// [_manifest] with the given objects removed, so a mutation spike can prove
 /// everything it did NOT intend to touch is unchanged.
+///
+/// [remodifiedGroupUuids] names the groups the spike itself re-parents into.
+/// `kdbx` stamps a group's `lastModificationTime` from the wall clock whenever
+/// a child is added (`KdbxGroup.addGroup` -> `modify` -> `times.modifiedNow`),
+/// so the parent of an imported child is legitimately re-stamped. KDBX stores
+/// that field with one-second precision, which made the comparison pass only
+/// while the snapshot and the import happened to fall inside the same second.
+/// The pointer to the new child is already filtered out below; this drops the
+/// timestamp that adding it moved. Every other group keeps a strict comparison.
 Map<String, Object?> _manifestExcluding(
   KdbxFile file, {
   Set<String> entryUuids = const {},
   Set<String> excludeGroupUuids = const {},
+  Set<String> remodifiedGroupUuids = const {},
 }) {
   final manifest = _manifest(file);
   final entries = Map<String, Object?>.from(
@@ -1535,6 +1549,11 @@ Map<String, Object?> _manifestExcluding(
     group['entryOrder'] = (group['entryOrder']! as List)
         .where((child) => !entryUuids.contains(child))
         .toList();
+    if (remodifiedGroupUuids.contains(uuid)) {
+      group['times'] = Map<String, Object?>.from(
+        group['times']! as Map<String, Object?>,
+      )..remove('lastModificationTime');
+    }
     groups[uuid] = group;
   }
 
