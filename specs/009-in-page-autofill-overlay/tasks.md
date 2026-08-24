@@ -353,6 +353,16 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
         automatically by the six `A037:` cases in
         `test/overlay_interaction.test.js`, and that automated coverage is the
         only evidence there is for it.
+        That coverage has since been shown to be insufficient for this row, so
+        it must not be read as a substitute. #121 was found in live QA, not by
+        the suite, and it presented **as a keyboard failure**: Enter on a
+        suggestion threw in an orphaned content-script world and the overlay
+        vanished with no message, while a CDP trace proved arrows and Enter had
+        been delivered and handled correctly the whole time. The six `A037:`
+        cases never run in an orphaned world. The fix is pinned by
+        `test/orphaned_context.test.js` (15 cases) and mutations A8-M1–A8-M10;
+        the keyboard-only manual row of this task remains unexecuted, and #121
+        did not change what this task requires.
       - The #81 fix has **not** been re-confirmed with VoiceOver on the device.
         The behaviour is pinned by the harness, which is not the same evidence as
         a screen reader actually announcing and activating it.
@@ -450,26 +460,90 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
       package reload, and canonical baseline comparison. Edge smoke is not pixel
       authority.
 
-      **Open.** This task asks for ~16 matrix rows. Every row is accounted for
-      below in exactly one of three sets. Set (b) and set (c) are both *not*
-      manual passes; only set (a) is.
+      **Open.** This task asks for ~16 matrix rows, and it was written against
+      the **per-origin** authorization model. Slice C (PR #113) replaced that
+      model with a single global switch. That did not invalidate the code, but
+      it did invalidate part of the evidence recorded here: three of the nine
+      rows once listed as manual passes observed a *granularity* that no longer
+      exists. They are re-classified below rather than left standing as passes.
 
-      **(a) Executed manually and passed** — one guided session, Chrome 151 /
-      macOS, one machine:
-      1. Fresh install — clean, no site access granted.
-      2. Grant/deny — opt-in only under an explicit gesture; revocation from
-         `chrome://extensions` reconciled back to disabled.
-      3. Scheme/port variants — two independent ports sharing one permission
-         pattern, and `https` with a separately granted opt-in.
-      4. Top / same-origin / cross-origin frames — the cross-origin child first
-         denied, then enabled on its own origin.
+      Row numbers 1–20 are stable and are referenced from `docs/manual-qa.md`;
+      Slice C adds rows 21–24. Every row sits in exactly one of the five sets
+      below. **(a) is the only set that is current manual coverage.** (a-bis) is
+      spent evidence, and (b), (c) and (d) are not manual passes at all.
+
+      **(a) Executed manually, passed, and still valid under Slice C.** Rows
+      1 and 5–9 come from one guided session, Chrome 151 / macOS, one machine,
+      on the per-origin build; what each of them observed is model-independent,
+      so the pass carries over. Row 21 was executed after Slice C landed.
+      1. Fresh install — the extension holds nothing: no grant, no registration,
+         no injection. Reworded for the new model: a clean profile now shows the
+         switch **off** at the `overlayConfigV2` default. The observation is a
+         null state, and the null state is identical under both models, so this
+         needs no re-run. Automated twin: `criterion 1: fresh install grants
+         nothing, registers nothing, injects nothing`.
       5. Worker termination — terminated between phases and recovered.
-      6. Disable while the overlay was open.
+      6. Disable while the overlay was open. The trigger is now the global
+         switch rather than `disableOrigin()`, but what was observed is the
+         D1–D5 teardown of an open overlay, and C2 left that order unchanged and
+         still pinned by crash injection.
       7. Navigation — teardown observed. (Only the navigation half of the
          "navigation/stale native response" row; see (b) for the other half.)
-      8. Package reload from the built ZIP.
+      8. Package reload from the built ZIP. Honest scope: this observed that the
+         packaged ZIP loads and runs. It did **not** exercise an already-injected
+         tab surviving the reload — that gap is where #121 came from, and it is
+         now automated, not manually covered.
       9. Generate round trip — generate → fill → confirmation banner in the app →
          confirm → entry present in the vault → consistent re-fill.
+      21. **v1 → v2 upgrade (Slice C).** Executed and verified on 2026-08-24,
+         Chrome 151 / macOS, observed live over CDP on a profile that really
+         held a v1 config with enabled origins. Observed: `overlayConfigV1` gone
+         from storage; `overlayConfigV2 = {enabled: false, revision: 3,
+         version: 2}`; `chrome.permissions.getAll().origins === []`, i.e. the
+         residual per-origin grants were revoked rather than inherited; and zero
+         content-script registrations. This is `S3-7` in `docs/manual-qa.md`.
+         It is the **only** Slice C manual row satisfied so far; rows 22–24 are
+         all still due. Automated twins, which this row is the first human
+         confirmation of: `A016: a v1 config migrates to disabled even when the
+         broad grant is already held` and `A016: migration revokes every
+         residual per-origin grant and registration`.
+
+      **(a-bis) Executed manually against the per-origin model, then SUPERSEDED
+      by Slice C.** These are spent evidence, not current coverage, and must not
+      be counted as manual passes for the shipped model.
+      2. Grant/deny — recorded as "opt-in only under an explicit gesture;
+         revocation from `chrome://extensions` reconciled back to disabled". The
+         gesture requirement and the reconciliation both survive; the
+         **granularity** does not. There is no per-site "Turn on" left to click
+         and no per-site permission left to revoke, so the observation as
+         recorded cannot be reproduced. Carried forward by row 22, not by a
+         re-run of this row as written.
+      3. Scheme/port variants — recorded as "two independent ports sharing one
+         permission pattern, and `https` with a separately granted opt-in". The
+         second half has no subject left at all: one grant now covers both
+         schemes and there is no separate per-scheme opt-in. Superseded with
+         **no** replacement manual row.
+         The neighbouring *security* property did **not** expire, and this entry
+         must not be read as a loss of coverage: scheme, port and host remain
+         separate identities toward the vault, a sibling port is served **as
+         itself**, and the permission pattern's port-blindness is precisely why
+         the exact-origin check stays mandatory. It is covered automatically, by
+         `scheme, port and phishing suffix are the three named inequalities` and
+         `permission pattern drops the port, so exact-origin checks stay
+         mandatory` in `test/origin_canonicalization.test.js`; `top frame: a tab
+         URL differing only by port or scheme is still a mismatch` and `a
+         different port in the same host is still a different frame origin` in
+         `test/frame_context.test.js`; and `denies a port mismatch on the same
+         host` and `denies the upgrade when the port differs` in
+         `test/tool/native_host_test.dart`.
+      4. Top / same-origin / cross-origin frames — recorded as "the cross-origin
+         child first denied, then enabled on its own origin". The "enable this
+         child origin" step no longer exists: under the broad grant the child is
+         injected as a matter of course. The surviving half — a child binds to
+         its own origin and an authorized top never lends it identity — is now
+         the default path and is automated (`a cross-origin child works even
+         when the top origin is NOT enabled`, `an authorized top never lends its
+         identity to a cross-origin child`). Carried forward by row 23.
 
       **(b) Covered by automation only — never verified by hand.** These rows have
       real evidence, but none of it is a manual observation, and this task asked
@@ -491,7 +565,9 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
           is stale_session`; mutation A3-M6.
 
       **(c) Never executed in any manual form:**
-      16. Edge subset — never run, on any row.
+      16. Edge subset — never run, on any row. Slice C grew this row rather than
+          shrinking it: Edge now also owes rows 21–24, not just the Slice A
+          matrix. `S3-8` in `docs/manual-qa.md`.
       17. Vault A → B with the same entry UUID and origin — one machine, one
           vault. Automated only: `REGRESSION vault A -> B` in
           `test/focus_grant.test.js`, `A025: vault A -> B rejects the old token`,
@@ -503,21 +579,79 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
           No manual pass. (Same gap as the keyboard-only row of A040.)
       20. AT — deferred to A040, which is itself open. Not covered here.
 
+      **(d) New manual rows created by Slice C — all still due.** These did not
+      exist before PR #113. None has been executed; row 21 above is the only
+      Slice C row that has.
+      22. **Single broad prompt under a gesture, macOS.** Exactly one prompt,
+          naming both patterns, on the first click, with no gesture lost when
+          the popup closes — plus the external-revoke half inherited from old
+          row 2: setting site access back from `chrome://extensions` must
+          reconcile the switch durably **off**. The popup-close race is the
+          failure mode #77 fixed; it was caught by mutation A2-M15 and by the
+          smoke session, **not** by the automated suite, which is why a human
+          still has to watch the prompt appear. `S3-6` in `docs/manual-qa.md`
+          covers the grant half; the revoke half has no scenario there yet.
+          Automated only today: `A017: a declined prompt persists nothing`,
+          `A017: siteState is global — the same answer whatever tab is open`,
+          and `A020: a permission revoked outside the popup durably disables the
+          overlay`.
+      23. **An `http(s)` iframe inside a top document with no canonicalizable
+          origin** (`file://`, `view-source:`, `data:`, the PDF viewer) must
+          present the **unsupported** state. Slice C made this case *more*
+          reachable, not less: the broad grant injects the child where the
+          per-origin model never would have. Two of its three halves are already
+          pinned — the **classifier**, by `a child frame under a
+          non-canonicalizable top is still unsupported` in
+          `test/frame_context.test.js` (a unit test over `computeFrameSupport`
+          with synthetic top URLs), and the **rendering** of the state, by 2 of
+          the 18 approved baselines
+          (`overlay-chrome-1440x900-dpr1-{light,dark}-unsupported-frame.png`).
+          Neither pins the third: **reachability in a real browser** — that
+          Chrome actually injects the child there, reports the `file://` tab URL
+          for it, and that the popup then really reads unsupported. That
+          residual gap is the whole reason this row exists.
+          Divergence noted on purpose: `docs/manual-qa.md` currently records
+          this case as needing no manual row. That entry is right about the
+          policy and the rendering and silent about reachability; it is the
+          narrower claim, and it predates this analysis.
+      24. **Performance / CSP regression now that injection is universal.**
+          Under the per-origin model the content script ran only where the user
+          had opted in; it now runs in every frame of every `http(s)` page at
+          `document_idle`. Nothing has measured the cost of that on heavy pages,
+          and nothing has checked a strict-CSP site for console violations or a
+          blocked isolated world. This row has **no** automated coverage and no
+          `docs/manual-qa.md` scenario yet.
+
 **Slice A — development complete; the Slice-A-done gate remains OPEN on two
 manual rows (A040, A046).** This heading is deliberately not the bare phrase
 that marks the gate as met: do not read it as met. All
-automated security/protocol checks pass (`node --test
-desktop/browser_extension/test/*.test.js`: 370 passing; `node
-tool/mutation_runner.mjs --check`: exit 0 over 83 mutations, the two
-zero-expectation entries being declared equivalent mutants). No broad always-on
-permission; explicit exact-origin fill only. A001–A039 and A041–A045 are
-verified against the code and pinned by tests and/or mutations.
+automated security/protocol checks pass. Re-measured on this branch, after
+Slices B and C and the #121 fix: `node --test
+desktop/browser_extension/test/*.test.js` — 437 passing; `node
+tool/mutation_runner.mjs --check` — exit 0 over 112 mutations, the two
+zero-expectation entries (A2-M11, A2-M14) being declared equivalent mutants.
+(The Slice A figures were 370 and 83; the growth is later slices, not a
+re-scoping of these tasks.) A001–A039 and A041–A045 are verified against the
+code and pinned by tests and/or mutations.
+
+The permission sentence that stood here — "no broad always-on permission;
+explicit exact-origin fill only" — is now only half true and is corrected rather
+than deleted: Slice C **does** take a broad optional host grant, under one
+explicit gesture. What did not change is the second half: fill is still bound to
+the frame's own canonicalized exact origin, and a domain-only or non-exact match
+can never reveal.
 
 Still open, and deliberately not closed here:
 
 - **A040** — VoiceOver re-confirmation of the #81 fix on the device, and Chrome +
   NVDA on Windows. NVDA is a permanent declared debt: no Windows machine.
-- **A046** — the Edge subset, and a manual vault A → B pass.
+- **A046** — set (c), i.e. the Edge subset and a manual vault A → B pass, plus
+  the three new Slice C rows 22–24 (broad prompt under a gesture with its
+  revoke half, frame reachability under a non-canonicalizable top, and the
+  performance/CSP regression of universal injection). Rows 2, 3 and 4 are spent
+  evidence: 2 and 4 are carried forward by rows 22 and 23, and 3 needs no
+  replacement because its security half is automated. Row 21, the v1 → v2
+  upgrade, is the one Slice C row already executed.
 
 Both are manual-verification debt over code that is otherwise implemented and
 automatically pinned. Neither is a reason to reopen development, and neither may
@@ -619,6 +753,12 @@ that the automated gates alone did not catch it.
   enable.
 - **#81** — AT activation (light listbox + row `press`) and an `isTrusted` guard
   on every activation handler.
+- **#121** — an orphaned content script (extension reloaded under an
+  already-injected tab) died silently on the next `chrome.*` access, which read
+  to the user as a broken keyboard. Every `chrome.*` site is now behind a
+  liveness probe, and the exit latches and leaves an honest tombstone instead of
+  disappearing. Found in live QA, after Slice C; it is the reason A046 row 8's
+  scope is stated narrowly above.
 
 ## Slice C — one global switch replaces the per-origin opt-in
 
