@@ -33,7 +33,8 @@ void main() {
       isTrue,
       reason: 'the cross-process runner is gone; phase pairs are unsafe',
     );
-    runnerSource = runner.readAsStringSync();
+    // Git checks shell scripts out with CRLF on Windows. Compare logical lines.
+    runnerSource = runner.readAsLinesSync().join('\n');
   });
 
   group('the keystore probe cannot print a secret', () {
