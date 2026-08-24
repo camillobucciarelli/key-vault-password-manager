@@ -202,7 +202,7 @@ class _KeystoreCensus {
 
   static Future<_KeystoreCensus> take(
     FlutterSecureStorage storage, {
-    required String? databaseId,
+    required String databaseId,
   }) async {
     const legacy = SecureDataSourceImpl.legacyMasterPasswordKey;
     Set<String> keys;
@@ -220,9 +220,8 @@ class _KeystoreCensus {
     }
     return _KeystoreCensus(
       legacyGlobal: keys.contains(legacy) ? Presence.present : Presence.absent,
-      ownEntry: databaseId == null
-          ? Presence.indeterminate
-          : keys.contains(SecureDataSourceImpl.masterPasswordKey(databaseId))
+      ownEntry:
+          keys.contains(SecureDataSourceImpl.masterPasswordKey(databaseId))
           ? Presence.present
           : Presence.absent,
       perDatabaseCount: keys.where((k) => k.startsWith('$legacy.')).length,
@@ -525,7 +524,10 @@ void main() {
           key: SecureDataSourceImpl.legacyMasterPasswordKey,
           value: _password,
         );
-        final census = await _KeystoreCensus.take(storage, databaseId: null);
+        final census = await _KeystoreCensus.take(
+          storage,
+          databaseId: record.databaseId,
+        );
         census.report('AFTER_SEED');
         expectPresence(
           'the planted legacy entry — without it the ac6_upgrade phase '
@@ -533,6 +535,11 @@ void main() {
           'S1-5 warns about',
           census.legacyGlobal,
           Presence.present,
+        );
+        expectPresence(
+          'this database\'s scoped entry during the AC-6 seed',
+          census.ownEntry,
+          Presence.absent,
         );
         final markerWritten = await _writePhaseMarker(
           phaseMarkerFile,

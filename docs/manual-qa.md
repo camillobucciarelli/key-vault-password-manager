@@ -34,7 +34,7 @@ count, never rounded to the more flattering of the two.
 
 Total: **32 items** — **2 `passed`** (S2-1, S3-7), 30 `not-run`.
 
-### Hardware QA evidence — 2026-08-24
+### Earlier hardware QA evidence — 2026-08-24
 
 Retried from clean commit `ea004699a541767d2ec70f48a7c9a667296d5d2b`
 with pinned Flutter 3.44.8 on a physical iPhone running iOS 26.6 over USB. Requested-command count: **2 `passed`,
@@ -46,25 +46,32 @@ secret.
 | --- | --- | --- | --- |
 | Keystore `ac2_unlock` | physical iPhone; automated integration test | `passed` | Vault created and manually unlocked with biometrics off. Keystore readable; legacy and per-database entries absent; total keys 0. Positive control became present with total keys 1, then cleanup restored absence and total keys 0. Phase completed. |
 | Keystore `ac2_relaunch` | physical iPhone; automated integration test | `failed` | Test body started but found 0 probe-vault records where 1 from the prior phase was required (`Expected: <1>`, `Actual: <0>` at `master_password_keystore_qa_test.dart:340`). No post-kill keystore or stored-credential assertion ran. S2-2 therefore remains `not-run`, not product-failed. |
-| Keystore `ac6_seed` | physical iPhone; automated integration test | `passed` as seed only | A fresh probe vault was created, confirming prior registry state was unavailable. Keystore readable; planted legacy entry present; total keys 1. Reported own-entry value `2` is the deliberate not-applicable value when no database id is requested, not an unreadable keystore result. |
+| Keystore `ac6_seed` | physical iPhone; automated integration test | `passed` as seed only | A fresh probe vault was created, confirming prior registry state was unavailable. Keystore readable; planted legacy entry present; total keys 1. The original transcript exposed a probe-reporting defect: own-entry value `2` incorrectly used `indeterminate` as not-applicable. The scoped AC-6 result remained deterministic; the probe now supplies the retained vault id and verifies that entry separately. |
 | Keystore `ac6_upgrade` | physical iPhone; automated integration test | `not-run` | Build completed, but Flutter could not start the app after 707 seconds; no phase output was emitted. Read-only device check then reported `passcodeRequired: true`. Execution stopped as required, so deletion and vault opening were not tested. |
 | T111 iOS | physical iPhone; automated device harness | `not-run` | Not started after device returned to passcode-required state. No partial harness result and no iOS artifact exist. |
 | T111 macOS | macOS 26.6.1 host, APFS; automated host harness from prior run | `passed` | Exit 0; schema-valid artifact; 8/8 cases passed. `atomicReplaceOverExisting=true`, `backupNoOverwrite=true`, `flushSupported=true`, `directorySyncSupported=false`. Host evidence qualifies macOS only. |
 
+A follow-up run with the corrected runner completed all four probe processes:
+`ac2_unlock`, `ac2_relaunch`, `ac6_seed`, and `ac6_upgrade`. AC-1, AC-2,
+and the automated AC-6 migration property passed. The `ac6_seed` transcript
+exposed only the reporting ambiguity described above; secure-store reads and
+the AC-6 result were deterministic.
+
 All probe output remained bool/int only; no secret value was printed or
 reported, and the census bound only key names and counts.
-S2-1 is now passed by the automated negative check plus positive control. S2-2
-still lacks both successful post-kill automation and its swipe/relaunch/visible
-password-prompt UI half. S2-5 is not passed: `ac6_upgrade` did not run, and this
-probe would not prove that a real pre-`027641d` build created the legacy entry in
-any case. Spec 011 T020 therefore stays open.
+S2-1 is passed by the automated negative check plus positive control. The
+follow-up automated run also qualified the AC-2 storage/behavioural property
+and the AC-6 migration property. It does not replace S2-2's optional visible-UI
+check or prove that a real pre-`027641d` build created the legacy entry for
+S2-5. Spec 011 T020 therefore stays open.
 
 The retry exposed a harness precondition gap: separate default `flutter test`
 phase invocations did not preserve the probe vault registry on this iPhone.
 Flutter 3.44.8 stops and then uninstalls the integration-test app after each
 run. iOS retained Keychain entries but deleted the app container, fixture and
 registry. The corrected runner now uses `--no-uninstall` and checks a
-non-secret cross-process marker; physical-device rerun remains pending.
+non-secret cross-process marker; its physical-device rerun completed all four
+probe processes successfully.
 
 Windows and Linux T111 artifacts remain verified from PR #127, Actions run
 `32713786823`; macOS remains passed. T111 stays open because Android has no
@@ -435,15 +442,20 @@ answers, not two: `present`, `absent` and **`indeterminate`**. An
 `indeterminate` reading fails the run loudly and states why. It must be
 recorded as `not-run`, never as a pass — "the keystore refused to answer" and
 "there is no entry" are opposite findings, and this item exists to prove
-absence.
+absence. The probe emits `indeterminate` only when secure-store enumeration
+throws; optional or not-applicable report fields must never use that value.
 
 **Verified status of the probe itself, stated plainly:**
 
 - `ac2_unlock` passed on physical iPhone / iOS 26.6 through the real DI graph,
   unlock flow, negative census, and positive control.
-- The old `ac2_relaunch` command lost its fixture before reaching AC-2. The
-  corrected cross-process pair has host-tested guards but has not yet run on
-  hardware; S2-2 remains `not-run`.
+- The corrected `ac2_relaunch` process retained the same random database
+  identity under a new PID, found no scoped entry, refused stored-credential
+  unlock, and still opened with the manual password.
+- The corrected `ac6_seed` / `ac6_upgrade` pair observed the planted legacy
+  entry, then its deletion on the next process and a successful manual unlock
+  of the same retained vault. Its seed transcript exposed the reporting-only
+  `indeterminate` ambiguity fixed here.
 - macOS still hits `errSecInteractionNotAllowed` (-25308), so S3-1 keeps using
   the interactive `security` command.
 

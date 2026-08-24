@@ -93,6 +93,57 @@ void main() {
     });
   });
 
+  group('the keystore census keeps presence semantics exact', () {
+    test('indeterminate only represents an unreadable store', () {
+      final takeStart = source.indexOf('static Future<_KeystoreCensus> take(');
+      final takeEnd = source.indexOf('\n  void report(', takeStart);
+      final takeSource = source.substring(takeStart, takeEnd);
+      final unreadableStart = takeSource.indexOf('    } catch (_) {');
+      final unreadableEnd = takeSource.indexOf(
+        '    return _KeystoreCensus(',
+        unreadableStart,
+      );
+      final indeterminateUses = 'Presence.indeterminate'
+          .allMatches(takeSource)
+          .toList();
+
+      expect(takeSource.contains('required String databaseId'), isTrue);
+      expect(indeterminateUses, hasLength(2));
+      expect(
+        indeterminateUses.every(
+          (match) => match.start > unreadableStart && match.end < unreadableEnd,
+        ),
+        isTrue,
+        reason:
+            'Presence.indeterminate may only come from an unreadable store, '
+            'never from a not-applicable field',
+      );
+    });
+
+    test('AC-6 seed scopes its census to the retained vault', () {
+      final seedStart = source.indexOf("case 'ac6_seed':");
+      final seedEnd = source.indexOf("case 'ac6_upgrade':", seedStart);
+      final seedSource = source.substring(seedStart, seedEnd);
+
+      expect(
+        RegExp(
+          r'_KeystoreCensus\.take\(\s*storage,\s*'
+          r'databaseId: record\.databaseId,\s*\)',
+        ).hasMatch(seedSource),
+        isTrue,
+      );
+      expect(
+        RegExp(
+          r'expectPresence\([^;]*census\.ownEntry,\s*'
+          r'Presence\.absent,\s*\);',
+          dotAll: true,
+        ).hasMatch(seedSource),
+        isTrue,
+        reason: 'AC-6 seed must verify its scoped entry, not report N/A',
+      );
+    });
+  });
+
   group('the keystore probe is genuinely cross-process', () {
     test('the runner retains the app container between paired phases', () {
       expect(
