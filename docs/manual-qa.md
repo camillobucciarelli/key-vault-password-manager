@@ -37,10 +37,11 @@ Total: **32 items** — **2 `passed`** (S2-1, S3-7), 30 `not-run`.
 ### Earlier hardware QA evidence — 2026-08-24
 
 Retried from clean commit `ea004699a541767d2ec70f48a7c9a667296d5d2b`
-with pinned Flutter 3.44.8 on a physical iPhone running iOS 26.6 over USB. Requested-command count: **2 `passed`,
-2 `not-run`, 1 `failed`**. The failed command is a probe-fixture lifecycle
-failure before AC-2 was exercised, not evidence that the product retained a
-secret.
+with pinned Flutter 3.44.8 on a physical iPhone running iOS 26.6 over USB. A
+same-day T111 follow-up then passed. Combined requested-command count: **3
+`passed`, 1 `not-run`, 1 `failed`**. The failed command is a probe-fixture
+lifecycle failure before AC-2 was exercised, not evidence that the product
+retained a secret.
 
 | Evidence | Platform / mode | Result | Observation |
 | --- | --- | --- | --- |
@@ -48,7 +49,7 @@ secret.
 | Keystore `ac2_relaunch` | physical iPhone; automated integration test | `failed` | Test body started but found 0 probe-vault records where 1 from the prior phase was required (`Expected: <1>`, `Actual: <0>` at `master_password_keystore_qa_test.dart:340`). No post-kill keystore or stored-credential assertion ran. S2-2 therefore remains `not-run`, not product-failed. |
 | Keystore `ac6_seed` | physical iPhone; automated integration test | `passed` as seed only | A fresh probe vault was created, confirming prior registry state was unavailable. Keystore readable; planted legacy entry present; total keys 1. The original transcript exposed a probe-reporting defect: own-entry value `2` incorrectly used `indeterminate` as not-applicable. The scoped AC-6 result remained deterministic; the probe now supplies the retained vault id and verifies that entry separately. |
 | Keystore `ac6_upgrade` | physical iPhone; automated integration test | `not-run` | Build completed, but Flutter could not start the app after 707 seconds; no phase output was emitted. Read-only device check then reported `passcodeRequired: true`. Execution stopped as required, so deletion and vault opening were not tested. |
-| T111 iOS | physical iPhone; automated device harness | `not-run` | Not started after device returned to passcode-required state. No partial harness result and no iOS artifact exist. |
+| T111 iOS | physical iPhone 16 Pro, iOS 26.6, APFS; automated device harness | `passed` | Schema v1; 8/8 exact required cases passed. `atomicReplaceOverExisting=true`, `backupNoOverwrite=true`, `flushSupported=true`, `directorySyncSupported=false`. Directory sync remains best-effort. Artifact and transcript remain gitignored. |
 | T111 macOS | macOS 26.6.1 host, APFS; automated host harness from prior run | `passed` | Exit 0; schema-valid artifact; 8/8 cases passed. `atomicReplaceOverExisting=true`, `backupNoOverwrite=true`, `flushSupported=true`, `directorySyncSupported=false`. Host evidence qualifies macOS only. |
 
 A follow-up run with the corrected runner completed all four probe processes:
@@ -74,9 +75,9 @@ non-secret cross-process marker; its physical-device rerun completed all four
 probe processes successfully.
 
 Windows and Linux T111 artifacts remain verified from PR #127, Actions run
-`32713786823`; macOS remains passed. T111 stays open because Android has no
-artifact and iOS is still `not-run`. Generated outputs remain ignored or attached
-to GitHub Actions; none is committed.
+`32713786823`; macOS and iOS are also passed. T111 stays open because Android is
+the only platform without an artifact. Generated outputs remain ignored or
+attached to GitHub Actions; none is committed.
 
 **Changed on 2026-08-24 by the T111 automation.** Two items left this list for
 good (S4-4 and S5-4): on Linux and Windows the GitHub-hosted runner *is* the

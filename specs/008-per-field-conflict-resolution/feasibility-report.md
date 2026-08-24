@@ -747,7 +747,7 @@ qualifies another target. macOS host unit tests executed for T001–T007 are
 | Platform | Status | Feature enabled | Required artifact | Command/runtime |
 | --- | --- | --- | --- | --- |
 | Android | `not-run` | no | `build/safety-evidence/android/safe-vault-writer.json` + log | Android app storage on named device/emulator; no artifact produced |
-| iOS | `not-run` | no | `build/safety-evidence/ios/safe-vault-writer.json` + device log | Physical iPhone / iOS 26.6 retry on 2026-08-24; DDI usable and probe phases launched, but device returned to passcode-required state before T111; harness not started and no artifact filed |
+| iOS | `passed` | no | `build/safety-evidence/ios/safe-vault-writer.json` + device log | Physical iPhone 16 Pro / iOS 26.6 / APFS; schema v1; 8/8 required cases passed; metadata below |
 | macOS | `passed` | no | `build/safety-evidence/macos/safe-vault-writer.json` + log | `tool/run_safety_harness.sh -H`; macOS 26.6.1 host / APFS; 8/8 cases passed; metadata below |
 | Windows | `passed` | no | Actions artifact `t111-safe-vault-writer-windows` | PR #127 run `32713786823`; native `windows-2022` / NTFS; 8/8 cases passed; metadata below |
 | Linux | `passed` | no | Actions artifact `t111-safe-vault-writer-linux` | PR #127 run `32713786823`; native `ubuntu-latest` / ext4; 8/8 cases passed; metadata below |
@@ -759,13 +759,19 @@ later implementation gates remain open, so every feature flag above remains
 
 ### T111 artifact metadata — 2026-08-24
 
-- **iOS — `not-run`.** The DDI was usable and earlier probe phases did launch on
-  the physical iPhone. Before T111, however, the `ac6_upgrade` app failed to
-  start and a read-only device check reported `passcodeRequired: true`. Per the
-  run rule, execution stopped rather than starting
-  `tool/run_safety_harness.sh -d <physical-device> -p ios` under an unstable
-  device state. The harness emitted nothing and no iOS JSON or log was filed;
-  this supplies no iOS evidence.
+- **iOS — `passed`.** Schema 1; artifact and log under the ignored
+  `build/safety-evidence/ios/`; commit
+  `98467436cd9447eb4f45d5eef316d57faaba0058`; sanitized command
+  `tool/run_safety_harness.sh -d <physical-device>`; physical iPhone 16 Pro;
+  iOS 26.6 build 23G71; APFS; Flutter 3.44.8 / Dart 3.12.2; UTC
+  `2026-08-24T15:41:03.508671Z`–`2026-08-24T15:41:04.807278Z`; status
+  `passed`; shared-schema validation returned 0 errors; all 8 exact required
+  cases passed. Capabilities: `atomicReplaceOverExisting=true`,
+  `backupNoOverwrite=true`, `flushSupported=true`,
+  `directorySyncSupported=false`. Directory sync is a measured unsupported
+  capability and remains best-effort; it is not claimed as `true`. Tester
+  confirmed the harness, shared schema and safe writer are unchanged between
+  the artifact commit and current head.
 - **macOS — `passed`.** Schema 1; artifact and log under the ignored
   `build/safety-evidence/macos/`; commit
   `118098b5026c6a53c73c3a2e4db277379abbd91b`; command
@@ -788,10 +794,10 @@ later implementation gates remain open, so every feature flag above remains
   `atomicReplaceOverExisting=true`, `backupNoOverwrite=true`,
   `flushSupported=true`, `directorySyncSupported=false`.
 
-Artifacts remain untracked: local output is under ignored `build/`, and CI JSON
-stays attached to its Actions run. T111 remains unchecked because Android has no
-artifact and iOS remains `not-run`; the 2026-08-24 retry produced no partial
-platform evidence.
+Artifacts and transcripts remain untracked: local output is under ignored
+`build/`, and CI JSON stays attached to its Actions run. T111 remains unchecked
+because Android has no artifact. iOS, macOS, Windows and Linux are `passed`;
+Android is the only missing platform artifact.
 
 ## Model corrections from spike
 
