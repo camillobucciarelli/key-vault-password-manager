@@ -92,7 +92,10 @@ void main() {
             selectedPath: '/tmp/imported.kdbx',
           ),
         );
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await _until(
+          () => states.whereType<DatabaseSelectionDuplicateDecisionRequired>()
+              .isNotEmpty,
+        );
 
         expect(states.any((s) => s is DatabaseSelectionLoading), isTrue);
         expect(
@@ -103,7 +106,9 @@ void main() {
         bloc.add(
           const ResolveDuplicateDecision(DatabaseDuplicateResolution.keepBoth),
         );
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await _until(
+          () => states.whereType<DatabaseSelectionSuccess>().isNotEmpty,
+        );
 
         expect(states.whereType<DatabaseSelectionSuccess>().length, 1);
         expect(registryRepository.records, hasLength(2));
@@ -140,7 +145,9 @@ void main() {
       final sub = bloc.stream.listen(states.add);
 
       bloc.add(CheckInitialDatabase());
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await _until(
+        () => states.whereType<DatabaseSelectionSuccess>().isNotEmpty,
+      );
 
       expect(states.any((s) => s is DatabaseSelectionLoading), isTrue);
       final success = states.whereType<DatabaseSelectionSuccess>().single;
@@ -160,26 +167,45 @@ void main() {
         final states = <DatabaseSelectionState>[];
         final sub = bloc.stream.listen(states.add);
 
+        List<DatabaseSelectionCreateStep> stepStates() =>
+            states.whereType<DatabaseSelectionCreateStep>().toList();
+
         bloc.add(const StartCreateDatabaseFlow());
         bloc.add(const AdvanceCreateDatabaseStep(fieldsNonEmpty: false));
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await _until(() => stepStates().isNotEmpty);
 
-        final steps = states.whereType<DatabaseSelectionCreateStep>().toList();
+        final steps = stepStates();
         expect(steps.first.step, CreateDatabaseStep.nameAndStorage);
         // Empty fields must not advance the step.
         expect(steps.last.step, CreateDatabaseStep.nameAndStorage);
 
         bloc.add(const AdvanceCreateDatabaseStep(fieldsNonEmpty: true));
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await _until(
+          () => stepStates().last.step == CreateDatabaseStep.masterPassword,
+        );
         expect(
-          states.whereType<DatabaseSelectionCreateStep>().last.step,
+          stepStates().last.step,
           CreateDatabaseStep.masterPassword,
+        );
+        // The assertion above samples once `masterPassword` is reached, so the
+        // empty-fields event is now provably behind us (bloc events are FIFO).
+        // Every step state emitted before it must still have been
+        // `nameAndStorage` — this catches an advance-on-empty-fields
+        // regression even if the earlier check sampled before that emission.
+        expect(
+          stepStates()
+              .takeWhile((s) => s.step != CreateDatabaseStep.masterPassword)
+              .every((s) => s.step == CreateDatabaseStep.nameAndStorage),
+          isTrue,
+          reason: 'empty fields must never advance the wizard',
         );
 
         bloc.add(const GoBackCreateDatabaseStep());
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await _until(
+          () => stepStates().last.step == CreateDatabaseStep.nameAndStorage,
+        );
         expect(
-          states.whereType<DatabaseSelectionCreateStep>().last.step,
+          stepStates().last.step,
           CreateDatabaseStep.nameAndStorage,
         );
 
@@ -192,3 +218,26 @@ void main() {
     );
   });
 }
+
+/// Waits until [predicate] holds, yielding to the event loop between checks.
+///
+/// Replaces the `Future.delayed(20ms)` sleeps this file used to synchronise on
+/// after every `bloc.add`. A fixed sleep is a bet on machine speed: when a
+/// handler takes longer than the sleep, the assertions run against a
+/// half-finished state and fail for reasons unrelated to the behaviour under
+/// test. Waiting on the state itself is correct at any speed, and the wait
+/// doubles as an assertion that the transition actually happened.
+///
+/// The deadline is not a speed budget — these waits complete in microseconds
+/// once the handler completes. It exists only so a genuine deadlock reports a
+/// useful message instead of hanging until the suite-level timeout.
+Future<void> _until(bool Function() predicate) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 10));
+  while (!predicate()) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail('Timed out waiting for the bloc to reach the expected state.');
+    }
+    await Future<void>.delayed(Duration.zero);
+  }
+}
+

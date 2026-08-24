@@ -68,7 +68,7 @@ void main() {
         final sub = bloc.stream.listen(states.add);
 
         bloc.add(const InitializeDatabaseUnlock());
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await _untilLast(states, (s) => s.phase == UnlockPhase.ready);
 
         expect(states.any((s) => s.isLoading), isTrue);
         expect(states.last.phase, UnlockPhase.ready);
@@ -80,7 +80,7 @@ void main() {
             keyFilePath: null,
           ),
         );
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await _untilLast(states, (s) => s.unlocked);
 
         // C-4: `decrypting` is entered before the await, then `unlocked`.
         expect(states.map((s) => s.phase), contains(UnlockPhase.decrypting));
@@ -100,9 +100,9 @@ void main() {
       final sub = bloc.stream.listen(states.add);
 
       bloc.add(const InitializeDatabaseUnlock());
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await _untilLast(states, (s) => s.phase == UnlockPhase.ready);
       bloc.add(const RetryBiometricAuthentication());
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await _untilLast(states, (s) => s.biometricPrompted && !s.biometricVerified);
 
       expect(states.last.biometricVerified, isFalse);
       expect(unlockUseCase.callCount, 0);
@@ -142,7 +142,10 @@ void main() {
           final sub = bloc.stream.listen(states.add);
 
           bloc.add(const InitializeDatabaseUnlock());
-          await Future<void>.delayed(const Duration(milliseconds: 20));
+          await _untilLast(
+            states,
+            (s) => s.phase == UnlockPhase.biometricGate && s.biometricPrompted,
+          );
 
           expect(states.last.phase, UnlockPhase.biometricGate);
 
@@ -153,11 +156,18 @@ void main() {
               keyFilePath: null,
             ),
           );
-          await Future<void>.delayed(const Duration(milliseconds: 20));
+          // The gate rejection is itself an emission, so this waits on the
+          // behaviour under test rather than on the clock.
+          await _untilLast(
+            states,
+            (s) =>
+                s.errorMessage ==
+                'Use biometric authentication before unlocking the database.',
+          );
           expect(unlockUseCase.callCount, 0);
 
           bloc.add(const RequestManualUnlockFallback());
-          await Future<void>.delayed(const Duration(milliseconds: 20));
+          await _untilLast(states, (s) => s.manualFallbackRequested);
 
           expect(states.last.phase, UnlockPhase.ready);
           expect(states.last.manualFallbackRequested, isTrue);
@@ -169,7 +179,7 @@ void main() {
               keyFilePath: null,
             ),
           );
-          await Future<void>.delayed(const Duration(milliseconds: 20));
+          await _untilLast(states, (s) => s.unlocked);
 
           expect(states.map((s) => s.phase), contains(UnlockPhase.decrypting));
           expect(states.last.unlocked, isTrue);
@@ -186,16 +196,25 @@ void main() {
         final sub = bloc.stream.listen(states.add);
 
         bloc.add(const InitializeDatabaseUnlock());
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await _untilLast(
+          states,
+          (s) => s.phase == UnlockPhase.biometricGate && s.biometricPrompted,
+        );
+
+        // Both retries settle on the same terminal state, so they are
+        // sequenced on the emission count: a predicate over `states.last`
+        // cannot tell the second attempt from the first.
+        var mark = states.length;
         bloc.add(const RetryBiometricAuthentication());
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await _until(() => states.length >= mark + 2);
+        mark = states.length;
         bloc.add(const RetryBiometricAuthentication());
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await _until(() => states.length >= mark + 2);
 
         expect(states.last.phase, UnlockPhase.biometricGate);
 
         bloc.add(const RequestManualUnlockFallback());
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await _untilLast(states, (s) => s.manualFallbackRequested);
 
         expect(states.last.phase, UnlockPhase.ready);
         expect(states.last.manualFallbackRequested, isTrue);
@@ -209,16 +228,20 @@ void main() {
           seedBiometricRequiredWithBrokenSensor();
 
           bloc.add(const InitializeDatabaseUnlock());
-          await Future<void>.delayed(const Duration(milliseconds: 20));
+          await _until(
+            () =>
+                bloc.state.phase == UnlockPhase.biometricGate &&
+                bloc.state.biometricPrompted,
+          );
           bloc.add(const RequestManualUnlockFallback());
-          await Future<void>.delayed(const Duration(milliseconds: 20));
+          await _until(() => bloc.state.manualFallbackRequested);
           bloc.add(
             const UnlockWithManualCredentials(
               password: 'secret',
               keyFilePath: null,
             ),
           );
-          await Future<void>.delayed(const Duration(milliseconds: 20));
+          await _until(() => bloc.state.unlocked);
 
           expect(bloc.state.unlocked, isTrue);
           expect(
@@ -233,7 +256,11 @@ void main() {
             databaseSessionCoordinator: coordinator,
           );
           nextLaunchBloc.add(const InitializeDatabaseUnlock());
-          await Future<void>.delayed(const Duration(milliseconds: 20));
+          await _until(
+            () =>
+                nextLaunchBloc.state.phase == UnlockPhase.biometricGate &&
+                nextLaunchBloc.state.biometricPrompted,
+          );
           expect(nextLaunchBloc.state.phase, UnlockPhase.biometricGate);
           expect(nextLaunchBloc.state.manualFallbackRequested, isFalse);
           await nextLaunchBloc.close();
@@ -250,14 +277,14 @@ void main() {
         final sub = bloc.stream.listen(states.add);
 
         bloc.add(const InitializeDatabaseUnlock());
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await _untilLast(states, (s) => s.phase == UnlockPhase.ready);
         bloc.add(
           const UnlockWithManualCredentials(
             password: 'wrong',
             keyFilePath: null,
           ),
         );
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await _untilLast(states, (s) => s.failure != null);
 
         expect(states.last.phase, UnlockPhase.ready);
         expect(states.last.failure, isA<InvalidCredentialsFailure>());
@@ -278,14 +305,14 @@ void main() {
       final sub = bloc.stream.listen(states.add);
 
       bloc.add(const InitializeDatabaseUnlock());
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await _untilLast(states, (s) => s.phase == UnlockPhase.ready);
       bloc.add(
         const UnlockWithManualCredentials(
           password: 'secret',
           keyFilePath: null,
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await _untilLast(states, (s) => s.phase == UnlockPhase.failure);
 
       expect(states.last.phase, UnlockPhase.failure);
       expect(states.last.failure, isA<CorruptDatabaseFailure>());
@@ -304,14 +331,14 @@ void main() {
         final sub = bloc.stream.listen(states.add);
 
         bloc.add(const InitializeDatabaseUnlock());
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await _untilLast(states, (s) => s.phase == UnlockPhase.ready);
         bloc.add(
           const UnlockWithManualCredentials(
             password: 'wrong',
             keyFilePath: null,
           ),
         );
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await _untilLast(states, (s) => s.failure != null);
 
         expect(states.last.failure, isA<InvalidCredentialsFailure>());
 
@@ -322,7 +349,12 @@ void main() {
             keyFilePath: null,
           ),
         );
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await _untilLast(
+          states,
+          (s) =>
+              s.errorMessage ==
+              'Unable to unlock database with provided credentials.',
+        );
 
         expect(states.last.failure, isNull);
         expect(
@@ -339,14 +371,14 @@ void main() {
       final sub = bloc.stream.listen(states.add);
 
       bloc.add(const InitializeDatabaseUnlock());
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await _untilLast(states, (s) => s.phase == UnlockPhase.ready);
       bloc.add(
         const UnlockWithManualCredentials(
           password: 'secret',
           keyFilePath: null,
         ),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await _untilLast(states, (s) => s.unlocked);
 
       expect(states.every((s) => s.progress == null), isTrue);
 
@@ -374,6 +406,38 @@ void main() {
     });
   });
 }
+
+/// Waits until [predicate] holds, yielding to the event loop between checks.
+///
+/// This file used to synchronise on `Future.delayed(20ms)` after every
+/// `bloc.add`. A fixed sleep encodes an assumption about how fast the machine
+/// is: when a handler needs longer than the sleep, the assertions run against a
+/// half-finished state and the test fails for reasons unrelated to the
+/// behaviour under test. That is not theoretical — injecting a 40 ms delay into
+/// `_FakeBiometricDataSource.isBiometricAvailable` (a slow sensor, or simply a
+/// loaded CI) failed 7 tests in this file. Waiting on the state itself is
+/// correct at any speed, and the wait doubles as an assertion that the
+/// transition really happened.
+///
+/// The deadline is not a speed budget — every wait here completes in
+/// microseconds once the handler completes. It exists only so a genuine
+/// deadlock reports a useful message instead of hanging until the suite-level
+/// timeout.
+Future<void> _until(bool Function() predicate) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 10));
+  while (!predicate()) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail('Timed out waiting for the bloc to reach the expected state.');
+    }
+    await Future<void>.delayed(Duration.zero);
+  }
+}
+
+/// [_until], applied to the most recent state the test has collected.
+Future<void> _untilLast(
+  List<DatabaseUnlockState> states,
+  bool Function(DatabaseUnlockState state) predicate,
+) => _until(() => states.isNotEmpty && predicate(states.last));
 
 class _FakeBiometricDataSource implements BiometricDataSource {
   bool available = false;

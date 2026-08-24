@@ -11,6 +11,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/data/services/desktop_browser_autofill_cache.dart';
 import 'package:password_manager/features/password_manager/data/services/desktop_browser_autofill_reveal_bridge_service.dart';
@@ -19,6 +20,15 @@ import 'package:password_manager/features/password_manager/domain/models/vault_e
 import 'package:password_manager/features/password_manager/presentation/coordinators/desktop_browser_autofill_coordinator.dart';
 
 final _generatedValue = ['kv', 'pending', 'test', 'value', '9d1'].join('-');
+
+/// A service whose clock advances with [async]'s virtual time, so its expiry
+/// timer and its `expiresAt` arithmetic agree under `fakeAsync`.
+DesktopBrowserPendingGenerationService _fakeClockService(FakeAsync async) {
+  final start = DateTime.utc(2026);
+  return DesktopBrowserPendingGenerationService(
+    clock: () => start.add(async.elapsed),
+  );
+}
 
 PendingGeneratedEntrySnapshot _create(
   DesktopBrowserPendingGenerationService service, {
@@ -194,10 +204,12 @@ void main() {
       expect(listenable.value, isEmpty);
     });
 
-    test(
-      'expired records leave the listenable without any caller poke',
-      () async {
-        final service = DesktopBrowserPendingGenerationService();
+    test('expired records leave the listenable without any caller poke', () {
+      // Virtual time: the service's expiry timer and its injected clock are
+      // both driven by `async.elapse`, so this asserts the expiry behaviour
+      // without depending on how long a real sleep actually takes.
+      fakeAsync((async) {
+        final service = _fakeClockService(async);
         addTearDown(service.clearAll);
         final snapshot = _create(
           service,
@@ -207,37 +219,50 @@ void main() {
 
         // No find()/pendingCount() poke: the service's own expiry timer must
         // materialize the lazy expiry for listeners.
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+        async.elapse(const Duration(milliseconds: 200));
 
         expect(service.pendingListenable.value, isEmpty);
         expect(
           service.find(snapshot.id)!.state,
           PendingGeneratedEntryState.expired,
         );
-      },
-    );
+      });
+    });
 
     test('two pendings with different TTLs expire in sequence: the timer '
-        're-arms on the survivor', () async {
-      final service = DesktopBrowserPendingGenerationService();
-      addTearDown(service.clearAll);
-      final short = _create(service, ttl: const Duration(milliseconds: 60));
-      final long = _create(
-        service,
-        origin: 'https://other.example',
-        ttl: const Duration(milliseconds: 220),
-      );
-      expect(service.pendingListenable.value, hasLength(2));
+        're-arms on the survivor', () {
+      // This assertion lives in a 160ms wall-clock window (after the 60ms TTL,
+      // before the 220ms one). With a real sleep it only passed while the
+      // process was never descheduled for long: bumping the first sleep by
+      // 100ms makes it fail outright, which is exactly what a loaded CI does
+      // for free. Virtual time removes the window instead of widening it.
+      fakeAsync((async) {
+        final service = _fakeClockService(async);
+        addTearDown(service.clearAll);
+        final short = _create(service, ttl: const Duration(milliseconds: 60));
+        final long = _create(
+          service,
+          origin: 'https://other.example',
+          ttl: const Duration(milliseconds: 220),
+        );
+        expect(service.pendingListenable.value, hasLength(2));
 
-      // After the first expiry the listenable must still carry the longer
-      // record — proving the one-shot timer re-armed for the survivor.
-      await Future<void>.delayed(const Duration(milliseconds: 130));
-      expect(service.pendingListenable.value.map((s) => s.id), [long.id]);
-      expect(service.find(short.id)!.state, PendingGeneratedEntryState.expired);
+        // After the first expiry the listenable must still carry the longer
+        // record — proving the one-shot timer re-armed for the survivor.
+        async.elapse(const Duration(milliseconds: 130));
+        expect(service.pendingListenable.value.map((s) => s.id), [long.id]);
+        expect(
+          service.find(short.id)!.state,
+          PendingGeneratedEntryState.expired,
+        );
 
-      await Future<void>.delayed(const Duration(milliseconds: 200));
-      expect(service.pendingListenable.value, isEmpty);
-      expect(service.find(long.id)!.state, PendingGeneratedEntryState.expired);
+        async.elapse(const Duration(milliseconds: 200));
+        expect(service.pendingListenable.value, isEmpty);
+        expect(
+          service.find(long.id)!.state,
+          PendingGeneratedEntryState.expired,
+        );
+      });
     });
 
     test('listenable surface never carries the secret', () {
