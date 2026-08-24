@@ -55,7 +55,39 @@ desktop/browser_extension/package_extension.sh               # zip the extension
 flutter pub run flutter_launcher_icons                       # after changing assets/logo/
 ```
 
-Flutter version is pinned via fvm (`.fvmrc`, channel `stable`).
+### Flutter toolchain pin
+
+Flutter is pinned to the exact version **3.44.8** (stable, revision `058e0af2c2`) in
+two places, which must always agree:
+
+- `.fvmrc` — `{"flutter": "3.44.8"}`, used by `fvm flutter …` locally.
+- `.github/workflows/{pr,release}.yml` — every `subosito/flutter-action@v2` step
+  carries `flutter-version: 3.44.8` alongside `channel: stable`.
+
+The pin is an exact version, not the `stable` channel, because a channel moves
+under the repo: when stable advanced from 3.44.8 to 3.47.1 a clean checkout of
+`main` went from 1318 passing tests to 42 golden failures (sub-1% antialiasing
+diffs) plus a `pub get --enforce-lockfile` failure, with no change to the code.
+A moving toolchain means the test gate is not reproducible from the repository —
+a fresh clone and CI can disagree with each other and with yesterday's green run.
+
+**To upgrade the toolchain** (a dedicated change, never a side effect of
+something else):
+
+1. Bump the version in `.fvmrc` and in every `flutter-version:` in
+   `.github/workflows/`. Keep them identical.
+2. `fvm install && fvm use <version>`, then `fvm flutter pub get`.
+3. Regenerate the golden files and review the diffs — confirm they are rendering
+   changes from the new engine, not real UI regressions.
+4. Run `fvm flutter analyze` and the full `fvm flutter test`, and record the
+   before/after counts in the PR.
+5. Update the version and revision quoted in this section.
+
+Two Flutter resolutions are *not* covered by this pin: `tool/build_prod_packages.sh`
+calls whatever `flutter` is on `PATH`, and the self-hosted `ios`/`macos`/
+`*-app-store-publish` jobs in `release.yml` have no `flutter-action` step, so they
+build with the runner machine's own Flutter. Keep those hosts on the pinned
+version manually until they install the toolchain from the repo.
 
 ## Coding Style & Naming Conventions
 
