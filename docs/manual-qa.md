@@ -27,40 +27,48 @@ count, never rounded to the more flattering of the two.
 | Session | Platform / hardware needed | Items | Status | Last run | Notes |
 | --- | --- | --- | --- | --- | --- |
 | S1 | Android phone or emulator | 7 | `not-run` | — | S1-7 is no longer blocked — it is now one command, see below |
-| S2 | iPhone or iPad (physical) | 6 | 6 `not-run` | 2026-08-24 | Probe attempted on physical iPhone / iOS 26.6, but app deployment was blocked before any phase executed; UI not run — see evidence below |
+| S2 | iPhone or iPad (physical) | 6 | 1 `passed`, 5 `not-run` | 2026-08-24 | S2-1 automated keystore inspection passed on physical iPhone / iOS 26.6; S2-2 lifecycle and all UI items remain `not-run` — see evidence below |
 | S3 | macOS machine (also covers Chrome/Edge + native host) | 13 | 1 `passed`, 12 `not-run` | 2026-08-24 | S3-7 passed (v1 → v2 upgrade, Chrome 151). T111 macOS host artifact also passed, but is outside these 13 UI/manual items and qualifies macOS only |
 | S4 | Windows machine | 3 | `not-run` | — | Shrunk by the `test-windows` and `t111-platform-artifact` CI jobs, see "Removed" |
 | S5 | Linux machine | 3 | `not-run` | — | Shrunk by the `t111-platform-artifact` CI job, see "Removed" |
 
-Total: **32 items** — **1 `passed`** (S3-7), 31 `not-run`.
+Total: **32 items** — **2 `passed`** (S2-1, S3-7), 30 `not-run`.
 
 ### Hardware QA evidence — 2026-08-24
 
-Executed from clean commit `118098b5026c6a53c73c3a2e4db277379abbd91b`
-with the pinned Flutter 3.44.8 toolchain. Requested-run count: **1 `passed`,
-5 `not-run`, 0 `failed`**. `not-run` means the test body never executed; it is
-not a platform pass.
+Retried from clean commit `ea004699a541767d2ec70f48a7c9a667296d5d2b`
+with pinned Flutter 3.44.8 on a physical iPhone running iOS 26.6 over USB. Requested-command count: **2 `passed`,
+2 `not-run`, 1 `failed`**. The failed command is a probe-fixture lifecycle
+failure before AC-2 was exercised, not evidence that the product retained a
+secret.
 
 | Evidence | Platform / mode | Result | Observation |
 | --- | --- | --- | --- |
-| Keystore `ac2_unlock` | physical iPhone, iOS 26.6; automated integration test | `not-run` | First wireless attempt was refused by Flutter. After connecting by USB, Xcode timed out because `The developer disk image could not be mounted on this device.` App never started and no `QA|...` probe reading was emitted. |
-| Keystore `ac2_relaunch` | physical iPhone; automated integration test | `not-run` | Not executed: `ac2_unlock` did not establish the required first-phase state. |
-| Keystore `ac6_seed` | physical iPhone; automated integration test | `not-run` | Not executed after the same device deployment blocker. No legacy entry was seeded. |
-| Keystore `ac6_upgrade` | physical iPhone; automated integration test | `not-run` | Not executed: `ac6_seed` did not establish the required first-phase state. |
-| T111 iOS | physical iPhone; automated device harness | `not-run` | Runner exit 1. Flutter test exited 1 before the harness emitted an artifact; filer wrote no iOS JSON or log. This is “could not run”, not a failed platform artifact. |
-| T111 macOS | macOS 26.6.1 host, APFS; automated host harness | `passed` | Exit 0; schema-valid artifact; 8/8 cases passed. `atomicReplaceOverExisting=true`, `backupNoOverwrite=true`, `flushSupported=true`, `directorySyncSupported=false`. Host evidence qualifies macOS only. |
+| Keystore `ac2_unlock` | physical iPhone; automated integration test | `passed` | Vault created and manually unlocked with biometrics off. Keystore readable; legacy and per-database entries absent; total keys 0. Positive control became present with total keys 1, then cleanup restored absence and total keys 0. Phase completed. |
+| Keystore `ac2_relaunch` | physical iPhone; automated integration test | `failed` | Test body started but found 0 probe-vault records where 1 from the prior phase was required (`Expected: <1>`, `Actual: <0>` at `master_password_keystore_qa_test.dart:340`). No post-kill keystore or stored-credential assertion ran. S2-2 therefore remains `not-run`, not product-failed. |
+| Keystore `ac6_seed` | physical iPhone; automated integration test | `passed` as seed only | A fresh probe vault was created, confirming prior registry state was unavailable. Keystore readable; planted legacy entry present; total keys 1. Reported own-entry value `2` is the deliberate not-applicable value when no database id is requested, not an unreadable keystore result. |
+| Keystore `ac6_upgrade` | physical iPhone; automated integration test | `not-run` | Build completed, but Flutter could not start the app after 707 seconds; no phase output was emitted. Read-only device check then reported `passcodeRequired: true`. Execution stopped as required, so deletion and vault opening were not tested. |
+| T111 iOS | physical iPhone; automated device harness | `not-run` | Not started after device returned to passcode-required state. No partial harness result and no iOS artifact exist. |
+| T111 macOS | macOS 26.6.1 host, APFS; automated host harness from prior run | `passed` | Exit 0; schema-valid artifact; 8/8 cases passed. `atomicReplaceOverExisting=true`, `backupNoOverwrite=true`, `flushSupported=true`, `directorySyncSupported=false`. Host evidence qualifies macOS only. |
 
-No S2 UI path was executed. In particular, S2-2 still lacks swipe termination,
-relaunch and visible password-prompt verification. S2-5 is not passed: these
-`ac6_*` phases did not run, and even a passing probe would prove only legacy-entry
-deletion plus opening, not that a real pre-`027641d` build created the entry.
-Spec 011 T020 therefore stays open.
+All probe output remained bool/int only; no secret value was printed or
+reported, and the census bound only key names and counts.
+S2-1 is now passed by the automated negative check plus positive control. S2-2
+still lacks both successful post-kill automation and its swipe/relaunch/visible
+password-prompt UI half. S2-5 is not passed: `ac6_upgrade` did not run, and this
+probe would not prove that a real pre-`027641d` build created the legacy entry in
+any case. Spec 011 T020 therefore stays open.
 
-Windows and Linux T111 artifacts were independently checked from PR #127,
-Actions run `32713786823`: both matrix jobs succeeded and their downloaded
-schema-version-1 JSON artifacts report `status: passed`, 8/8 cases. T111 remains
-open because Android has no artifact and iOS is still `not-run`. Generated
-artifacts stay under ignored `build/` or GitHub Actions; none is committed.
+The retry exposed a harness precondition gap: separate documented
+`flutter test` phase invocations did not preserve the probe vault registry on
+this iPhone. `ac2_unlock` completed, but `ac2_relaunch` saw zero records;
+`ac6_seed` then created a fresh vault instead of reusing one. No workaround or
+code change was applied.
+
+Windows and Linux T111 artifacts remain verified from PR #127, Actions run
+`32713786823`; macOS remains passed. T111 stays open because Android has no
+artifact and iOS is still `not-run`. Generated outputs remain ignored or attached
+to GitHub Actions; none is committed.
 
 **Changed on 2026-08-24 by the T111 automation.** Two items left this list for
 good (S4-4 and S5-4): on Linux and Windows the GitHub-hosted runner *is* the
