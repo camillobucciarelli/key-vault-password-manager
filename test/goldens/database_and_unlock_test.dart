@@ -28,6 +28,7 @@ import 'package:password_manager/features/password_manager/presentation/widgets/
 import 'package:path/path.dart' as p;
 
 import '../features/password_manager/presentation/screens/database_selection_unlock_test_utils.dart';
+import 'golden_asset_warmup.dart';
 
 /// Exact 22-file inventory from spec-003 spec.md "Exact golden inventory".
 /// Order matches the spec table; used both to drive generation and as the
@@ -70,6 +71,9 @@ void main() {
           ..addFont(rootBundle.load('assets/fonts/Figtree-SemiBold.ttf'))
           ..addFont(rootBundle.load('assets/fonts/Figtree-Bold.ttf')))
         .load();
+    // The app logo decodes on the real event loop; warm it here so no test
+    // pays the cold-cache cost and renders a blank logo (see helper doc).
+    await warmUpGoldenAssets();
   });
 
   tearDown(resetDatabaseTestDi);

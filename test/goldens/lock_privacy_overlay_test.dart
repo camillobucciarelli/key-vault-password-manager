@@ -11,6 +11,7 @@ import 'package:password_manager/features/password_manager/presentation/screens/
     show PrivacyOverlay, debugLockOverlayNowOverride;
 
 import '../features/password_manager/presentation/screens/vault/vault_shell_test_utils.dart';
+import 'golden_asset_warmup.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -25,6 +26,9 @@ void main() {
           ..addFont(rootBundle.load('assets/fonts/Figtree-SemiBold.ttf'))
           ..addFont(rootBundle.load('assets/fonts/Figtree-Bold.ttf')))
         .load();
+    // The app logo decodes on the real event loop; warm it here so no test
+    // pays the cold-cache cost and renders a blank logo (see helper doc).
+    await warmUpGoldenAssets();
   });
 
   // "Locked for <n>" is wall-clock-dependent (lockedAt captured on lock,

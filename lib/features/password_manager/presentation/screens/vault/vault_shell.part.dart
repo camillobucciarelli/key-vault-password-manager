@@ -112,6 +112,15 @@ class _VaultView extends StatefulWidget {
 
 class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   late final VaultShellRouter _router;
+  // Resolved once, at construction, and held for this State's lifetime.
+  // `dispose()` must not reach back into the service locator: a widget's
+  // teardown has to stay valid even while the DI graph is being torn down or
+  // rebuilt around it (test teardown does exactly that today, and a future
+  // "change database" flow that re-registered the graph would do it in
+  // production). Reading `di.sl<T>()` at destruction time makes teardown
+  // depend on a global still being registered, which is an ordering
+  // assumption a `dispose()` cannot enforce.
+  late final OtpAuthDeepLinkCoordinator _otpAuthCoordinator;
   VaultDestination _selectedDestination = VaultDestination.vault;
   Widget? _activePane;
   DateTime? _backgroundedAt;
@@ -157,7 +166,8 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
       },
     );
     WidgetsBinding.instance.addObserver(this);
-    _otpAuthSubscription = di.sl<OtpAuthDeepLinkCoordinator>().events.listen(
+    _otpAuthCoordinator = di.sl<OtpAuthDeepLinkCoordinator>();
+    _otpAuthSubscription = _otpAuthCoordinator.events.listen(
       _handleOtpAuthEvent,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -172,7 +182,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     _router.dispose();
     _inactivityTimer?.cancel();
     _otpAuthSubscription?.cancel();
-    di.sl<OtpAuthDeepLinkCoordinator>().markVaultUnavailable();
+    _otpAuthCoordinator.markVaultUnavailable();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -194,7 +204,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
       return;
     }
     _otpAuthVaultMarkedAvailable = true;
-    di.sl<OtpAuthDeepLinkCoordinator>().markVaultAvailable();
+    _otpAuthCoordinator.markVaultAvailable();
   }
 
   Future<void> _handleOtpAuthEvent(OtpAuthDeepLinkEvent event) async {
