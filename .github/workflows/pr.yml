@@ -44,6 +44,74 @@ jobs:
       # Goldens remain a local pre-push check per AGENTS.md.
       - run: flutter test $(find test -name '*_test.dart' ! -path 'test/goldens/*')
 
+  # Deliberately separate from `test`: that job pins no seed and answers "does
+  # the suite pass?", this one answers the different question "does the suite
+  # pass in an order nobody chose?". Folding them together would make a red
+  # ambiguous between a logic regression and an ordering defect.
+  #
+  # Why this exists: the suite was green for months while two order
+  # dependencies sat in it, because the default order happened to hide both. A
+  # `VaultScreen.dispose()` that resolved `OtpAuthDeepLinkCoordinator` from
+  # GetIt only crashed when a `tearDown` reset the locator before the widget
+  # was torn down, and an `Image.asset` decode that never completes inside
+  # `pumpAndSettle`'s fake-async zone only produced a blank logo for whichever
+  # test in a file mounted it first. Neither is visible until the order moves.
+  # A fresh random seed on every run turns "invisible until someone reorders
+  # the suite in six months" into "visible on the PR that introduces it".
+  #
+  # SCOPE LIMIT, on purpose: this reuses the same `! -path 'test/goldens/*'`
+  # exclusion as the `test` job, because the reference PNGs are generated on
+  # macOS and Linux rasterizes fonts differently — running them here would go
+  # red for reasons that have nothing to do with ordering. So the golden
+  # ordering defect that motivated this job is NOT covered by it; goldens stay
+  # a local pre-push check (AGENTS.md), and running them under a random seed
+  # locally is what catches their ordering.
+  #
+  # Blocking, like `test-windows`, and for the same reason argued there: a job
+  # nobody has to satisfy is a job that rots. The trade-off is real though — a
+  # random seed means a latent ordering defect surfaces on whichever PR happens
+  # to draw the unlucky order, not on the PR that introduced it. The failure is
+  # still a genuine defect, and the seed is printed below so it reproduces
+  # exactly. If this proves too noisy in practice, moving it to a nightly
+  # `schedule:` run against `main` is a smaller change than weakening it.
+  test-random-order:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # Single source of truth for the pinned Flutter version: .fvmrc.
+          # Do not add `flutter-version:` alongside it — the action rejects
+          # both at once, and a second copy is how local and CI drift apart.
+          channel: stable
+          flutter-version-file: .fvmrc
+
+      - run: flutter pub get
+
+      - name: Flutter test (random order)
+        shell: bash
+        run: |
+          # A fresh seed per run: the point is to keep sampling the order space
+          # over time, not to re-check one order forever.
+          seed=$RANDOM$RANDOM
+          echo "::notice title=Random test order::seed=$seed"
+          {
+            echo "### Random-order test run"
+            echo
+            echo "Seed: \`$seed\`"
+            echo
+            echo "Reproduce locally (goldens excluded here, see job comment):"
+            echo
+            echo '```sh'
+            echo "fvm flutter test --test-randomize-ordering-seed=$seed"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          mapfile -t suites < <(find test -name '*_test.dart' ! -path 'test/goldens/*')
+          (( ${#suites[@]} > 0 )) || { echo "No test files matched"; exit 1; }
+          flutter test --test-randomize-ordering-seed="$seed" "${suites[@]}"
+
   # Windows is the only supported platform whose filesystem semantics the code
   # actually depends on AND that no PR check has ever exercised: `release.yml`
   # builds on `windows-2022`, but that runs after merge, so a Windows-only
