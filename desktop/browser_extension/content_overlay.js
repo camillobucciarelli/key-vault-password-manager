@@ -1412,12 +1412,13 @@
   // -------------------------------------------------------------------------
 
   /**
-   * A037 — the keyboard contract, attached to the ANCHOR for the session's
-   * lifetime only (the session AbortController owns it). A closed overlay
-   * therefore has NO keydown listener at all: it structurally cannot capture,
-   * prevent, or observe page keys. Only the Enter that actually fills
-   * prevents its default and stops propagation; every other key — arrows,
-   * Escape, Tab, everything unhandled — passes through untouched.
+   * A037 — the keyboard contract, attached at document capture for the
+   * session's lifetime only (the session AbortController owns it), but scoped
+   * to events targeting the anchor. Capture is required: page/framework code
+   * can stop propagation at the input before a later target listener runs,
+   * while the browser still performs Enter's implicit form submit. A closed
+   * overlay has NO keydown listener at all. Only the Enter that actually fills
+   * prevents its default and stops propagation; every other key passes through.
    */
   const onSessionKeyDown = (event) => {
     // A040 SECURITY — the anchor is a PAGE element: page code can dispatch
@@ -1426,6 +1427,7 @@
     // VO/user key press is always trusted, so the AT path is unaffected.
     if (event.isTrusted !== true) return;
     if (session === null) return;
+    if (event.target !== session.anchorEl) return;
     if (event.key === "Escape") {
       // Dismisses the current focus session. Not prevented: only the fill
       // action may swallow a key.
@@ -1542,7 +1544,8 @@
       // outlive the teardown: this interval is cleared in teardownSession().
       if (session.kind === "hint") recheckFrameHint();
     }, WATCHDOG_MS);
-    anchorEl.addEventListener("keydown", onSessionKeyDown, {
+    document.addEventListener("keydown", onSessionKeyDown, {
+      capture: true,
       signal: session.teardownController.signal,
     });
     buildOverlay();

@@ -185,7 +185,13 @@
     "  * Doc fixes, no mutation: the guard-lifecycle comment at the top of",
     "    content_overlay.js was false after goInert (now enumerates every release",
     "    point), and the guarded-site count is 14, not 13 \u2014 the 13 pre-existing",
-    "    sites plus the best-effort removeListener goInert itself added."
+    "    sites plus the best-effort removeListener goInert itself added.",
+    "",
+    "POST-QA ENTER/SUBMIT FIX. The Node suite went from 437 to 441 tests.",
+    "A0-M2 222\u2192226 and A5-M3 8\u219211 are measured blast-radius growth from",
+    "the real implicit-submit cases. A5-M12 is new and has 3 measured kills; it",
+    "pins document-capture ordering against a page target listener that stops",
+    "propagation before the browser performs Enter's implicit form submit."
   ],
   "version": 1,
   "slices": {
@@ -247,7 +253,7 @@
     },
     {
       "id": "A0-M2",
-      "expectedKills": 222,
+      "expectedKills": 226,
       "slice": "A0",
       "suite": "node-extension",
       "file": "desktop/browser_extension/overlay_security.js",
@@ -1508,7 +1514,7 @@
           "replace": "    document.addEventListener(\"focusin\", onFocusIn, { signal });\n    document.addEventListener(\n      \"keydown\",\n      (event) => {\n        event.preventDefault();\n        event.stopPropagation();\n      },\n      { signal }\n    );"
         }
       ],
-      "expectedKills": 8
+      "expectedKills": 11
     },
     {
       "id": "A5-M4",
@@ -1644,6 +1650,21 @@
         }
       ],
       "expectedKills": 1
+    },
+    {
+      "id": "A5-M12",
+      "slice": "A5",
+      "title": "the session keyboard listener runs after target listeners",
+      "property": "A037: an active suggestion's Enter is consumed at capture before page code can stop propagation and leave the browser free to implicitly submit the form",
+      "file": "desktop/browser_extension/content_overlay.js",
+      "suite": "node-extension",
+      "edits": [
+        {
+          "find": "    document.addEventListener(\"keydown\", onSessionKeyDown, {\n      capture: true,\n      signal: session.teardownController.signal,\n    });",
+          "replace": "    document.addEventListener(\"keydown\", onSessionKeyDown, {\n      capture: false,\n      signal: session.teardownController.signal,\n    });"
+        }
+      ],
+      "expectedKills": 3
     },
     {
       "id": "B2-M1",
