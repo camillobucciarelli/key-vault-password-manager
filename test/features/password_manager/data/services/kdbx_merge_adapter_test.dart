@@ -1660,6 +1660,229 @@ void main() {
 
       expect(candidate.body.meta.customIcons, contains(icon.uuid));
     });
+
+    // MEDIUM-5 (Gate 3 residual). The recycle-bin block adopts the enabled
+    // flag, the UUID and the clock together because all three hang off
+    // `RecycleBinChanged`; the comment said so and nothing asserted it. The
+    // mutant "adopt the UUID, keep the local flag" survived the whole suite.
+    //
+    // What it costs, precisely — the damage is NOT inside this app: neither
+    // `KdbxDao.deleteEntry` nor any code here reads `RecycleBinEnabled`, so a
+    // delete still lands in the bin locally. It costs (a) a permanent
+    // `/meta/recycleBinEnabled` divergence between the two devices, which is a
+    // manifest key FR-7 step 5 arbitrates on, and (b) correctness in every
+    // other KDBX client: KeePass and KeePassXC do honour the flag, so a vault
+    // carrying a valid `RecycleBinUUID` with `RecycleBinEnabled` false deletes
+    // permanently there.
+    test('the recycle-bin flag, UUID and clock move as ONE unit', () {
+      final older = DateTime.utc(2020);
+      final newer = DateTime.utc(2021);
+      final remoteBin = KdbxUuid.random();
+
+      final pair = _replicaPair(credentials);
+      // Order matters in the fixture for the same reason it matters in the
+      // implementation: `recycleBinUUID` stamps `recycleBinChanged` to NOW on
+      // every write, so the clock is set last on both sides.
+      pair.local.body.meta
+        ..recycleBinEnabled.set(false)
+        ..recycleBinChanged.set(older);
+      pair.remote.body.meta
+        ..recycleBinEnabled.set(true)
+        ..recycleBinUUID.set(remoteBin)
+        ..recycleBinChanged.set(newer);
+
+      final meta = mergeOf(pair.local, pair.remote).body.meta;
+
+      expect(meta.recycleBinUUID.get(), remoteBin);
+      // The half the mutant drops. Without it the merged side keeps `false`
+      // while the other side holds `true`, forever.
+      expect(meta.recycleBinEnabled.get(), isTrue);
+      expect(meta.recycleBinChanged.get(), newer);
+    });
+
+    test('the recycle-bin block is atomic in the LOSING direction too: an '
+        'older remote moves neither the flag nor the UUID', () {
+      final older = DateTime.utc(2020);
+      final newer = DateTime.utc(2021);
+      final localBin = KdbxUuid.random();
+
+      final pair = _replicaPair(credentials);
+      pair.local.body.meta
+        ..recycleBinEnabled.set(true)
+        ..recycleBinUUID.set(localBin)
+        ..recycleBinChanged.set(newer);
+      pair.remote.body.meta
+        ..recycleBinEnabled.set(false)
+        ..recycleBinUUID.set(KdbxUuid.random())
+        ..recycleBinChanged.set(older);
+
+      final meta = mergeOf(pair.local, pair.remote).body.meta;
+
+      expect(meta.recycleBinUUID.get(), localBin);
+      expect(meta.recycleBinEnabled.get(), isTrue);
+      expect(meta.recycleBinChanged.get(), newer);
+    });
+
+    // MEDIUM-6 (Gate 3 residual). "A known clock beats an unknown one" is
+    // FR-3's rule 2 and lived only in a doc comment. Inverting it keeps the
+    // join commutative — which is exactly why the commutativity test is blind
+    // to it — while electing the side that never set the field: a real user
+    // edit discarded in favour of a value nobody chose, the same damage
+    // direction as HIGH-5.
+    //
+    // The two values are picked so the rule-3 byte fallback would elect the
+    // OPPOSITE side. That makes the assertion kill two mutants, not one: the
+    // inversion, and a deletion of both branches that lets an unknown clock
+    // fall through to the value order.
+    test('a known clock beats an unknown one, whichever side holds it', () {
+      final clock = DateTime.utc(2021);
+
+      KdbxMeta merged({
+        required String localName,
+        required DateTime? localAt,
+        required String remoteName,
+        required DateTime? remoteAt,
+      }) {
+        final pair = _replicaPair(credentials);
+        pair.local.body.meta
+          ..databaseName.set(localName)
+          ..databaseNameChanged.set(localAt);
+        pair.remote.body.meta
+          ..databaseName.set(remoteName)
+          ..databaseNameChanged.set(remoteAt);
+        return mergeOf(pair.local, pair.remote).body.meta;
+      }
+
+      // Local holds the only clock. Its value sorts BELOW the remote's, so a
+      // fall-through to rule 3 would elect 'zzz-never-set'.
+      final localKnown = merged(
+        localName: 'aaa-set-by-the-user',
+        localAt: clock,
+        remoteName: 'zzz-never-set',
+        remoteAt: null,
+      );
+      expect(localKnown.databaseName.get(), 'aaa-set-by-the-user');
+      expect(localKnown.databaseNameChanged.get(), clock);
+
+      // Mirrored: remote holds the only clock, and again its value is the one
+      // rule 3 would reject.
+      final remoteKnown = merged(
+        localName: 'zzz-never-set',
+        localAt: null,
+        remoteName: 'aaa-set-by-the-user',
+        remoteAt: clock,
+      );
+      expect(remoteKnown.databaseName.get(), 'aaa-set-by-the-user');
+      expect(remoteKnown.databaseNameChanged.get(), clock);
+    });
+
+    // LOW-5 (Gate 3 residual). The pre-capture of `localSettingsAt` /
+    // `remoteSettingsAt` was called a precaution because nobody had shown it
+    // non-commutative. It is NOT a precaution: it is load-bearing, and this is
+    // the case that proves it.
+    //
+    // `customData` has no per-key clock, so it resolves on `SettingsChanged` —
+    // the same clock the settings block above it OVERWRITES when the remote
+    // wins. Read inline instead of pre-captured, the loop then sees
+    // `localAt == remoteAt`, mistakes a decided comparison for a tie, and
+    // drops to the rule-3 byte order. The local value here is the byte-greater
+    // one, so the tie-break elects it and the newer remote edit is lost — and
+    // the mirrored merge, where the settings block does NOT fire, keeps its own
+    // side instead. Two devices, two answers, forever.
+    test('customData resolves on the settings clocks as they were BEFORE the '
+        'settings block overwrote them', () {
+      final older = DateTime.utc(2020);
+      final newer = DateTime.utc(2021);
+
+      // 'zzz' sorts above 'aaa', so rule 3 alone would elect the local side.
+      // Rule 1 must elect the remote one: its `SettingsChanged` is newer.
+      void diverge(KdbxFile stale, KdbxFile fresh) {
+        stale.body.meta
+          ..historyMaxItems.set(10)
+          ..settingsChanged.set(older);
+        stale.body.meta.customData['shared-key'] = 'zzz-from-the-stale-side';
+        fresh.body.meta
+          ..historyMaxItems.set(99)
+          ..settingsChanged.set(newer);
+        fresh.body.meta.customData['shared-key'] = 'aaa-from-the-fresh-side';
+      }
+
+      final forward = _replicaPair(credentials);
+      diverge(forward.local, forward.remote);
+      final mirrored = _replicaPair(credentials);
+      diverge(mirrored.remote, mirrored.local);
+
+      final forwardMeta = mergeOf(forward.local, forward.remote).body.meta;
+      final mirroredMeta = mergeOf(mirrored.local, mirrored.remote).body.meta;
+
+      // The newer side wins the key on both sides of the mirror...
+      expect(forwardMeta.customData['shared-key'], 'aaa-from-the-fresh-side');
+      expect(mirroredMeta.customData['shared-key'], 'aaa-from-the-fresh-side');
+      // ...which is the same statement as: the dimension is commutative.
+      expect(
+        forwardMeta.customData['shared-key'],
+        mirroredMeta.customData['shared-key'],
+      );
+      expect(forwardMeta.historyMaxItems.get(), 99);
+      expect(mirroredMeta.historyMaxItems.get(), 99);
+    });
+
+    // LOW-4 (Gate 3 residual), PINNED rather than fixed — the same treatment
+    // sibling order and entry history already get, and for a stronger reason.
+    //
+    // Two icons sharing a UUID and disagreeing on bytes do not converge:
+    // `addCustomIcon` is first-wins, so each device keeps its own, and the
+    // manifest compares `base64(icon.data)` per UUID. The proposed two-line
+    // tie-break on the bytes is NOT implementable against kdbx 2.5.0:
+    // `KdbxMeta.customIcons` is an `UnmodifiableMapView` and `addCustomIcon`
+    // is the only mutator, so no caller of this library can replace the bytes
+    // under an existing UUID. That is also why the state is unreachable from
+    // this app: it can only arrive from a foreign writer that reuses a UUID
+    // with different bytes, and neither KeePass nor KeePassXC edits an icon in
+    // place — icon UUIDs are minted randomly at creation.
+    //
+    // This test exists to fail the day that stops being true. If a kdbx
+    // upgrade adds a real mutator, the tie-break becomes implementable and
+    // this assertion is the thing that says so.
+    test('LOW-4 pin: same icon UUID with different bytes does NOT converge, '
+        'and kdbx exposes no mutator to make it', () {
+      final shared = KdbxUuid.random();
+      final fromA = Uint8List.fromList(const [1, 1, 1]);
+      final fromB = Uint8List.fromList(const [2, 2, 2]);
+
+      // First-wins is the whole mechanism: adding a second icon under a UUID
+      // the meta already holds is a no-op, on either side of the mirror.
+      final probe = _replicaPair(credentials);
+      probe.local.body.meta.addCustomIcon(
+        KdbxCustomIcon(uuid: shared, data: fromA),
+      );
+      probe.local.body.meta.addCustomIcon(
+        KdbxCustomIcon(uuid: shared, data: fromB),
+      );
+      expect(probe.local.body.meta.customIcons[shared]!.data, fromA);
+
+      Uint8List mergedBytes({
+        required Uint8List local,
+        required Uint8List remote,
+      }) {
+        final pair = _replicaPair(credentials);
+        pair.local.body.meta.addCustomIcon(
+          KdbxCustomIcon(uuid: shared, data: local),
+        );
+        pair.remote.body.meta.addCustomIcon(
+          KdbxCustomIcon(uuid: shared, data: remote),
+        );
+        return mergeOf(
+          pair.local,
+          pair.remote,
+        ).body.meta.customIcons[shared]!.data;
+      }
+
+      // Each device keeps its own. Stated as an assertion so the divergence is
+      // visible in the suite instead of being discovered by a read-back.
+      expect(mergedBytes(local: fromA, remote: fromB), fromA);
+      expect(mergedBytes(local: fromB, remote: fromA), fromB);
+    });
   });
 
   group('FR-5 tombstone clocks converge on the newer side', () {
