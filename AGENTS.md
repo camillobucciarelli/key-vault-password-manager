@@ -57,12 +57,19 @@ flutter pub run flutter_launcher_icons                       # after changing as
 
 ### Flutter toolchain pin
 
-Flutter is pinned to the exact version **3.44.8** (stable, revision `058e0af2c2`) in
-two places, which must always agree:
+Flutter is pinned to the exact version **3.44.8** (stable, revision `058e0af2c2`).
 
-- `.fvmrc` — `{"flutter": "3.44.8"}`, used by `fvm flutter …` locally.
-- `.github/workflows/{pr,release}.yml` — every `subosito/flutter-action@v2` step
-  carries `flutter-version: 3.44.8` alongside `channel: stable`.
+**`.fvmrc` is the single source of truth.** It holds `{"flutter": "3.44.8"}` and
+nothing else restates the version:
+
+- Locally, `fvm flutter …` reads it.
+- In CI, every `subosito/flutter-action@v2` step passes
+  `flutter-version-file: .fvmrc` (the action parses that file's `flutter` key
+  directly). Do **not** add a `flutter-version:` next to it — the action refuses
+  both at once, and a second copy of the version is how local and CI drift apart.
+- `tool/build_prod_packages.sh` reads it too, prepends a matching fvm SDK to
+  `PATH` when it finds one, and then **fails the build** if the resolved
+  `flutter --version` is not the pinned one.
 
 The pin is an exact version, not the `stable` channel, because a channel moves
 under the repo: when stable advanced from 3.44.8 to 3.47.1 a clean checkout of
@@ -74,20 +81,40 @@ a fresh clone and CI can disagree with each other and with yesterday's green run
 **To upgrade the toolchain** (a dedicated change, never a side effect of
 something else):
 
-1. Bump the version in `.fvmrc` and in every `flutter-version:` in
-   `.github/workflows/`. Keep them identical.
+1. Bump the version in `.fvmrc`. That is the only place it is written.
 2. `fvm install && fvm use <version>`, then `fvm flutter pub get`.
 3. Regenerate the golden files and review the diffs — confirm they are rendering
    changes from the new engine, not real UI regressions.
 4. Run `fvm flutter analyze` and the full `fvm flutter test`, and record the
    before/after counts in the PR.
 5. Update the version and revision quoted in this section.
+6. Install the new version on the self-hosted runners (below) *before* the next
+   release, or their jobs will fail the version check by design.
 
-Two Flutter resolutions are *not* covered by this pin: `tool/build_prod_packages.sh`
-calls whatever `flutter` is on `PATH`, and the self-hosted `ios`/`macos`/
-`*-app-store-publish` jobs in `release.yml` have no `flutter-action` step, so they
-build with the runner machine's own Flutter. Keep those hosts on the pinned
-version manually until they install the toolchain from the repo.
+#### Self-hosted release runners
+
+The `ios` and `macos` jobs in `release.yml` run on `runs-on: self-hosted` and have
+no `flutter-action` step, so nothing in the workflow installs a toolchain — they
+build with whatever Flutter the machine provides. These jobs produce the
+*published* artifacts, so a wrong version there ships a binary rather than merely
+reddening a test.
+
+The repo cannot install software on those machines, so instead it refuses to build
+with the wrong one: `tool/build_prod_packages.sh` (the single entry point for all
+five build jobs) resolves and verifies the version as described above. A
+mismatched runner now fails loudly with an actionable message instead of silently
+shipping.
+
+Whoever administers those runners must therefore keep the pinned version present,
+by either:
+
+- installing fvm and running `fvm install 3.44.8` once, so the SDK is at
+  `~/fvm/versions/3.44.8/` where the script looks; or
+- putting Flutter 3.44.8 itself on the runner's `PATH`.
+
+The `ios-app-store-publish` and `macos-app-store-publish` jobs are also
+self-hosted but do not need Flutter: they download an artifact built by an earlier
+job and upload it.
 
 ## Coding Style & Naming Conventions
 

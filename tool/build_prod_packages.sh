@@ -90,8 +90,43 @@ if [[ -n "${APPSTORE_ARCHIVE}" && "${APPSTORE_ARCHIVE}" != /* ]]; then
   APPSTORE_ARCHIVE="${ROOT_DIR}/${APPSTORE_ARCHIVE}"
 fi
 
+# Every release job builds through this script, including the self-hosted
+# iOS/macOS ones that have no `flutter-action` step and would otherwise use
+# whatever Flutter the machine happens to have. The version that ships must be
+# the one the repo declares, so resolve the pinned SDK if it is available and
+# then verify the version regardless of how `flutter` was found.
+PINNED_FLUTTER="$(sed -n 's/.*"flutter"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${ROOT_DIR}/.fvmrc" 2>/dev/null | head -1)"
+if [[ -z "${PINNED_FLUTTER}" ]]; then
+  echo "Could not read the pinned Flutter version from ${ROOT_DIR}/.fvmrc"
+  exit 1
+fi
+
+# Prefer an fvm-provided SDK matching the pin. Prepending to PATH keeps every
+# bare `flutter` call below unchanged.
+for candidate in \
+  "${ROOT_DIR}/.fvm/flutter_sdk/bin" \
+  "${HOME:-}/fvm/versions/${PINNED_FLUTTER}/bin" \
+  "${HOME:-}/.fvm/versions/${PINNED_FLUTTER}/bin"; do
+  if [[ -x "${candidate}/flutter" ]]; then
+    PATH="${candidate}:${PATH}"
+    break
+  fi
+done
+
 if ! command -v flutter >/dev/null 2>&1; then
   echo "flutter command not found in PATH"
+  echo "Install Flutter ${PINNED_FLUTTER} (see AGENTS.md), or run via fvm."
+  exit 1
+fi
+
+ACTUAL_FLUTTER="$(flutter --version 2>/dev/null | sed -n 's/^Flutter \([^ ]*\).*/\1/p' | head -1)"
+if [[ "${ACTUAL_FLUTTER}" != "${PINNED_FLUTTER}" ]]; then
+  echo "Flutter version mismatch: this repository pins ${PINNED_FLUTTER} (.fvmrc),"
+  echo "but the resolved toolchain is ${ACTUAL_FLUTTER:-unknown} ($(command -v flutter))."
+  echo
+  echo "Release artifacts must be built with the pinned toolchain. Either:"
+  echo "  - install it and retry:  fvm install ${PINNED_FLUTTER} && fvm use ${PINNED_FLUTTER}"
+  echo "  - or, to move the pin deliberately, follow the upgrade procedure in AGENTS.md."
   exit 1
 fi
 
