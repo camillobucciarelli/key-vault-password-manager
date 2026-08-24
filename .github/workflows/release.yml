@@ -54,7 +54,11 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          # Single source of truth for the pinned Flutter version: .fvmrc.
+          # Do not add `flutter-version:` alongside it — the action rejects
+          # both at once, and a second copy is how local and CI drift apart.
           channel: stable
+          flutter-version-file: .fvmrc
 
       - name: Setup env file
         env:
@@ -91,7 +95,11 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          # Single source of truth for the pinned Flutter version: .fvmrc.
+          # Do not add `flutter-version:` alongside it — the action rejects
+          # both at once, and a second copy is how local and CI drift apart.
           channel: stable
+          flutter-version-file: .fvmrc
 
       - name: Install Linux build dependencies
         run: |
@@ -397,7 +405,11 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          # Single source of truth for the pinned Flutter version: .fvmrc.
+          # Do not add `flutter-version:` alongside it — the action rejects
+          # both at once, and a second copy is how local and CI drift apart.
           channel: stable
+          flutter-version-file: .fvmrc
 
       - name: Setup env file
         env:

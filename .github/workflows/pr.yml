@@ -15,7 +15,11 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          # Single source of truth for the pinned Flutter version: .fvmrc.
+          # Do not add `flutter-version:` alongside it — the action rejects
+          # both at once, and a second copy is how local and CI drift apart.
           channel: stable
+          flutter-version-file: .fvmrc
 
       - run: flutter pub get
       - run: flutter analyze
@@ -27,7 +31,11 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          # Single source of truth for the pinned Flutter version: .fvmrc.
+          # Do not add `flutter-version:` alongside it — the action rejects
+          # both at once, and a second copy is how local and CI drift apart.
           channel: stable
+          flutter-version-file: .fvmrc
 
       - run: flutter pub get
       # Golden tests excluded: reference PNGs generated on macOS (dev
@@ -72,7 +80,11 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          # Single source of truth for the pinned Flutter version: .fvmrc.
+          # Do not add `flutter-version:` alongside it — the action rejects
+          # both at once, and a second copy is how local and CI drift apart.
           channel: stable
+          flutter-version-file: .fvmrc
 
       - run: flutter pub get
 
