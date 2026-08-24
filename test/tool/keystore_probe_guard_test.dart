@@ -16,10 +16,10 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  final probe = File(
-    'integration_test/master_password_keystore_qa_test.dart',
-  );
+  final probe = File('integration_test/master_password_keystore_qa_test.dart');
+  final runner = File('tool/run_ios_keystore_qa.sh');
   late String source;
+  late String runnerSource;
 
   setUpAll(() {
     expect(
@@ -28,6 +28,13 @@ void main() {
       reason: 'the keystore probe is gone; docs/manual-qa.md still cites it',
     );
     source = probe.readAsStringSync();
+    expect(
+      runner.existsSync(),
+      isTrue,
+      reason: 'the cross-process runner is gone; phase pairs are unsafe',
+    );
+    // Git checks shell scripts out with CRLF on Windows. Compare logical lines.
+    runnerSource = runner.readAsLinesSync().join('\n');
   });
 
   group('the keystore probe cannot print a secret', () {
@@ -83,6 +90,136 @@ void main() {
         isFalse,
         reason: 'the probe reports a key set rather than a count',
       );
+    });
+  });
+
+  group('the keystore census keeps presence semantics exact', () {
+    test('indeterminate only represents an unreadable store', () {
+      final takeStart = source.indexOf('static Future<_KeystoreCensus> take(');
+      final takeEnd = source.indexOf('\n  void report(', takeStart);
+      final takeSource = source.substring(takeStart, takeEnd);
+      final unreadableStart = takeSource.indexOf('    } catch (_) {');
+      final unreadableEnd = takeSource.indexOf(
+        '    return _KeystoreCensus(',
+        unreadableStart,
+      );
+      final indeterminateUses = 'Presence.indeterminate'
+          .allMatches(takeSource)
+          .toList();
+
+      expect(takeSource.contains('required String databaseId'), isTrue);
+      expect(indeterminateUses, hasLength(2));
+      expect(
+        indeterminateUses.every(
+          (match) => match.start > unreadableStart && match.end < unreadableEnd,
+        ),
+        isTrue,
+        reason:
+            'Presence.indeterminate may only come from an unreadable store, '
+            'never from a not-applicable field',
+      );
+    });
+
+    test('AC-6 seed scopes its census to the retained vault', () {
+      final seedStart = source.indexOf("case 'ac6_seed':");
+      final seedEnd = source.indexOf("case 'ac6_upgrade':", seedStart);
+      final seedSource = source.substring(seedStart, seedEnd);
+
+      expect(
+        RegExp(
+          r'_KeystoreCensus\.take\(\s*storage,\s*'
+          r'databaseId: record\.databaseId,\s*\)',
+        ).hasMatch(seedSource),
+        isTrue,
+      );
+      expect(
+        RegExp(
+          r'expectPresence\([^;]*census\.ownEntry,\s*'
+          r'Presence\.absent,\s*\);',
+          dotAll: true,
+        ).hasMatch(seedSource),
+        isTrue,
+        reason: 'AC-6 seed must verify its scoped entry, not report N/A',
+      );
+    });
+  });
+
+  group('the keystore probe is genuinely cross-process', () {
+    test('the runner retains the app container between paired phases', () {
+      expect(
+        RegExp(
+          r'^\s+--no-uninstall \\$',
+          multiLine: true,
+        ).hasMatch(runnerSource),
+        isTrue,
+        reason:
+            'flutter test uninstalls after phase 1 by default, deleting the '
+            'vault fixture and registry while iOS retains Keychain entries',
+      );
+      expect(
+        runnerSource.contains('run_phase ac2_unlock\n  run_phase ac2_relaunch'),
+        isTrue,
+      );
+      expect(
+        runnerSource.contains('run_phase ac6_seed\n  run_phase ac6_upgrade'),
+        isTrue,
+      );
+    });
+
+    test('the runner resets Xcode between phases and before exit', () {
+      expect(
+        runnerSource.contains(
+          'local phase_status=\$?\n  set -e\n  close_xcode\n  return "\$phase_status"',
+        ),
+        isTrue,
+        reason:
+            'every Flutter phase must close Xcode before another launch can '
+            'start',
+      );
+      expect(runnerSource.contains('trap cleanup EXIT'), isTrue);
+      expect(
+        runnerSource.contains(
+          "osascript -e 'tell application \"Xcode\" to quit'",
+        ),
+        isTrue,
+      );
+      expect(
+        runnerSource.contains('waited >= XCODE_QUIT_TIMEOUT_SECONDS'),
+        isTrue,
+      );
+      expect(
+        runnerSource.contains('if ! close_xcode; then\n    exit 1'),
+        isTrue,
+        reason: 'a final Xcode quit failure must fail the runner',
+      );
+      final preflight = runnerSource.indexOf(
+        'if xcode_is_running; then\n'
+        '  echo "error: Xcode is already open.',
+      );
+      final cleanupTrap = runnerSource.indexOf('trap cleanup EXIT');
+      expect(
+        preflight >= 0 && preflight < cleanupTrap,
+        isTrue,
+        reason:
+            'the runner must refuse pre-existing Xcode before installing its '
+            'cleanup trap',
+      );
+      expect(runnerSource.contains('kill -9'), isFalse);
+      expect(runnerSource.contains('DerivedData'), isFalse);
+    });
+
+    test('phase 2 pins same database identity and a new process', () {
+      expect(source.contains('CROSS_PROCESS_MARKER_FOUND'), isTrue);
+      expect(source.contains('marker.processId != pid'), isTrue);
+      expect(
+        source.contains('marker.databaseId == record.databaseId'),
+        isTrue,
+        reason:
+            'registry count alone can accept a newly-created equivalent vault; '
+            'AC-2 and AC-6 require the phase-1 database identity',
+      );
+      expect(source.contains('requirePriorPhase(_ac2Scenario)'), isTrue);
+      expect(source.contains('requirePriorPhase(_ac6Scenario)'), isTrue);
     });
   });
 

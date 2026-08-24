@@ -163,6 +163,29 @@ master-password entry for this database?" on all five platforms, including iOS,
 where no keychain dump exists. Four phases via `--dart-define=QA_PHASE=`:
 `ac2_unlock`, `ac2_relaunch`, `ac6_seed`, `ac6_upgrade`.
 
+On physical iOS, never run phase pairs as separate default `flutter test`
+commands: Flutter 3.44.8 stops and then uninstalls the test app after each run.
+iOS preserves Keychain entries across that uninstall but deletes the app
+container, including the fixture vault and registry. Use one runner command:
+
+```bash
+tool/run_ios_keystore_qa.sh -d <device-id> -s all
+```
+
+Save work and quit Xcode before starting; the runner fails without touching an
+already-open Xcode session. Flutter may open Xcode while launching each phase.
+The runner then asks Xcode to quit gracefully and waits for it to close between
+phases and before returning. A quit error or timeout fails the run. This is the
+workaround for consecutive-run failures on Xcode 26 tracked in
+flutter/flutter#144218 and flutter/flutter#186455. Do not start a following
+T111 run after a quit failure until Xcode has been closed manually.
+
+`-s ac2` and `-s ac6` run one pair only. The runner passes `--no-uninstall` to
+retain the container; Flutter still calls `stopApp`, so phase 2 is a new process.
+A non-secret marker makes phase 2 fail unless its PID differs and its random
+`databaseId` matches phase 1. This proves the same vault identity, not a newly
+created equivalent vault.
+
 It reports **presence only, never a value**, and it must stay in
 `integration_test/` — that is what keeps it off the release surface without a
 build flavor. `test/tool/keystore_probe_guard_test.dart` enforces this on every
