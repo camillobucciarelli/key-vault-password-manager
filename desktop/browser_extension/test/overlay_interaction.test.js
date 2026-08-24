@@ -21,6 +21,7 @@ const {
   item,
   matchesResult,
   fillResult,
+  errorResult,
   loginPage,
   statusText,
   optionRows,
@@ -47,6 +48,12 @@ async function pageWithRows(count = 2) {
   await ctx.page.focus(ctx.password);
   assert.equal(optionRows(ctx.page).length, count);
   return ctx;
+}
+
+function addSubmitControl(page, form) {
+  const submit = page.document.createElement("button");
+  submit.setAttribute("type", "submit");
+  form.appendChild(submit);
 }
 
 // ---------------------------------------------------------------------------
@@ -424,6 +431,99 @@ test("A037: Enter fills the CURRENT row and consumes only that keystroke", async
   assert.equal(overlayCount(page), 0, "fill ends with teardown");
 });
 
+test("A037: ArrowDown + Enter beats page interception and implicit form submit", async () => {
+  const { page, form, password: pwInput, handlers } = await loginPage();
+  addSubmitControl(page, form);
+  handlers.matches = (m) =>
+    matchesResult(m, {
+      items: [
+        item({ entryId: "entry-1", title: "Row1" }),
+        item({ entryId: "entry-2", title: "Row2" }),
+      ],
+    });
+  const fills = [];
+  handlers.fill = (m) => {
+    fills.push(m.entryId);
+    return fillResult(m, { password: FILL_VALUE_K });
+  };
+  let submits = 0;
+  form.addEventListener("submit", (event) => {
+    submits += 1;
+    event.preventDefault();
+  });
+  // Registered before the pre-fix focus session's anchor listener, like page
+  // code already installed by a framework. It owns no default action, but can
+  // stop a later target listener from seeing Enter; browser submit still follows.
+  pwInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") event.stopImmediatePropagation();
+  });
+
+  await page.focus(pwInput);
+  await page.pressKey("ArrowDown");
+  const enter = await page.pressKey("Enter");
+
+  assert.equal(submits, 0, "implicit submit must be suppressed");
+  assert.deepEqual(fills, ["entry-2"], "the active second row must fill");
+  assert.equal(pwInput.value, FILL_VALUE_K);
+  assert.equal(enter.defaultPrevented, true);
+});
+
+test("A037: Enter suppresses submit before a failed fill response settles", async () => {
+  const { page, form, password: pwInput, handlers } = await loginPage();
+  addSubmitControl(page, form);
+  handlers.matches = (m) =>
+    matchesResult(m, {
+      items: [
+        item({ entryId: "entry-1", title: "Row1" }),
+        item({ entryId: "entry-2", title: "Row2" }),
+      ],
+    });
+  let releaseFill;
+  handlers.fill = (m) =>
+    new Promise((resolve) => {
+      releaseFill = () => resolve(errorResult("fillResult", "timeout", m));
+    });
+  let submits = 0;
+  form.addEventListener("submit", (event) => {
+    submits += 1;
+    event.preventDefault();
+  });
+  pwInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") event.stopImmediatePropagation();
+  });
+
+  await page.focus(pwInput);
+  await page.pressKey("ArrowDown");
+  const pressing = page.pressKey("Enter");
+
+  assert.equal(submits, 0, "Enter must be consumed before reveal settles");
+  assert.equal(typeof releaseFill, "function", "fill request must start synchronously");
+  releaseFill();
+  const enter = await pressing;
+  assert.equal(enter.defaultPrevented, true);
+  assert.equal(submits, 0);
+  assert.equal(pwInput.value, "");
+  assert.equal(statusText(page), "KeyVault did not respond in time.");
+});
+
+test("A037: trusted keydown at a non-anchor is not intercepted", async () => {
+  const { page, password: pwInput, username } = await pageWithRows(1);
+  const event = new FakeEvent("keydown", {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    isTrusted: true,
+    key: "Enter",
+  });
+
+  username.dispatchEvent(event);
+
+  assert.equal(page.document.activeElement, pwInput, "password remains the live anchor");
+  assert.equal(event.defaultPrevented, false);
+  assert.equal(page.sentOfType("fill").length, 0);
+  assert.equal(overlayCount(page), 1);
+});
+
 test("A037: Enter on a non-eligible row does nothing and passes through", async () => {
   const { page, password: pwInput, handlers } = await loginPage();
   handlers.matches = (m) =>
@@ -467,11 +567,15 @@ test("A037: Tab tears down and passes through", async () => {
 });
 
 test("A037: a closed overlay captures no page keys", async () => {
-  const { page, password: pwInput } = await pageWithRows(1);
+  const { page, form, password: pwInput } = await pageWithRows(1);
+  addSubmitControl(page, form);
   const pageSaw = [];
   page.document.addEventListener("keydown", (event) => {
     pageSaw.push([event.key, event.defaultPrevented]);
   });
+  const keydownListenersWithSession = page.document.listenerTypes.filter(
+    (type) => type === "keydown"
+  ).length;
 
   await page.pressKey("Escape"); // close the session; focus stays on the anchor
   assert.equal(overlayCount(page), 0);
@@ -492,9 +596,30 @@ test("A037: a closed overlay captures no page keys", async () => {
     ["Escape", false],
     ["a", false],
   ]);
+  assert.equal(
+    page.submitCount,
+    1,
+    "with no overlay session, Enter keeps the page's implicit submit"
+  );
   assert.equal(page.sent.length, sentBefore);
-  const sessionKeydownGone = !pwInput.listenerTypes.includes("keydown");
-  assert.ok(sessionKeydownGone, "session keydown listener must be aborted");
+  const keydownListenersAfter = page.document.listenerTypes.filter(
+    (type) => type === "keydown"
+  ).length;
+  assert.equal(
+    keydownListenersAfter,
+    keydownListenersWithSession - 1,
+    "session keydown listener must be aborted"
+  );
+});
+
+test("A037: two blocking fields without a submitter do not implicitly submit", async () => {
+  const { page } = await pageWithRows(1);
+  await page.pressKey("Escape");
+
+  const enter = await page.pressKey("Enter");
+
+  assert.equal(enter.defaultPrevented, false);
+  assert.equal(page.submitCount, 0);
 });
 
 // ---------------------------------------------------------------------------

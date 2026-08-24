@@ -675,7 +675,10 @@ test("teardown removes host/listeners and never submits", async () => {
   handlers.fill = (m) => fillResult(m, { password: FILL_VALUE_G });
   await page.focus(pwInput);
   assert.equal(overlayCount(page), 1);
-  assert.ok(pwInput.listenerTypes.includes("keydown"), "session keyboard listener missing");
+  assert.ok(
+    page.document.listenerTypes.includes("keydown"),
+    "session capture listener missing"
+  );
   const documentListenersBefore = page.document.listenerTypes.length;
 
   const enter = await page.pressKey("Enter");
@@ -685,9 +688,12 @@ test("teardown removes host/listeners and never submits", async () => {
   // Fill ends with teardown: host gone, session listeners gone, instance
   // listeners (focusin/focusout/visibility) still owned by the instance.
   assert.equal(overlayCount(page), 0, "host must be removed");
-  assert.ok(!pwInput.listenerTypes.includes("keydown"), "session keydown must be aborted");
-  assert.equal(page.document.listenerTypes.length, documentListenersBefore - 2,
-    "session-scoped document listeners (scroll, mouseup) must be aborted");
+  assert.ok(
+    !page.document.listenerTypes.includes("keydown"),
+    "session keydown must be aborted"
+  );
+  assert.equal(page.document.listenerTypes.length, documentListenersBefore - 3,
+    "session-scoped document listeners (keydown, scroll, mouseup) must be aborted");
   assert.equal(page._intervals.size, 0, "watchdog must be stopped");
   assert.equal(page._timeouts.size, 0, "no deferred timer may survive");
   assert.equal(page.submitCount, 0, "the overlay must never submit");

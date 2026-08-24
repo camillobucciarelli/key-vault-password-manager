@@ -91,6 +91,7 @@ class FakeEvent {
     this.target = null;
     this.defaultPrevented = false;
     this._propagationStopped = false;
+    this._immediatePropagationStopped = false;
   }
 
   preventDefault() {
@@ -98,6 +99,11 @@ class FakeEvent {
   }
 
   stopPropagation() {
+    this._propagationStopped = true;
+  }
+
+  stopImmediatePropagation() {
+    this._immediatePropagationStopped = true;
     this._propagationStopped = true;
   }
 }
@@ -115,7 +121,8 @@ class FakeEventTarget {
         once: true,
       });
     }
-    this._listeners.push({ type, fn });
+    const capture = options === true || options?.capture === true;
+    this._listeners.push({ type, fn, capture });
   }
 
   removeEventListener(type, fn) {
@@ -125,9 +132,12 @@ class FakeEventTarget {
     if (at !== -1) this._listeners.splice(at, 1);
   }
 
-  _invoke(event) {
+  _invoke(event, capture = false) {
     for (const entry of [...this._listeners]) {
-      if (entry.type === event.type) entry.fn.call(this, event);
+      if (entry.type === event.type && entry.capture === capture) {
+        entry.fn.call(this, event);
+        if (event._immediatePropagationStopped) return;
+      }
     }
   }
 
@@ -157,6 +167,20 @@ class FakeShadowRoot extends FakeEventTarget {
 }
 
 const FOCUSABLE_TAGS = new Set(["INPUT", "BUTTON", "SELECT", "TEXTAREA", "IFRAME"]);
+const IMPLICIT_SUBMISSION_BLOCKING_INPUT_TYPES = new Set([
+  "text",
+  "search",
+  "tel",
+  "url",
+  "email",
+  "password",
+  "date",
+  "month",
+  "week",
+  "time",
+  "datetime-local",
+  "number",
+]);
 
 class FakeElement extends FakeEventTarget {
   constructor(doc, tagName) {
@@ -755,9 +779,24 @@ class FakePage {
   _propagate(target, event) {
     if (event.target === null) event.target = target;
     if (event.type === "submit") this.submitCount += 1;
+    const path = [target];
+    let ancestor = target;
+    while (ancestor !== this.window) {
+      if (ancestor === this.document) ancestor = this.window;
+      else if (ancestor instanceof FakeShadowRoot) ancestor = ancestor.host;
+      else ancestor = ancestor.parentNode ?? null;
+      if (ancestor === null) break;
+      path.push(ancestor);
+    }
+    for (let at = path.length - 1; at > 0; at -= 1) {
+      path[at]._invoke(event, true);
+      if (event._propagationStopped) return;
+    }
+    target._invoke(event, true);
+    if (event._propagationStopped) return;
     let node = target;
     while (node) {
-      node._invoke(event);
+      node._invoke(event, false);
       if (!event.bubbles || event._propagationStopped) return;
       if (node === this.window) return;
       if (node === this.document) {
@@ -834,6 +873,53 @@ class FakePage {
       key,
     });
     this._propagate(target, event);
+    // HTML implicit submission: Enter activates the form's default submitter.
+    // Without one, submission occurs only when at most one field blocks it.
+    if (
+      key === "Enter" &&
+      !event.defaultPrevented &&
+      target.tagName === "INPUT" &&
+      target.form != null
+    ) {
+      const form = target.form;
+      const typeOf = (el) =>
+        (el.getAttribute("type") ?? (el.tagName === "BUTTON" ? "submit" : el.type))
+          .toLowerCase();
+      const submitter = form.elements.find(
+        (el) =>
+          (el.tagName === "BUTTON" && typeOf(el) === "submit") ||
+          (el.tagName === "INPUT" && ["submit", "image"].includes(typeOf(el)))
+      );
+      let shouldSubmit = false;
+      if (submitter != null && submitter.disabled !== true) {
+        const click = new FakeEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          isTrusted: true,
+        });
+        this._propagate(submitter, click);
+        shouldSubmit = !click.defaultPrevented;
+      } else if (submitter == null) {
+        const blockingFields = form.elements.filter(
+          (el) =>
+            el.tagName === "INPUT" &&
+            IMPLICIT_SUBMISSION_BLOCKING_INPUT_TYPES.has(typeOf(el))
+        ).length;
+        shouldSubmit = blockingFields <= 1;
+      }
+      if (shouldSubmit) {
+        this._propagate(
+          form,
+          new FakeEvent("submit", {
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+            isTrusted: true,
+          })
+        );
+      }
+    }
     await this.settle();
     return event;
   }
