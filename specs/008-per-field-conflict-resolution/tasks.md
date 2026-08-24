@@ -267,7 +267,9 @@ flutter test test/features/password_manager/data/services/sync_merge_convergence
 - [ ] **T111 Platform harness artifacts** — run target harness separately on
       Android, iOS, macOS, Windows and Linux. Feature flag defaults disabled until
       matching artifact passes; macOS host test qualifies macOS only. Update each
-      `feasibility-report.md` row with result/artifact metadata.
+      `feasibility-report.md` row with result/artifact metadata. Evidence status
+      2026-08-24: Windows, Linux, macOS and iOS passed; Android is the only
+      missing artifact, so T111 remains open.
 
 **Gate 1 exit**: writer audit has no bypass, alias/rename tests pass, backups never
 overwrite, and enabled platform has its own artifact.
