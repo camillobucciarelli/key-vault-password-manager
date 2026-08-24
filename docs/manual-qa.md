@@ -20,18 +20,19 @@ spec first.
 
 ## Status
 
-Every row is `passed`, `failed` or `not-run`. `not-run` means nobody has ever
-executed it on that platform.
+Every item is `passed`, `failed` or `not-run`. `not-run` means nobody has ever
+executed it on that platform. A session whose items disagree is reported as a
+count, never rounded to the more flattering of the two.
 
 | Session | Platform / hardware needed | Items | Status | Last run | Notes |
 | --- | --- | --- | --- | --- | --- |
 | S1 | Android phone or emulator | 7 | `not-run` | — | Nothing in this session has ever been executed |
 | S2 | iPhone or iPad (physical) | 6 | `not-run` | — | Keychain inspection blocked, see S2-1 |
-| S3 | macOS machine (also covers Chrome/Edge + native host) | 11 | `not-run` | — | Partially superseded rows removed, see "Removed" |
+| S3 | macOS machine (also covers Chrome/Edge + native host) | 13 | 1 `passed`, 12 `not-run` | 2026-08-24 | S3-7 passed (v1 → v2 upgrade, Chrome 151). S3-12/S3-13 added by Slice C. Superseded rows removed, see "Removed" |
 | S4 | Windows machine | 4 | `not-run` | — | Shrunk by the `test-windows` CI job, see "Removed" |
 | S5 | Linux machine | 4 | `not-run` | — | Nothing in this session has ever been executed |
 
-Total: **32 items**, all currently `not-run`.
+Total: **34 items** — **1 `passed`** (S3-7), 33 `not-run`.
 
 Sessions are grouped by *what you must physically have*, not by spec. If you are
 holding an Android phone, S1 is everything you can do; you never need to jump
@@ -47,11 +48,11 @@ time that is not budgeted here.
 | --- | --- | --- | --- |
 | S1 Android | 30 min | 60 min | **~1 h 30 min** |
 | S2 iOS | 30 min | 40 min | **~1 h 10 min** |
-| S3 macOS + browsers | 45 min | 2 h 15 min | **~3 h** |
+| S3 macOS + browsers | 45 min | 2 h 45 min | **~3 h 30 min** |
 | S4 Windows | 40 min | 35 min | **~1 h 15 min** |
 | S5 Linux | 40 min | 35 min | **~1 h 15 min** |
 
-**Total: ~8 h 10 min**, spread across five machines. No session is longer than
+**Total: ~8 h 40 min**, spread across five machines. No session is longer than
 one sitting; S3 is the only one worth splitting in two.
 
 ### State of the code these items verify
@@ -583,14 +584,23 @@ to see the prompt.
 4. Accept it.
 5. Reopen the popup.
 6. In `chrome://extensions`, check the site-access state.
+7. **The revoke half.** In `chrome://extensions`, set site access back to "on
+   click". Reopen the popup.
 
 **Expected observation.** Exactly one prompt, naming both patterns, appearing on
 the first click without a second gesture. The toggle reads **on** afterwards, and
-`chrome://extensions` shows access on all sites.
+`chrome://extensions` shows access on all sites. After step 7 the toggle reads
+**off** and stays off — reconciliation must treat an externally revoked grant as
+a durable disable, not as a transient error.
 
 **Fails if.** The prompt does not appear on the first click, the popup closes and
 the grant is lost, or the toggle reads on while `chrome://extensions` shows no
-access.
+access. Step 7 fails if the toggle still reads on after the grant was revoked,
+or if it re-prompts by itself without a gesture.
+
+Step 7 carries the revoke half of the old per-origin A046 row 2, which had no
+home after Slice C; it is automated only by `A020: a permission revoked outside
+the popup durably disables the overlay`.
 
 ---
 
@@ -598,8 +608,12 @@ access.
 
 **Why this is here.** The v1 → v2 migration is not a dedicated branch — it is the
 strict-parser fail-closed path. A v1 value, *including one whose broad grant is
-already held*, must migrate to DISABLED and have the residual grant revoked. That
-sweep has only ever been asserted by tests.
+already held*, must migrate to DISABLED and have the residual grant revoked.
+
+**Status: `passed` on macOS / Chrome 151, 2026-08-24.** This is the one item in
+this whole file that has been executed. It is kept here rather than removed
+because it is still owed on Edge (see S3-8) and must be re-run whenever the
+migration path or the revision floor changes.
 
 **Steps**
 
@@ -617,6 +631,24 @@ back to on-click/none — the residual broad grant was revoked, not inherited.
 **Fails if.** The toggle reads on without the user asking, or the broad grant
 survives. A grant surviving a fail-closed migration is a security failure.
 
+**Recorded observation — macOS, Chrome 151, 2026-08-24.** Run on a profile that
+really held a v1 config with enabled origins, observed live over CDP rather than
+inferred from the UI:
+
+- `overlayConfigV1` gone from `chrome.storage.local`.
+- `overlayConfigV2 === {enabled: false, revision: 3, version: 2}` — migrated to
+  DISABLED, and the revision floor held across the version boundary.
+- `chrome.permissions.getAll().origins === []` — the residual per-origin grants
+  were **revoked, not inherited**. This is the security half of the item.
+- Zero content-script registrations.
+
+This is the first human confirmation of what `A016: a v1 config migrates to
+disabled even when the broad grant is already held` and `A016: migration revokes
+every residual per-origin grant and registration` assert in
+`desktop/browser_extension/test/overlay_lifecycle.test.js`. It closes A046
+row 21 in `specs/009-in-page-autofill-overlay/tasks.md`; A046 rows 22–24 and the
+Edge subset remain due.
+
 ---
 
 ### S3-8 · Edge subset (spec 009 A046 row 16 — never run on any row)
@@ -627,10 +659,14 @@ loaded in Edge.
 
 **Steps**
 
-1. Repeat S3-6 in Edge: single broad prompt under a gesture.
+1. Repeat S3-6 in Edge: single broad prompt under a gesture, including the
+   revoke half.
 2. Repeat S3-5 in Edge: overlay appears, fill works, locked vault reveals
    nothing.
 3. Navigate away with the overlay open and confirm it tears down.
+4. Repeat S3-7 in Edge: the v1 → v2 upgrade. Passing it on Chrome does not fill
+   in this row — host evidence never qualifies another platform, and that rule
+   applies across browsers here too.
 
 **Expected observation.** Behaviourally identical to Chrome.
 
@@ -675,7 +711,18 @@ The last one is the #81 regression returning.
 
 **Why this is here.** This is the first line of A040's own requirement and it has
 **never** been exercised manually. Its only evidence is the six `A037:` cases in
-`test/overlay_interaction.test.js`.
+`test/overlay_interaction.test.js` — and that evidence has since been shown to be
+insufficient for this row. #121 was found in live QA, not by the suite, and it
+presented **as a broken keyboard**: Enter on a suggestion threw in an orphaned
+content-script world and the overlay vanished silently, while a CDP trace proved
+arrows and Enter had been delivered and handled correctly the whole time. The six
+`A037:` cases never run in an orphaned world.
+
+**Because of that, reload the extension before you start**, and do not begin from
+a tab that was open across a reload — otherwise a pass here proves nothing and a
+failure will be misread as a keyboard bug. If the overlay ever disappears with no
+message during this item, check for the orphan tombstone ("reload this page")
+first: that is #121's shape, not a keyboard defect.
 
 **Steps**
 
@@ -737,6 +784,81 @@ degradation with the operation name. Data intact either way.
 refusal that the fallback did not catch, the vault is truncated, or a `.tmp` file
 is left behind. A backup-requesting save that *succeeds without producing a
 backup* is also a failure — that is the MEDIUM-2 asymmetry being violated.
+
+---
+
+### S3-12 · An `http(s)` iframe under a top document with no origin (spec 009 A046 row 23, new with Slice C)
+
+**Why this is here.** Slice C made this case *more* reachable, not less: the
+broad grant injects the content script into every `http(s)` frame, including one
+nested inside a tab whose top document has no canonicalizable origin (`file://`,
+`view-source:`, a PDF). The A035 policy says such a child is **unsupported** —
+the extension must not lend it an identity it cannot derive.
+
+Two of the three halves are already pinned: the **classifier**, by `a child frame
+under a non-canonicalizable top is still unsupported` in
+`test/frame_context.test.js` — a unit test over `computeFrameSupport` with
+synthetic top URLs — and the **rendering**, by 2 of the 18 approved baselines
+(`overlay-chrome-1440x900-dpr1-{light,dark}-unsupported-frame.png`). Neither
+pins the third: **reachability in a real browser**. This item is that third half,
+and it is why the "Removed" table entry for A046 row 4 was corrected.
+
+**Steps**
+
+1. Turn the overlay toggle **on** (broad grant held).
+2. Save a local `.html` file that embeds the S3-5 harness page in an `<iframe>`
+   pointing at `http://localhost:8907/...`.
+3. Open that file with a `file:///` URL — not through the local server.
+4. Focus the username field **inside the iframe**.
+5. Open the extension popup while that tab is focused.
+6. Repeat with `view-source:` on any `http(s)` page containing a form, and with a
+   PDF opened in Chrome's viewer.
+
+**Expected observation.** No overlay appears in the iframe at step 4. The popup
+at step 5 reads **unsupported**, and the off switch stays reachable from it. The
+content script is injected — this is not a "nothing happened" pass; confirm the
+injection actually occurred (DevTools → Sources, isolated world) so that the
+unsupported classification is what you observed, not the absence of injection.
+
+**Fails if.** The overlay renders, offers a suggestion, or fills inside that
+iframe. **That is a security failure** — an origin the extension cannot
+canonicalize would be borrowing one it can. Stop and report. It is also a
+failure, of a lesser kind, if the popup shows a state other than unsupported or
+if no injection happened at all, since the latter means this item did not test
+what it claims.
+
+---
+
+### S3-13 · Universal injection: performance and CSP regression (spec 009 A046 row 24, new with Slice C)
+
+**Why this is here.** Under the per-origin model the content script ran only on
+sites the user had opted into. It now runs in **every frame of every `http(s)`
+page** at `document_idle`. Nothing has measured that, and this row has **no
+automated coverage of any kind** — it is the one Slice C row with no safety net
+at all.
+
+**Steps**
+
+1. Toggle the overlay **off**. Load a heavy, frame-rich page (a large news site,
+   a web app with many iframes). Record load time and memory from DevTools →
+   Performance/Memory.
+2. Toggle **on**. Hard-reload the same page. Record the same two numbers.
+3. With the overlay on, load a site sending a strict `Content-Security-Policy`
+   (GitHub is a convenient one). Open the console.
+4. On that strict-CSP site, focus a login field and confirm the overlay still
+   works.
+5. Check the console on several ordinary sites for anything the extension logs.
+
+**Expected observation.** No user-perceptible load-time regression between steps
+1 and 2. No CSP violation attributable to the extension in step 3 — the isolated
+world is not governed by page CSP, so a violation naming extension code is a real
+finding, not noise. Step 4 works normally. Step 5 shows **nothing**: no origins,
+no entry names, no secrets, no chatter.
+
+**Fails if.** Any secret-shaped or vault-derived value reaches the console on any
+page — that is a security failure, stop and report. A visible load-time or memory
+regression, a CSP violation naming extension code, or the overlay failing only on
+strict-CSP sites are functional failures.
 
 ---
 
@@ -956,7 +1078,7 @@ only grows stops being read.
 | --- | --- |
 | Row 2, "grant/deny per origin" | The per-site "Turn on" no longer exists. The durable opt-in is one boolean and the popup asks once for the broad optional grant. Replaced by **S3-6**. |
 | Row 3, "scheme/port variants sharing one permission pattern" | This tested per-origin permission-pattern arithmetic, which has no subject left: there is one registration over `http(s)://*/*`. A sibling port is now **served as itself** — still a separate identity toward the vault, so no entry leaks — and that stronger property is pinned by the migrated mutation table. |
-| Row 4's per-origin half, "cross-origin child first denied, then enabled on its own origin" | The "enable this child origin" step no longer exists. The frame **policy** survives and is more reachable than before (an `http(s)` child inside a `file://`, `view-source:` or PDF-viewer top document is still classified unsupported); it is now pinned by an executable test plus 2 of the 18 golden baselines, so it needs no manual row. |
+| Row 4's per-origin half, "cross-origin child first denied, then enabled on its own origin" | The "enable this child origin" step no longer exists: under the broad grant the child is injected as a matter of course. **Only the per-origin half is gone.** The frame **policy** survives and is more reachable than before, and it does still owe a manual row — see **S3-12**, and A046 row 23 in `tasks.md`. Corrected on 2026-08-24: this entry previously read "so it needs no manual row", which over-claimed. The executable test is a unit test over the `computeFrameSupport` **classifier** with synthetic top URLs, and the 2 golden baselines pin the **rendering** of the unsupported state; neither pins **reachability in a real browser**. |
 
 ### Removed because a stronger automated check replaced it
 
