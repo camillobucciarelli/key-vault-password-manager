@@ -619,27 +619,60 @@ time under a wall clock does not do.
       gap on code verified correct** or an open design question. **None is a
       regression, and none produces data loss as the code stands today.**
 
-      *Residual findings from the Gate 3 final validation (2026-08-22):*
-      - **MEDIUM-5 — the recycle-bin block of `_mergeMeta` is declared atomic in
-        its comment and tested by nothing.** Adopting `recycleBinUUID` without
-        the `enabled` flag makes `/meta/recycleBinEnabled` diverge between the
-        two sides, and every subsequent deletion goes permanent instead of to the
-        bin. The mutant was verified harmful. The atomicity has to be asserted,
-        not commented.
-      - **MEDIUM-6 — "a known clock beats an unknown clock" lives in the document
-        and has no guard.** Inverted, the rule stays commutative and elects the
-        side with no clock: it discards a real user edit in favour of a value
-        that was never set. Same damage direction as HIGH-5 — which is exactly
-        why the commutativity assertion cannot see it.
-      - **LOW-4 — two custom icons with the same UUID and different bytes are not
-        commutative**, because `addCustomIcon` is first-wins. No realistic path
-        builds it: icon UUIDs are random at creation, and neither KeePass nor
-        KeePassXC modifies an icon in place. Two-line remedy — a deterministic
-        tie-break on the bytes, using the comparator T401a builds anyway.
-      - **LOW-5 — the pre-capture of `localSettingsAt`/`remoteSettingsAt` for
-        `customData` is a precaution declared in the comment and tested by
-        nothing.** It has not been shown non-commutative either; it needs an
-        assertion that settles which of the two it is.
+      *Residual findings from the Gate 3 final validation (2026-08-22) —
+      **all four closed 2026-08-24** on `test/close-mergemeta-findings`, each by
+      replaying its mutant first (survives at HEAD), adding the assertion, and
+      re-replaying it (dies). The code was correct in all four cases, as the
+      Gate 3 tester judged; what was missing was the guard.*
+      - **MEDIUM-5 — recycle-bin atomicity. Closed**, two assertions: the
+        winning direction adopts flag + UUID + clock together, the losing
+        direction moves none of them. One correction to the finding's rationale,
+        measured rather than assumed: the "subsequent deletions go permanent"
+        consequence does **not** hold inside this app. Neither `KdbxDao`
+        (`deleteEntry` calls `getRecycleBinOrCreate` unconditionally) nor any
+        code here reads `RecycleBinEnabled`. The real cost is the permanent
+        `/meta/recycleBinEnabled` manifest divergence FR-7 step 5 arbitrates on,
+        plus wrong behaviour in KeePass/KeePassXC, which do honour the flag.
+      - **MEDIUM-6 — "a known clock beats an unknown one". Closed.** The
+        assertion drives both mirrors and picks values so that FR-3 rule 3 would
+        elect the *opposite* side, which kills two mutants instead of one: the
+        inversion, and a deletion of both branches that falls through to the
+        value order.
+      - **LOW-5 — the `customData` settings-clock pre-capture. Closed, and it is
+        NOT merely a precaution:** it is load-bearing. Read inline instead of
+        pre-captured, the loop sees `localAt == remoteAt` whenever the settings
+        block above it just overwrote the local clock, mistakes a decided
+        comparison for a tie, and drops to the byte order — while the mirrored
+        merge, where that block does not fire, keeps its own side. Demonstrated
+        non-commutative, with the fixture the Gate 3 tester could not build.
+      - **LOW-4 — icons sharing a UUID with different bytes. Decided: PINNED,
+        not fixed**, joining sibling order and entry history as a divergence
+        held by an executable assertion rather than hidden. The proposed
+        two-line byte tie-break is **not implementable** against kdbx 2.5.0:
+        `KdbxMeta.customIcons` is an `UnmodifiableMapView` and `addCustomIcon`
+        (first-wins, early return) is the only mutator, so no caller of the
+        library can replace the bytes under an existing UUID. That same fact
+        also settles reachability more firmly than the original argument did:
+        the state cannot be produced by this app at all, only parsed in from a
+        foreign writer that reuses a UUID with different bytes. The pin asserts
+        both halves, so a kdbx upgrade that adds a real mutator reopens the
+        remedy instead of the divergence going unnoticed. **Carry forward:**
+        if T401a's comparator lands while kdbx still offers no mutator, the
+        remedy is a dependency question, not a merge-adapter one.
+
+      *Coverage finding from the same round, also closed 2026-08-24:*
+      - **F4 — `BrowserSetupService`'s host-separator fix was Windows-only
+        coverage. Closed.** The prescribed remedy (assert the separator against
+        `platform` instead of a literal) was applied and then **measured**: it
+        alone does not close the gap. With `p.posix.join` mutated back to the
+        host-context `p.join`, every runtime assertion still passes on a POSIX
+        host, because there the host separator and the rendered one agree, and
+        for the Windows target the trailing `replaceAll('/', r'\')` normalises
+        the difference away. The defect is observable at runtime only where
+        host != target. What does hold on every host is a source assertion over
+        the two display-path builders — no join with the implicit host context,
+        and an explicit `p.posix` re-spelling present — which dies with either
+        mutant half on macOS, Linux and Windows alike.
 
       *Removed from this list on 2026-08-23, decided:* **no per-field
       modification time.** Product decision, option (a): FR-3's LWW is
@@ -685,7 +718,10 @@ time under a wall clock does not do.
       plus 15g/15j/15k which stand unchanged.
       T401a must also extend the model to cover the protection dimension the
       adapter compares, and must expose the byte comparator as a reusable
-      primitive: **T401c** and **LOW-4** both consume it.
+      primitive: **T401c** consumes it. (**LOW-4** no longer does — it was
+      closed as PINNED on 2026-08-24, because kdbx 2.5.0 exposes no mutator
+      that could apply a tie-break to an existing custom icon. See T401's
+      residual-findings list above.)
       **Third open item from T301: `KdbxFieldDiff.keySpellingDiverges`.** The
       adapter emits it and nothing reads it today, so T401a must treat it
       deliberately rather than discover it. It cannot be deferred again: KDBX
