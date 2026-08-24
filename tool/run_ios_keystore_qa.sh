@@ -6,6 +6,41 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+XCODE_QUIT_TIMEOUT_SECONDS=60
+
+xcode_is_running() {
+  pgrep -x Xcode >/dev/null 2>&1
+}
+
+close_xcode() {
+  if ! xcode_is_running; then
+    return 0
+  fi
+  if ! osascript -e 'tell application "Xcode" to quit'; then
+    echo "error: could not ask Xcode to quit gracefully" >&2
+    return 1
+  fi
+
+  local waited=0
+  while xcode_is_running; do
+    if (( waited >= XCODE_QUIT_TIMEOUT_SECONDS )); then
+      echo "error: Xcode did not quit within $XCODE_QUIT_TIMEOUT_SECONDS seconds" >&2
+      return 1
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+}
+
+cleanup() {
+  local status=$?
+  trap - EXIT
+  if ! close_xcode; then
+    exit 1
+  fi
+  exit "$status"
+}
+
 DEVICE=""
 SCENARIO="all"
 while getopts "d:s:h" opt; do
@@ -28,6 +63,11 @@ if [[ "$SCENARIO" != "ac2" && "$SCENARIO" != "ac6" && "$SCENARIO" != "all" ]]; t
   echo "error: -s must be ac2, ac6, or all" >&2
   exit 64
 fi
+if xcode_is_running; then
+  echo "error: Xcode is already open. Save files, quit Xcode, then rerun." >&2
+  exit 1
+fi
+trap cleanup EXIT
 
 FLUTTER=(flutter)
 if command -v fvm >/dev/null 2>&1 && [[ -f .fvmrc ]]; then
@@ -35,11 +75,16 @@ if command -v fvm >/dev/null 2>&1 && [[ -f .fvmrc ]]; then
 fi
 
 run_phase() {
+  set +e
   "${FLUTTER[@]}" test \
     integration_test/master_password_keystore_qa_test.dart \
     -d "$DEVICE" \
     --no-uninstall \
     --dart-define=QA_PHASE="$1"
+  local phase_status=$?
+  set -e
+  close_xcode
+  return "$phase_status"
 }
 
 if [[ "$SCENARIO" == "ac2" || "$SCENARIO" == "all" ]]; then

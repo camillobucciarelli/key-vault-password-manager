@@ -403,6 +403,17 @@ tool/run_ios_keystore_qa.sh -d <device-id> -s ac2
 tool/run_ios_keystore_qa.sh -d <device-id> -s ac6
 ```
 
+Save all work and quit Xcode before running this command. The runner refuses to
+start while Xcode is already open, so it cannot silently close a personal
+session. Flutter may open Xcode for a phase; the runner asks it to quit
+gracefully afterward and waits for it to close before starting the next phase
+or returning. Quit failure or timeout stops the run. This follows the official
+workaround for consecutive launches on Xcode 26
+([flutter/flutter#144218](https://github.com/flutter/flutter/issues/144218),
+[flutter/flutter#186455](https://github.com/flutter/flutter/issues/186455)). If
+closure fails, close Xcode manually before starting T111; do not treat the
+partial run as evidence.
+
 Do not replace the runner with two default `flutter test` commands. Flutter's
 default teardown calls `stopApp` and then `uninstallApp`: iOS keeps Keychain
 entries but removes the app container, which invalidates the cross-process

@@ -115,6 +115,48 @@ void main() {
       );
     });
 
+    test('the runner resets Xcode between phases and before exit', () {
+      expect(
+        runnerSource.contains(
+          'local phase_status=\$?\n  set -e\n  close_xcode\n  return "\$phase_status"',
+        ),
+        isTrue,
+        reason:
+            'every Flutter phase must close Xcode before another launch can '
+            'start',
+      );
+      expect(runnerSource.contains('trap cleanup EXIT'), isTrue);
+      expect(
+        runnerSource.contains(
+          "osascript -e 'tell application \"Xcode\" to quit'",
+        ),
+        isTrue,
+      );
+      expect(
+        runnerSource.contains('waited >= XCODE_QUIT_TIMEOUT_SECONDS'),
+        isTrue,
+      );
+      expect(
+        runnerSource.contains('if ! close_xcode; then\n    exit 1'),
+        isTrue,
+        reason: 'a final Xcode quit failure must fail the runner',
+      );
+      final preflight = runnerSource.indexOf(
+        'if xcode_is_running; then\n'
+        '  echo "error: Xcode is already open.',
+      );
+      final cleanupTrap = runnerSource.indexOf('trap cleanup EXIT');
+      expect(
+        preflight >= 0 && preflight < cleanupTrap,
+        isTrue,
+        reason:
+            'the runner must refuse pre-existing Xcode before installing its '
+            'cleanup trap',
+      );
+      expect(runnerSource.contains('kill -9'), isFalse);
+      expect(runnerSource.contains('DerivedData'), isFalse);
+    });
+
     test('phase 2 pins same database identity and a new process', () {
       expect(source.contains('CROSS_PROCESS_MARKER_FOUND'), isTrue);
       expect(source.contains('marker.processId != pid'), isTrue);
