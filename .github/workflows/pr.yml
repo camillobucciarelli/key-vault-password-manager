@@ -277,6 +277,82 @@ jobs:
   # Separate from the Flutter jobs on purpose: these checks share no toolchain
   # with them, so a failure here names the extension directly instead of hiding
   # inside a red `test` job, and it does not wait on `flutter pub get`.
+  # spec 008 Gate 1 T111 — platform artifacts for the two targets whose
+  # hardware CI actually has.
+  #
+  # This job exists because of an asymmetry worth stating plainly: for Android,
+  # iOS and macOS a runner is NOT the target and the artifact has to come off a
+  # device (`tool/run_safety_harness.sh -d <device>`). For Linux and Windows the
+  # GitHub-hosted runner IS the target, with a real ext4 / NTFS volume under it,
+  # so the same eight cases executed here are genuine platform evidence rather
+  # than a host stand-in. That is what lets the Linux and Windows T111 rows come
+  # off the manual checklist instead of waiting for someone to find a machine.
+  #
+  # The artifacts are uploaded, never committed: `build/` is gitignored, and the
+  # Gate 0 assertion `no platform artifact exists yet` deliberately fails if one
+  # is checked in without the feasibility report being updated in the same
+  # change. Enabling a platform stays a human decision; this job only produces
+  # the evidence that decision needs.
+  #
+  # A `failed` artifact exits 2 and fails the job. That is the correct outcome:
+  # it means this platform cannot hold the safe writer's contract, which is a
+  # finding, not flake.
+  t111-platform-artifact:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-2022
+            platform: windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: subosito/flutter-action@v2
+        with:
+          # Single source of truth for the pinned Flutter version: .fvmrc.
+          # Do not add `flutter-version:` alongside it — the action rejects
+          # both at once, and a second copy is how local and CI drift apart.
+          channel: stable
+          flutter-version-file: .fvmrc
+
+      - run: flutter pub get
+
+      # Not `tool/run_safety_harness.sh`: that script is bash, and this job has
+      # to run identically on windows-2022. The two commands it wraps are
+      # invoked directly instead, with `-p` pinning the platform so a runner
+      # image that silently changed OS could never file evidence for the wrong
+      # target.
+      - name: Run the T111 harness on this runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/safety-evidence
+          flutter test test/tool/safe_vault_writer_harness_test.dart \
+            --dart-define=HARNESS_EMIT=true \
+            --dart-define=HARNESS_COMMIT="$GITHUB_SHA" \
+            --dart-define=HARNESS_FLUTTER_VERSION="$(flutter --version | head -1)" \
+            --dart-define=HARNESS_COMMAND="pr.yml t111-platform-artifact (${{ matrix.platform }})" \
+            --dart-define=HARNESS_FILESYSTEM="${{ matrix.platform == 'windows' && 'ntfs' || 'ext4' }}" \
+            --dart-define=HARNESS_DEVICE="${{ matrix.os }}" \
+            2>&1 | tee build/safety-evidence/last-harness-run.log
+
+      - name: File the artifact
+        shell: bash
+        run: |
+          dart run tool/file_safety_evidence.dart \
+            build/safety-evidence/last-harness-run.log \
+            build/safety-evidence \
+            ${{ matrix.platform }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t111-safe-vault-writer-${{ matrix.platform }}
+          path: build/safety-evidence/
+
   extension-tests:
     runs-on: ubuntu-latest
     steps:

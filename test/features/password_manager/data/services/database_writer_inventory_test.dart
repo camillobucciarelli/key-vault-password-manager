@@ -717,6 +717,28 @@ List<File> _dartFilesUnder(List<String> roots) => [
 /// Frozen result of the T007 scan. Every entry is reconciled against FR-8 in
 /// `specs/008-per-field-conflict-resolution/feasibility-report.md`.
 const _baseline = <String, List<String>>{
+  // --- QA tooling, never a database writer ---------------------------------
+  // spec 008 Gate 1 T111. These are scanned because `_roots` covers `tool/`,
+  // and they are listed here rather than exempted so that a future edit which
+  // pointed them at a real vault would still have to come through this
+  // baseline.
+  //
+  // Why they take no database lock: neither ever receives a user's vault path.
+  // `safe_vault_writer_harness.dart` drives `SafeVaultFileWriter` against
+  // throwaway files it creates itself inside a scratch workspace, which is the
+  // whole point of a harness — it must exercise the writer without a database
+  // in the room. `file_safety_evidence.dart` writes only under
+  // `build/safety-evidence/`. Neither is reachable from the app: `tool/` is
+  // not compiled into any build, and nothing in `lib/` imports them.
+  'tool/file_safety_evidence.dart': ['copy', 'create', 'writeAsString'],
+  'tool/safe_vault_writer_harness.dart': [
+    'create',
+    'openWrite',
+    'openWriteMode',
+    'rename',
+    'writeAsBytes',
+    'writeFrom',
+  ],
   // --- unlisted by FR-8 ----------------------------------------------------
   // T109 follow-up: managed saves gained a temp->final rename.
   'lib/core/utils/mobile_file_storage.dart': [

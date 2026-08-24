@@ -26,13 +26,23 @@ count, never rounded to the more flattering of the two.
 
 | Session | Platform / hardware needed | Items | Status | Last run | Notes |
 | --- | --- | --- | --- | --- | --- |
-| S1 | Android phone or emulator | 7 | `not-run` | — | Nothing in this session has ever been executed |
-| S2 | iPhone or iPad (physical) | 6 | `not-run` | — | Keychain inspection blocked, see S2-1 |
+| S1 | Android phone or emulator | 7 | `not-run` | — | S1-7 is no longer blocked — it is now one command, see below |
+| S2 | iPhone or iPad (physical) | 6 | `not-run` | — | Keychain inspection is no longer *impossible*, but the probe is unverified — see S2-1 |
 | S3 | macOS machine (also covers Chrome/Edge + native host) | 13 | 1 `passed`, 12 `not-run` | 2026-08-24 | S3-7 passed (v1 → v2 upgrade, Chrome 151). S3-12/S3-13 added by Slice C. Superseded rows removed, see "Removed" |
-| S4 | Windows machine | 4 | `not-run` | — | Shrunk by the `test-windows` CI job, see "Removed" |
-| S5 | Linux machine | 4 | `not-run` | — | Nothing in this session has ever been executed |
+| S4 | Windows machine | 3 | `not-run` | — | Shrunk by the `test-windows` and `t111-platform-artifact` CI jobs, see "Removed" |
+| S5 | Linux machine | 3 | `not-run` | — | Shrunk by the `t111-platform-artifact` CI job, see "Removed" |
 
-Total: **34 items** — **1 `passed`** (S3-7), 33 `not-run`.
+Total: **32 items** — **1 `passed`** (S3-7), 31 `not-run`.
+
+**Changed on 2026-08-24 by the T111 automation.** Two items left this list for
+good (S4-4 and S5-4): on Linux and Windows the GitHub-hosted runner *is* the
+target platform, so the new `t111-platform-artifact` job produces real platform
+evidence on every PR instead of waiting for someone to find a machine. Three
+more items (S1-7, and the inspection halves of S2-1/S2-2) stopped being
+**blocked** without leaving the list — they need hardware CI does not have.
+Read the honest version in "What the automation did and did not remove" at the
+end of this file: the count went down by two, and the time did not go down
+much, because the items that left were ones nobody could execute anyway.
 
 Sessions are grouped by *what you must physically have*, not by spec. If you are
 holding an Android phone, S1 is everything you can do; you never need to jump
@@ -47,13 +57,30 @@ time that is not budgeted here.
 | Session | Setup | Execution | Total |
 | --- | --- | --- | --- |
 | S1 Android | 30 min | 60 min | **~1 h 30 min** |
-| S2 iOS | 30 min | 40 min | **~1 h 10 min** |
-| S3 macOS + browsers | 45 min | 2 h 45 min | **~3 h 30 min** |
-| S4 Windows | 40 min | 35 min | **~1 h 15 min** |
-| S5 Linux | 40 min | 35 min | **~1 h 15 min** |
+| S2 iOS | 30 min | 50 min | **~1 h 20 min** |
+| S3 macOS + browsers | 35 min | 2 h 45 min | **~3 h 20 min** |
+| S4 Windows | 40 min | 30 min | **~1 h 10 min** |
+| S5 Linux | 40 min | 30 min | **~1 h 10 min** |
 
-**Total: ~8 h 40 min**, spread across five machines. No session is longer than
+**Total: ~8 h 30 min**, spread across five machines. No session is longer than
 one sitting; S3 is the only one worth splitting in two.
+
+**Why that is only ten minutes better than the previous ~8 h 40 min, with two
+items gone.** The arithmetic is not flattering and is left visible on purpose:
+
+- S4 and S5 each lost a T111 item, but those items were **blocked** and
+  therefore cost zero execution time. Removing them shrinks the list without
+  shrinking the clock. What actually changed is that Linux and Windows now
+  have evidence they never had.
+- S3 setup drops 10 minutes because `desktop/browser_extension/serve_harness.sh`
+  replaces recovering the harness port and path out of `capture_runner.mjs`.
+- S2 goes **up** 10 minutes, which is the correct direction: S2-1 and S2-2 were
+  blocked with no method at all, and now there is something to run.
+- S1 is unchanged in total: S1-7 went from blocked (0 min) to a ~5 min command,
+  absorbed by rounding.
+
+A checklist that got shorter *and* much faster would mean the removed items
+had been costing real time. They had not. They had been costing coverage.
 
 ### State of the code these items verify
 
@@ -227,6 +254,17 @@ After step 6 the vault opens normally.
 **Fails if.** The legacy entry survives the first launch, or the vault no longer
 opens with a password that worked before the upgrade.
 
+**Cheaper alternative, and what it does NOT cover.** The `QA_PHASE=ac6_seed` /
+`QA_PHASE=ac6_upgrade` phases in the S2 preconditions assert the same
+deletion-and-still-opens property without needing an archived APK, and the seed
+phase fails loudly if the legacy entry could not be planted — the "old build is
+not old enough" trap above, made machine-checked.
+
+What it deliberately does not do is prove that a **real pre-`027641d` build**
+wrote that key: it writes the key itself. If you have the archived APK, the
+steps above are still stronger evidence. If you do not, the probe is the
+difference between weak evidence and none.
+
 ---
 
 ### S1-6 · Safe-writer fallback under Android SAF (spec 008, "not verifiable on host")
@@ -264,31 +302,42 @@ behind.
 
 ### S1-7 · T111 Android platform artifact (spec 008 Gate 1)
 
-**Preconditions.** The target harness runnable on-device. **The harness has no
-runner script in the repository today** — `build/safety-evidence/` is empty and
-`no platform artifact exists yet` asserts that. Its required *output* schema is
-pinned by
-`test/features/password_manager/data/services/safe_vault_file_writer_harness_schema_test.dart`.
+**No longer blocked.** The harness runner exists now
+(`tool/run_safety_harness.sh`), so this item went from "cannot start" to one
+command. It stays manual only because it needs an Android device or emulator,
+which CI does not have.
+
+**Preconditions.** A device or emulator listed by `flutter devices`.
 
 **Steps**
 
-1. Run the target harness on the named device/emulator, recording the device
-   model and Android version.
-2. Write the result to `build/safety-evidence/android/safe-vault-writer.json`
-   plus its log.
-3. Verify the artifact against the schema test.
-4. Update the Android row of
+1. Run the harness, recording the device model and Android version:
+   ```bash
+   tool/run_safety_harness.sh -d <device-id> -p android
+   ```
+2. Read the summary it prints. It writes
+   `build/safety-evidence/android/safe-vault-writer.json` plus the transcript
+   next to it, and validates the artifact against the Gate 0 schema before
+   filing it — a schema-invalid artifact is refused and nothing is written.
+3. Update the Android row of
    `specs/008-per-field-conflict-resolution/feasibility-report.md` with the
    result and the artifact metadata.
 
-**Expected observation.** A schema-valid artifact whose status is `passed`,
-naming Android and only Android.
+**Expected observation.** Exit code 0 and `status: passed`, naming Android and
+only Android. The four measured capability lines
+(`atomicReplaceOverExisting`, `backupNoOverwrite`, `flushSupported`,
+`directorySyncSupported`) are the point of running this on a device at all —
+they are the facts the host tests can only assume.
 
-**Fails if.** The artifact is absent, schema-invalid, or `failed`. Any of those
-keeps the Android target disabled — which is the current, correct state.
+**Fails if.** Exit code 2 (`status: failed` — a real finding: this platform
+cannot hold the writer's contract, and the Android target must stay disabled)
+or exit code 1 (the artifact could not be filed at all, which is "could not
+run", not "the platform failed" — do not record a result).
 
-**Blocked, stated plainly.** Until the harness runner exists this item cannot
-start. It is listed so the gap stays visible, not because it is executable today.
+**What is already automated.** The eight cases themselves run on the CI host on
+every PR (`test/tool/safe_vault_writer_harness_test.dart`), so a regression in
+the harness is caught there rather than here. This item contributes the one
+thing CI cannot: Android hardware.
 
 ---
 
@@ -302,38 +351,82 @@ start. It is listed so the gap stays visible, not because it is executable today
 - Two test vaults, A and B.
 - Face ID or Touch ID enrolled.
 
-**Keychain inspection: no command, stated openly.** There is **no supported way
-to dump the keychain of a third-party app from a non-jailbroken iOS device**.
-`security find-generic-password` is a macOS binary and does not reach an iOS
-device; Xcode offers no keychain browser. Any command claiming otherwise would be
-fiction, so none is written here.
+**Keychain inspection: still no shell command, but the app can now be asked.**
+There is **no supported way to dump the keychain of a third-party app from a
+non-jailbroken iOS device**. `security find-generic-password` is a macOS binary
+and does not reach an iOS device; Xcode offers no keychain browser. That has
+not changed and no command claiming otherwise is written here.
 
-What must be discovered before S2-1 and S2-2 can be executed at all:
+What *has* changed is that the app can answer the question itself:
 
-- Whether a temporary debug probe is acceptable — a build-flavor-gated screen
-  calling `SecureDataSource.getMasterPassword(id)` and reporting only
-  **present/absent**, never the value. This is the cheapest honest route and is
-  proposed for automation at the end of this file.
-- Otherwise: a jailbroken device, or accept that iOS keychain inspection stays
-  permanently `not-run` and rely on the Android and macOS rows for AC-1/AC-2/AC-5.
+```bash
+# Phase 1: unlock with biometrics off and do NOT lock. The test run ending is
+# the process kill.
+flutter test integration_test/master_password_keystore_qa_test.dart \
+  -d <device-id> --dart-define=QA_PHASE=ac2_unlock
 
-Until one of those is chosen, S2-1 and S2-2 are **blocked, not failed**.
+# Phase 2: assert nothing survived and the password is required again.
+flutter test integration_test/master_password_keystore_qa_test.dart \
+  -d <device-id> --dart-define=QA_PHASE=ac2_relaunch
+```
+
+```bash
+# AC-6, same two-phase shape: plant the legacy global entry a pre-011 build
+# left behind, then let the current build's first launch delete it.
+flutter test integration_test/master_password_keystore_qa_test.dart \
+  -d <device-id> --dart-define=QA_PHASE=ac6_seed
+flutter test integration_test/master_password_keystore_qa_test.dart \
+  -d <device-id> --dart-define=QA_PHASE=ac6_upgrade
+```
+
+The probe reports **presence or absence only**, never a value, and it lives in
+`integration_test/` — which `flutter build` never compiles into an app, so
+there is nothing gated to get wrong and nothing to remember to remove. Its
+security properties are machine-checked by
+`test/tool/keystore_probe_guard_test.dart` on every PR.
+
+**Read this before recording a result from it.** The probe distinguishes three
+answers, not two: `present`, `absent` and **`indeterminate`**. An
+`indeterminate` reading fails the run loudly and states why. It must be
+recorded as `not-run`, never as a pass — "the keystore refused to answer" and
+"there is no entry" are opposite findings, and this item exists to prove
+absence.
+
+**Verified status of the probe itself, stated plainly:**
+
+- It has been **executed** end to end through the real DI graph and the real
+  unlock flow, and its guard tests are green.
+- It has **not been observed passing on any platform**, because no iOS or
+  Android hardware was available when it was written, and on macOS it hits
+  `errSecInteractionNotAllowed` (-25308) — the login keychain will not serve a
+  non-interactive process (see S3-1, which therefore keeps using `security`).
+- So S2-1 and S2-2 are **no longer blocked, but not yet closed**. The first
+  person with an iPhone runs the commands above and records what happens,
+  including a probe defect if that is what turns up.
+
+### S2-1 · Keystore untouched with biometrics off, iOS (spec 011 AC-1)
+
+Same intent as S1-1. **No longer blocked:** run the `QA_PHASE=ac2_unlock`
+command above, which unlocks vault A with biometrics off and then asserts that
+this database has no keystore entry. It also runs a **positive control** —
+it deliberately writes an entry, confirms the probe can see it, and removes it
+again — so an `absent` result cannot be a probe that is simply blind.
+
+Do not substitute the macOS result: the spec forbids one platform qualifying
+another.
 
 ---
 
-### S2-1 · Keystore untouched with biometrics off, iOS (spec 011 AC-1) — BLOCKED
+### S2-2 · Nothing survives process kill, iOS (spec 011 AC-2)
 
-Same intent as S1-1. **Blocked on the inspection method above.** Record
-`not-run`, with the reason, until a probe exists. Do not substitute the macOS
-result: the spec forbids one platform qualifying another.
+Same intent as S1-2. The inspection half is the `QA_PHASE=ac2_relaunch`
+command above: it asserts no entry survived and that the stored-credential
+unlock path refuses, which is what makes the app ask for the password again.
+It then unlocks with the password to prove the refusal was "no stored secret"
+rather than "the vault is broken".
 
----
-
-### S2-2 · Nothing survives process kill, iOS (spec 011 AC-2) — BLOCKED
-
-Same intent as S1-2, same blocker for the inspection half.
-
-The **user-visible half is runnable now, and worth running on its own:**
+The **user-visible half is worth running by hand as well**, because the probe
+drives the coordinator and not the UI:
 
 **Steps**
 
@@ -959,14 +1052,6 @@ a symlink-privilege error.
 
 ---
 
-### S4-4 · T111 Windows platform artifact (spec 008 Gate 1)
-
-Same shape and same blocker as S1-7: the harness runner does not exist yet.
-Artifact path `build/safety-evidence/windows/safe-vault-writer.json`. The Windows
-row stays `not-run` and the target stays disabled.
-
----
-
 ## S5 — Linux machine
 
 **Session preconditions**
@@ -1050,14 +1135,6 @@ it is not bound to.
 
 ---
 
-### S5-4 · T111 Linux platform artifact (spec 008 Gate 1)
-
-Same shape and blocker as S1-7. Artifact path
-`build/safety-evidence/linux/safe-vault-writer.json`. Linux stays `not-run` and
-the target stays disabled.
-
----
-
 ## Removed from the manual list
 
 Each entry names what was dropped and why. Dropping is deliberate: a list that
@@ -1071,6 +1148,18 @@ only grows stops being read.
 | "Run the three symlink QA suites on Windows" | **They really run in CI.** A probe step measured `SYMLINK_CAPABLE=true` on GitHub-hosted `windows-2022` (run 32596328624): the runners create symlinks without Developer Mode. `portable_path_symlink_qa_test.dart`, `mobile_file_storage_guard_qa_test.dart` and `mobile_file_storage_guard_bypass_qa_test.dart` all execute. Only the **no-Developer-Mode local machine** case stayed manual, as **S4-3**. |
 | "Check the Windows branch of `_isPermissionDenied`" | **Asserted in CI.** It previously asserted nothing: the T110 harness encoded POSIX errno values as universal constants, so the Windows fallback never fired and the negative control (`EIO` 5) collided with `ERROR_ACCESS_DENIED`. Closed with per-platform helpers plus an anti-collapse guard that fails if the two codes coincide. |
 | "Run the Flutter suite on Windows before a release" | **Runs on every PR.** `test-windows` is green and blocking (`continue-on-error` removed). *Outstanding, and not an agent action:* adding `test-windows` to the branch's **required status checks** is a repository branch-protection setting the user must apply. |
+
+### Removed because CI now produces the artifact (job `t111-platform-artifact`)
+
+| Was | Now |
+| --- | --- |
+| **S4-4**, "T111 Windows platform artifact" | **Produced in CI on every PR.** The T111 harness runner now exists (`tool/run_safety_harness.sh`, `tool/safe_vault_writer_harness.dart`) and the `t111-platform-artifact` job runs its eight cases on `windows-2022`, files a schema-valid `build/safety-evidence/windows/safe-vault-writer.json` and uploads it. This is not host evidence standing in for a target: on Windows the GitHub-hosted runner **is** the target, with a real NTFS volume, so the four capability booleans — above all `atomicReplaceOverExisting`, which is a genuine question on Windows — are measured on the platform they describe. A `failed` artifact exits 2 and fails the job. |
+| **S5-4**, "T111 Linux platform artifact" | **Produced in CI on every PR**, same job on `ubuntu-latest`, same argument: the runner is the target, with a real ext4 volume. |
+
+Deciding to **enable** the merge feature on a platform remains a human step:
+the artifacts are uploaded, never committed, and the Gate 0 assertion `no
+platform artifact exists yet` still fails if one is checked in without
+`feasibility-report.md` being updated in the same change.
 
 ### Removed because Slice C superseded the behaviour (PR #113)
 
@@ -1114,68 +1203,128 @@ re-listed as an open item.
 
 ---
 
-## Candidates for automation
+## What the automation did and did not remove
 
-The goal is for this file to shrink. Each candidate names what it would remove.
+Written 2026-08-24, replacing the four candidates this section used to propose.
+Three of them were built. The accounting below is deliberately unflattering
+where it should be: a checklist that shrinks by claiming more than was verified
+is worse than one that stays long.
 
-### 1. A keystore presence probe behind a debug flag — removes 6 blocked items
+### Built: the T111 harness runner (was candidate 3)
 
-**Removes:** S2-1, S2-2's inspection half, S4-1, and de-risks S1-1, S3-1, S5-1.
+**Removed 2 items: S4-4 and S5-4.** Both are now produced in CI on every PR —
+see the "Removed" table above for why a runner *is* the target on those two
+platforms and is not on the other three.
 
-A build-flavor-gated debug screen (or a `--dart-define` guarded integration test)
-calling `SecureDataSource.getMasterPassword(id)` and reporting only
-**`present` / `absent`**, never the value. That single primitive makes AC-1,
-AC-2, AC-5 and AC-6 checkable identically on all five platforms, and it is the
-only realistic way to verify iOS at all short of a jailbroken device.
+**Unblocked, but not removed: S1-7.** It needs Android hardware. It went from
+"cannot start" to one command.
 
-Effort: small. Risk to manage explicitly: the probe must be impossible to compile
-into a Release build, and must never print or log the secret. Given spec 011's
-constitution principle I, that constraint is the whole design.
+What was built:
 
-### 2. An `integration_test` for the AC-2 / AC-6 lifecycle — removes 4 items
+| File | Role |
+| --- | --- |
+| `tool/safety_evidence_schema.dart` | The artifact schema, **moved out of the Gate 0 test** so the runner that produces artifacts and the gate that judges them cannot drift. The Gate 0 test now imports it and still pins every rejection. |
+| `tool/safe_vault_writer_harness.dart` | The eight required cases. Shared by the device driver and the CI host test — the device contributes hardware, not logic. |
+| `integration_test/safe_vault_writer_harness_test.dart` | The on-device driver. Emits the artifact on stdout, because that is the only retrieval path that exists identically on all five targets (there is no `adb pull` for iOS). |
+| `tool/file_safety_evidence.dart` | Validates and files. **Refuses** to write anything for a schema-violating artifact or a platform mismatch. |
+| `tool/run_safety_harness.sh` | Stamps provenance the device cannot know (commit, Flutter version, the command) and drives the above. `-H` runs on the host, which is what CI uses. |
+| `test/tool/safe_vault_writer_harness_test.dart` | Runs the same eight cases in the ordinary suite, every PR. |
 
-**Removes:** the behavioural halves of S1-2, S1-5, S2-2, S2-5.
+**What it measures that the existing host tests did not.** T110 asserts the
+writer's control flow against a faked filesystem. The harness runs against the
+real volume of the real target, so four facts become measurements instead of
+assumptions: `atomicReplaceOverExisting`, `backupNoOverwrite`,
+`flushSupported`, `directorySyncSupported`. The first real run already produced
+a finding — on macOS `directorySyncSupported` is **false**, because opening a
+directory as a file and flushing it is refused there. Production already treats
+that as best-effort, so it is not a defect; it is a fact nobody had checked.
 
-The repository already has the pattern: `integration_test/ios_portable_paths_qa_test.dart`
-drives a two-phase, `--dart-define=QA_PHASE=`-selected harness across an app
-reinstall. The same shape covers "unlock, terminate, relaunch, assert the
-password is required" and "legacy entry present, upgrade, legacy entry gone".
-Combined with candidate 1, this turns most of spec 011's manual matrix into one
-command per device.
+**Proof it fails when the property breaks.** Two regressions were introduced
+into `safe_vault_file_writer.dart` and the harness caught both:
 
-Effort: medium. Needs a real device or emulator, so it stays out of CI — but it
-becomes repeatable, which is the actual goal.
+- exclusive-create replaced with a plain create → `backup_preexisting_name_collision`
+  failed with `sentinelIntact=false wroteElsewhere=false` (a real backup
+  destroyed), and the `backupNoOverwrite` capability went false, which alone
+  forces `status: failed`;
+- FR-9's hard stop removed so a failed backup no longer aborts the save →
+  `backup_create_failure` failed with `threw=false targetIsOld=false`, i.e. the
+  vault was overwritten with no backup.
 
-### 3. The T111 harness runner — removes 5 items, and is currently blocking all of them
+A defect was also found *by building it*: `file_safety_evidence.dart` returned
+its status from `main`, which the Dart VM ignores, so every refusal exited 0
+and the runner would have read an unfileable run as a success. Fixed, and
+pinned by five process-level tests.
 
-**Removes:** S1-7, S4-4, S5-4 and the iOS/macOS artifact rows.
+### Built: the keystore probe and the AC-2 / AC-6 lifecycle (was candidates 1 and 2)
 
-The output schema is already pinned
-(`safe_vault_file_writer_harness_schema_test.dart`) and the enablement rule is
-already machine-checked ("host platform never qualifies another target"). What is
-missing is the runner that executes the fault matrix on-device and emits
-`build/safety-evidence/<platform>/safe-vault-writer.json`. Until it exists, five
-checklist items cannot even start, and the 008 platform matrix stays entirely
-`not-run`.
+**Removed 0 items — stated plainly.** It unblocked S2-1 and S2-2 and gave S1-2
+and S1-5 a cheaper route, but nothing left the list, because the probe has not
+been observed passing on any platform (no iOS or Android hardware; macOS
+refuses non-interactive keychain reads). Removing those rows now would be
+exactly the shortened-by-lying outcome this file exists to avoid.
 
-Effort: medium-to-large, and the highest-value item on this list — it is the
-difference between five permanently blocked rows and five runnable ones.
+Candidates 1 and 2 collapsed into **one** artifact,
+`integration_test/master_password_keystore_qa_test.dart`, because the safest
+form of candidate 1 was already candidate 2's shape.
 
-### 4. A scripted smoke fixture for S3-5 / S5-3 — removes setup friction, not items
+**The security constraint, and why it is structural rather than careful.**
+Candidate 1 proposed a build-flavor-gated debug screen and flagged that it must
+never reach a Release build. That risk was not managed — it was **removed**, by
+not putting anything in `lib/` at all:
 
-Serving `test/visual/harness/page.html` on port 8907 is already the closest thing
-to a prepared environment, but the port and path have to be recovered from
-`capture_runner.mjs` every time. A three-line `serve_harness.sh` next to
-`run_visual_baselines.sh` would make the browser sessions start in seconds
-instead of minutes. It removes no checklist item; it makes S3 and S5 cheap enough
-that they actually get run.
+1. The probe is a file under `integration_test/`, which `flutter build` never
+   compiles into any artifact. There is no flavor to gate, no `kDebugMode`
+   branch, and no production code was added.
+2. The presence primitive is `DatabaseSessionCoordinator.hasStoredMasterPassword()`,
+   which **already existed and already returns `bool`**. The probe adds no new
+   way to read the keystore.
+3. Only `sayBool` and `sayInt` exist in the file. Printing a secret is a
+   **compile error**, not a review finding.
+4. Every assertion is on a bool or an int, because assertion output is printed
+   output and failures are the runs that get pasted into bug reports.
 
-Effort: trivial.
+`test/tool/keystore_probe_guard_test.dart` enforces all four on every PR.
+Introducing each mistake was checked to turn it red: adding a `String`
+reporter, switching to `getMasterPassword` (which returns the plaintext), and
+copying the probe into `lib/` each fail with the reason named.
 
-### 5. Edge in the extension test matrix — would shrink S3-8, not remove it
+**The `indeterminate` state, which is the most important part.** A keystore
+that refuses to answer must never read as "no entry". The probe returns
+`present` / `absent` / `indeterminate`, and an `indeterminate` fails loudly
+with the diagnosis. This is not hypothetical: it is what macOS does
+(`errSecInteractionNotAllowed`, -25308), and it was observed. A `catch (_) =>
+false` there would have produced a confident, wrong pass on the one item whose
+entire purpose is proving absence.
 
-The Node harness is browser-agnostic, so pointing the existing suite at an Edge
-binary is cheap and would cover the protocol and DOM contract. It would **not**
-cover the permission prompt or the native-host registration, which are the parts
-of S3-8 that have genuinely never been exercised. Worth doing; do not let it be
-mistaken for closing the Edge row.
+### Built: `serve_harness.sh` (was candidate 4)
+
+`desktop/browser_extension/serve_harness.sh`. Removes no item, as predicted;
+takes about 10 minutes off S3 setup and serves on 8907 so the origin matches
+the approved visual baselines.
+
+### Not built: Edge in the extension test matrix (was candidate 5)
+
+Left undone deliberately. As the original entry said, it would cover the
+protocol and DOM contract but **not** the permission prompt or the native-host
+registration — which are the parts of S3-8 that have never been exercised. It
+would shrink no row, and the risk of it being mistaken for closing the Edge row
+is higher than its value. Worth doing later, on its own terms.
+
+### Still manual, and why
+
+Every remaining item needs something CI does not have:
+
+- **S1 (Android), S2 (iOS)** — physical devices or emulators, biometric
+  hardware, and the OS autofill surfaces.
+- **S3-1 to S3-4 (macOS keychain)** — the probe cannot help here: the login
+  keychain refuses a non-interactive process, so the `security` commands in
+  this file remain the method.
+- **S3-5 to S3-13 (browsers, VoiceOver, sandboxed Release)** — a real browser
+  with a real permission prompt, a real screen reader, and a signed sandboxed
+  build. A harness is not a screen reader, and a debug build loosens exactly
+  the sandbox behaviour S3-11 tests.
+- **S4-1 (Windows credential store)** — still blocked on the `TargetName`
+  discovery, which is unrelated to anything built here.
+- **S4-2, S4-3** — the user-facing shape of a Windows failure, and a machine
+  where symlink creation is genuinely denied.
+- **S5-1 to S5-3** — Linux secret store and a Linux browser session.
