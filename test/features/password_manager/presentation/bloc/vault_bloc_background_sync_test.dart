@@ -363,7 +363,11 @@ void main() {
       addTearDown(bloc.close);
 
       bloc.add(const InitializeVault());
-      await Future<void>.delayed(const Duration(milliseconds: 30));
+      // Waits for the failure to actually surface instead of sleeping for a
+      // fixed 30ms: this is the FR-1/FR-2 guard that the vault is never opened
+      // with an empty password, so it must not be able to pass by sampling
+      // before the handler ran.
+      await _waitUntil(() => bloc.state.errorMessage != null);
 
       expect(bloc.state.errorMessage, 'Unable to load vault credentials.');
       expect(bloc.state.isLoading, isFalse);
@@ -381,7 +385,7 @@ void main() {
       addTearDown(bloc.close);
 
       bloc.add(const InitializeVault());
-      await Future<void>.delayed(const Duration(milliseconds: 30));
+      await _waitUntil(() => bloc.state.currentGroupId == 'root');
 
       expect(bloc.state.errorMessage, isNull);
       expect(kdbx.loadCallCount, greaterThanOrEqualTo(1));
@@ -409,7 +413,7 @@ void main() {
         // isDriveConnected would be set to false and syncStatus to disconnected.
         // Instead, preload from local mapping sets isDriveLinked: true, syncStatus: idle.
         bloc.add(const InitializeVault());
-        await Future<void>.delayed(const Duration(milliseconds: 30));
+        await _waitUntil(() => bloc.state.currentGroupId == 'root');
 
         expect(kdbx.loadCallCount, greaterThanOrEqualTo(1));
         expect(bloc.state.isDriveLinked, isTrue);
@@ -441,7 +445,12 @@ void main() {
         final sub = bloc.stream.listen(states.add);
 
         bloc.add(const BackgroundDriveSync());
-        await Future<void>.delayed(const Duration(milliseconds: 30));
+        // The full cycle is observable: isSyncing goes true, then back to
+        // false in the `finally`. Waiting for both edges beats sleeping for a
+        // fixed 30ms and hoping the cycle fitted inside it.
+        await _waitUntil(
+          () => states.any((s) => s.isSyncing) && !bloc.state.isSyncing,
+        );
         await sub.cancel();
 
         expect(states.any((s) => s.isSyncing), isTrue);
@@ -454,7 +463,9 @@ void main() {
       final sub = bloc.stream.listen(states.add);
 
       bloc.add(const BackgroundDriveSync());
-      await Future<void>.delayed(const Duration(milliseconds: 30));
+      await _waitUntil(
+        () => states.any((s) => s.isSyncing) && !bloc.state.isSyncing,
+      );
       await sub.cancel();
 
       expect(
@@ -469,7 +480,10 @@ void main() {
       final sub = bloc.stream.listen(states.add);
 
       bloc.add(const BackgroundDriveSync());
-      await Future<void>.delayed(const Duration(milliseconds: 30));
+      // Not connected: the handler emits the refreshed Drive state and returns
+      // before `isSyncing` is ever set. That single emission is the anchor —
+      // the negative assertion below is only meaningful once it has landed.
+      await _waitUntil(() => states.isNotEmpty);
       await sub.cancel();
 
       expect(states.any((s) => s.isSyncing), isFalse);
@@ -478,7 +492,9 @@ void main() {
     test('reloads vault after successful sync when not saving', () async {
       // kdbx.loadCallCount starts at 0 (no InitializeVault fired)
       bloc.add(const BackgroundDriveSync());
-      await Future<void>.delayed(const Duration(milliseconds: 30));
+      await _waitUntil(
+        () => kdbx.loadCallCount >= 1 && !bloc.state.isSyncing,
+      );
 
       // _reload is called: loadVault must have been called at least once
       expect(kdbx.loadCallCount, greaterThanOrEqualTo(1));
@@ -495,8 +511,16 @@ void main() {
       addTearDown(bloc.close);
 
       bloc.add(const InitializeVault());
-      await _waitUntil(() => bloc.state.currentGroupId == 'root');
-      await Future<void>.delayed(const Duration(milliseconds: 30));
+      // Wait for init AND the background sync cycle it kicks off to finish,
+      // so `operations.clear()` cannot run while that cycle is still writing
+      // to the list. `loadCallCount == 2` is init's load plus the background
+      // reload; a fixed sleep here only approximated the same thing.
+      await _waitUntil(
+        () =>
+            bloc.state.currentGroupId == 'root' &&
+            kdbx.loadCallCount >= 2 &&
+            !bloc.state.isSyncing,
+      );
       operations.clear();
 
       kdbx.createEntryCompleter = Completer<String>();
@@ -533,7 +557,8 @@ void main() {
       final sub = bloc.stream.listen(states.add);
 
       bloc.add(const BackgroundDriveSync());
-      await Future<void>.delayed(const Duration(milliseconds: 30));
+      // Not connected: one refresh emission, then the handler returns.
+      await _waitUntil(() => states.isNotEmpty);
       await sub.cancel();
 
       // With isConnectedResult: false, refreshSyncState sets isDriveConnected: false
@@ -553,7 +578,7 @@ void main() {
       addTearDown(bloc.close);
 
       bloc.add(const SyncCurrentDatabaseNow());
-      await Future<void>.delayed(const Duration(milliseconds: 30));
+      await _waitUntil(() => kdbx.loadCallCount >= 1);
 
       expect(kdbx.loadCallCount, greaterThanOrEqualTo(1));
     });
@@ -626,16 +651,25 @@ void main() {
 
 const _kDbPath = '/vault/test.kdbx';
 
+/// Waits until [predicate] holds, yielding to the event loop between checks.
+///
+/// The bound is deliberately far larger than anything these fakes can need:
+/// every wait here completes in microseconds once the handler completes, so
+/// the timeout is a deadlock detector, not a "is this machine fast enough"
+/// budget. The previous 1s bound was the latter — on a loaded CI it could
+/// expire while the condition was still on its way to becoming true, turning a
+/// passing test into a random failure. The predicate is unchanged, so a real
+/// regression still fails; it just fails for the right reason.
 Future<void> _waitUntil(
   bool Function() predicate, {
-  Duration timeout = const Duration(seconds: 1),
+  Duration timeout = const Duration(seconds: 10),
 }) async {
   final deadline = DateTime.now().add(timeout);
   while (!predicate()) {
     if (DateTime.now().isAfter(deadline)) {
       fail('Timed out waiting for condition.');
     }
-    await Future<void>.delayed(const Duration(milliseconds: 5));
+    await Future<void>.delayed(Duration.zero);
   }
 }
 
