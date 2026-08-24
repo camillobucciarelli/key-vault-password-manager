@@ -16,10 +16,10 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  final probe = File(
-    'integration_test/master_password_keystore_qa_test.dart',
-  );
+  final probe = File('integration_test/master_password_keystore_qa_test.dart');
+  final runner = File('tool/run_ios_keystore_qa.sh');
   late String source;
+  late String runnerSource;
 
   setUpAll(() {
     expect(
@@ -28,6 +28,12 @@ void main() {
       reason: 'the keystore probe is gone; docs/manual-qa.md still cites it',
     );
     source = probe.readAsStringSync();
+    expect(
+      runner.existsSync(),
+      isTrue,
+      reason: 'the cross-process runner is gone; phase pairs are unsafe',
+    );
+    runnerSource = runner.readAsStringSync();
   });
 
   group('the keystore probe cannot print a secret', () {
@@ -83,6 +89,43 @@ void main() {
         isFalse,
         reason: 'the probe reports a key set rather than a count',
       );
+    });
+  });
+
+  group('the keystore probe is genuinely cross-process', () {
+    test('the runner retains the app container between paired phases', () {
+      expect(
+        RegExp(
+          r'^\s+--no-uninstall \\$',
+          multiLine: true,
+        ).hasMatch(runnerSource),
+        isTrue,
+        reason:
+            'flutter test uninstalls after phase 1 by default, deleting the '
+            'vault fixture and registry while iOS retains Keychain entries',
+      );
+      expect(
+        runnerSource.contains('run_phase ac2_unlock\n  run_phase ac2_relaunch'),
+        isTrue,
+      );
+      expect(
+        runnerSource.contains('run_phase ac6_seed\n  run_phase ac6_upgrade'),
+        isTrue,
+      );
+    });
+
+    test('phase 2 pins same database identity and a new process', () {
+      expect(source.contains('CROSS_PROCESS_MARKER_FOUND'), isTrue);
+      expect(source.contains('marker.processId != pid'), isTrue);
+      expect(
+        source.contains('marker.databaseId == record.databaseId'),
+        isTrue,
+        reason:
+            'registry count alone can accept a newly-created equivalent vault; '
+            'AC-2 and AC-6 require the phase-1 database identity',
+      );
+      expect(source.contains('requirePriorPhase(_ac2Scenario)'), isTrue);
+      expect(source.contains('requirePriorPhase(_ac6Scenario)'), isTrue);
     });
   });
 

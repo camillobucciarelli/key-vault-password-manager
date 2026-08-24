@@ -1,9 +1,9 @@
 // spec 011 AC-1 / AC-2 / AC-6 — keystore lifecycle probe, on a real device.
 //
 // Test infrastructure only: no CI job runs this and `flutter test` never
-// collects `integration_test/` (AGENTS.md > Testing Guidelines). Two-phase,
-// same `--dart-define=QA_PHASE=` shape as
-// `integration_test/ios_portable_paths_qa_test.dart`.
+// collects `integration_test/` (AGENTS.md > Testing Guidelines). Run phase
+// pairs through `tool/run_ios_keystore_qa.sh`: its `--no-uninstall` preserves
+// the fixture while Flutter still stops the first process.
 //
 // ---------------------------------------------------------------------------
 // WHY THIS EXISTS: iOS has no keychain dump.
@@ -65,17 +65,76 @@
 // NOT do is prove the old build wrote that key. Keep the archived-APK run in
 // `docs/manual-qa.md` if you want that half — see S1-5's note there.
 
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
+import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/database_session_coordinator.dart';
 import 'package:password_manager/injection_container.dart' as di;
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 const _phase = String.fromEnvironment('QA_PHASE', defaultValue: 'ac2_unlock');
 const _dbName = 'qa_keystore_probe.kdbx';
 const _password = 'QaKeystoreProbe!2026';
+const _ac2Scenario = 2;
+const _ac6Scenario = 6;
+
+typedef _PhaseMarker = ({int scenario, int processId, String databaseId});
+
+Future<bool> _writePhaseMarker(
+  File file, {
+  required int scenario,
+  required String databaseId,
+}) async {
+  try {
+    await file.parent.create(recursive: true);
+    await file.writeAsString(
+      jsonEncode({
+        'scenario': scenario,
+        'processId': pid,
+        'databaseId': databaseId,
+      }),
+      flush: true,
+    );
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+Future<_PhaseMarker?> _readPhaseMarker(File file) async {
+  try {
+    final decoded = jsonDecode(await file.readAsString());
+    if (decoded is! Map<String, dynamic>) return null;
+    final scenario = decoded['scenario'];
+    final processId = decoded['processId'];
+    final databaseId = decoded['databaseId'];
+    if (scenario is! int ||
+        processId is! int ||
+        databaseId is! String ||
+        databaseId.isEmpty) {
+      return null;
+    }
+    return (scenario: scenario, processId: processId, databaseId: databaseId);
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<bool> _deletePhaseMarker(File file) async {
+  try {
+    if (await file.exists()) await file.delete();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
 
 /// The only two reporters in this file. There is deliberately no `String`
 /// overload: a secret cannot be printed because no function here accepts one.
@@ -160,13 +219,12 @@ class _KeystoreCensus {
       );
     }
     return _KeystoreCensus(
-      legacyGlobal:
-          keys.contains(legacy) ? Presence.present : Presence.absent,
+      legacyGlobal: keys.contains(legacy) ? Presence.present : Presence.absent,
       ownEntry: databaseId == null
           ? Presence.indeterminate
           : keys.contains(SecureDataSourceImpl.masterPasswordKey(databaseId))
-              ? Presence.present
-              : Presence.absent,
+          ? Presence.present
+          : Presence.absent,
       perDatabaseCount: keys.where((k) => k.startsWith('$legacy.')).length,
       totalKeys: keys.length,
       readable: true,
@@ -211,6 +269,7 @@ void main() {
   late DatabaseSessionCoordinator coordinator;
   late DatabaseRegistryRepository registry;
   late FlutterSecureStorage storage;
+  late File phaseMarkerFile;
 
   setUpAll(() async {
     // `di.init()` is the FR-6 migration point: it calls
@@ -221,6 +280,10 @@ void main() {
     coordinator = di.sl<DatabaseSessionCoordinator>();
     registry = di.sl<DatabaseRegistryRepository>();
     storage = di.sl<FlutterSecureStorage>();
+    final documents = await getApplicationDocumentsDirectory();
+    phaseMarkerFile = File(
+      p.join(documents.path, 'metadata', 'qa_keystore_phase.json'),
+    );
   });
 
   /// The vault this probe owns, created on demand. Never a user's vault.
@@ -241,6 +304,51 @@ void main() {
     sayBool('VAULT_CREATED', result.path != null);
     expect(result.path, isNotNull, reason: 'could not create the probe vault');
     return result.path!;
+  }
+
+  Future<DatabaseRecord> requirePriorPhase(int expectedScenario) async {
+    final marker = await _readPhaseMarker(phaseMarkerFile);
+    final markerFound = marker != null;
+    sayBool('CROSS_PROCESS_MARKER_FOUND', markerFound);
+    expect(
+      markerFound,
+      isTrue,
+      reason:
+          'the phase-1 marker is absent: the app container was reset or phase '
+          '1 did not complete. Use tool/run_ios_keystore_qa.sh.',
+    );
+    final phaseMatches = marker!.scenario == expectedScenario;
+    sayBool('CROSS_PROCESS_PHASE_MATCHES', phaseMatches);
+    expect(phaseMatches, isTrue, reason: 'wrong phase-1 marker');
+    final newProcess = marker.processId != pid;
+    sayBool('CROSS_PROCESS_PID_CHANGED', newProcess);
+    expect(
+      newProcess,
+      isTrue,
+      reason: 'phase 2 is still running in the phase-1 process',
+    );
+
+    final records = (await registry.list())
+        .where((r) => r.canonicalPath.contains('qa_keystore_probe'))
+        .toList();
+    expect(
+      records.length,
+      1,
+      reason:
+          'no retained probe vault from phase 1. Use the runner on the same '
+          'device without uninstalling.',
+    );
+    final record = records.single;
+    final sameDatabaseIdentity = marker.databaseId == record.databaseId;
+    sayBool('SAME_DATABASE_IDENTITY', sameDatabaseIdentity);
+    expect(
+      sameDatabaseIdentity,
+      isTrue,
+      reason:
+          'phase 2 resolved a different database identity; an equivalent new '
+          'vault does not qualify',
+    );
+    return record;
   }
 
   test('spec 011 keystore lifecycle — phase $_phase', () async {
@@ -276,7 +384,7 @@ void main() {
         );
         census.report('AFTER_UNLOCK');
         expectPresence(
-          'the legacy global MASTER_PASSWORD entry (FR-6)',
+          'the legacy global entry (FR-6)',
           census.legacyGlobal,
           Presence.absent,
         );
@@ -327,6 +435,18 @@ void main() {
           Presence.absent,
         );
 
+        final markerWritten = await _writePhaseMarker(
+          phaseMarkerFile,
+          scenario: _ac2Scenario,
+          databaseId: record.databaseId,
+        );
+        sayBool('CROSS_PROCESS_MARKER_WRITTEN', markerWritten);
+        expect(
+          markerWritten,
+          isTrue,
+          reason: 'could not persist the non-secret cross-process marker',
+        );
+
         sayBool('AC2_UNLOCK_PHASE_COMPLETE', true);
 
       // ---------------------------------------------------------------
@@ -334,21 +454,12 @@ void main() {
       // demands the master password again.
       // ---------------------------------------------------------------
       case 'ac2_relaunch':
-        final records = (await registry.list())
-            .where((r) => r.canonicalPath.contains('qa_keystore_probe'))
-            .toList();
-        expect(
-          records.length,
-          1,
-          reason:
-              'no probe vault from the ac2_unlock phase — run that phase '
-              'first, on this same device, without uninstalling',
-        );
-        final path = records.single.canonicalPath;
+        final record = await requirePriorPhase(_ac2Scenario);
+        final path = record.canonicalPath;
 
         final census = await _KeystoreCensus.take(
           storage,
-          databaseId: records.single.databaseId,
+          databaseId: record.databaseId,
         );
         census.report('AFTER_KILL');
         expectPresence(
@@ -395,13 +506,21 @@ void main() {
           keyFilePath: null,
         );
         sayBool('MANUAL_UNLOCK_STILL_WORKS', true);
+        expect(
+          await _deletePhaseMarker(phaseMarkerFile),
+          isTrue,
+          reason: 'could not consume the cross-process marker',
+        );
 
       // ---------------------------------------------------------------
       // AC-6, first half: plant the legacy global entry a pre-011 build
       // left behind. Written AFTER `di.init()`, which would delete it.
       // ---------------------------------------------------------------
       case 'ac6_seed':
-        await ensureVault();
+        final path = await ensureVault();
+        final record = (await registry.list()).firstWhere(
+          (r) => r.canonicalPath == path,
+        );
         await storage.write(
           key: SecureDataSourceImpl.legacyMasterPasswordKey,
           value: _password,
@@ -415,6 +534,17 @@ void main() {
           census.legacyGlobal,
           Presence.present,
         );
+        final markerWritten = await _writePhaseMarker(
+          phaseMarkerFile,
+          scenario: _ac6Scenario,
+          databaseId: record.databaseId,
+        );
+        sayBool('CROSS_PROCESS_MARKER_WRITTEN', markerWritten);
+        expect(
+          markerWritten,
+          isTrue,
+          reason: 'could not persist the non-secret cross-process marker',
+        );
         sayBool('AC6_SEED_PHASE_COMPLETE', true);
 
       // ---------------------------------------------------------------
@@ -422,20 +552,11 @@ void main() {
       // deletion. Assert it happened and the vault still opens.
       // ---------------------------------------------------------------
       case 'ac6_upgrade':
-        final records = (await registry.list())
-            .where((r) => r.canonicalPath.contains('qa_keystore_probe'))
-            .toList();
-        expect(
-          records.length,
-          1,
-          reason:
-              'no probe vault from the ac6_seed phase — run that phase first, '
-              'on this same device, without uninstalling',
-        );
+        final record = await requirePriorPhase(_ac6Scenario);
 
         final census = await _KeystoreCensus.take(
           storage,
-          databaseId: records.single.databaseId,
+          databaseId: record.databaseId,
         );
         census.report('AFTER_UPGRADE_LAUNCH');
         expectPresence(
@@ -446,11 +567,16 @@ void main() {
         );
 
         await coordinator.unlockWithManualCredentials(
-          databasePath: records.single.canonicalPath,
+          databasePath: record.canonicalPath,
           password: _password,
           keyFilePath: null,
         );
         sayBool('VAULT_STILL_OPENS_AFTER_UPGRADE', true);
+        expect(
+          await _deletePhaseMarker(phaseMarkerFile),
+          isTrue,
+          reason: 'could not consume the cross-process marker',
+        );
 
       default:
         fail(

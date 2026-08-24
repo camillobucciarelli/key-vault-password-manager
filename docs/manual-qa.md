@@ -59,11 +59,12 @@ password-prompt UI half. S2-5 is not passed: `ac6_upgrade` did not run, and this
 probe would not prove that a real pre-`027641d` build created the legacy entry in
 any case. Spec 011 T020 therefore stays open.
 
-The retry exposed a harness precondition gap: separate documented
-`flutter test` phase invocations did not preserve the probe vault registry on
-this iPhone. `ac2_unlock` completed, but `ac2_relaunch` saw zero records;
-`ac6_seed` then created a fresh vault instead of reusing one. No workaround or
-code change was applied.
+The retry exposed a harness precondition gap: separate default `flutter test`
+phase invocations did not preserve the probe vault registry on this iPhone.
+Flutter 3.44.8 stops and then uninstalls the integration-test app after each
+run. iOS retained Keychain entries but deleted the app container, fixture and
+registry. The corrected runner now uses `--no-uninstall` and checks a
+non-secret cross-process marker; physical-device rerun remains pending.
 
 Windows and Linux T111 artifacts remain verified from PR #127, Actions run
 `32713786823`; macOS remains passed. T111 stays open because Android has no
@@ -290,11 +291,11 @@ After step 6 the vault opens normally.
 **Fails if.** The legacy entry survives the first launch, or the vault no longer
 opens with a password that worked before the upgrade.
 
-**Cheaper alternative, and what it does NOT cover.** The `QA_PHASE=ac6_seed` /
-`QA_PHASE=ac6_upgrade` phases in the S2 preconditions assert the same
-deletion-and-still-opens property without needing an archived APK, and the seed
-phase fails loudly if the legacy entry could not be planted — the "old build is
-not old enough" trap above, made machine-checked.
+**Cheaper alternative, and what it does NOT cover.** The
+`tool/run_ios_keystore_qa.sh -d <device-id> -s ac6` pair in the S2 preconditions
+asserts the same deletion-and-still-opens property without needing an archived
+APK, and the seed phase fails loudly if the legacy entry could not be planted —
+the "old build is not old enough" trap above, made machine-checked.
 
 What it deliberately does not do is prove that a **real pre-`027641d` build**
 wrote that key: it writes the key itself. If you have the archived APK, the
@@ -393,27 +394,24 @@ non-jailbroken iOS device**. `security find-generic-password` is a macOS binary
 and does not reach an iOS device; Xcode offers no keychain browser. That has
 not changed and no command claiming otherwise is written here.
 
-What *has* changed is that the app can answer the question itself:
+What *has* changed is that the app can answer the question itself. Run both
+scenarios, or one pair only:
 
 ```bash
-# Phase 1: unlock with biometrics off and do NOT lock. The test run ending is
-# the process kill.
-flutter test integration_test/master_password_keystore_qa_test.dart \
-  -d <device-id> --dart-define=QA_PHASE=ac2_unlock
-
-# Phase 2: assert nothing survived and the password is required again.
-flutter test integration_test/master_password_keystore_qa_test.dart \
-  -d <device-id> --dart-define=QA_PHASE=ac2_relaunch
+tool/run_ios_keystore_qa.sh -d <device-id> -s all
+tool/run_ios_keystore_qa.sh -d <device-id> -s ac2
+tool/run_ios_keystore_qa.sh -d <device-id> -s ac6
 ```
 
-```bash
-# AC-6, same two-phase shape: plant the legacy global entry a pre-011 build
-# left behind, then let the current build's first launch delete it.
-flutter test integration_test/master_password_keystore_qa_test.dart \
-  -d <device-id> --dart-define=QA_PHASE=ac6_seed
-flutter test integration_test/master_password_keystore_qa_test.dart \
-  -d <device-id> --dart-define=QA_PHASE=ac6_upgrade
-```
+Do not replace the runner with two default `flutter test` commands. Flutter's
+default teardown calls `stopApp` and then `uninstallApp`: iOS keeps Keychain
+entries but removes the app container, which invalidates the cross-process
+fixture. The runner passes `--no-uninstall`; `stopApp` still terminates phase 1,
+then phase 2 launches a new process over the retained container. Phase 1 stores
+a non-secret `databaseId` + PID marker. Phase 2 requires a different PID and
+the same random database identity before inspecting the Keychain or opening the
+vault. Missing marker, fresh container, or equivalent newly-created vault all
+fail.
 
 The probe reports **presence or absence only**, never a value, and it lives in
 `integration_test/` — which `flutter build` never compiles into an app, so
@@ -430,20 +428,18 @@ absence.
 
 **Verified status of the probe itself, stated plainly:**
 
-- It has been **executed** end to end through the real DI graph and the real
-  unlock flow, and its guard tests are green.
-- It has **not been observed passing on any platform**, because no iOS or
-  Android hardware was available when it was written, and on macOS it hits
-  `errSecInteractionNotAllowed` (-25308) — the login keychain will not serve a
-  non-interactive process (see S3-1, which therefore keeps using `security`).
-- So S2-1 and S2-2 are **no longer blocked, but not yet closed**. The first
-  person with an iPhone runs the commands above and records what happens,
-  including a probe defect if that is what turns up.
+- `ac2_unlock` passed on physical iPhone / iOS 26.6 through the real DI graph,
+  unlock flow, negative census, and positive control.
+- The old `ac2_relaunch` command lost its fixture before reaching AC-2. The
+  corrected cross-process pair has host-tested guards but has not yet run on
+  hardware; S2-2 remains `not-run`.
+- macOS still hits `errSecInteractionNotAllowed` (-25308), so S3-1 keeps using
+  the interactive `security` command.
 
 ### S2-1 · Keystore untouched with biometrics off, iOS (spec 011 AC-1)
 
-Same intent as S1-1. **No longer blocked:** run the `QA_PHASE=ac2_unlock`
-command above, which unlocks vault A with biometrics off and then asserts that
+Same intent as S1-1. **Passed on iOS 26.6:** the `-s ac2` runner's first phase
+unlocks vault A with biometrics off and then asserts that
 this database has no keystore entry. It also runs a **positive control** —
 it deliberately writes an entry, confirms the probe can see it, and removes it
 again — so an `absent` result cannot be a probe that is simply blind.
@@ -455,8 +451,8 @@ another.
 
 ### S2-2 · Nothing survives process kill, iOS (spec 011 AC-2)
 
-Same intent as S1-2. The inspection half is the `QA_PHASE=ac2_relaunch`
-command above: it asserts no entry survived and that the stored-credential
+Same intent as S1-2. The inspection half is the `-s ac2` runner's second
+process: it asserts no entry survived and that the stored-credential
 unlock path refuses, which is what makes the app ask for the password again.
 It then unlocks with the password to prove the refusal was "no stored secret"
 rather than "the vault is broken".
@@ -1294,10 +1290,11 @@ pinned by five process-level tests.
 ### Built: the keystore probe and the AC-2 / AC-6 lifecycle (was candidates 1 and 2)
 
 **Removed 0 items — stated plainly.** It unblocked S2-1 and S2-2 and gave S1-2
-and S1-5 a cheaper route, but nothing left the list, because the probe has not
-been observed passing on any platform (no iOS or Android hardware; macOS
-refuses non-interactive keychain reads). Removing those rows now would be
-exactly the shortened-by-lying outcome this file exists to avoid.
+and S1-5 a cheaper route, but nothing left the list. Its first AC-2 phase later
+passed on physical iOS 26.6; its corrected cross-process pair still awaits a
+hardware rerun, and macOS refuses non-interactive keychain reads. Removing
+remaining rows now would be exactly the shortened-by-lying outcome this file
+exists to avoid.
 
 Candidates 1 and 2 collapsed into **one** artifact,
 `integration_test/master_password_keystore_qa_test.dart`, because the safest
