@@ -746,14 +746,50 @@ qualifies another target. macOS host unit tests executed for T001–T007 are
 
 | Platform | Status | Feature enabled | Required artifact | Command/runtime |
 | --- | --- | --- | --- | --- |
-| Android | `not-run` | no | `build/safety-evidence/android/safe-vault-writer.json` + log | Android app storage on named device/emulator |
-| iOS | `not-run` | no | `build/safety-evidence/ios/safe-vault-writer.json` + simulator/device logs | iOS simulator plus release-target physical evidence before release |
-| macOS | `not-run` | no | `build/safety-evidence/macos/safe-vault-writer.json` + log | macOS app sandbox/runtime |
-| Windows | `not-run` | no | `build/safety-evidence/windows/safe-vault-writer.json` + log | native Windows runner/filesystem |
-| Linux | `not-run` | no | `build/safety-evidence/linux/safe-vault-writer.json` + log | native package runner/filesystem |
+| Android | `not-run` | no | `build/safety-evidence/android/safe-vault-writer.json` + log | Android app storage on named device/emulator; no artifact produced |
+| iOS | `not-run` | no | `build/safety-evidence/ios/safe-vault-writer.json` + device log | Physical iPhone / iOS 26.6 attempt on 2026-08-24; runner exit 1 before harness execution because the Developer Disk Image could not be mounted; no artifact filed |
+| macOS | `passed` | no | `build/safety-evidence/macos/safe-vault-writer.json` + log | `tool/run_safety_harness.sh -H`; macOS 26.6.1 host / APFS; 8/8 cases passed; metadata below |
+| Windows | `passed` | no | Actions artifact `t111-safe-vault-writer-windows` | PR #127 run `32713786823`; native `windows-2022` / NTFS; 8/8 cases passed; metadata below |
+| Linux | `passed` | no | Actions artifact `t111-safe-vault-writer-linux` | PR #127 run `32713786823`; native `ubuntu-latest` / ext4; 8/8 cases passed; metadata below |
 
-No artifact file exists under `build/safety-evidence/`; asserted by
-`no platform artifact exists yet`.
+A passing row records platform-qualified filesystem evidence; it does not switch
+on unfinished product code. `commit` still returns `platformDisabled` while the
+later implementation gates remain open, so every feature flag above remains
+`no`.
+
+### T111 artifact metadata — 2026-08-24
+
+- **iOS — `not-run`.** Command
+  `tool/run_safety_harness.sh -d <physical-device> -p ios`; Flutter test exit 1,
+  runner exit 1. Xcode reported
+  `The developer disk image could not be mounted on this device.` The harness
+  emitted no artifact marker, so the filer correctly wrote no iOS JSON or log.
+  This is not a `failed` artifact and supplies no iOS evidence.
+- **macOS — `passed`.** Schema 1; artifact and log under the ignored
+  `build/safety-evidence/macos/`; commit
+  `118098b5026c6a53c73c3a2e4db277379abbd91b`; command
+  `tool/run_safety_harness.sh -H`; runner `host`; macOS 26.6.1 build 25G76;
+  APFS; Flutter 3.44.8 / Dart 3.12.2; UTC
+  `2026-08-24T10:33:19.701779Z`–`2026-08-24T10:33:19.917005Z`; status
+  `passed`; 8/8 cases. Capabilities:
+  `atomicReplaceOverExisting=true`, `backupNoOverwrite=true`,
+  `flushSupported=true`, `directorySyncSupported=false`. Host evidence
+  qualifies macOS only.
+- **Windows — `passed`, CI evidence verified.** PR #127 Actions run
+  `32713786823`, artifact id `9515181562`, commit
+  `746a4fe149b707e4ac43de49d7bc50d28e81214f`; Windows Server 2022 build
+  20348 / NTFS; Flutter 3.44.8 / Dart 3.12.2; status `passed`; 8/8 cases.
+  Capabilities: `atomicReplaceOverExisting=true`, `backupNoOverwrite=true`,
+  `flushSupported=true`, `directorySyncSupported=false`.
+- **Linux — `passed`, CI evidence verified.** Same Actions run, artifact id
+  `9515143953`, same commit; `ubuntu-latest`, Linux 6.17.0-1022-azure / ext4;
+  Flutter 3.44.8 / Dart 3.12.2; status `passed`; 8/8 cases. Capabilities:
+  `atomicReplaceOverExisting=true`, `backupNoOverwrite=true`,
+  `flushSupported=true`, `directorySyncSupported=false`.
+
+Artifacts remain untracked: local output is under ignored `build/`, and CI JSON
+stays attached to its Actions run. T111 remains unchecked because Android has no
+artifact and iOS remains `not-run`.
 
 ## Model corrections from spike
 
