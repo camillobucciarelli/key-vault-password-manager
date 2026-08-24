@@ -128,6 +128,52 @@ job and upload it.
 
 **Windows prerequisite:** three QA suites build a `/var`→`/private/var`-style path divergence with `Link.create`, which on Windows requires Developer Mode or an elevated shell. Without it these files fail locally for environment reasons only — they are not skipped, since every CI Flutter job runs on `ubuntu-latest` and macOS is unaffected. Affected files: `test/features/password_manager/data/portable_path_symlink_qa_test.dart`, `test/core/utils/mobile_file_storage_guard_qa_test.dart`, `test/core/utils/mobile_file_storage_guard_bypass_qa_test.dart`.
 
+### spec 008 T111 safe-writer platform harness
+
+`tool/safe_vault_writer_harness.dart` holds the eight fault/collision cases spec
+008 Gate 0 requires of every platform artifact. They run in two places on
+purpose: `test/tool/safe_vault_writer_harness_test.dart` executes them on the CI
+host on every PR, and `integration_test/safe_vault_writer_harness_test.dart`
+executes the *same* code on a device. The device contributes hardware, not
+logic.
+
+```bash
+tool/run_safety_harness.sh -d <device-id> -p android   # on a device
+tool/run_safety_harness.sh -H                          # on this host
+```
+
+The runner stamps provenance the device cannot know, then
+`tool/file_safety_evidence.dart` validates the artifact against
+`tool/safety_evidence_schema.dart` — the same schema
+`safe_vault_file_writer_harness_schema_test.dart` pins — and writes
+`build/safety-evidence/<platform>/`. Exit 0 = passed, **2 = a filed `failed`
+artifact** (a real finding), 1 = nothing could be filed. Linux and Windows
+artifacts are produced in CI by the `t111-platform-artifact` job, because on
+those two targets the runner is the platform.
+
+Do not add a second copy of the schema anywhere. After a real run, the Gate 0
+assertion `no platform artifact exists yet` will fail until
+`specs/008-per-field-conflict-resolution/feasibility-report.md` is updated —
+that tripwire is deliberate.
+
+### spec 011 keystore probe (manual, on-demand)
+
+`integration_test/master_password_keystore_qa_test.dart` answers "is there a
+master-password entry for this database?" on all five platforms, including iOS,
+where no keychain dump exists. Four phases via `--dart-define=QA_PHASE=`:
+`ac2_unlock`, `ac2_relaunch`, `ac6_seed`, `ac6_upgrade`.
+
+It reports **presence only, never a value**, and it must stay in
+`integration_test/` — that is what keeps it off the release surface without a
+build flavor. `test/tool/keystore_probe_guard_test.dart` enforces this on every
+PR: no `String` reporter, no `getMasterPassword` call, no reference from `lib/`.
+Do not "promote" it into a debug screen.
+
+Its readings are tri-state; an unreadable keystore is `indeterminate` and fails
+loudly. Never collapse that to `false` — macOS really does refuse
+(`errSecInteractionNotAllowed`), and a silent `false` would be a confident wrong
+pass on an item whose whole purpose is proving absence.
+
 ### iOS container-relocation harness (manual, on-demand)
 
 `integration_test/ios_portable_paths_qa_test.dart` is the only check that reproduces the iOS app-container relocation end to end: it runs the real `createNewDatabase` flow through the real DI graph and real `path_provider`, then re-drives `checkInitialDatabase()` after the container UUID has rotated. No CI job runs it, and `flutter test` never collects `integration_test/` — run it by hand when touching persisted-path code.
