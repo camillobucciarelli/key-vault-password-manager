@@ -12,13 +12,10 @@ DateTime Function() debugEntryDetailNowOverride = DateTime.now;
 /// (tablet, via `VaultShellRouter`'s existing pane presentation — no route
 /// is pushed on tablet, see `VaultShellRouter.presentationFor`).
 class _EntryDetailsPage extends StatelessWidget {
-  const _EntryDetailsPage({
-    required this.entryId,
-    required this.onSelectedAction,
-  });
+  const _EntryDetailsPage({required this.entryId, this.onSelectedAction});
 
   final String entryId;
-  final ValueChanged<_EntryAction> onSelectedAction;
+  final ValueChanged<_EntryAction>? onSelectedAction;
 
   @override
   Widget build(BuildContext context) {

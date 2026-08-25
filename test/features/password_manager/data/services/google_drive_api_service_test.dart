@@ -7,6 +7,11 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:password_manager/features/password_manager/data/datasources/google_token_data_source.dart';
+import 'package:password_manager/features/password_manager/data/services/desktop_oauth_pkce_service.dart';
+import 'package:password_manager/features/password_manager/data/services/drive_auth_service.dart';
+import 'package:password_manager/features/password_manager/data/services/google_drive_api_service.dart';
+import 'package:password_manager/features/password_manager/data/services/google_oauth_config.dart';
 import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
 
 // =============================================================================
@@ -267,7 +272,7 @@ void main() {
     });
 
     test('DriveRemoteFile carries no concurrency token', () {
-      // The model declares exactly four fields, none of which is a
+      // The model declares exactly five fields, none of which is a
       // server-enforceable precondition token. Asserted against the source,
       // because `props` is a list of VALUES: `isNot(contains('etag'))` on it
       // would pass even if an `etag` field existed.
@@ -278,7 +283,13 @@ void main() {
         r'^\s*final\s+[\w<>?]+\s+(\w+);',
         multiLine: true,
       ).allMatches(source).map((m) => m.group(1)).toList();
-      expect(fields, <String>['id', 'name', 'modifiedTime', 'md5Checksum']);
+      expect(fields, <String>[
+        'id',
+        'name',
+        'modifiedTime',
+        'md5Checksum',
+        'size',
+      ]);
       for (final token in const ['etag', 'version', 'headRevisionId']) {
         expect(
           fields,
@@ -299,6 +310,95 @@ void main() {
       );
     });
   });
+
+  group('size field (T8/FR-2)', () {
+    late GoogleDriveApiService service;
+
+    GoogleDriveApiService buildService(http.Client client) {
+      return GoogleDriveApiService(
+        driveAuthService: _FixedTokenDriveAuthService(),
+        httpClient: client,
+      );
+    }
+
+    test('getFileMetadata parses the string "size" the Drive API returns', () async {
+      service = buildService(
+        MockClient((request) async {
+          return http.Response(
+            jsonEncode({
+              'id': 'f1',
+              'name': 'vault.kdbx',
+              'size': '123456',
+            }),
+            HttpStatus.ok,
+          );
+        }),
+      );
+
+      final file = await service.getFileMetadata('f1');
+      expect(file.size, 123456);
+    });
+
+    test('getFileMetadata leaves size null when Drive omits it', () async {
+      service = buildService(
+        MockClient((request) async {
+          return http.Response(
+            jsonEncode({'id': 'f1', 'name': 'vault.kdbx'}),
+            HttpStatus.ok,
+          );
+        }),
+      );
+
+      final file = await service.getFileMetadata('f1');
+      expect(file.size, isNull);
+    });
+
+    test('listKdbxFilesInDrive requests size in the fields param', () async {
+      service = buildService(
+        MockClient((request) async {
+          expect(request.url.queryParameters['fields'], contains('size'));
+          return http.Response(jsonEncode({'files': <Object?>[]}), HttpStatus.ok);
+        }),
+      );
+
+      await service.listKdbxFilesInDrive();
+    });
+  });
+}
+
+/// Bypasses the real OAuth flow: always returns a fixed token so
+/// [GoogleDriveApiService] tests can exercise the real request/mapping code
+/// against a [MockClient] without wiring Google Sign-In.
+class _FixedTokenDriveAuthService extends DriveAuthService {
+  _FixedTokenDriveAuthService()
+    : super(
+        config: const GoogleOAuthConfig(
+          mobileClientId: null,
+          androidServerClientId: null,
+          desktopClientId: null,
+          desktopClientSecret: null,
+        ),
+        googleTokenDataSource: _NoopGoogleTokenDataSource(),
+        desktopOAuthPkceService: DesktopOAuthPkceService(
+          httpClient: http.Client(),
+        ),
+      );
+
+  @override
+  Future<String> getValidAccessToken({bool forceRefresh = false}) async {
+    return 'test-token';
+  }
+}
+
+class _NoopGoogleTokenDataSource implements GoogleTokenDataSource {
+  @override
+  Future<void> saveDesktopCredentialsJson(String json) async {}
+
+  @override
+  Future<String?> getDesktopCredentialsJson() async => null;
+
+  @override
+  Future<void> clearDesktopCredentialsJson() async {}
 }
 
 // =============================================================================

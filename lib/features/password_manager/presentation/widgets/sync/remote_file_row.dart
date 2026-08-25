@@ -2,19 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../../../../../core/theme/app_glyph.dart';
 import '../../../../../core/theme/keyvault_colors.dart';
+import '../../../../../core/utils/format_bytes.dart';
 import '../../../../../core/widgets/kv_icon.dart';
 import '../../../../../core/widgets/kv_list_row.dart';
 import '../../../../../core/widgets/kv_tag.dart';
 import '../../../domain/models/drive_remote_file.dart';
 
-/// FR-2 / T8: one row per `DriveRemoteFile` — name, `modifiedTime`, and an
-/// already-linked warning `KvTag` when the file id appears in another
+/// FR-2 / T8: one row per `DriveRemoteFile` — name, `modifiedTime`, `size`,
+/// and an already-linked warning `KvTag` when the file id appears in another
 /// `DatabaseSyncMapping` ([isLinkedElsewhere], AC4).
-///
-/// `DriveRemoteFile` does not carry a file-size field today (only id, name,
-/// modifiedTime, md5Checksum) — this row therefore does not show one; the
-/// mock's "2.4 MB" is illustrative, not backed by a real field. See the
-/// final report for this gap.
 class RemoteFileRow extends StatelessWidget {
   const RemoteFileRow({
     super.key,
@@ -35,6 +31,7 @@ class RemoteFileRow extends StatelessWidget {
     final subtitleParts = <String>[
       if (file.modifiedTime != null)
         'Modified ${_formatDate(file.modifiedTime!)}',
+      if (file.size != null) formatBytes(file.size!),
       if (isLinkedElsewhere) 'linked to another database',
     ];
 

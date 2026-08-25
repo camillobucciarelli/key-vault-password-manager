@@ -177,7 +177,7 @@ Future<VaultDone?> _showAttachmentsDialog(
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(AppIcons.attachment),
                         title: Text(attachment.name),
-                        subtitle: Text(_formatBytes(attachment.size)),
+                        subtitle: Text(formatBytes(attachment.size)),
                         trailing: PopupMenuButton<_AttachmentAction>(
                           onSelected: (action) async {
                             if (!dialogContext.mounted) {

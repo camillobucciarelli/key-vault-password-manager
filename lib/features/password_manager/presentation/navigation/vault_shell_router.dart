@@ -279,6 +279,11 @@ final class DuplicatesSurface<R extends VaultRouteResult>
   const DuplicatesSurface({required super.builder});
 }
 
+final class HealthCategorySurface<R extends VaultRouteResult>
+    extends VaultSurface<R> {
+  const HealthCategorySurface({required super.builder});
+}
+
 final class SyncLinkSurface<R extends VaultRouteResult>
     extends VaultSurface<R> {
   const SyncLinkSurface({required super.builder});
@@ -339,6 +344,7 @@ VaultSurfacePresentation presentationFor<R extends VaultRouteResult>(
     AttachmentsSurface() ||
     RecycleBinSurface() ||
     DuplicatesSurface() ||
+    HealthCategorySurface() ||
     SyncLinkSurface() ||
     DatabaseSettingsSurface() =>
       mobile ? const VaultRoutePresentation() : const VaultPanePresentation(),

@@ -301,11 +301,13 @@ void main() {
           id: 'f1',
           name: 'Personal.kdbx',
           modifiedTime: DateTime(2026, 3, 12),
+          size: 312000,
         ),
         DriveRemoteFile(
           id: 'f2',
           name: 'Personal-old.kdbx',
           modifiedTime: DateTime(2024, 8, 4),
+          size: 2400000,
         ),
         DriveRemoteFile(
           id: 'f3',
