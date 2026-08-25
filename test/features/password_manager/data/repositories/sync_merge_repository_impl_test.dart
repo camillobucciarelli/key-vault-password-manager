@@ -38,12 +38,16 @@ import 'package:kdbx/kdbx.dart';
 import 'package:kdbx/src/kdbx_object.dart' show KdbxObjectInternal;
 import 'package:password_manager/features/password_manager/data/datasources/local_data_source.dart';
 import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
+import 'package:password_manager/features/password_manager/data/datasources/sync_metadata_data_source.dart';
 import 'package:password_manager/features/password_manager/data/repositories/sync_merge_repository_impl.dart';
+import 'package:password_manager/features/password_manager/data/services/database_path_mutex.dart';
+import 'package:password_manager/features/password_manager/data/services/google_drive_api_service.dart';
 import 'package:password_manager/features/password_manager/data/services/kdbx_merge_adapter.dart';
 import 'package:password_manager/features/password_manager/data/services/kdbx_semantic_manifest.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_security_profile.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
+import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_security_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
@@ -271,27 +275,62 @@ void main() {
       );
     });
 
-    test(
-      'commit writes nothing while the FR-7 cycle is unimplemented',
-      () async {
-        final harness = await _Harness.build(temp);
-        final summary = await harness.repository.startReview(
-          harness.databaseId,
-        );
-        final before = await File(harness.databasePath).readAsBytes();
+    test('commit with no divergence finalizes: local replaced, upload sent, '
+        'mapping updated only after the read-back matches', () async {
+      // spec-008 T401. `platformDisabled` is gone: there is no
+      // feature-flag mechanism anywhere in this codebase, and T111 passed
+      // on all 5 platforms.
+      final harness = await _Harness.build(temp);
+      final summary = await harness.repository.startReview(harness.databaseId);
 
-        final outcome = await harness.repository.commit(summary.sessionId);
+      final outcome = await harness.repository.commit(summary.sessionId);
 
-        expect(
-          outcome,
-          isA<MergeRejected>()
-              .having((r) => r.code, 'code', MergeFailureCode.platformDisabled)
-              .having((r) => r.localCommitCompleted, 'localCommitted', isFalse),
-        );
-        expect(await File(harness.databasePath).readAsBytes(), before);
-        expect(harness.sync.uploads, isEmpty);
-      },
-    );
+      expect(outcome, isA<MergeApplied>());
+      final applied = outcome as MergeApplied;
+      expect(applied.uploadState, MergeUploadState.uploaded);
+      expect(applied.backupCreated, isTrue);
+
+      // Exactly one upload, and the mapping was written exactly once —
+      // AFTER that upload's own read-back matched.
+      expect(harness.drive.updateCalls, hasLength(1));
+      expect(harness.syncMetadata.upsertCalls, hasLength(1));
+      final onDisk = await File(harness.databasePath).readAsBytes();
+      expect(onDisk, harness.drive.updateCalls.single);
+      expect(harness.remote.content, onDisk);
+      expect(
+        harness.syncMetadata.upsertCalls.single.lastSyncedLocalChecksum,
+        md5.convert(onDisk).toString(),
+      );
+
+      // FR-2's session lifecycle: a finalized commit disposes the session.
+      await expectLater(
+        harness.repository.commit(summary.sessionId),
+        _failsWith(MergeFailureCode.sessionInvalidated),
+      );
+    });
+
+    test('a local edit that lands after review opened refuses the commit '
+        'before anything is written or uploaded', () async {
+      final harness = await _Harness.build(temp);
+      final summary = await harness.repository.startReview(harness.databaseId);
+      // Simulates an ordinary vault edit racing the open review — written
+      // directly, bypassing the merge port entirely, exactly like a VaultBloc
+      // CRUD op would.
+      await File(
+        harness.databasePath,
+      ).writeAsBytes(Uint8List.fromList([...harness.localBytes, 0]));
+
+      final outcome = await harness.repository.commit(summary.sessionId);
+
+      expect(
+        outcome,
+        isA<MergeRejected>()
+            .having((r) => r.code, 'code', MergeFailureCode.staleLocal)
+            .having((r) => r.localCommitCompleted, 'localCommitted', isFalse),
+      );
+      expect(harness.drive.updateCalls, isEmpty);
+      expect(harness.syncMetadata.upsertCalls, isEmpty);
+    });
 
     test('a wrong-lineage remote is refused before a session exists', () async {
       final harness = await _Harness.build(temp, foreignRemote: true);
@@ -550,6 +589,455 @@ void main() {
 
       expect(notes.choice, MergeChoice.local);
       expect(custom.choice, MergeChoice.local);
+    });
+  });
+
+  // ===========================================================================
+  // T401 — the FR-7 write-verify-converge cycle: divergence, the sticky
+  // ledger, the retry budget, ambiguous read-backs and the semantic-manifest
+  // short-circuit. `harness.remote` is the single mutable "what Drive
+  // actually holds" fixture, so a test simulates a concurrent writer either
+  // by mutating it directly before `commit` (a write that landed before the
+  // cycle started) or via `onUpload` (a write that lands strictly between an
+  // upload and its own read-back).
+  // ===========================================================================
+  group('T401 write-verify-converge cycle', () {
+    const entryUuid = 'FFFFFFFFFFFFFFFFFFFFAQ==';
+    late Directory t401Temp;
+    setUp(() async {
+      t401Temp = await Directory.systemTemp.createTemp('sync-merge-t401-');
+    });
+    tearDown(() async {
+      if (t401Temp.existsSync()) await t401Temp.delete(recursive: true);
+    });
+
+    test('a benign remote divergence (metadata only) re-merges automatically '
+        'via the sticky ledger and still finalizes in one upload', () async {
+      final fixture = await _t401Fixture(t401Temp);
+      final harness = await _Harness.build(t401Temp, fixture: fixture);
+      final summary = await harness.repository.startReview(harness.databaseId);
+
+      // A write that landed on the remote before this commit call even
+      // started: same field conflict, only the (auto-merged) description
+      // differs.
+      harness.remote.content = await _withDescription(
+        fixture.remoteBytes,
+        fixture.credentials,
+        'v2-description',
+        DateTime.utc(2030),
+      );
+
+      final outcome = await harness.repository.commit(summary.sessionId);
+
+      expect(outcome, isA<MergeApplied>());
+      // Resolved INLINE within the first round: a pre-write divergence has
+      // no candidate yet to short-circuit against, so it always re-merges,
+      // but that re-merge does not by itself spend a second upload.
+      expect(harness.drive.updateCalls, hasLength(1));
+
+      final merged = await KdbxFormat().read(
+        await File(harness.databasePath).readAsBytes(),
+        fixture.credentials,
+      );
+      expect(merged.body.meta.databaseDescription.get(), 'v2-description');
+      expect(
+        _entry(merged, entryUuid)!.getString(KdbxKey('Notes'))?.getText(),
+        'remote-notes-v1',
+        reason:
+            'the sticky decision for Notes must survive a divergence '
+            'that never touched it',
+      );
+    });
+
+    test('a divergent remote that introduces a field the ledger never saw '
+        'returns MergeNeedsReview and writes nothing; answering it and '
+        'committing again finalizes', () async {
+      final fixture = await _t401Fixture(t401Temp);
+      final harness = await _Harness.build(t401Temp, fixture: fixture);
+      final summary = await harness.repository.startReview(harness.databaseId);
+      final before = await File(harness.databasePath).readAsBytes();
+
+      // A concurrent write that ADDS a field local also independently
+      // holds (with a different value) — a genuine NEW conflict, never
+      // shown at review time (remoteV1 does not have this field at all).
+      final remoteV2 = await KdbxFormat().read(
+        fixture.remoteBytes,
+        fixture.credentials,
+      );
+      _entry(
+        remoteV2,
+        entryUuid,
+      )!.setString(KdbxKey('Custom_New'), PlainValue('remote-new-value'));
+      harness.remote.content = Uint8List.fromList(await remoteV2.save());
+
+      final outcome = await harness.repository.commit(summary.sessionId);
+
+      expect(outcome, isA<MergeNeedsReview>());
+      final needsReview = outcome as MergeNeedsReview;
+      expect(needsReview.newConflictCount, 1);
+      expect(needsReview.reviewReentryCount, 1);
+      // Nothing was written: the divergence was caught before step 4 ever
+      // built a candidate off a guessed side.
+      expect(harness.drive.updateCalls, isEmpty);
+      expect(harness.syncMetadata.upsertCalls, isEmpty);
+      expect(await File(harness.databasePath).readAsBytes(), before);
+
+      final newConflict = needsReview.summary.decisions.firstWhere(
+        (d) => d.category == MergeFieldCategory.customField,
+      );
+      await harness.repository.updateDecision(
+        sessionId: summary.sessionId,
+        decisionId: newConflict.decisionId,
+        choice: MergeChoice.local,
+      );
+
+      final second = await harness.repository.commit(summary.sessionId);
+
+      expect(second, isA<MergeApplied>());
+      expect(harness.drive.updateCalls, hasLength(1));
+      final merged = await KdbxFormat().read(
+        await File(harness.databasePath).readAsBytes(),
+        fixture.credentials,
+      );
+      final mergedEntry = _entry(merged, entryUuid)!;
+      expect(
+        mergedEntry.getString(KdbxKey('Custom_New'))?.getText(),
+        'local-new-value',
+      );
+      expect(
+        mergedEntry.getString(KdbxKey('Notes'))?.getText(),
+        'remote-notes-v1',
+        reason:
+            'the ORIGINAL sticky decision must still hold on the '
+            'second commit',
+      );
+    });
+
+    test('a remote that keeps racing past the retry budget ends '
+        'unresolvedConflict, retaining the local file and never marking '
+        'synced', () async {
+      final fixture = await _t401Fixture(t401Temp);
+      final harness = await _Harness.build(t401Temp, fixture: fixture);
+      final summary = await harness.repository.startReview(harness.databaseId);
+
+      // Every upload is immediately superseded by a fresh, ever-different,
+      // never-matching remote write — the description keeps moving with a
+      // strictly newer clock each time, so `_mergeMeta` keeps adopting it
+      // and no candidate ever catches up within the retry budget. It never
+      // creates a genuinely new field conflict, so this exercises the
+      // budget, not the review re-entry path.
+      var generation = 0;
+      harness.remote.onUpload = (uploaded) async {
+        generation++;
+        return _withDescription(
+          uploaded,
+          fixture.credentials,
+          'race-$generation',
+          DateTime.utc(2030).add(Duration(days: generation)),
+        );
+      };
+
+      final outcome = await harness.repository.commit(summary.sessionId);
+
+      expect(
+        outcome,
+        isA<MergeRejected>()
+            .having((r) => r.code, 'code', MergeFailureCode.unresolvedConflict)
+            .having((r) => r.localCommitCompleted, 'localCommitted', isTrue),
+      );
+      expect(harness.drive.updateCalls, hasLength(3));
+      expect(harness.syncMetadata.upsertCalls, isEmpty);
+      // The local file and its backup are retained: the last round's
+      // candidate is exactly what SafeVaultFileWriter wrote, whether or not
+      // the upload it fed ever finalized.
+      expect(
+        await File(harness.databasePath).readAsBytes(),
+        harness.drive.updateCalls.last,
+      );
+    });
+
+    test('a non-executable read-back (no checksum returned) is ambiguous: '
+        'local is written but the mapping is never finalized, and the upload '
+        'is not retried blindly', () async {
+      final fixture = await _t401Fixture(t401Temp);
+      final harness = await _Harness.build(t401Temp, fixture: fixture);
+      final summary = await harness.repository.startReview(harness.databaseId);
+      final before = await File(harness.databasePath).readAsBytes();
+      harness.remote.suppressChecksumOnUpdate = true;
+
+      final outcome = await harness.repository.commit(summary.sessionId);
+
+      expect(
+        outcome,
+        isA<MergeRejected>()
+            .having(
+              (r) => r.code,
+              'code',
+              MergeFailureCode.uploadOutcomeAmbiguous,
+            )
+            .having((r) => r.localCommitCompleted, 'localCommitted', isTrue),
+      );
+      expect(harness.drive.updateCalls, hasLength(1));
+      expect(harness.syncMetadata.upsertCalls, isEmpty);
+      expect(await File(harness.databasePath).readAsBytes(), isNot(before));
+    });
+
+    test(
+      'a transport failure during upload is ambiguous, not a rejection',
+      () async {
+        final fixture = await _t401Fixture(t401Temp);
+        final harness = await _Harness.build(t401Temp, fixture: fixture);
+        final summary = await harness.repository.startReview(
+          harness.databaseId,
+        );
+        harness.remote.updateFileError = Exception('network boom');
+
+        final outcome = await harness.repository.commit(summary.sessionId);
+
+        expect(
+          outcome,
+          isA<MergeRejected>()
+              .having(
+                (r) => r.code,
+                'code',
+                MergeFailureCode.uploadOutcomeAmbiguous,
+              )
+              .having((r) => r.localCommitCompleted, 'localCommitted', isTrue),
+        );
+        expect(harness.syncMetadata.upsertCalls, isEmpty);
+      },
+    );
+
+    test('a metadata-recheck failure before any write is ambiguous and touches '
+        'nothing', () async {
+      final fixture = await _t401Fixture(t401Temp);
+      final harness = await _Harness.build(t401Temp, fixture: fixture);
+      final summary = await harness.repository.startReview(harness.databaseId);
+      final before = await File(harness.databasePath).readAsBytes();
+      harness.remote.getMetadataError = Exception('network boom');
+
+      final outcome = await harness.repository.commit(summary.sessionId);
+
+      expect(
+        outcome,
+        isA<MergeRejected>()
+            .having(
+              (r) => r.code,
+              'code',
+              MergeFailureCode.uploadOutcomeAmbiguous,
+            )
+            .having((r) => r.localCommitCompleted, 'localCommitted', isFalse),
+      );
+      expect(harness.drive.updateCalls, isEmpty);
+      expect(await File(harness.databasePath).readAsBytes(), before);
+    });
+
+    test('a post-upload checksum mismatch that is semantically identical '
+        'short-circuits: no second upload, and the mapping records what the '
+        'remote actually holds', () async {
+      final fixture = await _t401Fixture(t401Temp);
+      final harness = await _Harness.build(t401Temp, fixture: fixture);
+      final summary = await harness.repository.startReview(harness.databaseId);
+      // The server reports a DIFFERENT raw checksum for the same content —
+      // e.g. re-encrypted with fresh salts by some intermediate layer.
+      // `serializeCandidate`'s own reopen-and-compare is the model for why
+      // this must be a semantic, not a byte, comparison.
+      harness.remote.onUpload = (uploaded) =>
+          _resave(uploaded, fixture.credentials);
+
+      final outcome = await harness.repository.commit(summary.sessionId);
+
+      expect(outcome, isA<MergeApplied>());
+      expect(harness.drive.updateCalls, hasLength(1));
+      expect(harness.syncMetadata.upsertCalls, hasLength(1));
+      expect(
+        harness.syncMetadata.upsertCalls.single.lastSyncedRemoteChecksum,
+        md5.convert(harness.remote.content).toString(),
+      );
+    });
+
+    test('a mid-cycle MergeNeedsReview after an earlier round already wrote '
+        'and uploaded does not poison the session: the second commit() call '
+        'succeeds off the answered decision instead of refusing staleLocal '
+        'forever', () async {
+      final fixture = await _t401Fixture(t401Temp);
+      final harness = await _Harness.build(t401Temp, fixture: fixture);
+      final summary = await harness.repository.startReview(harness.databaseId);
+      final before = await File(harness.databasePath).readAsBytes();
+
+      // A third device's edit that lands strictly between round 0's upload
+      // and its own read-back: `onUpload` mutates what the "server" ends up
+      // holding, injecting a value the ledger has never seen for a field
+      // both sides already carry. Round 0 still completes its write+upload —
+      // a real, permanent local commit — but the read-back proves the
+      // remote no longer matches what was sent, so it re-anchors and
+      // re-merges into round 1, where the genuinely new conflict surfaces
+      // and stops the cycle with `MergeNeedsReview`.
+      var injected = false;
+      harness.remote.onUpload = (uploaded) async {
+        if (injected) return uploaded;
+        injected = true;
+        final remoteFile = await KdbxFormat().read(
+          uploaded,
+          fixture.credentials,
+        );
+        _entry(
+          remoteFile,
+          entryUuid,
+        )!.setString(KdbxKey('Custom_New'), PlainValue('third-device-value'));
+        return Uint8List.fromList(await remoteFile.save());
+      };
+
+      final first = await harness.repository.commit(summary.sessionId);
+
+      expect(first, isA<MergeNeedsReview>());
+      final needsReview = first as MergeNeedsReview;
+      expect(needsReview.newConflictCount, 1);
+      expect(needsReview.reviewReentryCount, 1);
+      // Round 0 genuinely wrote and uploaded before round 1 found the new
+      // conflict: this is the write the bug used to lose track of.
+      expect(harness.drive.updateCalls, hasLength(1));
+      expect(await File(harness.databasePath).readAsBytes(), isNot(before));
+
+      final newConflict = needsReview.summary.decisions.singleWhere(
+        (d) => d.isDefault,
+      );
+      await harness.repository.updateDecision(
+        sessionId: summary.sessionId,
+        decisionId: newConflict.decisionId,
+        choice: MergeChoice.local,
+      );
+
+      final second = await harness.repository.commit(summary.sessionId);
+
+      // Pre-fix: this returned `MergeRejected(staleLocal, localCommitCompleted:
+      // false)` forever, because the step-1/2 precheck compared the
+      // already-written on-disk file against `startReview`'s original
+      // pristine checksum. Post-fix: the session's expected local checksum
+      // was advanced when round 0 wrote, so the precheck sees the truth and
+      // this call proceeds into a normal round using the newly-answered
+      // decision.
+      expect(second, isA<MergeApplied>());
+      expect(harness.drive.updateCalls, hasLength(2));
+      expect(harness.syncMetadata.upsertCalls, hasLength(1));
+
+      final merged = await KdbxFormat().read(
+        await File(harness.databasePath).readAsBytes(),
+        fixture.credentials,
+      );
+      final mergedEntry = _entry(merged, entryUuid)!;
+      expect(
+        mergedEntry.getString(KdbxKey('Custom_New'))?.getText(),
+        'local-new-value',
+        reason: 'the newly-answered decision must be applied',
+      );
+      expect(
+        mergedEntry.getString(KdbxKey('Notes'))?.getText(),
+        'remote-notes-v1',
+        reason:
+            'the round-0 sticky decision must still hold on the second call',
+      );
+    });
+
+    test('a 4th genuinely-new conflict after 3 review reentries ends the '
+        'session as unresolvedConflict, per the frozen doc comment on '
+        'MergeNeedsReview.reviewReentryCount, instead of a 4th '
+        'MergeNeedsReview', () async {
+      const localEntryUuid = 'FFFFFFFFFFFFFFFFFFFFAQ==';
+      final credentials = Credentials(ProtectedValue.fromString(_password));
+      final base = KdbxFormat().create(
+        credentials,
+        'T401 Reentry Cap Fixture',
+        generator: 'spec-008-t401',
+      );
+      final entry = KdbxEntry.create(base, base.body.rootGroup)
+        ..forceSetUuid(KdbxUuid(localEntryUuid));
+      base.body.rootGroup.addEntry(entry);
+      entry.setString(KdbxKeyCommon.TITLE, PlainValue('Shared'));
+      // Present, IDENTICAL, on both sides from the start: no conflict exists
+      // until a later round mutates the remote copy of one of these — which
+      // is exactly what makes each round's conflict genuinely new rather
+      // than a repeat of the previous one.
+      for (final key in const [
+        'Custom_1',
+        'Custom_2',
+        'Custom_3',
+        'Custom_4',
+      ]) {
+        entry.setString(KdbxKey(key), PlainValue('shared-$key'));
+      }
+      final baseBytes = Uint8List.fromList(await base.save());
+      final localBytes = Uint8List.fromList(
+        await (await KdbxFormat().read(baseBytes, credentials)).save(),
+      );
+      final remoteFile = await KdbxFormat().read(baseBytes, credentials);
+      final remoteBytes = Uint8List.fromList(await remoteFile.save());
+
+      final fixture = _FixturePair(
+        keyFilePath: '${t401Temp.path}/unused-reentry.keyx',
+        keyFileBytes: null,
+        credentials: credentials,
+        localBytes: localBytes,
+        remoteBytes: remoteBytes,
+        rootUuid: base.body.rootGroup.uuid,
+        deletionTime: DateTime.utc(2020),
+      );
+      final harness = await _Harness.build(t401Temp, fixture: fixture);
+      final summary = await harness.repository.startReview(harness.databaseId);
+
+      Future<void> injectRemoteConflict(String key) async {
+        final remote = await KdbxFormat().read(
+          harness.remote.content,
+          fixture.credentials,
+        );
+        _entry(
+          remote,
+          localEntryUuid,
+        )!.setString(KdbxKey(key), PlainValue('remote-$key'));
+        harness.remote.content = Uint8List.fromList(await remote.save());
+      }
+
+      // Three genuinely new conflicts, one per commit() call, each answered
+      // before the next drives `reviewReentryCount` from 0 to 1, 2, then 3 —
+      // exactly the cap FR-7 N2 and the frozen `reviewReentryCount` doc
+      // comment describe.
+      var reentry = 0;
+      for (final key in const ['Custom_1', 'Custom_2', 'Custom_3']) {
+        await injectRemoteConflict(key);
+        final outcome = await harness.repository.commit(summary.sessionId);
+        reentry++;
+        expect(outcome, isA<MergeNeedsReview>());
+        final needsReview = outcome as MergeNeedsReview;
+        expect(needsReview.newConflictCount, 1);
+        expect(needsReview.reviewReentryCount, reentry);
+        final newConflict = needsReview.summary.decisions.singleWhere(
+          (d) => d.isDefault,
+        );
+        await harness.repository.updateDecision(
+          sessionId: summary.sessionId,
+          decisionId: newConflict.decisionId,
+          choice: MergeChoice.local,
+        );
+      }
+
+      // The 4th genuinely new conflict: the cap is already at 3, so this must
+      // NOT produce a 4th MergeNeedsReview.
+      await injectRemoteConflict('Custom_4');
+      final fourth = await harness.repository.commit(summary.sessionId);
+
+      expect(
+        fourth,
+        isA<MergeRejected>()
+            .having((r) => r.code, 'code', MergeFailureCode.unresolvedConflict)
+            .having((r) => r.localCommitCompleted, 'localCommitted', isFalse),
+      );
+      expect(harness.drive.updateCalls, isEmpty);
+      expect(harness.syncMetadata.upsertCalls, isEmpty);
+      // The cap disposes the session: it is not left around for a 4th review.
+      await expectLater(
+        harness.repository.commit(summary.sessionId),
+        _failsWith(MergeFailureCode.sessionInvalidated),
+      );
     });
   });
 
@@ -1577,6 +2065,74 @@ KdbxEntry? _entry(KdbxFile file, String uuid) {
   return null;
 }
 
+/// spec-008 T401 — a small, dedicated local/remote pair: one entry, one
+/// ordinary (non-credential-block) field conflict on `Notes`, plus a field
+/// present ONLY on local (`Custom_New`) so a later remote-side addition of
+/// the same key is a genuinely NEW conflict rather than a pre-existing one.
+Future<_FixturePair> _t401Fixture(Directory temp) async {
+  const entryUuid = 'FFFFFFFFFFFFFFFFFFFFAQ==';
+  final credentials = Credentials(ProtectedValue.fromString(_password));
+  final base = KdbxFormat().create(
+    credentials,
+    'T401 Fixture',
+    generator: 'spec-008-t401',
+  );
+  base.body.meta.databaseDescription.set('base-description');
+  final entry = KdbxEntry.create(base, base.body.rootGroup)
+    ..forceSetUuid(KdbxUuid(entryUuid));
+  base.body.rootGroup.addEntry(entry);
+  entry
+    ..setString(KdbxKeyCommon.TITLE, PlainValue('Shared'))
+    ..setString(KdbxKey('Notes'), PlainValue('base-notes'));
+  final baseBytes = Uint8List.fromList(await base.save());
+
+  final localFile = await KdbxFormat().read(baseBytes, credentials);
+  _entry(localFile, entryUuid)!
+    ..setString(KdbxKey('Notes'), PlainValue('local-notes'))
+    ..setString(KdbxKey('Custom_New'), PlainValue('local-new-value'))
+    ..times.lastModificationTime.set(DateTime.utc(2024, 1, 1));
+  final localBytes = Uint8List.fromList(await localFile.save());
+
+  final remoteFile = await KdbxFormat().read(baseBytes, credentials);
+  _entry(remoteFile, entryUuid)!
+    ..setString(KdbxKey('Notes'), PlainValue('remote-notes-v1'))
+    ..times.lastModificationTime.set(DateTime.utc(2024, 6, 1));
+  final remoteBytes = Uint8List.fromList(await remoteFile.save());
+
+  return _FixturePair(
+    keyFilePath: '${temp.path}/unused.keyx',
+    keyFileBytes: null,
+    credentials: credentials,
+    localBytes: localBytes,
+    remoteBytes: remoteBytes,
+    rootUuid: localFile.body.rootGroup.uuid,
+    deletionTime: DateTime.utc(2020),
+  );
+}
+
+/// Re-opens [bytes], sets the database description (and its change clock,
+/// so `_mergeMeta`'s FR-3 comparator actually adopts it) and re-saves —
+/// content-different bytes with a controlled, single-field delta.
+Future<Uint8List> _withDescription(
+  Uint8List bytes,
+  Credentials credentials,
+  String description,
+  DateTime changedAt,
+) async {
+  final file = await KdbxFormat().read(bytes, credentials);
+  file.body.meta
+    ..databaseDescription.set(description)
+    ..databaseDescriptionChanged.set(changedAt);
+  return Uint8List.fromList(await file.save());
+}
+
+/// Re-opens and re-saves [bytes] unchanged: same semantic content, different
+/// raw bytes (fresh salts/IVs/master seed on every KDBX save).
+Future<Uint8List> _resave(Uint8List bytes, Credentials credentials) async {
+  final file = await KdbxFormat().read(bytes, credentials);
+  return Uint8List.fromList(await file.save());
+}
+
 KdbxGroup? _group(KdbxFile file, String uuid) {
   for (final group in file.body.rootGroup.getAllGroups()) {
     if (group.uuid.uuid == uuid) return group;
@@ -1639,6 +2195,9 @@ class _Harness {
     required this.remoteDeletionTime,
     required this.sync,
     required this.secure,
+    required this.remote,
+    required this.drive,
+    required this.syncMetadata,
   });
 
   final SyncMergeRepositoryImpl repository;
@@ -1651,6 +2210,11 @@ class _Harness {
   final DateTime remoteDeletionTime;
   final _FakeSyncRepository sync;
   final _FakeSecureDataSource secure;
+
+  /// spec-008 T401 — the write-verify-converge cycle's dependencies.
+  final _FakeRemoteDrive remote;
+  final _FakeGoogleDriveApiService drive;
+  final _FakeSyncMetadataDataSource syncMetadata;
 
   Future<Credentials> buildCredentials() async =>
       Credentials.composite(ProtectedValue.fromString(_password), keyFileBytes);
@@ -1765,6 +2329,7 @@ class _Harness {
     final databasePath = '${temp.path}/fixture-${_fixtureSequence++}.kdbx';
     await File(databasePath).writeAsBytes(localBytes);
 
+    final remote = _FakeRemoteDrive(remoteBytes);
     final sync = _FakeSyncRepository(
       mapping: withoutRemoteMapping
           ? null
@@ -1773,9 +2338,11 @@ class _Harness {
               driveFileId: _driveFileId,
               driveFileName: 'fixture.kdbx',
             ),
-      remoteBytes: remoteBytes,
+      remote: remote,
     );
     final secure = _FakeSecureDataSource(_password);
+    final drive = _FakeGoogleDriveApiService(remote);
+    final syncMetadata = _FakeSyncMetadataDataSource();
 
     return _Harness(
       repository: SyncMergeRepositoryImpl(
@@ -1800,6 +2367,9 @@ class _Harness {
         syncRepository: sync,
         secureDataSource: secure,
         localDataSource: _FakeLocalDataSource(),
+        mutex: DatabasePathMutex(),
+        driveApiService: drive,
+        syncMetadataDataSource: syncMetadata,
       ),
       databaseId: MergeDatabaseId(_databaseId),
       databasePath: databasePath,
@@ -1810,6 +2380,9 @@ class _Harness {
       remoteDeletionTime: deletionTime,
       sync: sync,
       secure: secure,
+      remote: remote,
+      drive: drive,
+      syncMetadata: syncMetadata,
     );
   }
 }
@@ -1968,13 +2541,15 @@ class _FakeSecurityRepository implements DatabaseSecurityRepository {
 }
 
 class _FakeSyncRepository implements DatabaseSyncRepository {
-  _FakeSyncRepository({required this.mapping, required this.remoteBytes});
+  _FakeSyncRepository({required this.mapping, required this.remote});
 
   final DatabaseSyncMapping? mapping;
-  final Uint8List remoteBytes;
+  final _FakeRemoteDrive remote;
 
-  /// Deliberately never written to. T302 uploads nothing; a test asserting it
-  /// is empty is what makes that a fact rather than an intention.
+  /// Deliberately never written to: `DatabaseSyncRepository` exposes no raw
+  /// upload, so T401's `commit` never calls anything on this fake that would
+  /// populate it. A test asserting it is empty is what makes that a fact
+  /// rather than an intention.
   final List<Uint8List> uploads = <Uint8List>[];
 
   @override
@@ -1986,12 +2561,91 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
     if (fileId != mapping?.driveFileId) {
       throw StateError('unexpected remote file id');
     }
-    return remoteBytes;
+    if (remote.downloadError != null) throw remote.downloadError!;
+    return remote.content;
   }
 
   @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw UnimplementedError('${invocation.memberName} is not part of T302');
+}
+
+/// spec-008 T401 — the single mutable "what Drive actually holds" fixture
+/// shared by [_FakeSyncRepository] (downloads) and [_FakeGoogleDriveApiService]
+/// (metadata + uploads), so a test can simulate a concurrent writer by
+/// mutating [content] directly, or by racing it mid-upload via [onUpload].
+class _FakeRemoteDrive {
+  _FakeRemoteDrive(this.content);
+
+  Uint8List content;
+  Object? downloadError;
+  Object? getMetadataError;
+  Object? updateFileError;
+
+  /// When set, `updateFile` stores `await onUpload(uploadedBytes)` instead of
+  /// the bytes it was actually called with — simulating a write that lands on
+  /// the remote strictly between this upload and its own read-back.
+  Future<Uint8List> Function(Uint8List uploaded)? onUpload;
+
+  /// When true, `updateFile`'s response carries no checksum — the
+  /// non-executable read-back FR-7 calls `ambiguous`.
+  bool suppressChecksumOnUpdate = false;
+
+  String checksum() => md5.convert(content).toString();
+}
+
+class _FakeGoogleDriveApiService implements GoogleDriveApiService {
+  _FakeGoogleDriveApiService(this.remote);
+
+  final _FakeRemoteDrive remote;
+  final List<Uint8List> updateCalls = <Uint8List>[];
+  int getMetadataCalls = 0;
+
+  @override
+  Future<DriveRemoteFile> getFileMetadata(String fileId) async {
+    getMetadataCalls++;
+    if (remote.getMetadataError != null) throw remote.getMetadataError!;
+    return DriveRemoteFile(
+      id: fileId,
+      name: 'fixture.kdbx',
+      md5Checksum: remote.checksum(),
+      modifiedTime: DateTime.now(),
+    );
+  }
+
+  @override
+  Future<DriveRemoteFile> updateFile({
+    required String fileId,
+    required Uint8List bytes,
+  }) async {
+    updateCalls.add(bytes);
+    if (remote.updateFileError != null) throw remote.updateFileError!;
+    final race = remote.onUpload;
+    remote.content = race == null ? bytes : await race(bytes);
+    return DriveRemoteFile(
+      id: fileId,
+      name: 'fixture.kdbx',
+      md5Checksum: remote.suppressChecksumOnUpdate ? null : remote.checksum(),
+      modifiedTime: DateTime.now(),
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName} is not part of T401');
+}
+
+class _FakeSyncMetadataDataSource implements SyncMetadataDataSource {
+  final List<DatabaseSyncMapping> upsertCalls = <DatabaseSyncMapping>[];
+
+  @override
+  Future<void> upsertMapping(DatabaseSyncMapping mapping) async {
+    upsertCalls.add(mapping);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName} is not part of T401');
 }
 
 class _FakeSecureDataSource implements SecureDataSource {

@@ -599,7 +599,7 @@ time under a wall clock does not do.
 
 ## Phase 4 — Preconditions, commit and remote recovery
 
-- [ ] **T401 Write-verify-converge cycle** — implement FR-7's storage-agnostic
+- [x] **T401 Write-verify-converge cycle** — implement FR-7's storage-agnostic
       cycle in `get` + `put` terms: read/record expected base, merge, revalidate
       under the mutex, write, and **mandatory step-5 read-back verification**.
       On divergence: re-anchor the expected base to the observed content,
@@ -809,11 +809,66 @@ time under a wall clock does not do.
       and the unconditional `bothNotes`/`keep`/`delete` operation replay were confirmed
       unregressed. Full suite independently reproduced by tester: 1449 passed, 1 skipped,
       `flutter analyze` clean.*
-- [ ] **T402 Local/remote staleness** — recompute local checksum and refetch remote
+
+      *Landed and validated 2026-08-25 on `feat/008-gate4-tiebreak-ledger-credblock`:
+      scope actually implemented is steps 1-4/11/13-14 of the 14-step commit
+      protocol (`_commitLocked` in `sync_merge_repository_impl.dart`) — steps
+      5-9 reuse `SafeVaultFileWriter` unmodified, and step 10 (pending-upload
+      persistence) is explicitly deferred to T404: a crash between the local
+      atomic replace and the mapping-finalize update is not yet recoverable,
+      `recoverPending` still always answers `.none`.*
+
+      *Two validation rounds. Round 1 (independent tester): **NOT VALIDATED —
+      HIGH:** a mid-cycle `MergeNeedsReview` after an earlier round in the
+      same `commit()` call had already written and uploaded permanently
+      poisoned the session — the stale `final localChecksum` never advanced,
+      so a second `commit()` call refused `staleLocal` forever and
+      misreported `localCommitCompleted: false` despite a real write having
+      happened. Fixed by making `_MergeSession.localChecksum` mutable
+      (advanced after each successful write) and adding `everWrittenLocally`
+      so `localCommitCompleted` stays truthful across calls. **MEDIUM:**
+      `MergeNeedsReview.reviewReentryCount`'s frozen doc comment promised a
+      cap of 3 with the 4th attempt ending as `unresolvedConflict`, but the
+      cap was never enforced — fixed with `_reviewReentryCap = 3`, checked
+      before incrementing.*
+
+      *Round 2 (independent tester, extra scrutiny since the fix round
+      required a manual file reconstruction after an accidental
+      `git checkout --` wiped the uncommitted implementation mid-session):
+      **VALIDATED.** Confirmed both fixes correct and exactly matching the
+      frozen doc comment's wording, re-verified every item from round 1's
+      "verified as claimed" list still holds, ran
+      `dart format --set-exit-if-changed` (0 changes) plus the full suite and
+      randomized-order runs to rule out corruption from the reconstruction.
+      Final numbers: `flutter analyze` clean, full `flutter test` 1459 passed
+      / 1 skipped.*
+
+      *One pre-existing, non-blocking finding NOT fixed this round:
+      `SafeVaultFileWriter.write`'s call site isn't wrapped in try/catch, so a
+      local write failure (disk full, permission, backup collision) propagates
+      as a raw exception instead of a typed `MergeRejected`/`SyncMergeFailure`
+      — every other fallible step in the cycle is caught and mapped, this one
+      isn't. Flagged as a follow-up, not part of T401's own scope.*
+
+      *Carried forward, unchanged: T403/T404/T405-T410/T412 remain not
+      started; the pre-existing `kdbx_semantic_manifest.dart` "inclusion list
+      is not yet audited for FR-7 step 5" comment (flagged again by the
+      tester, LOW-MEDIUM, no live exploit found, not fixed, not this round's
+      job).*
+- [x] **T402 Local/remote staleness** — recompute local checksum and refetch remote
       checksum under path mutex immediately before backup; compare the remote
       against the **current** expected base, which the divergence branch
       re-anchors. Refetch the token too, but only on a `conditionalWrite`
       adapter. Stale side causes zero write.
+      *Satisfied as a consequence of T401's implementation, not separate work
+      — `_commitLocked` already recomputes the local checksum and refuses with
+      zero write before the ledger is seeded (steps 1/2), and refetches the
+      remote metadata under the same mutex once per retry round, immediately
+      before that round's backup+write, re-anchoring `expectedRemoteChecksum`/
+      `remoteBytes` on divergence (step 3). No `conditionalWrite` adapter
+      exists in this codebase for Drive and `DriveRemoteFile` carries no token
+      field, so the token-refetch clause is correctly vacuous here. No new
+      code written for this task.*
 - [ ] **T403 Atomic commit integration** — candidate semantic validation, verified
       collision-safe backup, target temp/replace and mapping transaction.
 - [ ] **T404 Persist `_PendingMergeUpload` before dispatch** — merged/local

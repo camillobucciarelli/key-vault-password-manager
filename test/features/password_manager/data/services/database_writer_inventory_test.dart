@@ -158,6 +158,8 @@ void main() {
               .toList();
 
       const routedWriters = [
+        'lib/features/password_manager/data/repositories/'
+            'sync_merge_repository_impl.dart',
         'lib/features/password_manager/data/services/'
             'database_import_service.dart',
         'lib/features/password_manager/data/services/'

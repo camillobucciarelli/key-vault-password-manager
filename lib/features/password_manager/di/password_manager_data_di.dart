@@ -69,6 +69,13 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
       syncRepository: sl(),
       secureDataSource: sl(),
       localDataSource: sl(),
+      // spec 008 T401: the write-verify-converge cycle writes the local vault
+      // and uploads to Drive, so `commit` now needs the same shared writer
+      // lock, upload client and sync-metadata store every other database
+      // writer in this codebase routes through.
+      mutex: sl(),
+      driveApiService: sl(),
+      syncMetadataDataSource: sl(),
     ),
   );
   sl.registerLazySingleton<DatabaseSessionRepository>(

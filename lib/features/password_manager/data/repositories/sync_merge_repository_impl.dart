@@ -8,28 +8,37 @@
 // values and the attachment bytes — lives here, in `_MergeSession`, and is
 // dropped when the session is cancelled, invalidated or completed.
 //
-// **What this slice does NOT do, deliberately.**
+// **T401 — FR-7's write-verify-converge cycle.** `commit` now writes: it
+// revalidates under the shared `DatabasePathMutex`, replaces the local file
+// through `SafeVaultFileWriter` (T108/T109's collision-safe backup + atomic
+// replace, reused as-is), uploads through `GoogleDriveApiService` and treats
+// the upload's own follow-up `getFileMetadata` fetch as the mandatory step-5
+// read-back — a real second round trip the server answers strictly after the
+// write completes, not a cached echo of what we sent. On divergence it
+// re-anchors to the observed remote content, short-circuits on canonical
+// semantic-manifest equality, and otherwise re-merges with the T401b sticky
+// decision ledger, up to a budget of 3 rounds per `commit` call.
 //
-//   * It performs **no filesystem write and no upload**. `commit` refuses. The
-//     FR-7 write-verify-converge cycle, the collision-safe backup, the atomic
-//     replace and the pending-upload recovery record are T401-T410, and the
-//     per-platform atomicity artifacts Gate 1 T111 owes are still `not-run`, so
-//     there is nothing to enable yet either. A merge that wrote before those
-//     landed would be the one failure mode the whole spec exists to prevent.
-//   * Because it never writes, it takes **no `DatabasePathMutex`**. That is not
-//     an omission: Gate 1's routing guard pins the exact set of files that may
-//     reference the mutex, and adding this one to that set while it acquires
-//     nothing would be a false claim. `startReview` is explicitly lock-free
-//     under FR-8 ("Review holds no mutex; edits may make review stale"), and
-//     T403 — the commit that does write — is where the lock belongs, at the
-//     outermost level, because the mutex is not reentrant.
+// **What is still NOT done, honestly.** Step 10 (persist a pendingUpload
+// record before dispatch) has no home yet — that is T404's own type and
+// persistence design. So a process crash between this file's local atomic
+// replace and its mapping-finalize update is NOT recoverable: `recoverPending`
+// still always answers `.none`, even though `commit` now genuinely uploads.
+// T403 will formalize the backup+atomic-replace composition this file already
+// exercises through `SafeVaultFileWriter`; T405-T410 own outcome
+// classification, ambiguous-transport handling and restart recovery proper.
+// No concurrency token is selected or sent: Drive declares no `conditionalWrite`
+// capability, so FR-7's optional token never applies to this adapter.
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:kdbx/kdbx.dart';
 
 import '../../domain/entities/database_record.dart';
+import '../../domain/models/database_sync_mapping.dart';
+import '../../domain/models/drive_remote_file.dart';
 import '../../domain/models/merge_field_display.dart';
 import '../../domain/models/sync_merge_models.dart';
 import '../../domain/repositories/database_registry_repository.dart';
@@ -38,7 +47,13 @@ import '../../domain/repositories/database_sync_repository.dart';
 import '../../domain/repositories/sync_merge_repository.dart';
 import '../datasources/local_data_source.dart';
 import '../datasources/secure_data_source.dart';
+import '../datasources/sync_metadata_data_source.dart';
+import '../services/database_path_mutex.dart';
+import '../services/google_drive_api_service.dart';
 import '../services/kdbx_merge_adapter.dart';
+import '../services/kdbx_semantic_manifest.dart';
+import '../services/merge_decision_ledger.dart';
+import '../services/safe_vault_file_writer.dart';
 
 /// spec-008 **T302a** — opaque id minting.
 ///
@@ -80,6 +95,12 @@ MergeSessionId _mintSessionId() => MergeSessionId(_mintToken('ms'));
 
 MergeDecisionId _mintDecisionId() => MergeDecisionId(_mintToken('md'));
 
+/// FR-7 step 1/2/3's comparator: `md5Checksum` is what Drive reports and what
+/// every other writer in this codebase already checksums local bytes with
+/// (`DatabaseSyncOrchestrator`), so a local/remote pair is comparable without
+/// a second hash family entering the picture.
+String _checksumOf(Uint8List bytes) => md5.convert(bytes).toString();
+
 class SyncMergeRepositoryImpl implements SyncMergeRepository {
   SyncMergeRepositoryImpl({
     required DatabaseRegistryRepository registryRepository,
@@ -87,13 +108,21 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
     required DatabaseSyncRepository syncRepository,
     required SecureDataSource secureDataSource,
     required LocalDataSource localDataSource,
+    required DatabasePathMutex mutex,
+    required GoogleDriveApiService driveApiService,
+    required SyncMetadataDataSource syncMetadataDataSource,
     KdbxMergeAdapter adapter = const KdbxMergeAdapter(),
+    SafeVaultFileWriter? safeWriter,
   }) : _registry = registryRepository,
        _security = securityRepository,
        _sync = syncRepository,
        _secure = secureDataSource,
        _local = localDataSource,
-       _adapter = adapter;
+       _mutex = mutex,
+       _drive = driveApiService,
+       _syncMetadata = syncMetadataDataSource,
+       _adapter = adapter,
+       _safeWriter = safeWriter ?? SafeVaultFileWriter();
 
   final DatabaseRegistryRepository _registry;
   final DatabaseSecurityRepository _security;
@@ -101,6 +130,36 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
   final SecureDataSource _secure;
   final LocalDataSource _local;
   final KdbxMergeAdapter _adapter;
+
+  /// T401: the whole write-verify-converge cycle runs under this — the shared
+  /// per-database writer lock every other database writer in this codebase
+  /// routes through (see `database_writer_inventory_test.dart`).
+  final DatabasePathMutex _mutex;
+
+  /// T401 step 3/11/13: metadata recheck, upload and the read-back the upload
+  /// itself performs. No raw upload is exposed on `DatabaseSyncRepository`
+  /// (it only carries `downloadRemoteFile`/`getMapping`), so this is injected
+  /// directly rather than routed through that port.
+  final GoogleDriveApiService _drive;
+
+  /// T401 step 14: the mapping is updated ONLY once the read-back proves the
+  /// remote holds the merged state.
+  final SyncMetadataDataSource _syncMetadata;
+
+  /// T401 steps 5-9, reused as-is: collision-safe backup + atomic replace.
+  /// Lock-free by design — called only inside the `_mutex` acquisition below.
+  final SafeVaultFileWriter _safeWriter;
+
+  /// FR-7: at most 3 automatic re-merge rounds per `commit` call before the
+  /// session settles on [MergeFailureCode.unresolvedConflict].
+  static const _mergeRetryBudget = 3;
+
+  /// FR-7 N2, and the frozen doc comment on [MergeNeedsReview.reviewReentryCount]:
+  /// at most 3 returns to review over a session's lifetime (across as many
+  /// `commit` calls as it takes). The 4th attempt that would otherwise produce
+  /// another [MergeNeedsReview] ends the session as
+  /// [MergeFailureCode.unresolvedConflict] instead.
+  static const _reviewReentryCap = 3;
 
   /// The private session store. Keyed by the minted token, so a caller can only
   /// reach a session by presenting an id this repository handed out.
@@ -134,7 +193,15 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       credentials: credentials,
       pair: pair,
       diff: diff,
+      localBytes: localBytes,
+      remoteBytes: remoteBytes,
+      localChecksum: _checksumOf(localBytes),
+      remoteChecksum: _checksumOf(remoteBytes),
     );
+    // The ledger is empty at this point, so every conflict below replays as
+    // `MergeLedgerNeverShown` and takes the computed-default branch — the
+    // exact behaviour this method always had, before T401 gave it a second
+    // caller (the re-merge rounds in `commit`, where the ledger is not empty).
     _buildDecisions(session);
     _sessions[session.sessionId.token] = session;
     return session.summary();
@@ -159,17 +226,358 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
 
   @override
   Future<MergeCommitOutcome> commit(MergeSessionId sessionId) async {
-    // Phase 4 (T401-T403) owns the write. Refusing is not a placeholder: the
-    // per-platform atomicity artifacts (Gate 1 T111) are `not-run`, and FR-9
-    // makes the feature disabled until the platform has its own passing
-    // artifact. Nothing is written and the session is left intact, so the user
-    // loses no review work.
-    _requireSession(sessionId);
+    // T111 passed on all 5 platforms as of 2026-08-25 (tasks.md); there is no
+    // feature-flag mechanism anywhere in this codebase and none is added
+    // here — the platform gate this comment used to describe is gone.
+    final session = _requireSession(sessionId);
+    return _mutex.withDatabaseLock([
+      session.canonicalPath,
+    ], () => _commitLocked(session));
+  }
+
+  /// The FR-7 cycle, steps 1-4/11/13-14 (T401's scope). Steps 5-9 are
+  /// [SafeVaultFileWriter.write], reused unmodified. Step 10 (persist a
+  /// pendingUpload record before dispatch) is not built: T404 owns that type
+  /// and its persistence, so a process crash between this method's local
+  /// atomic replace and its mapping-finalize update is NOT recoverable today
+  /// — `recoverPending` still always answers `.none`. Do not read a
+  /// successful return from this method as proof that FR-10 restart recovery
+  /// works; it does not yet.
+  Future<MergeCommitOutcome> _commitLocked(_MergeSession session) async {
+    // Steps 1/2: the session is still valid ([_requireSession] above) and the
+    // local side is exactly what the review was computed from. Checked once,
+    // not per round: the mutex above excludes every other routed local writer
+    // for the rest of this method, so nothing else can touch this path while
+    // it runs.
+    final Uint8List currentLocalBytes;
+    try {
+      currentLocalBytes = await File(session.canonicalPath).readAsBytes();
+    } on Object {
+      return const MergeRejected(
+        MergeFailureCode.staleLocal,
+        localCommitCompleted: false,
+      );
+    }
+    if (_checksumOf(currentLocalBytes) != session.localChecksum) {
+      // D16's reasoning again: the local side moved under a live review, and
+      // the decisions on file were computed against bytes that no longer
+      // exist. The session is left intact rather than disposed — nothing was
+      // written, so the caller loses no review work by trying again later,
+      // but a retry against the SAME session would fail the same way until a
+      // fresh `startReview` re-diffs the current file.
+      return const MergeRejected(
+        MergeFailureCode.staleLocal,
+        localCommitCompleted: false,
+      );
+    }
+
+    final mapping = await _sync.getMapping(session.canonicalPath);
+    if (mapping == null) {
+      return const MergeRejected(
+        MergeFailureCode.mergePreconditionFailed,
+        localCommitCompleted: false,
+      );
+    }
+
+    // FR-7 "explicit decisions are sticky across a re-merge": everything the
+    // user is confirming in THIS review pass is recorded before the cycle can
+    // touch anything, so a divergence discovered below replays it instead of
+    // asking again or silently picking a side.
+    _seedLedger(session);
+
+    var remoteBytes = session.remoteBytes;
+    var expectedRemoteChecksum = session.remoteChecksum;
+    // Seeded from the session rather than `false`: an earlier round of THIS
+    // call, or an earlier `commit` call entirely (the session survives a
+    // `MergeNeedsReview` return), may already have written locally. Any
+    // outcome this call produces must say so truthfully.
+    var localWritten = session.everWrittenLocally;
+
+    for (var round = 0; round < _mergeRetryBudget; round++) {
+      // Step 3: remote metadata recheck. No concurrency token is read or
+      // sent — Drive declares no `conditionalWrite` capability, so FR-7's
+      // optional token never applies here; `md5Checksum` alone is the
+      // comparator.
+      final DriveRemoteFile remoteMeta;
+      try {
+        remoteMeta = await _drive.getFileMetadata(mapping.driveFileId);
+      } on Object {
+        return MergeRejected(
+          MergeFailureCode.uploadOutcomeAmbiguous,
+          localCommitCompleted: localWritten,
+        );
+      }
+      final observedBeforeWrite = remoteMeta.md5Checksum;
+      if (observedBeforeWrite != null &&
+          observedBeforeWrite != expectedRemoteChecksum) {
+        // Divergence found BEFORE anything is written this round: there is no
+        // candidate yet to short-circuit against, so the only sound move is
+        // to re-merge against what the remote actually holds now.
+        try {
+          remoteBytes = await _sync.downloadRemoteFile(mapping.driveFileId);
+        } on Object {
+          return MergeRejected(
+            MergeFailureCode.uploadOutcomeAmbiguous,
+            localCommitCompleted: localWritten,
+          );
+        }
+        expectedRemoteChecksum = observedBeforeWrite;
+      }
+
+      // Step 4 (re-)diff: local is always re-opened from the EXACT bytes the
+      // review was computed from, never from a previous round's own
+      // candidate — `applyMerge` mutates its input in place, so re-diffing a
+      // mutated tree would compare the merge against itself.
+      final newConflictCount = await _rebuildDiffAndDecisions(
+        session,
+        remoteBytes,
+      );
+      if (newConflictCount > 0) {
+        // The doc comment on `MergeNeedsReview.reviewReentryCount` (frozen
+        // contract) is the source of truth: the 4th return-to-review ends the
+        // session instead. `localWritten` here already reflects any write an
+        // earlier round of THIS call made, via the seed above.
+        if (session.reviewReentryCount >= _reviewReentryCap) {
+          _disposeSession(session);
+          return MergeRejected(
+            MergeFailureCode.unresolvedConflict,
+            localCommitCompleted: localWritten,
+          );
+        }
+        session.reviewReentryCount++;
+        return MergeNeedsReview(
+          summary: session.summary(),
+          newConflictCount: newConflictCount,
+          reviewReentryCount: session.reviewReentryCount,
+        );
+      }
+
+      final candidate = _adapter.applyMerge(
+        pair: session.pair,
+        diff: session.diff,
+        resolution: session.resolution(),
+      );
+      // Same FR-2 output gate `buildCandidateBytes` runs: the merge is the one
+      // operation that can create a UUID collision.
+      _adapter.validatePair(local: candidate, remote: candidate);
+      final candidateManifestDigest = kdbxManifestDigest(
+        kdbxSemanticManifest(candidate),
+      );
+      final entryCount = candidate.body.rootGroup.getAllEntries().length;
+      final candidateBytes = await _adapter.serializeCandidate(
+        candidate: candidate,
+        credentials: session.credentials,
+      );
+
+      // Steps 5-9.
+      await _safeWriter.write(
+        targetPath: session.canonicalPath,
+        bytes: candidateBytes,
+        backupExistingTarget: true,
+        operation: 'merge commit',
+      );
+      localWritten = true;
+      session.everWrittenLocally = true;
+      // The step-1/2 staleness precheck at the top of this method must judge
+      // a LATER `commit` call against what is actually on disk now, not
+      // against `startReview`'s original snapshot: this round may go on to
+      // find a genuinely new conflict below and return `MergeNeedsReview`
+      // without finalizing, and the write already happened.
+      session.localChecksum = _checksumOf(candidateBytes);
+
+      // Step 10 would persist a pendingUpload record here. T404's job, not
+      // built — see this method's doc comment.
+
+      // Step 11.
+      final DriveRemoteFile updated;
+      try {
+        updated = await _drive.updateFile(
+          fileId: mapping.driveFileId,
+          bytes: candidateBytes,
+        );
+      } on Object {
+        // Drive declares no `conditionalWrite`, so there is no CAS-certain
+        // rejection to classify here — every failure is transport-ambiguous.
+        _disposeSession(session);
+        return const MergeRejected(
+          MergeFailureCode.uploadOutcomeAmbiguous,
+          localCommitCompleted: true,
+        );
+      }
+
+      // Steps 12/13. `updateFile` already issues its own `getFileMetadata`
+      // strictly after the write completes (a real second round trip, not a
+      // cached echo of what was sent), so that response IS the mandatory
+      // read-back — no separate re-fetch is needed to make it genuine.
+      final localCandidateChecksum = _checksumOf(candidateBytes);
+      final observedChecksum = updated.md5Checksum;
+      if (observedChecksum == null) {
+        // A non-executable read-back: nothing to verify against. Ambiguous,
+        // never finalized, never retried blindly.
+        _disposeSession(session);
+        return const MergeRejected(
+          MergeFailureCode.uploadOutcomeAmbiguous,
+          localCommitCompleted: true,
+        );
+      }
+      if (observedChecksum == localCandidateChecksum) {
+        await _finalizeMapping(
+          mapping: mapping,
+          localChecksum: localCandidateChecksum,
+          remoteChecksum: observedChecksum,
+          modifiedTime: updated.modifiedTime,
+        );
+        _disposeSession(session);
+        return MergeApplied(
+          entryCount: entryCount,
+          backupCreated: true,
+          uploadState: MergeUploadState.uploaded,
+        );
+      }
+
+      // Divergence AFTER the write: re-anchor to what the server actually
+      // holds and try the canonical semantic-manifest short-circuit before
+      // spending a re-merge round on it.
+      final Uint8List redownloaded;
+      try {
+        redownloaded = await _sync.downloadRemoteFile(mapping.driveFileId);
+      } on Object {
+        _disposeSession(session);
+        return const MergeRejected(
+          MergeFailureCode.uploadOutcomeAmbiguous,
+          localCommitCompleted: true,
+        );
+      }
+      final redownloadedFile = await _open(redownloaded, session.credentials);
+      final redownloadedManifestDigest = kdbxManifestDigest(
+        kdbxSemanticManifest(redownloadedFile),
+      );
+      if (redownloadedManifestDigest == candidateManifestDigest) {
+        // Short-circuit: what the remote holds is semantically what we just
+        // wrote (e.g. content-equivalent, byte-different). Finalize on the
+        // OBSERVED content, not on our own recomputed checksum — the rule is
+        // "the read-back proved the remote holds the merged state".
+        await _finalizeMapping(
+          mapping: mapping,
+          localChecksum: localCandidateChecksum,
+          remoteChecksum: _checksumOf(redownloaded),
+          modifiedTime: updated.modifiedTime,
+        );
+        _disposeSession(session);
+        return MergeApplied(
+          entryCount: entryCount,
+          backupCreated: true,
+          uploadState: MergeUploadState.uploaded,
+        );
+      }
+
+      // Re-merge and repeat from step 3, up to the budget.
+      remoteBytes = redownloaded;
+      expectedRemoteChecksum = observedChecksum;
+    }
+
+    // Budget exhausted: the merged local file and its backup are retained
+    // (SafeVaultFileWriter never deletes what it just wrote), the mapping is
+    // never marked synced.
+    _disposeSession(session);
     return const MergeRejected(
-      MergeFailureCode.platformDisabled,
-      localCommitCompleted: false,
+      MergeFailureCode.unresolvedConflict,
+      localCommitCompleted: true,
     );
   }
+
+  Future<void> _finalizeMapping({
+    required DatabaseSyncMapping mapping,
+    required String localChecksum,
+    required String remoteChecksum,
+    DateTime? modifiedTime,
+  }) {
+    return _syncMetadata.upsertMapping(
+      mapping.copyWith(
+        lastSyncedLocalChecksum: localChecksum,
+        lastSyncedRemoteChecksum: remoteChecksum,
+        lastSyncedRemoteModifiedTime: modifiedTime,
+        lastSyncAt: DateTime.now(),
+        clearError: true,
+      ),
+    );
+  }
+
+  void _disposeSession(_MergeSession session) {
+    _sessions.remove(session.sessionId.token);
+    session.dispose();
+  }
+
+  /// Re-opens both sides fresh — local from the exact bytes [startReview] saw,
+  /// remote from [remoteBytes] — diffs them, and rebuilds [session.decisions]
+  /// by replaying every conflict against [session.ledger]. Returns how many of
+  /// the rebuilt decisions were never shown to the user (or are stale): a
+  /// non-zero count means this round must stop and return to review rather
+  /// than build a candidate from a guessed side.
+  Future<int> _rebuildDiffAndDecisions(
+    _MergeSession session,
+    Uint8List remoteBytes,
+  ) async {
+    final localFile = await _open(session.localBytes, session.credentials);
+    final remoteFile = await _open(remoteBytes, session.credentials);
+    final pair = _adapter.validatePair(local: localFile, remote: remoteFile);
+    final diff = _adapter.diffPresence(pair);
+    session.pair = pair;
+    session.diff = diff;
+    session.decisions.clear();
+    return _buildDecisions(session);
+  }
+
+  /// FR-7's ledger-seeding contract: every decision presented in the pass
+  /// being confirmed right now, including ones left at their default.
+  void _seedLedger(_MergeSession session) {
+    for (final entry in session.decisions.values) {
+      final choice = entry.redacted.choice;
+      final field = entry.field;
+      final blockEntryUuid = entry.credentialBlockEntryUuid;
+      if (field != null) {
+        session.ledger.recordField(
+          kdbxFieldRefOf(field),
+          choice,
+          decidedValue: _fieldSideValue(field, choice),
+        );
+      } else if (blockEntryUuid != null) {
+        final blockFields = credentialBlockFieldsOf(
+          session.diff,
+          blockEntryUuid,
+        );
+        session.ledger.recordCredentialBlock(
+          blockEntryUuid,
+          choice,
+          decidedValue: choice == MergeChoice.local
+              ? _blockImage(blockFields, local: true)
+              : choice == MergeChoice.remote
+              ? _blockImage(blockFields, local: false)
+              : null,
+        );
+      } else {
+        session.ledger.recordRecord(entry.record!.objectUuid, choice);
+      }
+    }
+  }
+
+  KdbxFieldPresent? _fieldSideValue(KdbxFieldDiff field, MergeChoice choice) {
+    final side = switch (choice) {
+      MergeChoice.local => field.local,
+      MergeChoice.remote => field.remote,
+      _ => null,
+    };
+    return side is KdbxFieldPresent ? side : null;
+  }
+
+  Map<String, KdbxFieldPresent> _blockImage(
+    List<KdbxFieldDiff> blockFields, {
+    required bool local,
+  }) => {
+    for (final f in blockFields)
+      if ((local ? f.local : f.remote) is KdbxFieldPresent)
+        f.canonicalKey: (local ? f.local : f.remote) as KdbxFieldPresent,
+  };
 
   /// spec-008 T301 (apply half) / T309 — the merge candidate, in memory.
   ///
@@ -242,8 +650,11 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
   Future<MergeRecoveryOutcome> recoverPending(
     MergeDatabaseId databaseId,
   ) async {
-    // No upload has ever been dispatched by this repository, so no
-    // `_PendingMergeUpload` record can exist. T404-T409 persist and triage it.
+    // T401 makes `commit` dispatch a real upload, but it persists no
+    // pendingUpload record before doing so (step 10 — T404's own type and
+    // persistence design, not built yet). So there is nothing on disk here to
+    // recover from a crash between the local atomic replace and the
+    // mapping-finalize update: this stays `.none` until T404/T409 land.
     return const MergeRecoveryOutcome(MergeRecoveryDisposition.none);
   }
 
@@ -355,8 +766,21 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
   // Redaction: private evidence -> domain decisions.
   // =========================================================================
 
-  void _buildDecisions(_MergeSession session) {
+  /// Builds [session.decisions] from [session.diff], replaying every
+  /// conflict against [session.ledger] first (T401). At `startReview` time the
+  /// ledger is empty, so every replay is [MergeLedgerNeverShown] and every
+  /// decision takes the computed-default branch — the exact behaviour this
+  /// method always had. `commit`'s re-merge rounds are the second caller,
+  /// where the ledger is not empty: a replayed decision keeps the recorded
+  /// choice (`isDefault: false`, sticky per FR-7) and is not counted; a
+  /// [MergeLedgerNeverShown] or [MergeLedgerStale] one takes the computed
+  /// default and IS counted, because the user has not seen it (or the
+  /// candidates it was decided over no longer exist).
+  ///
+  /// Returns how many decisions were counted that way.
+  int _buildDecisions(_MergeSession session) {
     var ordinal = 0;
+    var newConflictCount = 0;
 
     // FR-3a: an engaged block's shared username/password/url conflicts are
     // ONE decision, never three (15n). `engagedCredentialBlockEntryUuids` is
@@ -376,6 +800,21 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       final local = field.local as KdbxFieldPresent;
       final remote = field.remote as KdbxFieldPresent;
       final relation = session.timestampRelationFor(field.entryUuid);
+      final replay = session.ledger.replayField(
+        kdbxFieldRefOf(field),
+        currentLocal: local,
+        currentRemote: remote,
+      );
+      final MergeChoice choice;
+      final bool isDefault;
+      if (replay is MergeLedgerReplayed) {
+        choice = replay.choice;
+        isDefault = false;
+      } else {
+        choice = _defaultFieldChoice(relation, local, remote);
+        isDefault = true;
+        newConflictCount++;
+      }
       final decisionId = _mintDecisionId();
       session.decisions[decisionId.token] = _DecisionRecord.forField(
         fieldDiff: field,
@@ -385,8 +824,8 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
           kind: MergeDecisionKind.fieldConflict,
           category: _categoryOf(field),
           presence: MergePresence.presentBoth,
-          choice: _defaultFieldChoice(relation, local, remote),
-          isDefault: true,
+          choice: choice,
+          isDefault: isDefault,
           timestampRelation: relation,
         ),
       );
@@ -409,6 +848,21 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       // `engagedBlocks` guarantees at least one conflicting member exists.
       final anchor = conflicting.first;
       final relation = session.timestampRelationFor(entryUuid);
+      final replay = session.ledger.replayCredentialBlock(
+        entryUuid,
+        currentLocal: _blockImage(blockFields, local: true),
+        currentRemote: _blockImage(blockFields, local: false),
+      );
+      final MergeChoice choice;
+      final bool isDefault;
+      if (replay is MergeLedgerReplayed) {
+        choice = replay.choice;
+        isDefault = false;
+      } else {
+        choice = _defaultCredentialBlockChoice(relation, blockFields);
+        isDefault = true;
+        newConflictCount++;
+      }
       final decisionId = _mintDecisionId();
       session.decisions[decisionId.token] = _DecisionRecord.forCredentialBlock(
         entryUuid: entryUuid,
@@ -419,14 +873,27 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
           kind: MergeDecisionKind.fieldConflict,
           category: _categoryOf(anchor),
           presence: MergePresence.presentBoth,
-          choice: _defaultCredentialBlockChoice(relation, blockFields),
-          isDefault: true,
+          choice: choice,
+          isDefault: isDefault,
           timestampRelation: relation,
         ),
       );
     }
 
     for (final record in session.diff.deletionConflicts) {
+      final replay = session.ledger.replayRecord(record.objectUuid);
+      final MergeChoice choice;
+      final bool isDefault;
+      if (replay is MergeLedgerReplayed) {
+        choice = replay.choice;
+        isDefault = false;
+      } else {
+        // FR-5: the automatic default is always Keep, so an unattended
+        // session can never delete. The constructor enforces it too.
+        choice = MergeChoice.keep;
+        isDefault = true;
+        newConflictCount++;
+      }
       final decisionId = _mintDecisionId();
       session.decisions[decisionId.token] = _DecisionRecord.forRecord(
         recordDiff: record,
@@ -440,10 +907,8 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
           presence: record.local.evidence == KdbxRecordEvidence.live
               ? MergePresence.localOnly
               : MergePresence.remoteOnly,
-          // FR-5: the automatic default is always Keep, so an unattended
-          // session can never delete. The constructor enforces it too.
-          choice: MergeChoice.keep,
-          isDefault: true,
+          choice: choice,
+          isDefault: isDefault,
           timestampRelation: _relationOf(
             record.local.modifiedAtUtc,
             record.remote.modifiedAtUtc,
@@ -451,6 +916,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
         ),
       );
     }
+    return newConflictCount;
   }
 
   MergeFieldCategory _categoryOf(KdbxFieldDiff field) {
@@ -578,14 +1044,58 @@ final class _MergeSession {
     required this.credentials,
     required this.pair,
     required this.diff,
+    required this.localBytes,
+    required this.remoteBytes,
+    required this.localChecksum,
+    required this.remoteChecksum,
   });
 
   final MergeSessionId sessionId;
   final MergeDatabaseId databaseId;
   final String canonicalPath;
   final Credentials credentials;
-  final KdbxMergePair pair;
-  final KdbxPresenceDiff diff;
+
+  /// T401: mutable across `commit`'s re-merge rounds — each round re-diffs
+  /// fresh sides and replaces both, rather than reusing (and re-mutating) a
+  /// pair from a previous round.
+  KdbxMergePair pair;
+  KdbxPresenceDiff diff;
+
+  /// spec-008 T401: the exact bytes [startReview] read. Every commit-cycle
+  /// round re-diffs the local side from THESE bytes, never from a previous
+  /// round's own candidate output — `applyMerge` mutates its input in place,
+  /// so re-diffing a mutated tree would compare the merge against itself.
+  final Uint8List localBytes;
+  final Uint8List remoteBytes;
+
+  /// FR-7 step 1/2's "expected base": the checksum `commit`'s staleness
+  /// precheck compares the on-disk file against. Starts as the checksum
+  /// [startReview] actually diffed from, so `commit` can detect a local edit
+  /// that landed after review opened ([MergeFailureCode.staleLocal]). NOT
+  /// final: once a round of `commit` writes locally, this is advanced to the
+  /// checksum of what was actually written, so a later `commit` call on the
+  /// same session — including one made after this round itself returned
+  /// [MergeNeedsReview] instead of finalizing — judges the precheck against
+  /// reality rather than against a snapshot a real write has already
+  /// superseded.
+  String localChecksum;
+  final String remoteChecksum;
+
+  /// True once ANY round of ANY `commit` call on this session has written
+  /// locally. Distinct from `commit`'s own per-call `localWritten` local,
+  /// which starts from this flag: an outcome produced by a later call, or by
+  /// a later round of the same call, must still report a prior write
+  /// truthfully rather than answering only for bytes it wrote itself.
+  bool everWrittenLocally = false;
+
+  /// spec-008 T401b: sticky across every re-merge round of every `commit`
+  /// call this session ever makes.
+  final MergeDecisionLedger ledger = MergeDecisionLedger();
+
+  /// How many times `commit` has returned this session to review. FR-7 N2
+  /// caps this at 3; `_commitLocked` enforces the cap against this count
+  /// before incrementing it a 4th time.
+  int reviewReentryCount = 0;
 
   /// Keyed by the minted decision token.
   final Map<String, _DecisionRecord> decisions = <String, _DecisionRecord>{};
