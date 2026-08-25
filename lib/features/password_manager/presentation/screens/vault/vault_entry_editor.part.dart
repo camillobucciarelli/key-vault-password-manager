@@ -1328,7 +1328,7 @@ class _CameraDeniedScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(22),
                 ),
                 child: Icon(
-                  Icons.videocam_off_outlined,
+                  AppIcons.videocamOff,
                   size: 30,
                   color: colors.actionText,
                 ),

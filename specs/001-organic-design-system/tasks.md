@@ -5,7 +5,7 @@ parallel flags because theme and `pubspec.yaml` changes overlap.
 
 ## Phase 1 · Deterministic inputs
 
-- [ ] **T1** Snapshot direct Material-icon occurrences outside 001-touched files
+- [x] **T1** Snapshot direct Material-icon occurrences outside 001-touched files
       into `test/fixtures/001_direct_material_icons_baseline.txt` using the plan
       command, excluding all of `lib/core/widgets/**`; also record `AppIcons` and
       `rg -n 'AppColors\.|AppBackgrounds\.gradient' lib --glob '*.dart'` baselines.
@@ -55,7 +55,7 @@ parallel flags because theme and `pubspec.yaml` changes overlap.
 
 ## Phase 4 · Verify
 
-- [ ] **T6** Run scoped touched-file icon and theme-literal sweeps from spec
+- [x] **T6** Run scoped touched-file icon and theme-literal sweeps from spec
       AC-5/6 across `lib/core/theme` and all of `lib/core/widgets`; both must be
       empty. Regenerate untouched-file icon output with
       `--glob '!lib/core/widgets/**'` and diff it against T1 baseline; no new

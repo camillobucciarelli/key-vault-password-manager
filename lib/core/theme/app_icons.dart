@@ -55,4 +55,9 @@ class AppIcons {
   static const IconData sun = Icons.light_mode_outlined;
   static const IconData moon = Icons.dark_mode_outlined;
   static const IconData desktop = Icons.desktop_windows_outlined;
+  static const IconData videocamOff = Icons.videocam_off_outlined;
+  static const IconData shield = Icons.shield_outlined;
+  static const IconData autorenew = Icons.autorenew;
+  static const IconData hourglassTop = Icons.hourglass_top;
+  static const IconData errorOutline = Icons.error_outline;
 }

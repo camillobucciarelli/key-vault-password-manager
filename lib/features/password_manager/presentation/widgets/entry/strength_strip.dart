@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../../core/theme/app_colors.dart';
+import '../../../../../core/theme/app_icons.dart';
 import '../../../../../core/theme/app_text_styles.dart';
 import '../../../../../core/theme/keyvault_colors.dart';
 import '../../../domain/utils/password_strength.dart';
@@ -55,7 +56,7 @@ class StrengthStrip extends StatelessWidget {
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                Icons.shield_outlined,
+                AppIcons.shield,
                 size: 17,
                 color: colors.positiveText,
               ),
@@ -107,7 +108,7 @@ class StrengthStrip extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
-                  Icons.warning_amber_rounded,
+                  AppIcons.warning,
                   size: 17,
                   color: colors.actionText,
                 ),
@@ -151,7 +152,11 @@ class StrengthStrip extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.autorenew, size: 16, color: colors.actionText),
+                    Icon(
+                      AppIcons.autorenew,
+                      size: 16,
+                      color: colors.actionText,
+                    ),
                     const SizedBox(width: 7),
                     Text(
                       'Generate a new one',
