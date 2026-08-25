@@ -22,8 +22,12 @@ import 'package:kdbx/src/kdbx_header.dart' show KdbxHeader;
 import 'package:kdbx/src/kdbx_object.dart' show KdbxObjectInternal;
 // ignore: implementation_imports
 import 'package:kdbx/src/kdbx_xml.dart' show KdbxColor;
+import 'package:password_manager/features/password_manager/data/services/database_file_hash_recorder.dart';
+import 'package:password_manager/features/password_manager/data/services/safe_vault_file_writer.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
+import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
+import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 // `KdbxNode.node` is a public, exported `XmlElement`: constructs the library
 // does not model (entry colors' RGB value, entry AutoType) are read and
 // written straight through it, with no implementation import needed.
@@ -278,6 +282,316 @@ void main() {
       service.loadVault(databasePath: databasePath, password: 'new-password'),
       throwsA(anything),
     );
+  });
+
+  // P1-4: invalidate/complete/rollback hash protocol, audited on the vault
+  // save path and the credential-change (rekey) install/rollback path.
+  group('registry hash protocol (P1-4)', () {
+    test('a vault write refreshes the registry hash after success', () async {
+      final registry = _HashRegistryRepository();
+      final now = DateTime.utc(2026);
+      registry.records.add(
+        DatabaseRecord(
+          databaseId: 'db-1',
+          canonicalPath: databasePath,
+          displayName: 'vault.kdbx',
+          sourceType: DatabaseSourceType.local,
+          fileHash: 'old-hash',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      final trackedService = VaultKdbxService(
+        fileHashRecorder: DatabaseFileHashRecorder(
+          registryRepository: registry,
+        ),
+      );
+      final rootGroupId = await _rootGroupId(
+        trackedService,
+        databasePath,
+        password,
+      );
+
+      await trackedService.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: rootGroupId,
+        title: 'GitHub',
+        username: 'user',
+        entryPassword: 'secret',
+        url: '',
+        notes: '',
+      );
+
+      expect(
+        registry.records.single.fileHash,
+        md5.convert(await File(databasePath).readAsBytes()).toString(),
+      );
+    });
+
+    test('a registry hash-refresh failure after a successful write leaves the '
+        'hash absent, never stale', () async {
+      final registry = _HashRegistryRepository();
+      final now = DateTime.utc(2026);
+      registry.records.add(
+        DatabaseRecord(
+          databaseId: 'db-1',
+          canonicalPath: databasePath,
+          displayName: 'vault.kdbx',
+          sourceType: DatabaseSourceType.local,
+          fileHash: 'old-hash',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      final trackedService = VaultKdbxService(
+        fileHashRecorder: DatabaseFileHashRecorder(
+          registryRepository: registry,
+        ),
+      );
+      final rootGroupId = await _rootGroupId(
+        trackedService,
+        databasePath,
+        password,
+      );
+      // Call 1 = the invalidation write inside beginWrite (must succeed);
+      // call 2 = the post-write refresh (fails here).
+      registry.failUpsertOnCall = 2;
+
+      await expectLater(
+        trackedService.createEntry(
+          databasePath: databasePath,
+          password: password,
+          groupId: rootGroupId,
+          title: 'Durable entry',
+          username: 'user',
+          entryPassword: 'secret',
+          url: '',
+          notes: '',
+        ),
+        completes,
+      );
+
+      expect(
+        (await trackedService.loadAllEntries(
+          databasePath: databasePath,
+          password: password,
+        )).single.title,
+        'Durable entry',
+        reason: 'the durable write itself must not be affected',
+      );
+      expect(registry.records.single.fileHash, isNull);
+    });
+
+    test('a registry invalidation failure blocks the write entirely', () async {
+      final registry = _HashRegistryRepository();
+      final now = DateTime.utc(2026);
+      registry.records.add(
+        DatabaseRecord(
+          databaseId: 'db-1',
+          canonicalPath: databasePath,
+          displayName: 'vault.kdbx',
+          sourceType: DatabaseSourceType.local,
+          fileHash: 'old-hash',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      final trackedService = VaultKdbxService(
+        fileHashRecorder: DatabaseFileHashRecorder(
+          registryRepository: registry,
+        ),
+      );
+      final rootGroupId = await _rootGroupId(
+        trackedService,
+        databasePath,
+        password,
+      );
+      final before = await File(databasePath).readAsBytes();
+      registry.failUpsertOnCall = 1;
+
+      await expectLater(
+        trackedService.createEntry(
+          databasePath: databasePath,
+          password: password,
+          groupId: rootGroupId,
+          title: 'Blocked entry',
+          username: 'user',
+          entryPassword: 'secret',
+          url: '',
+          notes: '',
+        ),
+        throwsStateError,
+      );
+
+      expect(await File(databasePath).readAsBytes(), before);
+      expect(registry.records.single.fileHash, 'old-hash');
+    });
+
+    test(
+      'a writer failure restores the previous registry hash, not absent',
+      () async {
+        final registry = _HashRegistryRepository();
+        final now = DateTime.utc(2026);
+        registry.records.add(
+          DatabaseRecord(
+            databaseId: 'db-1',
+            canonicalPath: databasePath,
+            displayName: 'vault.kdbx',
+            sourceType: DatabaseSourceType.local,
+            fileHash: 'old-hash',
+            createdAt: now,
+            updatedAt: now,
+          ),
+        );
+        final rootGroupId = await _rootGroupId(
+          VaultKdbxService(),
+          databasePath,
+          password,
+        );
+        final before = await File(databasePath).readAsBytes();
+        final trackedService = VaultKdbxService(
+          safeWriter: _FailingSafeVaultFileWriter(),
+          fileHashRecorder: DatabaseFileHashRecorder(
+            registryRepository: registry,
+          ),
+        );
+
+        await expectLater(
+          trackedService.createEntry(
+            databasePath: databasePath,
+            password: password,
+            groupId: rootGroupId,
+            title: 'Failed entry',
+            username: 'user',
+            entryPassword: 'secret',
+            url: '',
+            notes: '',
+          ),
+          throwsException,
+        );
+
+        expect(await File(databasePath).readAsBytes(), before);
+        expect(registry.records.single.fileHash, 'old-hash');
+      },
+    );
+
+    test('credential change (rekey) install and rollback keep the registry '
+        'hash aligned with the file on disk', () async {
+      final originalBytes = await File(databasePath).readAsBytes();
+      final originalHash = md5.convert(originalBytes).toString();
+      final now = DateTime.utc(2026);
+      final registry = _HashRegistryRepository()
+        ..records.add(
+          DatabaseRecord(
+            databaseId: 'db-1',
+            canonicalPath: databasePath,
+            displayName: 'vault.kdbx',
+            sourceType: DatabaseSourceType.local,
+            fileHash: originalHash,
+            createdAt: now,
+            updatedAt: now,
+          ),
+        );
+      final trackedService = VaultKdbxService(
+        fileHashRecorder: DatabaseFileHashRecorder(
+          registryRepository: registry,
+        ),
+      );
+
+      final change = await trackedService.beginCredentialChange(
+        databasePath: databasePath,
+        currentPassword: password,
+        newPassword: 'new-password',
+      );
+      final changedHash = md5
+          .convert(await File(databasePath).readAsBytes())
+          .toString();
+      expect(registry.records.single.fileHash, changedHash);
+      expect(changedHash, isNot(originalHash));
+
+      await trackedService.rollbackCredentialChange(change);
+
+      expect(await File(databasePath).readAsBytes(), originalBytes);
+      expect(registry.records.single.fileHash, originalHash);
+    });
+
+    test('startup reconciliation fills a missing hash', () async {
+      final registry = _HashRegistryRepository();
+      final now = DateTime.utc(2026);
+      registry.records.add(
+        DatabaseRecord(
+          databaseId: 'db-1',
+          canonicalPath: databasePath,
+          displayName: 'vault.kdbx',
+          sourceType: DatabaseSourceType.local,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+
+      await DatabaseFileHashRecorder(
+        registryRepository: registry,
+      ).reconcileMissingHashes();
+
+      expect(
+        registry.records.single.fileHash,
+        md5.convert(await File(databasePath).readAsBytes()).toString(),
+      );
+    });
+
+    test('reconciliation never overwrites an already-trusted hash', () async {
+      final registry = _HashRegistryRepository();
+      final now = DateTime.utc(2026);
+      registry.records.add(
+        DatabaseRecord(
+          databaseId: 'db-1',
+          canonicalPath: databasePath,
+          displayName: 'vault.kdbx',
+          sourceType: DatabaseSourceType.local,
+          fileHash: 'trusted-hash',
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+
+      await DatabaseFileHashRecorder(
+        registryRepository: registry,
+      ).reconcileMissingHashes();
+
+      expect(registry.records.single.fileHash, 'trusted-hash');
+    });
+
+    test('reconciliation completes without throwing when the registry list '
+        'itself fails (e.g. a corrupt registry file), so a crash reading the '
+        'registry never blocks app startup', () async {
+      final registry = _HashRegistryRepository();
+      final now = DateTime.utc(2026);
+      registry.records.add(
+        DatabaseRecord(
+          databaseId: 'db-1',
+          canonicalPath: databasePath,
+          displayName: 'vault.kdbx',
+          sourceType: DatabaseSourceType.local,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      registry.failListWith = const FormatException('corrupt registry');
+
+      await expectLater(
+        DatabaseFileHashRecorder(
+          registryRepository: registry,
+        ).reconcileMissingHashes(),
+        completes,
+      );
+
+      expect(
+        registry.records.single.fileHash,
+        isNull,
+        reason: 'a listing failure must skip reconciliation, not crash it',
+      );
+    });
   });
 
   test('maps created and modified timestamps for new entries', () async {
@@ -1785,4 +2099,70 @@ Future<String> _rootGroupId(
     password: password,
   );
   return snapshot.rootGroupId;
+}
+
+class _HashRegistryRepository implements DatabaseRegistryRepository {
+  final List<DatabaseRecord> records = [];
+  int? failUpsertOnCall;
+  int upsertCalls = 0;
+  Object? failListWith;
+
+  @override
+  Future<DatabaseRecord?> findByHash(String fileHash) async => null;
+
+  @override
+  Future<DatabaseRecord?> findBySource({
+    required DatabaseSourceType sourceType,
+    required String sourceRef,
+  }) async => null;
+
+  @override
+  Future<String?> getActive() async => null;
+
+  @override
+  Future<DatabaseRecord?> getById(String databaseId) async {
+    for (final record in records) {
+      if (record.databaseId == databaseId) {
+        return record;
+      }
+    }
+    return null;
+  }
+
+  @override
+  Future<List<DatabaseRecord>> list() async {
+    final error = failListWith;
+    if (error != null) {
+      throw error;
+    }
+    return List.of(records);
+  }
+
+  @override
+  Future<void> remove(String databaseId) async {}
+
+  @override
+  Future<void> setActive(String? databaseId) async {}
+
+  @override
+  Future<void> upsert(DatabaseRecord record) async {
+    upsertCalls += 1;
+    if (failUpsertOnCall == upsertCalls) {
+      throw StateError('registry write failed');
+    }
+    records.removeWhere((item) => item.databaseId == record.databaseId);
+    records.add(record);
+  }
+}
+
+class _FailingSafeVaultFileWriter extends SafeVaultFileWriter {
+  @override
+  Future<SafeVaultFileWriteResult> write({
+    required String targetPath,
+    required Uint8List bytes,
+    bool backupExistingTarget = false,
+    String? operation,
+  }) async {
+    throw Exception('writer unavailable');
+  }
 }

@@ -11,6 +11,7 @@ import '../../domain/models/database_dedup_result.dart';
 import '../../domain/models/database_import_result.dart';
 import '../../domain/models/database_import_transaction.dart';
 import '../../domain/models/database_selection_item.dart';
+import '../../domain/models/database_sync_mapping.dart';
 import '../../domain/models/drive_account_summary.dart';
 import '../../domain/models/recent_database_removal_mode.dart';
 import '../../domain/repositories/database_file_repository.dart';
@@ -285,23 +286,76 @@ class DatabaseSessionCoordinator {
       updatedAt: now,
       lastOpenedAt: now,
     );
-    await databaseRegistryRepository.upsert(updatedRecord);
-    if (record.sourceType == DatabaseSourceType.drive) {
-      try {
-        await databaseSyncRepository.moveMappingPath(
+    final previousActiveId = await databaseRegistryRepository.getActive();
+    DatabaseSyncMappingPathMove? mappingMove;
+    var registryWriteAttempted = false;
+    try {
+      registryWriteAttempted = true;
+      await databaseRegistryRepository.upsert(updatedRecord);
+      if (record.sourceType == DatabaseSourceType.drive) {
+        // P1-2: `moveMappingPath` returns an exact before-snapshot of both
+        // the source and destination mapping slots. A failure here (or in
+        // `setActive` below) is compensated via `restoreMappingPathMove`,
+        // never by inventing a reverse move — that would blindly delete a
+        // pre-existing destination mapping or overwrite the source with a
+        // foreign remote id.
+        mappingMove = await databaseSyncRepository.moveMappingPath(
           fromDatabasePath: record.canonicalPath,
           toDatabasePath: imported.path,
         );
-      } catch (e, st) {
-        logWarning('Unable to move sync mapping after Locate.', e, st);
       }
+      await databaseRegistryRepository.setActive(updatedRecord.databaseId);
+    } catch (error, stackTrace) {
+      await _rollbackLocate(
+        record: record,
+        previousActiveId: previousActiveId,
+        registryWriteAttempted: registryWriteAttempted,
+        mappingMove: mappingMove,
+      );
+      logError(
+        'Locate transaction failed and was rolled back.',
+        error,
+        stackTrace,
+      );
+      rethrow;
     }
-    await databaseRegistryRepository.setActive(updatedRecord.databaseId);
 
     return DatabaseSelectionSessionResult(
       status: DatabaseSessionStatus.success,
       path: updatedRecord.canonicalPath,
       items: await _loadSelectionItems(),
+    );
+  }
+
+  Future<void> _rollbackLocate({
+    required DatabaseRecord record,
+    required String? previousActiveId,
+    required bool registryWriteAttempted,
+    required DatabaseSyncMappingPathMove? mappingMove,
+  }) async {
+    Future<void> attempt(String label, Future<void> Function() action) async {
+      try {
+        await action();
+      } catch (error, stackTrace) {
+        logError('Locate rollback failed: $label.', error, stackTrace);
+      }
+    }
+
+    if (mappingMove != null) {
+      await attempt(
+        'sync mapping',
+        () => databaseSyncRepository.restoreMappingPathMove(mappingMove),
+      );
+    }
+    if (registryWriteAttempted) {
+      await attempt(
+        'registry record',
+        () => databaseRegistryRepository.upsert(record),
+      );
+    }
+    await attempt(
+      'active database',
+      () => databaseRegistryRepository.setActive(previousActiveId),
     );
   }
 

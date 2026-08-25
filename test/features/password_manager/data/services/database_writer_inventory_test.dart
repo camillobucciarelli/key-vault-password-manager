@@ -284,24 +284,26 @@ void main() {
       expect(File(sheet).readAsStringSync(), contains('.copyFile('));
     });
 
-    test('GAP 4: the sync orchestrator has three replace sites, not one', () {
-      // FR-8 describes `syncNow` replacement as a single path. There are three
-      // independent replacement sites. Pre-T109 they were raw `writeAsBytes`
-      // preceded by a `_backupFile` copy; T108/T109 replaced each pair with a
-      // single `SafeVaultFileWriter.write(backupExistingTarget: true)` call
-      // (verified collision-safe backup + temp/fsync/verify/atomic rename),
-      // so the raw sites are now pinned at ZERO.
+    test('GAP 4 (P1-4 follow-up): the three sync replace call sites now '
+        'converge on one guarded writer path', () {
+      // FR-8 describes `syncNow` replacement as a single path. Originally
+      // there were three independent replacement sites (raw `writeAsBytes`
+      // preceded by a `_backupFile` copy); T108/T109 replaced each with its
+      // own `SafeVaultFileWriter.write(backupExistingTarget: true)` call.
+      // P1-4 collapses those three call sites into one
+      // `_replaceLocalDatabase` helper so hash invalidation and backup
+      // can never be skipped by a branch — the raw sites stay pinned at
+      // ZERO, and the guarded writer call site is now pinned at ONE.
       final source = File(
         'lib/features/password_manager/data/services/'
         'database_sync_orchestrator.dart',
       ).readAsStringSync();
-      expect(RegExp(r'_safeWriter\.write\(').allMatches(source), hasLength(3));
-      // hasLength(3), not `contains`: with `contains` this passed while two
-      // of the three replace sites silently lost their backup (tester LOW-2).
+      expect(RegExp(r'_safeWriter\.write\(').allMatches(source), hasLength(1));
       expect(
         RegExp(r'backupExistingTarget: true').allMatches(source),
-        hasLength(3),
-        reason: 'every replace site must back the target up before writing',
+        hasLength(1),
+        reason:
+            'the shared replace path must back the target up before writing',
       );
       expect(RegExp(r'\.writeAsBytes\(').allMatches(source), isEmpty);
       expect(RegExp(r'_backupFile\(').allMatches(source), isEmpty);
@@ -426,15 +428,19 @@ void main() {
           // on web anyway.
           'writeAsBytes': 1,
           // T109: was 12 — the install fallback's temp->target rename moved
-          // into the safe writer.
-          'rename': 11,
+          // into the safe writer. P1-4 adds 2 compensation renames: a
+          // post-install failure (P2) restores the staged file or deletes
+          // the just-installed target on both `commitStagedDatabase`
+          // branches.
+          'rename': 13,
           // T109: was 8 — the install fallback's cleanup delete moved into
-          // the safe writer.
-          'delete': 7,
+          // the safe writer. P1-4 adds 2 compensation deletes for the same
+          // post-install failure guard.
+          'delete': 9,
           // T102: DatabaseFileRepository.copyFile implementation
           'copy': 1,
         },
-        // T108/T109: pinned EMPTY. All three replacement sites (GAP 4) and
+        // T108/T109: pinned EMPTY. The (now single, P1-4) replacement path and
         // the `_backupFile` copy now delegate to SafeVaultFileWriter; a raw
         // filesystem op reappearing here is a Gate 1 regression.
         'lib/features/password_manager/data/services/'

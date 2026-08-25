@@ -492,9 +492,7 @@ void main() {
     test('reloads vault after successful sync when not saving', () async {
       // kdbx.loadCallCount starts at 0 (no InitializeVault fired)
       bloc.add(const BackgroundDriveSync());
-      await _waitUntil(
-        () => kdbx.loadCallCount >= 1 && !bloc.state.isSyncing,
-      );
+      await _waitUntil(() => kdbx.loadCallCount >= 1 && !bloc.state.isSyncing);
 
       // _reload is called: loadVault must have been called at least once
       expect(kdbx.loadCallCount, greaterThanOrEqualTo(1));
@@ -911,10 +909,18 @@ class _FakeSyncRepo implements DatabaseSyncRepository {
   Future<void> removeMapping(String p) async {}
 
   @override
-  Future<void> moveMappingPath({
+  Future<DatabaseSyncMappingPathMove> moveMappingPath({
     required String fromDatabasePath,
     required String toDatabasePath,
-  }) async {}
+  }) async => DatabaseSyncMappingPathMove(
+    fromDatabasePath: fromDatabasePath,
+    toDatabasePath: toDatabasePath,
+    sourceBefore: null,
+    destinationBefore: null,
+  );
+
+  @override
+  Future<void> restoreMappingPathMove(DatabaseSyncMappingPathMove move) async {}
 
   @override
   Future<void> setAutoSync(String p, bool e) async {}

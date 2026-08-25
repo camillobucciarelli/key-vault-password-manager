@@ -110,3 +110,30 @@ class DatabaseSyncMapping extends Equatable {
     lastError,
   ];
 }
+
+/// Snapshot of both mapping slots involved in a `moveMappingPath` call,
+/// exact enough to be inverted byte-for-byte. `sourceBefore`/
+/// `destinationBefore` are `null` when no mapping occupied that path before
+/// the move — restoring from a `null` snapshot means "delete", never
+/// "invent a mapping".
+class DatabaseSyncMappingPathMove extends Equatable {
+  const DatabaseSyncMappingPathMove({
+    required this.fromDatabasePath,
+    required this.toDatabasePath,
+    required this.sourceBefore,
+    required this.destinationBefore,
+  });
+
+  final String fromDatabasePath;
+  final String toDatabasePath;
+  final DatabaseSyncMapping? sourceBefore;
+  final DatabaseSyncMapping? destinationBefore;
+
+  @override
+  List<Object?> get props => [
+    fromDatabasePath,
+    toDatabasePath,
+    sourceBefore,
+    destinationBefore,
+  ];
+}

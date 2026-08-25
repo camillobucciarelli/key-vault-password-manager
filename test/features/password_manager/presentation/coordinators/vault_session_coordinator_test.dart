@@ -1026,7 +1026,7 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
   }
 
   @override
-  Future<void> moveMappingPath({
+  Future<DatabaseSyncMappingPathMove> moveMappingPath({
     required String fromDatabasePath,
     required String toDatabasePath,
   }) async {
@@ -1037,7 +1037,16 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
     movedFrom = fromDatabasePath;
     movedTo = toDatabasePath;
     moves.add((fromDatabasePath, toDatabasePath));
+    return DatabaseSyncMappingPathMove(
+      fromDatabasePath: fromDatabasePath,
+      toDatabasePath: toDatabasePath,
+      sourceBefore: null,
+      destinationBefore: null,
+    );
   }
+
+  @override
+  Future<void> restoreMappingPathMove(DatabaseSyncMappingPathMove move) async {}
 
   @override
   Future<void> removeMapping(String databasePath) async {}

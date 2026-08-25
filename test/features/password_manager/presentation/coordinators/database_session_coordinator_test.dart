@@ -1215,6 +1215,110 @@ void main() {
           expect(result.message, 'Database record not found.');
         },
       );
+
+      // P1-2: a mapping-move failure must restore BOTH mapping slots
+      // exactly (never a blind reverse move), and must never mutate the
+      // registry record or active id it had already changed.
+      for (final failurePoint in _MappingMoveFailurePoint.values) {
+        test('mapping failure at ${failurePoint.name} restores registry, '
+            'active id and both mapping slots exactly', () async {
+          final missingPath = '${tempDir.path}/databases/missing.kdbx';
+          final foundPath = await _writeManagedDatabase(
+            tempDir,
+            'found-${failurePoint.name}.kdbx',
+          );
+          final foundHash = md5
+              .convert(await File(foundPath).readAsBytes())
+              .toString();
+          final source = DatabaseSyncMapping(
+            databasePath: missingPath,
+            driveFileId: 'source-remote-id',
+            driveFileName: 'source.kdbx',
+          );
+          // Destination already has a mapping to a DIFFERENT Drive file —
+          // a blind reverse move would overwrite it with the source's
+          // remote id instead of restoring it.
+          final destination = DatabaseSyncMapping(
+            databasePath: foundPath,
+            driveFileId: 'destination-remote-id',
+            driveFileName: 'destination.kdbx',
+          );
+          registryRepository.records = [
+            _record(
+              id: 'db-1',
+              path: missingPath,
+              fileHash: foundHash,
+              sourceType: DatabaseSourceType.drive,
+            ),
+          ];
+          registryRepository.activeId = 'previous-active-id';
+          syncRepository.mappings
+            ..[missingPath] = source
+            ..[foundPath] = destination;
+          syncRepository.failNextMoveAt = failurePoint;
+
+          await expectLater(
+            coordinator.locateMissingDatabase(
+              databaseId: 'db-1',
+              selectedPath: foundPath,
+            ),
+            throwsException,
+          );
+
+          expect(registryRepository.records.single.canonicalPath, missingPath);
+          expect(registryRepository.activeId, 'previous-active-id');
+          expect(syncRepository.mappings[missingPath], source);
+          expect(syncRepository.mappings[foundPath], destination);
+        });
+      }
+
+      test('registry activation failure after a successful mapping move '
+          'restores both mapping slots exactly', () async {
+        final missingPath = '${tempDir.path}/databases/missing.kdbx';
+        final foundPath = await _writeManagedDatabase(
+          tempDir,
+          'found-registry-failure.kdbx',
+        );
+        final foundHash = md5
+            .convert(await File(foundPath).readAsBytes())
+            .toString();
+        final source = DatabaseSyncMapping(
+          databasePath: missingPath,
+          driveFileId: 'source-remote-id',
+          driveFileName: 'source.kdbx',
+        );
+        final destination = DatabaseSyncMapping(
+          databasePath: foundPath,
+          driveFileId: 'destination-remote-id',
+          driveFileName: 'destination.kdbx',
+        );
+        registryRepository.records = [
+          _record(
+            id: 'db-1',
+            path: missingPath,
+            fileHash: foundHash,
+            sourceType: DatabaseSourceType.drive,
+          ),
+        ];
+        registryRepository.activeId = 'previous-active-id';
+        registryRepository.failNextSetActive = true;
+        syncRepository.mappings
+          ..[missingPath] = source
+          ..[foundPath] = destination;
+
+        await expectLater(
+          coordinator.locateMissingDatabase(
+            databaseId: 'db-1',
+            selectedPath: foundPath,
+          ),
+          throwsException,
+        );
+
+        expect(registryRepository.records.single.canonicalPath, missingPath);
+        expect(registryRepository.activeId, 'previous-active-id');
+        expect(syncRepository.mappings[missingPath], source);
+        expect(syncRepository.mappings[foundPath], destination);
+      });
     });
 
     // plan.md "Transaction rules": "Create failure removes partial
@@ -1426,6 +1530,7 @@ class _FakeRegistryRepository implements DatabaseRegistryRepository {
   List<DatabaseRecord> records = [];
   String? activeId;
   bool failNextUpsert = false;
+  bool failNextSetActive = false;
 
   @override
   Future<DatabaseRecord?> findByHash(String fileHash) async {
@@ -1475,6 +1580,10 @@ class _FakeRegistryRepository implements DatabaseRegistryRepository {
 
   @override
   Future<void> setActive(String? databaseId) async {
+    if (failNextSetActive) {
+      failNextSetActive = false;
+      throw Exception('Simulated active registry failure.');
+    }
     activeId = databaseId;
   }
 
@@ -1565,6 +1674,7 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
   List<DriveRemoteFile> remoteFiles = const [];
   bool connected = false;
   int connectCalls = 0;
+  _MappingMoveFailurePoint? failNextMoveAt;
 
   @override
   Future<void> connect() async {
@@ -1615,13 +1725,55 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
   }
 
   @override
-  Future<void> moveMappingPath({
+  Future<DatabaseSyncMappingPathMove> moveMappingPath({
     required String fromDatabasePath,
     required String toDatabasePath,
   }) async {
-    final mapping = mappings.remove(fromDatabasePath);
-    if (mapping != null) {
-      mappings[toDatabasePath] = mapping.copyWith(databasePath: toDatabasePath);
+    final move = DatabaseSyncMappingPathMove(
+      fromDatabasePath: fromDatabasePath,
+      toDatabasePath: toDatabasePath,
+      sourceBefore: mappings[fromDatabasePath],
+      destinationBefore: mappings[toDatabasePath],
+    );
+    final failurePoint = failNextMoveAt;
+    failNextMoveAt = null;
+    try {
+      if (failurePoint == _MappingMoveFailurePoint.beforeMutation) {
+        throw Exception('Simulated mapping move failure before mutation.');
+      }
+      final mapping = mappings.remove(fromDatabasePath);
+      if (failurePoint == _MappingMoveFailurePoint.afterSourceRemoval) {
+        throw Exception('Simulated mapping move failure after source removal.');
+      }
+      if (mapping != null) {
+        mappings[toDatabasePath] = mapping.copyWith(
+          databasePath: toDatabasePath,
+        );
+      }
+      if (failurePoint == _MappingMoveFailurePoint.afterDestinationWrite) {
+        throw Exception(
+          'Simulated mapping move failure after destination write.',
+        );
+      }
+      return move;
+    } catch (_) {
+      // Mirrors the real data source: a failed move never leaves the
+      // in-memory mapping half-mutated relative to the returned token.
+      await restoreMappingPathMove(move);
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> restoreMappingPathMove(DatabaseSyncMappingPathMove move) async {
+    mappings
+      ..remove(move.fromDatabasePath)
+      ..remove(move.toDatabasePath);
+    if (move.sourceBefore != null) {
+      mappings[move.fromDatabasePath] = move.sourceBefore!;
+    }
+    if (move.destinationBefore != null) {
+      mappings[move.toDatabasePath] = move.destinationBefore!;
     }
   }
 
@@ -1644,4 +1796,10 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
   @override
   Future<DriveAccountSummary> getConnectedAccount() async =>
       DriveAccountSummary.fallback;
+}
+
+enum _MappingMoveFailurePoint {
+  beforeMutation,
+  afterSourceRemoval,
+  afterDestinationWrite,
 }

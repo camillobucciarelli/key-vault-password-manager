@@ -33,7 +33,7 @@ class DatabaseSyncRepositoryImpl implements DatabaseSyncRepository {
   }
 
   @override
-  Future<void> moveMappingPath({
+  Future<DatabaseSyncMappingPathMove> moveMappingPath({
     required String fromDatabasePath,
     required String toDatabasePath,
   }) {
@@ -41,6 +41,11 @@ class DatabaseSyncRepositoryImpl implements DatabaseSyncRepository {
       fromDatabasePath: fromDatabasePath,
       toDatabasePath: toDatabasePath,
     );
+  }
+
+  @override
+  Future<void> restoreMappingPathMove(DatabaseSyncMappingPathMove move) {
+    return _databaseSyncOrchestrator.restoreMappingPathMove(move);
   }
 
   @override

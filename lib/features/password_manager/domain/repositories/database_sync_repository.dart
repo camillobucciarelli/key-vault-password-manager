@@ -23,10 +23,11 @@ abstract class DatabaseSyncRepository {
   Future<void> connect();
   Future<void> disconnect();
   Future<void> removeMapping(String databasePath);
-  Future<void> moveMappingPath({
+  Future<DatabaseSyncMappingPathMove> moveMappingPath({
     required String fromDatabasePath,
     required String toDatabasePath,
   });
+  Future<void> restoreMappingPathMove(DatabaseSyncMappingPathMove move);
 
   Future<DatabaseSyncMapping?> getMapping(String databasePath);
 

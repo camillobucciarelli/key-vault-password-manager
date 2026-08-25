@@ -1,7 +1,16 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
+import 'package:password_manager/features/password_manager/data/services/legacy_database_registry_migration.dart';
+import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 import 'package:password_manager/injection_container.dart' as di;
+import 'package:path/path.dart' as p;
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// spec-011 FR-6 wiring test: the startup migration must run from `di.init()`
@@ -16,8 +25,13 @@ void main() {
   );
 
   final deletedKeys = <String>[];
+  late Directory documentsDirectory;
 
-  setUp(() {
+  setUp(() async {
+    documentsDirectory = await Directory.systemTemp.createTemp(
+      'injection_container_test_',
+    );
+    PathProviderPlatform.instance = _FakePathProvider(documentsDirectory.path);
     deletedKeys.clear();
     SharedPreferences.setMockInitialValues({});
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -34,6 +48,7 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(secureStorageChannel, null);
     await di.sl.reset();
+    await documentsDirectory.delete(recursive: true);
   });
 
   test('di.init() deletes the legacy global master password entry', () async {
@@ -41,4 +56,113 @@ void main() {
 
     expect(deletedKeys, contains(SecureDataSourceImpl.legacyMasterPasswordKey));
   });
+
+  test('di.init() migrates legacy database paths before UI startup', () async {
+    final missingPath = p.join(documentsDirectory.path, 'missing.kdbx');
+    // The migration canonicalizes via p.normalize(p.absolute(path)), which on
+    // Windows also converts any forward slashes to the native separator.
+    // Compare against that same transform instead of the raw string so this
+    // assertion holds identically on POSIX and Windows.
+    final expectedCanonicalPath = p.normalize(p.absolute(missingPath));
+    SharedPreferences.setMockInitialValues({
+      LegacyDatabaseRegistryMigration.recentDatabasePathsKey: [missingPath],
+      LegacyDatabaseRegistryMigration.cachedDatabasePathKey: missingPath,
+    });
+
+    await di.init();
+
+    final preferences = await SharedPreferences.getInstance();
+    expect(
+      preferences.containsKey(
+        LegacyDatabaseRegistryMigration.recentDatabasePathsKey,
+      ),
+      isFalse,
+    );
+    final records = await di.sl<DatabaseRegistryRepository>().list();
+    expect(records, hasLength(1));
+    expect(records.single.canonicalPath, expectedCanonicalPath);
+    expect(await di.sl<DatabaseRegistryRepository>().getActive(), isNotNull);
+  });
+
+  test(
+    'di.init() reconciles a missing registry hash before UI startup',
+    () async {
+      final database = File('${documentsDirectory.path}/vault.kdbx');
+      await database.writeAsBytes([1, 2, 3], flush: true);
+      final metadataDirectory = Directory(
+        '${documentsDirectory.path}/metadata',
+      );
+      await metadataDirectory.create();
+      final now = DateTime.utc(2026).toIso8601String();
+      await File(
+        '${metadataDirectory.path}/database_registry_records.json',
+      ).writeAsString(
+        jsonEncode([
+          {
+            'databaseId': 'db-1',
+            'canonicalPath': database.path,
+            'displayName': 'vault.kdbx',
+            'sourceType': 'local',
+            'sourceRef': null,
+            'fileHash': null,
+            'createdAt': now,
+            'updatedAt': now,
+            'lastOpenedAt': null,
+            'isFavorite': false,
+          },
+        ]),
+        flush: true,
+      );
+
+      await di.init();
+
+      final records = await di.sl<DatabaseRegistryRepository>().list();
+      expect(records.single.fileHash, md5.convert([1, 2, 3]).toString());
+    },
+  );
+
+  test('di.init() completes and every other dependency stays usable when the '
+      'legacy migration fails, so a persistent migration failure never '
+      'bricks startup', () async {
+    final missingPath = p.join(documentsDirectory.path, 'missing.kdbx');
+    SharedPreferences.setMockInitialValues({
+      LegacyDatabaseRegistryMigration.recentDatabasePathsKey: [missingPath],
+    });
+    // Force the registry write inside `migrate()` to fail with a real
+    // filesystem error, without touching production code: pre-create a
+    // FILE where the registry's own metadata directory needs to go, so
+    // `Directory(...).create()` throws when the migration tries to
+    // persist the first legacy record.
+    await File(
+      p.join(documentsDirectory.path, 'metadata'),
+    ).create(recursive: true);
+
+    await expectLater(di.init(), completes);
+
+    // Startup did not stop: every other dependency this test can reach is
+    // still registered and answers normally.
+    expect(deletedKeys, contains(SecureDataSourceImpl.legacyMasterPasswordKey));
+    expect(di.sl.isRegistered<DatabaseRegistryRepository>(), isTrue);
+
+    // The migration rolled itself back before this test's failure point
+    // ever ran, and the marker was never written — the legacy key is
+    // still there for the next launch to retry.
+    final preferences = await SharedPreferences.getInstance();
+    expect(
+      preferences.containsKey(
+        LegacyDatabaseRegistryMigration.recentDatabasePathsKey,
+      ),
+      isTrue,
+    );
+  });
+}
+
+class _FakePathProvider extends PathProviderPlatform
+    with MockPlatformInterfaceMixin {
+  _FakePathProvider(this.documentsPath);
+
+  final String documentsPath;
+
+  @override
+  Future<String?> getApplicationDocumentsPath() async => documentsPath;
 }

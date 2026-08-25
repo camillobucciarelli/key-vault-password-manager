@@ -14,11 +14,13 @@ import '../data/repositories/database_sync_repository_impl.dart';
 import '../data/repositories/shared_preferences_password_generator_settings_repository.dart';
 import '../data/repositories/sync_merge_repository_impl.dart';
 import '../data/services/apple_autofill_v2_method_channel_client.dart';
+import '../data/services/database_file_hash_recorder.dart';
 import '../data/services/database_path_mutex.dart';
 import '../data/services/database_rename_transaction.dart';
 import '../data/services/database_sync_orchestrator.dart';
 import '../data/services/database_import_service.dart';
 import '../data/services/desktop_oauth_pkce_service.dart';
+import '../data/services/legacy_database_registry_migration.dart';
 import '../data/services/desktop_browser_autofill_cache.dart';
 import '../data/services/desktop_browser_autofill_reveal_bridge_service.dart';
 import '../data/services/desktop_browser_pending_generation_service.dart';
@@ -118,16 +120,31 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
   // serialization guarantee.
   sl.registerLazySingleton(() => DatabasePathMutex());
   sl.registerLazySingleton(
+    () => DatabaseFileHashRecorder(registryRepository: sl()),
+  );
+  sl.registerLazySingleton(
     () => DatabaseRenameTransaction(mutex: sl(), syncRepository: sl()),
   );
   sl.registerLazySingleton(() => VaultCsvImportService());
   sl.registerLazySingleton(() => VaultDuplicateService());
-  sl.registerLazySingleton(() => VaultKdbxService(mutex: sl()));
   sl.registerLazySingleton(
-    () => DatabaseImportService(validateDatabaseUseCase: sl(), mutex: sl()),
+    () => VaultKdbxService(mutex: sl(), fileHashRecorder: sl()),
+  );
+  sl.registerLazySingleton(
+    () => DatabaseImportService(
+      validateDatabaseUseCase: sl(),
+      mutex: sl(),
+      fileHashRecorder: sl(),
+    ),
   );
   sl.registerLazySingleton<DatabaseFileRepository>(
     () => sl<DatabaseImportService>(),
+  );
+  sl.registerLazySingleton(
+    () => LegacyDatabaseRegistryMigration(
+      sharedPreferences: sl(),
+      registryRepository: sl(),
+    ),
   );
   sl.registerLazySingleton(() => GoogleOAuthConfig.fromEnvironment());
   sl.registerLazySingleton(() => DesktopOAuthPkceService(httpClient: sl()));
@@ -146,6 +163,7 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
       syncMetadataDataSource: sl(),
       googleDriveApiService: sl(),
       mutex: sl(),
+      fileHashRecorder: sl(),
     ),
   );
 }

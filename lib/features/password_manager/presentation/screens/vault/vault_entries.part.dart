@@ -242,7 +242,7 @@ class _EntriesCardState extends State<_EntriesCard> {
     await VaultShellRouterScope.of(context).open<VaultDone>(
       context: context,
       surface: EntrySurface<VaultDone>(
-        builder: (_) => BlocProvider.value(
+        builder: (surfaceContext) => BlocProvider.value(
           value: bloc,
           child: _EntryDetailsPage(
             entryId: entry.id,
@@ -251,7 +251,14 @@ class _EntriesCardState extends State<_EntriesCard> {
                 (e) => e.id == entry.id,
                 orElse: () => entry,
               );
-              await _handleEntryAction(context, currentEntry, action);
+              // Use the hosted surface's own (descendant) context, not the
+              // entries-list context captured when this route was opened:
+              // the outer context can be deactivated by the time an action
+              // is picked from a menu inside the pushed page, which made
+              // every dialog opened from here (Delete, Attachments, Move)
+              // throw "Looking up a deactivated widget's ancestor" at
+              // every width once the entries list rebuilt underneath.
+              await _handleEntryAction(surfaceContext, currentEntry, action);
             },
           ),
         ),
