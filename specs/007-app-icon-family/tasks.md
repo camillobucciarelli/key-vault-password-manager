@@ -4,7 +4,7 @@ Order is mandatory. Milestone ends with reviewed source assets; all 007B
 runtime/platform integration remains blocked.
 
 - [x] **A001 — Canonical host lock.** Create `tool/app_icon_host.lock.json` with
-      macOS 26.6/25G72, arm64/64-bit/cp314, CPython 3.14.6 executable path/hash,
+      macOS 26.6.2/25G83, arm64/64-bit/cp314, CPython 3.14.7 executable path/hash,
       exact Pillow wheel URL/hash, Pillow 12.2.0, zlib 1.3.1.zlib-ng, FreeType
       2.14.3, `_imaging` arm64, and renderer contract from spec FR-2.
 - [x] **A002 — Provision bootstrap.** Create `tool/bootstrap_app_icon_host.sh`.
@@ -92,7 +92,7 @@ runtime/platform integration remains blocked.
       dangling symlinks; copy validated run there once, then run read-only check.
       Generator never writes committed assets. Future regeneration uses a fresh
       temp directory and Git review owns replacement.
-- [ ] **A015 — Repository verification.** Run `flutter analyze && flutter test`.
+- [x] **A015 — Repository verification.** Run `flutter analyze && flutter test`.
       Allow only four provision/generator/test files, exact 18 generated outputs,
       and `review-evidence.md` beyond this 007 spec set. From clean checkout, run
       read-only check against committed output and require porcelain status empty

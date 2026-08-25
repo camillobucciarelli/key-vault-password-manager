@@ -29,8 +29,8 @@ No Dart/Flutter dependency changes. Pipeline order:
 
 ## Canonical host bootstrap
 
-Lock exact values from spec FR-2. Bootstrap first checks macOS 26.6 build 25G72,
-arm64, 64-bit CPython 3.14.6, executable path/hash, and non-free-threaded `cp314`.
+Lock exact values from spec FR-2. Bootstrap first checks macOS 26.6.2 build 25G83,
+arm64, 64-bit CPython 3.14.7, executable path/hash, and non-free-threaded `cp314`.
 Only then it downloads:
 
 ```text
