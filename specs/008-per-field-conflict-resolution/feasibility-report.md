@@ -759,11 +759,13 @@ later implementation gates remain open, so every feature flag above remains
 
 ### T111 artifact metadata — 2026-08-24
 
-- **Android — `passed`.** Schema 1; artifact and log under the ignored
-  `build/safety-evidence/android/`; commit
+- **Android — `passed`, 2026-08-25.** Schema 1; artifact and log under the
+  ignored `build/safety-evidence/android/`; commit
   `14b3a87b22135b245b73f2f56e7c6fa0f09ed41e`; sanitized command
   `tool/run_safety_harness.sh -d <emulator>`; Android 16 (API 36) emulator,
-  arm64; Flutter 3.44.8 / Dart 3.12.2; status `passed`; shared-schema
+  arm64; Flutter 3.44.8 / Dart 3.12.2; run date 2026-08-25 (one day after the
+  shared header above, which reflects the other four platforms only); status
+  `passed`; shared-schema
   validation returned 0 errors; all 8 exact required cases passed.
   Capabilities: `atomicReplaceOverExisting=true`, `backupNoOverwrite=true`,
   `flushSupported=true`, `directorySyncSupported=false`. Directory sync is a
