@@ -134,7 +134,6 @@ const BADGE_COLOR_HOST_MISSING = "#f6a06b"; // --color-accent-400
 const BADGE_COLOR_APP_LOCKED = "#a19786"; // --color-neutral-500
 const BADGE_COLOR_MATCHES = "#aebf92"; // --color-accent-2-400
 const BADGE_TEXT_COLOR_MATCHES = "#272e1b"; // --color-accent-2-900
-const BADGE_DIM_OPACITY = 0.45;
 const ICON_SIZES = [16, 32, 48];
 
 async function loadBadgeState() {
@@ -162,29 +161,6 @@ async function pingHostForBadge() {
   } catch (_) {
     return { hostReachable: false, appUnlocked: false };
   }
-}
-
-let dimIconImageDataCache = null; // pure perf cache; losing it on worker
-// restart only costs one re-fetch+redraw of the *existing* PNGs below,
-// never a correctness issue — the cache holds no state used for the
-// hostReachable/appUnlocked/matchCount derivation itself.
-
-async function dimmedIconImageData() {
-  if (dimIconImageDataCache) return dimIconImageDataCache;
-  const result = {};
-  for (const size of ICON_SIZES) {
-    const url = chrome.runtime.getURL(`icons/icon-${size}.png`);
-    const response = await fetch(url);
-    const blob = await response.blob();
-    const bitmap = await createImageBitmap(blob);
-    const canvas = new OffscreenCanvas(size, size);
-    const ctx = canvas.getContext("2d");
-    ctx.globalAlpha = BADGE_DIM_OPACITY;
-    ctx.drawImage(bitmap, 0, 0, size, size);
-    result[size] = ctx.getImageData(0, 0, size, size);
-  }
-  dimIconImageDataCache = result;
-  return result;
 }
 
 /**
@@ -238,26 +214,23 @@ async function ignoreTabGone(call) {
   }
 }
 
-// ponytail: spec 007 owns real pre-rendered per-state icon PNGs
-// (icons/state/*.png per plan.md); those do not exist in this repo yet
-// and T10-T14 scope forbids generating new binary icon assets. Until
-// spec 007 ships them, the "45% opacity" badge states are produced at
-// runtime by alpha-compositing the *existing* icon-16/32/48.png (never
-// creating a new file on disk). Swap dimmedIconImageData() for
-// chrome.action.setIcon({tabId, path: {...}}) against real dimmed PNGs
-// once spec 007 lands.
-async function applyIconForTab(tabId, dim) {
-  if (!dim) {
-    await ignoreTabGone(() =>
-      chrome.action.setIcon({
-        tabId,
-        path: { 16: "icons/icon-16.png", 32: "icons/icon-32.png", 48: "icons/icon-48.png" },
-      })
-    );
-    return;
+// `reason` is null for the normal icon, or "locked"/"nohost" to select the
+// matching pre-rendered dim state PNG from icons/state/ (assets/logo/
+// app_icon_family/state/ext-<size>-<reason>.png, copied in verbatim).
+function iconPathForState(reason) {
+  const path = {};
+  for (const size of ICON_SIZES) {
+    path[size] = reason
+      ? `icons/state/icon-${size}-${reason}.png`
+      : `icons/icon-${size}.png`;
   }
-  const imageData = await dimmedIconImageData();
-  await ignoreTabGone(() => chrome.action.setIcon({ tabId, imageData }));
+  return path;
+}
+
+async function applyIconForTab(tabId, reason) {
+  await ignoreTabGone(() =>
+    chrome.action.setIcon({ tabId, path: iconPathForState(reason) })
+  );
 }
 
 async function applyBadgeForTab(tabId, { text, color, textColor }) {
@@ -276,10 +249,10 @@ async function applyBadgeForTab(tabId, { text, color, textColor }) {
 }
 
 // derive(state) from: hostReachable, appUnlocked, matchCount(activeTab)
-//   !hostReachable → icon 45%, badge solid accent-400
-//   !appUnlocked   → icon 45%, badge solid neutral-500
-//   matchCount > 0 → icon 100%, badge accent-2-400 with the count
-//   otherwise      → icon 100%, no badge
+//   !hostReachable → icons/state/icon-*-nohost.png, badge solid accent-400
+//   !appUnlocked   → icons/state/icon-*-locked.png, badge solid neutral-500
+//   matchCount > 0 → normal icon, badge accent-2-400 with the count
+//   otherwise      → normal icon, no badge
 async function refreshBadgeForTab(tabId) {
   if (typeof tabId !== "number") return;
 
@@ -290,19 +263,19 @@ async function refreshBadgeForTab(tabId) {
   await saveBadgeState(state);
 
   if (!state.hostReachable) {
-    await applyIconForTab(tabId, true);
+    await applyIconForTab(tabId, "nohost");
     await applyBadgeForTab(tabId, { text: " ", color: BADGE_COLOR_HOST_MISSING });
     return;
   }
   if (!state.appUnlocked) {
-    await applyIconForTab(tabId, true);
+    await applyIconForTab(tabId, "locked");
     await applyBadgeForTab(tabId, { text: " ", color: BADGE_COLOR_APP_LOCKED });
     return;
   }
 
   const matchCount = state.tabMatchCounts?.[tabId];
   if (typeof matchCount === "number" && matchCount > 0) {
-    await applyIconForTab(tabId, false);
+    await applyIconForTab(tabId, null);
     await applyBadgeForTab(tabId, {
       text: String(Math.min(matchCount, 99)),
       color: BADGE_COLOR_MATCHES,
@@ -311,7 +284,7 @@ async function refreshBadgeForTab(tabId) {
     return;
   }
 
-  await applyIconForTab(tabId, false);
+  await applyIconForTab(tabId, null);
   await applyBadgeForTab(tabId, { text: "" });
 }
 
@@ -585,6 +558,7 @@ const overlayRouter = new globalThis.KeyVaultOverlayRoutes.OverlayRouter({
   native: sendOverlayNative,
   legacyNative: sendNativeV2,
   reportMatchCount: setTabMatchCount,
+  refreshBadge: refreshBadgeForTab,
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {

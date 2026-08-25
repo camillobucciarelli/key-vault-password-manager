@@ -69,11 +69,11 @@
       - theme selector exposes exactly three options;
       - the iOS "what is shared" list equals the payload keys actually published
         by the autofill coordinator.
-- [ ] **T16** Goldens for screens 1–9; manual screenshots for popup states 10–13
+- [x] **T16** Goldens for screens 1–9; manual screenshots for popup states 10–13
       in light and dark.
-- [ ] **T17** Greyscale check: `strong` vs `possible` still distinguishable.
+- [x] **T17** Greyscale check: `strong` vs `possible` still distinguishable.
 - [x] **T18** `rg -n '#[0-9a-fA-F]{6}' desktop/browser_extension/popup.css` — every
       hit must exist in `tokens.css`.
-- [ ] **T19** Load the unpacked extension and verify all four badge states,
+- [x] **T19** Load the unpacked extension and verify all four badge states,
       including after forcing a service-worker restart.
 - [x] **T20** `flutter analyze` clean, `flutter test` green.

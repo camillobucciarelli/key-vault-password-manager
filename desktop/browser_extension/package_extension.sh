@@ -36,6 +36,12 @@ zip -X "${OUT_FILE}" \
   icons/icon-16.png \
   icons/icon-32.png \
   icons/icon-48.png \
-  icons/icon-128.png
+  icons/icon-128.png \
+  icons/state/icon-16-locked.png \
+  icons/state/icon-16-nohost.png \
+  icons/state/icon-32-locked.png \
+  icons/state/icon-32-nohost.png \
+  icons/state/icon-48-locked.png \
+  icons/state/icon-48-nohost.png
 
 echo "Packaged extension at ${OUT_FILE}"

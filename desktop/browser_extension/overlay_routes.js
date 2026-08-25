@@ -323,12 +323,18 @@ const EXTENSION_PAGE_LOCAL_ROUTES = new Set([
   "getSiteState",
   "setSiteState",
   "KEYVAULT_V2_REPORT_MATCH_COUNT",
+  "KEYVAULT_V2_REFRESH_BADGE",
 ]);
 
 const REPORT_MATCH_COUNT_SHAPE = Object.freeze({
   ...LEGACY_TYPE,
   tabId: { type: "int", min: 0 },
   count: { type: "int", min: 0, max: 10000 },
+});
+
+const REFRESH_BADGE_SHAPE = Object.freeze({
+  ...LEGACY_TYPE,
+  tabId: { type: "int", min: 0 },
 });
 
 /** The complete content-script allowlist. Four types, no others, ever. */
@@ -359,6 +365,7 @@ class OverlayRouter {
    * @param {Function} [options.legacyNative] Raw v2 sender for the popup routes,
    *        preserving their existing throw-and-normalize behaviour.
    * @param {Function} [options.reportMatchCount] `(tabId, count) => Promise`.
+   * @param {Function} [options.refreshBadge] `(tabId) => Promise`.
    * @param {Function} [options.now] Injected clock, epoch ms.
    */
   constructor({
@@ -367,6 +374,7 @@ class OverlayRouter {
     native,
     legacyNative,
     reportMatchCount,
+    refreshBadge,
     now = () => Date.now(),
   } = {}) {
     this._lifecycle = lifecycle;
@@ -374,6 +382,7 @@ class OverlayRouter {
     this._native = native;
     this._legacyNative = legacyNative ?? native;
     this._reportMatchCount = reportMatchCount ?? (async () => {});
+    this._refreshBadge = refreshBadge ?? (async () => {});
     this._now = now;
   }
 
@@ -435,6 +444,16 @@ class OverlayRouter {
       if (!shape.ok) return { ok: false };
       try {
         await this._reportMatchCount(message.tabId, message.count);
+        return { ok: true };
+      } catch (_) {
+        return { ok: false };
+      }
+    }
+    if (type === "KEYVAULT_V2_REFRESH_BADGE") {
+      const shape = securityModule.validateExactShape(message, REFRESH_BADGE_SHAPE);
+      if (!shape.ok) return { ok: false };
+      try {
+        await this._refreshBadge(message.tabId);
         return { ok: true };
       } catch (_) {
         return { ok: false };

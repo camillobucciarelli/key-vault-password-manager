@@ -154,6 +154,9 @@ class Harness {
       reportMatchCount: async (tabId, count) => {
         this.reported = { tabId, count };
       },
+      refreshBadge: async (tabId) => {
+        this.refreshedBadgeTabId = tabId;
+      },
       now: () => this.nowMs,
     });
     return this.router;
@@ -226,6 +229,7 @@ test("A022: a content-script sender cannot reach any extension-page route", asyn
     { type: "KEYVAULT_V2_REVEAL_FOR_FILL", entryId: "entry-1", origin: ORIGIN },
     { type: "KEYVAULT_V2_QUERY_CREDENTIALS", url: ORIGIN },
     { type: "KEYVAULT_V2_REPORT_MATCH_COUNT", tabId: 42, count: 3 },
+    { type: "KEYVAULT_V2_REFRESH_BADGE", tabId: 42 },
   ]) {
     const response = await harness.dispatch(message, sender);
     assert.equal(response.ok, false, message.type);
@@ -321,6 +325,13 @@ test("A022: the popup routes still work, under the stricter sender validator", a
   );
   assert.deepEqual(badge, { ok: true });
   assert.deepEqual(harness.reported, { tabId: 42, count: 3 });
+
+  const badgeRefresh = await harness.dispatch(
+    { type: "KEYVAULT_V2_REFRESH_BADGE", tabId: 42 },
+    sender
+  );
+  assert.deepEqual(badgeRefresh, { ok: true });
+  assert.equal(harness.refreshedBadgeTabId, 42);
 
   const siteState = await harness.dispatch(
     overlayMessage("getSiteState", { tabId: 42, tabUrl: PAGE_URL }),
