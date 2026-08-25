@@ -8,6 +8,7 @@ import 'package:password_manager/features/password_manager/data/datasources/secu
 import 'package:password_manager/features/password_manager/data/services/legacy_database_registry_migration.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 import 'package:password_manager/injection_container.dart' as di;
+import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -57,7 +58,12 @@ void main() {
   });
 
   test('di.init() migrates legacy database paths before UI startup', () async {
-    final missingPath = '${documentsDirectory.path}/missing.kdbx';
+    final missingPath = p.join(documentsDirectory.path, 'missing.kdbx');
+    // The migration canonicalizes via p.normalize(p.absolute(path)), which on
+    // Windows also converts any forward slashes to the native separator.
+    // Compare against that same transform instead of the raw string so this
+    // assertion holds identically on POSIX and Windows.
+    final expectedCanonicalPath = p.normalize(p.absolute(missingPath));
     SharedPreferences.setMockInitialValues({
       LegacyDatabaseRegistryMigration.recentDatabasePathsKey: [missingPath],
       LegacyDatabaseRegistryMigration.cachedDatabasePathKey: missingPath,
@@ -74,7 +80,7 @@ void main() {
     );
     final records = await di.sl<DatabaseRegistryRepository>().list();
     expect(records, hasLength(1));
-    expect(records.single.canonicalPath, missingPath);
+    expect(records.single.canonicalPath, expectedCanonicalPath);
     expect(await di.sl<DatabaseRegistryRepository>().getActive(), isNotNull);
   });
 
