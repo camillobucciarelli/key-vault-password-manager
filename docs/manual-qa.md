@@ -28,11 +28,11 @@ count, never rounded to the more flattering of the two.
 | --- | --- | --- | --- | --- | --- |
 | S1 | Android phone or emulator | 7 | 1 `passed`, 6 `not-run` | 2026-08-25 | S1-7 passed (T111 Android artifact, Android 16 / API 36 emulator, arm64, 8/8 cases). S1-1..S1-6 UI/manual items remain `not-run` |
 | S2 | iPhone or iPad (physical) | 6 | 1 `passed`, 5 `not-run` | 2026-08-24 | S2-1 automated keystore inspection passed on physical iPhone / iOS 26.6; S2-2 lifecycle and all UI items remain `not-run` — see evidence below |
-| S3 | macOS machine (also covers Chrome/Edge + native host) | 13 | 2 `passed`, 11 `not-run` | 2026-08-25 | S3-7 passed (v1 → v2 upgrade, Chrome 151); S3-10 passed (keyboard-only, Chrome 151, same session that found and fixed #132). T111 macOS host artifact also passed, but is outside these 13 UI/manual items and qualifies macOS only |
+| S3 | macOS machine (also covers Chrome/Edge + native host) | 13 | 3 `passed`, 10 `not-run` | 2026-08-25 | S3-7 passed (v1 → v2 upgrade, Chrome 151); S3-10 passed (keyboard-only, Chrome 151, same session that found and fixed #132); S3-12 passed (file:// iframe reachability, same session). T111 macOS host artifact also passed, but is outside these 13 UI/manual items and qualifies macOS only |
 | S4 | Windows machine | 3 | `not-run` | — | Shrunk by the `test-windows` and `t111-platform-artifact` CI jobs, see "Removed" |
 | S5 | Linux machine | 3 | `not-run` | — | Shrunk by the `t111-platform-artifact` CI job, see "Removed" |
 
-Total: **32 items** — **4 `passed`** (S1-7, S2-1, S3-7, S3-10), 28 `not-run`.
+Total: **32 items** — **5 `passed`** (S1-7, S2-1, S3-7, S3-10, S3-12), 27 `not-run`.
 
 ### Earlier hardware QA evidence — 2026-08-24
 
@@ -956,19 +956,37 @@ backup* is also a failure — that is the MEDIUM-2 asymmetry being violated.
 
 ### S3-12 · An `http(s)` iframe under a top document with no origin (spec 009 A046 row 23, new with Slice C)
 
-**Why this is here.** Slice C made this case *more* reachable, not less: the
-broad grant injects the content script into every `http(s)` frame, including one
-nested inside a tab whose top document has no canonicalizable origin (`file://`,
-`view-source:`, a PDF). The A035 policy says such a child is **unsupported** —
-the extension must not lend it an identity it cannot derive.
+**Status: `passed` on Chrome 151/macOS, 2026-08-25.** Slice C made this case
+*more* reachable, not less: the broad grant injects the content script into
+every `http(s)` frame, including one nested inside a tab whose top document has
+no canonicalizable origin (`file://`, `view-source:`, a PDF). The A035 policy
+says such a child is **unsupported** — the extension must not lend it an
+identity it cannot derive.
 
-Two of the three halves are already pinned: the **classifier**, by `a child frame
-under a non-canonicalizable top is still unsupported` in
+Two of the three halves were already pinned: the **classifier**, by `a child
+frame under a non-canonicalizable top is still unsupported` in
 `test/frame_context.test.js` — a unit test over `computeFrameSupport` with
 synthetic top URLs — and the **rendering**, by 2 of the 18 approved baselines
-(`overlay-chrome-1440x900-dpr1-{light,dark}-unsupported-frame.png`). Neither
-pins the third: **reachability in a real browser**. This item is that third half,
-and it is why the "Removed" table entry for A046 row 4 was corrected.
+(`overlay-chrome-1440x900-dpr1-{light,dark}-unsupported-frame.png`). This item
+covers the third: **reachability in a real browser**.
+
+**Recorded observation.** A `file://` page hosting `<iframe
+src="http://localhost:8000/">` was opened directly. Injection into the child
+frame was confirmed (its own isolated world exists). A live `bootstrap` round
+trip from that frame returned `{enabled: true, frameSupport: "unsupported",
+topOrigin: null}`. On real focus of the password field inside the iframe, the
+closed-shadow overlay rendered — piercing the shadow root via CDP DOM confirmed
+the text — *"The overlay is not available in this frame. Copy your login from
+the KeyVault app."*, an empty suggestion list, and a disabled Generate control.
+No `requestMatches` or `fill` message was ever sent.
+**Correction, made from that observation**: the step 4 expectation below
+previously said no overlay appears at all — that undersold it. A hint overlay
+DOES appear; the point is that its content is the fail-safe message above, with
+zero fillable options, not that nothing renders. Corrected below. Separately,
+the popup does not carry a distinct literal "unsupported" label for this case:
+with a `file://` tab active it shows the same "Open an http(s) page…" copy any
+non-http(s) top-level tab gets, since the popup only ever looks at the tab's own
+URL, never a child frame's.
 
 **Steps**
 
@@ -981,16 +999,20 @@ and it is why the "Removed" table entry for A046 row 4 was corrected.
 6. Repeat with `view-source:` on any `http(s)` page containing a form, and with a
    PDF opened in Chrome's viewer.
 
-**Expected observation.** No overlay appears in the iframe at step 4. The popup
-at step 5 reads **unsupported**, and the off switch stays reachable from it. The
-content script is injected — this is not a "nothing happened" pass; confirm the
-injection actually occurred (DevTools → Sources, isolated world) so that the
-unsupported classification is what you observed, not the absence of injection.
+**Expected observation.** A hint overlay appears at step 4 — this is correct,
+not a failure — showing "The overlay is not available in this frame. Copy your
+login from the KeyVault app.", an empty option list, and a disabled Generate
+row; no suggestion is offered and nothing is fillable. The popup at step 5 shows
+its ordinary no-origin copy (the same text any non-http(s) tab gets), not a
+frame-specific label. The content script is injected — this is not a "nothing
+happened" pass; confirm the injection actually occurred (DevTools → Sources,
+isolated world) so that the unsupported classification is what you observed,
+not the absence of injection.
 
-**Fails if.** The overlay renders, offers a suggestion, or fills inside that
-iframe. **That is a security failure** — an origin the extension cannot
-canonicalize would be borrowing one it can. Stop and report. It is also a
-failure, of a lesser kind, if the popup shows a state other than unsupported or
+**Fails if.** The overlay offers a real suggestion or fills inside that iframe.
+**That is a security failure** — an origin the extension cannot canonicalize
+would be borrowing one it can. Stop and report. It is also a failure, of a
+lesser kind, if the hint text or the disabled Generate control is missing, or
 if no injection happened at all, since the latter means this item did not test
 what it claims.
 
@@ -1241,7 +1263,7 @@ platform artifact exists yet` still fails if one is checked in without
 | --- | --- |
 | Row 2, "grant/deny per origin" | The per-site "Turn on" no longer exists. The durable opt-in is one boolean and the popup asks once for the broad optional grant. Replaced by **S3-6**. |
 | Row 3, "scheme/port variants sharing one permission pattern" | This tested per-origin permission-pattern arithmetic, which has no subject left: there is one registration over `http(s)://*/*`. A sibling port is now **served as itself** — still a separate identity toward the vault, so no entry leaks — and that stronger property is pinned by the migrated mutation table. |
-| Row 4's per-origin half, "cross-origin child first denied, then enabled on its own origin" | The "enable this child origin" step no longer exists: under the broad grant the child is injected as a matter of course. **Only the per-origin half is gone.** The frame **policy** survives and is more reachable than before, and it does still owe a manual row — see **S3-12**, and A046 row 23 in `tasks.md`. Corrected on 2026-08-24: this entry previously read "so it needs no manual row", which over-claimed. The executable test is a unit test over the `computeFrameSupport` **classifier** with synthetic top URLs, and the 2 golden baselines pin the **rendering** of the unsupported state; neither pins **reachability in a real browser**. |
+| Row 4's per-origin half, "cross-origin child first denied, then enabled on its own origin" | The "enable this child origin" step no longer exists: under the broad grant the child is injected as a matter of course. **Only the per-origin half is gone.** The frame **policy** survives and is more reachable than before — its manual row is **S3-12**, `passed` 2026-08-25 (see A046 row 23 in `tasks.md`). Corrected on 2026-08-24: this entry previously read "so it needs no manual row", which over-claimed; the executable test was a unit test over the `computeFrameSupport` **classifier** with synthetic top URLs, and the 2 golden baselines pinned only the **rendering** — neither pinned **reachability in a real browser**, which S3-12 has since supplied. |
 
 ### Removed because a stronger automated check replaced it
 

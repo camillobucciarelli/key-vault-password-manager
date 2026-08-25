@@ -617,21 +617,32 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
           origin** (`file://`, `view-source:`, `data:`, the PDF viewer) must
           present the **unsupported** state. Slice C made this case *more*
           reachable, not less: the broad grant injects the child where the
-          per-origin model never would have. Two of its three halves are already
-          pinned — the **classifier**, by `a child frame under a
-          non-canonicalizable top is still unsupported` in
-          `test/frame_context.test.js` (a unit test over `computeFrameSupport`
-          with synthetic top URLs), and the **rendering** of the state, by 2 of
-          the 18 approved baselines
-          (`overlay-chrome-1440x900-dpr1-{light,dark}-unsupported-frame.png`).
-          Neither pins the third: **reachability in a real browser** — that
-          Chrome actually injects the child there, reports the `file://` tab URL
-          for it, and that the popup then really reads unsupported. That
-          residual gap is the whole reason this row exists.
-          Divergence noted on purpose: `docs/manual-qa.md` currently records
-          this case as needing no manual row. That entry is right about the
-          policy and the rendering and silent about reachability; it is the
-          narrower claim, and it predates this analysis.
+          per-origin model never would have.
+
+          Done — 2026-08-25, Chrome 151/macOS, the third half this row exists
+          for: **reachability in a real browser**. A `file://` page hosting an
+          `<iframe src="http://localhost:8000/">` was loaded directly (not
+          through the local server); the extension's isolated world was
+          confirmed injected into the child frame (`Runtime.evaluate` in that
+          frame's own context); a real bootstrap round trip to the background
+          returned `{enabled: true, frameSupport: "unsupported", topOrigin:
+          null}` — the classifier correctly refused to derive an identity from
+          a `file://` top; and on real focus of the password field inside that
+          iframe, the closed-shadow overlay rendered the honest hint, piercing
+          the shadow root via CDP DOM confirmed the exact text: *"The overlay
+          is not available in this frame. Copy your login from the KeyVault
+          app."*, an empty suggestion list, and a disabled Generate control
+          ("Open KeyVault to generate a password."). No `requestMatches` or
+          `fill` message was ever sent from that frame.
+          **Correction to `docs/manual-qa.md` S3-12 made alongside this**: its
+          steps say "No overlay appears in the iframe" — that undersells what
+          actually renders; a hint overlay DOES appear, and its content is
+          exactly the fail-safe message above, not a fillable one. The popup
+          does not display a distinct literal "unsupported" label either: with
+          a `file://` tab active it falls into the ordinary no-canonical-origin
+          branch and shows the ordinary "Open an http(s) page…" copy, the same
+          text a non-http(s) top-level tab gets — there is no frame-specific
+          popup wording to look for.
       24. **Performance / CSP regression now that injection is universal.**
           Under the per-origin model the content script ran only where the user
           had opted in; it now runs in every frame of every `http(s)` page at
@@ -661,15 +672,16 @@ can never reveal.
 
 Still open, and deliberately not closed here:
 
-- **A040** — VoiceOver re-confirmation of the #81 fix on the device, and Chrome +
-  NVDA on Windows. NVDA is a permanent declared debt: no Windows machine.
+- **A040** — keyboard-only (this task's own first row) is now done, 2026-08-25;
+  see this task's body above. Still due: VoiceOver re-confirmation of the #81
+  fix on the device, and Chrome + NVDA on Windows. NVDA is a permanent declared
+  debt: no Windows machine.
 - **A046** — set (c), i.e. the Edge subset and a manual vault A → B pass, plus
-  the three new Slice C rows 22–24 (broad prompt under a gesture with its
-  revoke half, frame reachability under a non-canonicalizable top, and the
-  performance/CSP regression of universal injection). Rows 2, 3 and 4 are spent
-  evidence: 2 and 4 are carried forward by rows 22 and 23, and 3 needs no
-  replacement because its security half is automated. Row 21, the v1 → v2
-  upgrade, is the one Slice C row already executed.
+  row 24 (the performance/CSP regression of universal injection — the one
+  Slice C change with no automated net under it). Rows 21, 22 (both halves)
+  and 23 are now executed. Rows 2, 3 and 4 are spent evidence, not debt: 2 and
+  4 are carried forward by rows 22 and 23 above, and 3 needs no replacement
+  because its security half is automated.
 
 Both are manual-verification debt over code that is otherwise implemented and
 automatically pinned. Neither is a reason to reopen development, and neither may
