@@ -13,15 +13,18 @@ class DriveAuthService {
     required GoogleOAuthConfig config,
     required GoogleTokenDataSource googleTokenDataSource,
     required DesktopOAuthPkceService desktopOAuthPkceService,
+    bool? isDesktopOverride,
   }) : _config = config,
        _googleTokenDataSource = googleTokenDataSource,
        _desktopOAuthPkceService = desktopOAuthPkceService,
-       _googleSignIn = GoogleSignIn.instance;
+       _googleSignIn = GoogleSignIn.instance,
+       _isDesktopOverride = isDesktopOverride;
 
   final GoogleOAuthConfig _config;
   final GoogleTokenDataSource _googleTokenDataSource;
   final DesktopOAuthPkceService _desktopOAuthPkceService;
   final GoogleSignIn _googleSignIn;
+  final bool? _isDesktopOverride;
   bool _googleSignInInitialized = false;
   String? _cachedAccessToken;
   DateTime? _cachedAccessTokenAt;
@@ -29,8 +32,12 @@ class DriveAuthService {
   static const _requiredDriveScope = 'https://www.googleapis.com/auth/drive';
   static const _mobileAccessTokenCacheTtl = Duration(minutes: 5);
 
+  // `isDesktopOverride` lets tests set host platform independently of the
+  // process host, matching the `platformOverride` convention already used by
+  // BrowserSetupService.
   bool get _isDesktop =>
-      !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+      _isDesktopOverride ??
+      (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS));
 
   Future<void> _ensureGoogleSignInInitialized() async {
     if (_googleSignInInitialized) {
