@@ -5,7 +5,7 @@
 
 ## Flutter — settings & security
 
-- [ ] **T1** `vault_settings.part.dart`: two groups with `labelUpper` labels and
+- [x] **T1** `vault_settings.part.dart`: two groups with `labelUpper` labels and
       16 section gap. Database — file name, Biometric protection `KvSwitch`,
       Lock on inactivity, Change master password, Key file. App — Appearance,
       Autofill & browsers, Backups & import. Plus "Close database" as a
@@ -24,7 +24,7 @@
 
 ## Flutter — autofill
 
-- [ ] **T6** `autofill_enablement_screen.dart` (iOS): the three system steps plus
+- [x] **T6** `autofill_enablement_screen.dart` (iOS): the three system steps plus
       the "what is shared" statement — titles, usernames, sites; **not**
       passwords.
 - [x] **T7** `Link AutoFill credential?` `KvBottomSheet`: Target / Entry /
@@ -55,7 +55,7 @@
       title 13/600, meta 11, `strong` **text** label, Fill button padding 7/12
       radius 999 `accent-300`), app locked, host not found ("Show me how" /
       "Check again"), possible-only (action "Ask app" → pending association).
-- [ ] **T14** `background.js`: the badge state machine from plan §Badge state
+- [x] **T14** `background.js`: the badge state machine from plan §Badge state
       machine, re-derived on `tabs.onActivated`, `tabs.onUpdated`, host
       connect/disconnect and app lock/unlock. Uses `chrome.action.setIcon` with
       the pre-rendered state PNGs + `setBadgeText`/`setBadgeBackgroundColor`.
@@ -69,11 +69,11 @@
       - theme selector exposes exactly three options;
       - the iOS "what is shared" list equals the payload keys actually published
         by the autofill coordinator.
-- [ ] **T16** Goldens for screens 1–9; manual screenshots for popup states 10–13
+- [x] **T16** Goldens for screens 1–9; manual screenshots for popup states 10–13
       in light and dark.
-- [ ] **T17** Greyscale check: `strong` vs `possible` still distinguishable.
+- [x] **T17** Greyscale check: `strong` vs `possible` still distinguishable.
 - [x] **T18** `rg -n '#[0-9a-fA-F]{6}' desktop/browser_extension/popup.css` — every
       hit must exist in `tokens.css`.
-- [ ] **T19** Load the unpacked extension and verify all four badge states,
+- [x] **T19** Load the unpacked extension and verify all four badge states,
       including after forcing a service-worker restart.
 - [x] **T20** `flutter analyze` clean, `flutter test` green.

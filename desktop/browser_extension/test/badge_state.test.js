@@ -158,17 +158,6 @@ function bootWorker({ tabs = [{ id: 1 }], status = null } = {}) {
     URL,
     TextEncoder,
     TextDecoder,
-    // The dim-icon path composites the shipped PNGs at runtime (see the
-    // ponytail note in background.js). None of that is under test here, so
-    // the graphics stack is stubbed to the smallest shape it consumes — the
-    // assertions only ever look at which chrome.action calls were made.
-    fetch: async () => ({ blob: async () => ({}) }),
-    createImageBitmap: async () => ({}),
-    OffscreenCanvas: class {
-      getContext() {
-        return { drawImage() {}, getImageData: () => ({}) };
-      }
-    },
   };
   const context = vm.createContext(sandbox);
   const runFile = (name) =>

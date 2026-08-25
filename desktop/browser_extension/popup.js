@@ -804,8 +804,25 @@ async function toggleOverlay(state, tabId) {
 // ---------- entry point ----------
 
 async function initializePopup() {
+  void refreshBadgeForActiveTab();
   await renderPopupState();
   await appendOverlayControl();
+}
+
+// Fire-and-forget: the toolbar badge/icon otherwise only re-derives on
+// tabs.onActivated/onUpdated (background.js T14), so it can lag a lock/
+// unlock until the next tab event. Opening the popup is itself a moment the
+// user is looking at the icon, so nudge a refresh — never blocks popup
+// render, and a failure here is invisible on purpose (the popup's own
+// status fetch below is the source of truth for what's on screen).
+async function refreshBadgeForActiveTab() {
+  const tab = await getActiveTab();
+  if (!tab?.id) return;
+  try {
+    await sendExtensionMessage({ type: "KEYVAULT_V2_REFRESH_BADGE", tabId: tab.id });
+  } catch (_) {
+    // Best-effort only.
+  }
 }
 
 async function renderPopupState() {
