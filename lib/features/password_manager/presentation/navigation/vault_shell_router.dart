@@ -598,7 +598,7 @@ final class VaultShellRouter {
 
   void _hostPane(_VaultOperationSession session) {
     session.hostedWidget = KeyedSubtree(
-      key: ValueKey(session.id),
+      key: session.paneKey,
       child: _buildScoped(session),
     );
     _publishTopPane();
@@ -746,6 +746,16 @@ abstract class _VaultOperationSession {
   final VaultOperationId? parentId;
   final int sequence;
   final VaultSurfacePresentation presentation;
+  // FR-5 latching: a pane can be relocated to a structurally different
+  // parent across a resize (e.g. mobile Column <-> desktop Row, or between
+  // the single-pane/list+detail/folder+list+detail rail shapes). A plain
+  // `ValueKey` only lets Flutter match children within the *same* parent;
+  // once the parent Element itself differs, the old subtree — and any
+  // in-progress form state inside it — is torn down. A `GlobalKey` lets the
+  // framework find and reparent the existing Element wherever it moves in
+  // the same frame, which is what "draft state ... not remounted ... by
+  // resize" requires.
+  final GlobalKey paneKey = GlobalKey();
   Widget? hostedWidget;
   VoidCallback? dismissHost;
   Future<bool> Function()? discardGuard;

@@ -12,14 +12,14 @@ directives.
       interface/mock implementation; test the real class through collaborators
       and widget harness. Secret-bearing DTOs use redacted `props`/`toString`.
       Run fixture/router tests and analyze.
-- [ ] **T2** Implement terminal handling for success, back, cancel, accepted
+- [x] **T2** Implement terminal handling for success, back, cancel, accepted
       destination change, route/sheet removal, build failure, parent close and
       router dispose. Require exact live operation ID, ignore stale completion,
       cancel child operations, remove session before completing, and clear all
       surface/result/builder/secret refs in `finally`. Test every terminal path,
       stale old-ID completion during a later operation, nested confirmation,
       duplicate completion and no result logging. Run router tests and analyze.
-- [ ] **T3** Implement exhaustive sealed `presentationFor(surface, width)` switch
+- [x] **T3** Implement exhaustive sealed `presentationFor(surface, width)` switch
       returning route/sheet/pane exactly per FR-6. Route uses
       `MaterialPageRoute`; sheet uses root `showModalBottomSheet`; pane never
       pushes. Parameterize every surface at 390 and 1024 and assert existing
@@ -34,7 +34,7 @@ directives.
 - [x] **T5** Implement width arithmetic exactly at 599/600/707/708/1023/1024:
       single pane where required, folder only from 1024, no shadow, 1 px dividers,
       min detail 300. Add overflow-free geometry tests and run them.
-- [ ] **T6** Add mobile back, compact-pane back, dirty-form destination guard and
+- [x] **T6** Add mobile back, compact-pane back, dirty-form destination guard and
       latched resize behaviour. Test mobile→desktop and desktop→mobile with an
       in-progress draft and unresolved future; neither may lose state or complete
       during resize. Run analyze and router/shell tests.
@@ -49,11 +49,11 @@ directives.
 - [x] **T8** Migrate Health duplicate and merge-preview calls in
       `vault_duplicates.part.dart`; preserve merge result semantics and backup
       confirmation. Run affected tests and analyze.
-- [ ] **T9** Migrate Drive link, remote picker and sync conflict in
+- [x] **T9** Migrate Drive link, remote picker and sync conflict in
       `vault_dialogs.part.dart`; then move only those cohesive declarations to
       `vault_sync.part.dart` and add its part directive. Run sync/result tests and
       analyze before continuing.
-- [ ] **T10** Migrate database settings, master-password, key-file and CSV/import
+- [x] **T10** Migrate database settings, master-password, key-file and CSV/import
       surfaces in `vault_navigation.part.dart`/`vault_shared.part.dart`; then move
       Settings-owned declarations to `vault_settings.part.dart` and add its part
       directive. Preserve all current return values and copy. Run affected tests
@@ -66,7 +66,7 @@ directives.
 
 ## Phase 4 · Verify
 
-- [ ] **T12** Add and run `vault_surface_migration_matrix_test.dart`: exactly 19
+- [x] **T12** Add and run `vault_surface_migration_matrix_test.dart`: exactly 19
       named FR-7 cases, each asserting 390/1024 presentation kind, typed
       success/null result, frozen title/body/action copy and listed BLoC event or
       coordinator callback. Matrix must pass before any zero-dialog sweep.
@@ -74,7 +74,7 @@ directives.
 - [x] **T14** Run vault-only `showDialog` sweep from spec AC-8; result must be
       empty. Do not modify database selection/unlock or unrelated presentation
       files to widen this gate.
-- [ ] **T15** Run `flutter analyze`, router tests, 19-row matrix, shell tests and
+- [x] **T15** Run `flutter analyze`, router tests, 19-row matrix, shell tests and
       shell goldens.
       Manually execute route/pane/back/resize/confirmation matrix from plan.
       Run full `flutter test` once before commit.

@@ -4,6 +4,8 @@
 // plan.md: "no VaultShellRouterContract, mock subclass or second
 // implementation"). Uses the existing sealed `VaultSurface`/`VaultRouteResult`
 // subtypes since both hierarchies are sealed to their declaring library.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/presentation/navigation/vault_shell_router.dart';
@@ -351,6 +353,218 @@ void main() {
       expect(await future, ConfirmDecision.confirm);
     });
   });
+
+  group('T6: cancelForDestinationChange()', () {
+    testWidgets('cancels every open session when no discard guard is set', (
+      tester,
+    ) async {
+      late VaultShellRouter router;
+      late BuildContext ctx;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: _RouterHarness(onReady: (r, c) => (router = r, ctx = c)),
+        ),
+      );
+      await tester.pump();
+
+      final future = router.open<VaultDone>(
+        context: ctx,
+        width: 1024,
+        surface: EntrySurface<VaultDone>(builder: _noop),
+      );
+      await tester.pump();
+      expect(router.debugLiveSessionCount, 1);
+
+      final accepted = await router.cancelForDestinationChange();
+      await tester.pump();
+
+      expect(accepted, isTrue);
+      expect(router.debugLiveSessionCount, 0);
+      expect(await future, isNull);
+    });
+
+    testWidgets(
+      'a rejecting discard guard keeps the session open and reports false',
+      (tester) async {
+        late VaultShellRouter router;
+        late BuildContext ctx;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: _RouterHarness(onReady: (r, c) => (router = r, ctx = c)),
+          ),
+        );
+        await tester.pump();
+
+        final future = router.open<VaultDone>(
+          context: ctx,
+          width: 1024,
+          surface: EntrySurface<VaultDone>(builder: _noop),
+        );
+        await tester.pump();
+        final id = _findOperationScope(tester).operationId;
+        router.registerDiscardGuard(id, () async => false);
+
+        final accepted = await router.cancelForDestinationChange();
+        await tester.pump();
+
+        expect(accepted, isFalse);
+        expect(router.debugLiveSessionCount, 1);
+        expect(router.debugRetainsOperation(id), isTrue);
+
+        // Clean up: the still-open session must not leak into other tests.
+        router.cancel(id);
+        expect(await future, isNull);
+      },
+    );
+
+    testWidgets('an accepting discard guard cancels the session', (
+      tester,
+    ) async {
+      late VaultShellRouter router;
+      late BuildContext ctx;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: _RouterHarness(onReady: (r, c) => (router = r, ctx = c)),
+        ),
+      );
+      await tester.pump();
+
+      final future = router.open<VaultDone>(
+        context: ctx,
+        width: 1024,
+        surface: EntrySurface<VaultDone>(builder: _noop),
+      );
+      await tester.pump();
+      final id = _findOperationScope(tester).operationId;
+      router.registerDiscardGuard(id, () async => true);
+
+      final accepted = await router.cancelForDestinationChange();
+      await tester.pump();
+
+      expect(accepted, isTrue);
+      expect(router.debugLiveSessionCount, 0);
+      expect(await future, isNull);
+    });
+  });
+
+  group('T6: latched presentation survives resize', () {
+    testWidgets(
+      'a pane opened at desktop width keeps its state and stays unresolved '
+      'across every FR-3 layout-shape boundary down to mobile',
+      (tester) async {
+        late VaultShellRouter router;
+        late BuildContext ctx;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: _ResizableShapeHarness(
+              initialWidth: 1024,
+              onReady: (r, c) => (router = r, ctx = c),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final future = router.open<VaultDone>(
+          context: ctx,
+          width: 1024,
+          surface: EntrySurface<VaultDone>(
+            builder: (_) => const _StatefulCounter(),
+          ),
+        );
+        var resolved = false;
+        unawaited(future.then((_) => resolved = true));
+        await tester.pump();
+        expect(router.debugLiveSessionCount, 1);
+
+        // Establish dirty state inside the hosted pane.
+        await tester.tap(find.byKey(const ValueKey('counter-increment')));
+        await tester.pump();
+        expect(find.text('count: 1'), findsOneWidget);
+
+        // >=1024 (folder+list+detail) -> 708-1023 (list+detail): still a
+        // desktop shape, but a structurally different Row.
+        _ResizableShapeHarnessState.of(tester).setWidth(800);
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        expect(find.text('count: 1'), findsOneWidget);
+        expect(router.debugLiveSessionCount, 1);
+
+        // 708-1023 -> 600-707 (single content pane): another shape change.
+        _ResizableShapeHarnessState.of(tester).setWidth(650);
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        expect(find.text('count: 1'), findsOneWidget);
+        expect(router.debugLiveSessionCount, 1);
+
+        // Cross the mobile/rail boundary (600): Column replaces Row as the
+        // root of the shape — the most drastic structural change. FR-5:
+        // "a pane opened at desktop remains shell-owned after shrink ...
+        // Draft state and pending future are not remounted or completed."
+        _ResizableShapeHarnessState.of(tester).setWidth(390);
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        expect(find.text('count: 1'), findsOneWidget);
+        expect(router.debugLiveSessionCount, 1);
+        expect(resolved, isFalse);
+
+        // Grow back to desktop: still the same live, unresolved session.
+        _ResizableShapeHarnessState.of(tester).setWidth(1024);
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        expect(find.text('count: 1'), findsOneWidget);
+        expect(router.debugLiveSessionCount, 1);
+
+        final scope = _findOperationScope(tester);
+        scope.complete(const VaultDone());
+        await tester.pump();
+        expect(await future, const VaultDone());
+      },
+    );
+
+    testWidgets(
+      'a mobile-pushed route stays a route (and unresolved) after the '
+      'window grows past the rail breakpoint',
+      (tester) async {
+        late VaultShellRouter router;
+        late BuildContext ctx;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: _ResizableShapeHarness(
+              initialWidth: 390,
+              onReady: (r, c) => (router = r, ctx = c),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final future = router.open<VaultDone>(
+          context: ctx,
+          width: 390, // mobile: EntrySurface dispatches to a route.
+          surface: EntrySurface<VaultDone>(builder: _noop),
+        );
+        var resolved = false;
+        unawaited(future.then((_) => resolved = true));
+        await tester.pumpAndSettle();
+        expect(router.debugLiveSessionCount, 1);
+        expect(find.byKey(const ValueKey('surface-child')), findsOneWidget);
+
+        // Growing the ambient width must not force the still-pushed route
+        // to complete/close or be reinterpreted as a pane (FR-5: "A
+        // mobile-pushed route remains a route after window growth until it
+        // closes").
+        _ResizableShapeHarnessState.of(tester).setWidth(1024);
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(router.debugLiveSessionCount, 1);
+        expect(resolved, isFalse);
+        expect(find.byKey(const ValueKey('surface-child')), findsOneWidget);
+
+        router.cancel(_findOperationScope(tester).operationId);
+        expect(await future, isNull);
+      },
+    );
+  });
 }
 
 VaultOperationScope _findOperationScope(WidgetTester tester) {
@@ -413,6 +627,151 @@ class _RouterHarnessState extends State<_RouterHarness> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// T6: a harness that reproduces the *shape* of `_VaultNavigationLayout`
+/// (vault_shell.part.dart) — a genuinely different `Row`/`Column` Element at
+/// each FR-3 width bucket, not just different constraints on one fixed
+/// widget tree. [setWidth] changes only the layout bucket, never the pane
+/// content itself, so it exercises exactly the scenario FR-5 constrains:
+/// the *same* hosted pane widget getting relocated to a structurally
+/// different parent by a resize.
+class _ResizableShapeHarness extends StatefulWidget {
+  const _ResizableShapeHarness({
+    required this.initialWidth,
+    required this.onReady,
+  });
+
+  final double initialWidth;
+  final void Function(VaultShellRouter router, BuildContext context) onReady;
+
+  @override
+  State<_ResizableShapeHarness> createState() => _ResizableShapeHarnessState();
+}
+
+class _ResizableShapeHarnessState extends State<_ResizableShapeHarness> {
+  late final VaultShellRouter router;
+  Widget? pane;
+  late double _width;
+
+  // `skipOffstage: false`: once a route pushes on top, the Navigator marks
+  // this widget's subtree offstage even though it stays mounted (FR-5: "a
+  // mobile-pushed route remains a route" — the harness underneath is still
+  // alive, just not painted).
+  static _ResizableShapeHarnessState of(WidgetTester tester) =>
+      tester.state(find.byType(_ResizableShapeHarness, skipOffstage: false));
+
+  void setWidth(double width) => setState(() => _width = width);
+
+  @override
+  void initState() {
+    super.initState();
+    _width = widget.initialWidth;
+    router = VaultShellRouter(
+      onPaneChanged: (p) {
+        if (mounted) setState(() => pane = p);
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    router.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hosted = pane ?? const SizedBox.shrink();
+    final Widget shape;
+    if (_width < 600) {
+      // Mobile: Column body + tab-bar stand-in (FR-2).
+      shape = Column(
+        key: const ValueKey('shape-mobile'),
+        children: [
+          Expanded(child: hosted),
+          const SizedBox(height: 8, key: ValueKey('tab-bar-stand-in')),
+        ],
+      );
+    } else if (_width < 708) {
+      // 600-707: rail + one content pane (FR-3).
+      shape = Row(
+        key: const ValueKey('shape-single-pane'),
+        children: [
+          const SizedBox(width: 76, key: ValueKey('rail-stand-in')),
+          Expanded(child: hosted),
+        ],
+      );
+    } else if (_width < 1024) {
+      // 708-1023: rail + list + detail (FR-3).
+      shape = Row(
+        key: const ValueKey('shape-list-detail'),
+        children: [
+          const SizedBox(width: 76, key: ValueKey('rail-stand-in')),
+          const SizedBox(width: 330, key: ValueKey('list-stand-in')),
+          Expanded(child: hosted),
+        ],
+      );
+    } else {
+      // >=1024: rail + folder + list + detail (FR-3).
+      shape = Row(
+        key: const ValueKey('shape-folder-list-detail'),
+        children: [
+          const SizedBox(width: 76, key: ValueKey('rail-stand-in')),
+          const SizedBox(width: 236, key: ValueKey('folder-stand-in')),
+          const SizedBox(width: 330, key: ValueKey('list-stand-in')),
+          Expanded(child: hosted),
+        ],
+      );
+    }
+
+    return VaultShellRouterScope(
+      router: router,
+      child: Scaffold(
+        body: Column(
+          children: [
+            Builder(
+              builder: (innerContext) {
+                widget.onReady(router, innerContext);
+                return const SizedBox.shrink();
+              },
+            ),
+            Expanded(child: shape),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// T6: minimal stateful "dirty form" stand-in — a counter proves the same
+/// State survives a resize/reparent rather than being disposed and rebuilt
+/// from scratch.
+class _StatefulCounter extends StatefulWidget {
+  const _StatefulCounter();
+
+  @override
+  State<_StatefulCounter> createState() => _StatefulCounterState();
+}
+
+class _StatefulCounterState extends State<_StatefulCounter> {
+  int _count = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      key: const ValueKey('surface-child'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('count: $_count'),
+        IconButton(
+          key: const ValueKey('counter-increment'),
+          icon: const Icon(Icons.add),
+          onPressed: () => setState(() => _count++),
+        ),
+      ],
     );
   }
 }

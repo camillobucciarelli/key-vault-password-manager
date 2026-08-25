@@ -12,8 +12,11 @@ const _sectionToCurrentFiles = <String, List<String>>{
   'browser_setup_screen.dart': [
     'lib/features/password_manager/presentation/screens/browser_setup_screen.dart',
   ],
+  // spec-002 T10: this copy moved from vault_navigation.part.dart to the
+  // Settings-owned vault_settings.part.dart. The section key is kept as the
+  // pre-restyle label (it names the fixture section, not the current file).
   'vault_navigation.part.dart (settings / master-password)': [
-    'lib/features/password_manager/presentation/screens/vault/vault_navigation.part.dart',
+    'lib/features/password_manager/presentation/screens/vault/vault_settings.part.dart',
   ],
 };
 

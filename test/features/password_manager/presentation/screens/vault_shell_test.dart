@@ -5,6 +5,7 @@
 // present/absent per width.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:password_manager/features/password_manager/presentation/navigation/vault_shell_router.dart';
 
 import 'vault/vault_shell_test_utils.dart';
 
@@ -130,19 +131,92 @@ void main() {
       },
     );
 
-    testWidgets(
-      '"Backups & import" row still reaches the Backups screen',
-      (tester) async {
-        await pumpAtWidth(tester, 390);
-        await tester.tap(find.text('Settings'));
-        await tester.pumpAndSettle();
+    testWidgets('"Backups & import" row still reaches the Backups screen', (
+      tester,
+    ) async {
+      await pumpAtWidth(tester, 390);
+      await tester.tap(find.text('Settings'));
+      await tester.pumpAndSettle();
 
-        await tester.ensureVisible(find.text('Backups & import'));
-        await tester.tap(find.text('Backups & import'));
+      await tester.ensureVisible(find.text('Backups & import'));
+      await tester.tap(find.text('Backups & import'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Import from CSV'), findsOneWidget);
+    });
+  });
+
+  group('T6: destination change vs. an open sub-surface discard guard', () {
+    // Exercises the real consumer wiring (`_VaultViewState._selectDestination`
+    // in vault_shell.part.dart), not just `VaultShellRouter` in isolation:
+    // proves the shell actually calls `cancelForDestinationChange()` when
+    // the user taps a different destination tab/rail item.
+    testWidgets(
+      'a rejecting discard guard keeps the current destination selected',
+      (tester) async {
+        await pumpAtWidth(tester, 1024);
+        final router = VaultShellRouterScope.of(
+          tester.element(find.byKey(const ValueKey('vault-rail'))),
+        );
+
+        final future = router.open<VaultDone>(
+          context: tester.element(find.byKey(const ValueKey('vault-rail'))),
+          surface: EntrySurface<VaultDone>(
+            builder: (context) =>
+                const SizedBox.shrink(key: ValueKey('surface-child')),
+          ),
+        );
+        await tester.pump();
+        final scope = VaultOperationScope.of(
+          tester.element(find.byKey(const ValueKey('surface-child'))),
+        );
+        scope.registerDiscardGuard(() async => false);
+
+        await tester.tap(find.byTooltip('Health'));
         await tester.pumpAndSettle();
 
         expect(tester.takeException(), isNull);
-        expect(find.text('Import from CSV'), findsOneWidget);
+        // Destination unchanged: the Vault list pane is still showing, the
+        // Health placeholder content never appears, and the open session
+        // survived the (rejected) destination-change attempt.
+        expect(find.byKey(const ValueKey('vault-list-pane')), findsOneWidget);
+        expect(find.text('Weak passwords'), findsNothing);
+        expect(router.debugLiveSessionCount, 1);
+
+        router.cancel(scope.operationId);
+        expect(await future, isNull);
+      },
+    );
+
+    testWidgets(
+      'an accepting discard guard cancels the surface and changes destination',
+      (tester) async {
+        await pumpAtWidth(tester, 1024);
+        final router = VaultShellRouterScope.of(
+          tester.element(find.byKey(const ValueKey('vault-rail'))),
+        );
+
+        final future = router.open<VaultDone>(
+          context: tester.element(find.byKey(const ValueKey('vault-rail'))),
+          surface: EntrySurface<VaultDone>(
+            builder: (context) =>
+                const SizedBox.shrink(key: ValueKey('surface-child')),
+          ),
+        );
+        await tester.pump();
+        final scope = VaultOperationScope.of(
+          tester.element(find.byKey(const ValueKey('surface-child'))),
+        );
+        scope.registerDiscardGuard(() async => true);
+
+        await tester.tap(find.byTooltip('Health'));
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(find.text('Weak passwords'), findsOneWidget);
+        expect(router.debugLiveSessionCount, 0);
+        expect(await future, isNull);
       },
     );
   });
