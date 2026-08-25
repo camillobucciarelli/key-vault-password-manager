@@ -882,8 +882,12 @@ class _EditorHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    // spec-004 QA fix: the editor has no Scaffold/SafeArea of its own, so
+    // the header must add the status bar/notch inset itself, same pattern
+    // as _VaultDestinationScaffold in vault_shell.part.dart.
+    final topInset = MediaQuery.paddingOf(context).top;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+      padding: EdgeInsets.fromLTRB(20, 10 + topInset, 20, 0),
       child: Row(
         children: [
           TextButton(
