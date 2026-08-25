@@ -99,12 +99,16 @@ void main() {
         expect(summary.databaseId, harness.databaseId);
         expect(summary.phase, MergeReviewPhase.reviewing);
 
-        // One value conflict (UserName) and one record deletion conflict.
+        // One value conflict and one record deletion conflict. The value
+        // conflict is UserName+Password together (FR-3a): both fields diverge
+        // on the shared entry, so they are ONE engaged credential-block row,
+        // anchored on `password` — the higher-priority member (T401c) — not
+        // two separate rows.
         expect(
           summary.decisions
               .where((d) => d.kind == MergeDecisionKind.fieldConflict)
               .map((d) => d.category),
-          contains(MergeFieldCategory.username),
+          contains(MergeFieldCategory.password),
         );
         expect(
           summary.decisions.where(
@@ -163,17 +167,20 @@ void main() {
         final a = await forward.repository.startReview(forward.databaseId);
         final b = await mirrored.repository.startReview(mirrored.databaseId);
 
+        // UserName and Password both diverge on the shared entry, so this is
+        // the one engaged credential-block row (T401c), anchored on
+        // `password` — its single choice moves both fields together.
         final choiceA = a.decisions
-            .firstWhere((d) => d.category == MergeFieldCategory.username)
+            .firstWhere((d) => d.category == MergeFieldCategory.password)
             .choice;
         final choiceB = b.decisions
-            .firstWhere((d) => d.category == MergeFieldCategory.username)
+            .firstWhere((d) => d.category == MergeFieldCategory.password)
             .choice;
 
         // The value each perspective's chosen SIDE actually holds.
         String elected(MergeChoice choice, {required bool mirrored}) {
-          final onLocal = mirrored ? _remoteUserName : _localUserName;
-          final onRemote = mirrored ? _localUserName : _remoteUserName;
+          final onLocal = mirrored ? 'remote-secret' : 'local-secret';
+          final onRemote = mirrored ? 'local-secret' : 'remote-secret';
           return choice == MergeChoice.local ? onLocal : onRemote;
         }
 
@@ -199,8 +206,9 @@ void main() {
         final summary = await harness.repository.startReview(
           harness.databaseId,
         );
+        // The engaged credential-block row (T401c), anchored on `password`.
         final target = summary.decisions.firstWhere(
-          (d) => d.category == MergeFieldCategory.username,
+          (d) => d.category == MergeFieldCategory.password,
         );
 
         final updated = await harness.repository.updateDecision(
@@ -376,8 +384,9 @@ void main() {
       // plausible-looking lie about what the local vault contains.
       final harness = await _Harness.build(temp);
       final summary = await harness.repository.startReview(harness.databaseId);
+      // The engaged credential-block row (T401c), anchored on `password`.
       final conflict = summary.decisions.firstWhere(
-        (d) => d.category == MergeFieldCategory.username,
+        (d) => d.category == MergeFieldCategory.password,
       );
 
       await harness.repository.buildCandidateBytes(summary.sessionId);
@@ -433,6 +442,115 @@ void main() {
         );
       },
     );
+  });
+
+  // ===========================================================================
+  // T401a — FR-3's LWW is entry-level, not field-level (criterion 15l).
+  //
+  // KDBX has one `lastModificationTime` per entry, so the timestamp rules 1
+  // and 2 consume is the ENTRY's — the newer entry wins ALL of its
+  // conflicting fields at once. Two devices editing two DIFFERENT fields of
+  // the same entry therefore do NOT get an automatic per-field union: both
+  // fields still differ (neither device knows what the other changed), both
+  // are independent `fieldConflict` rows, and BOTH default toward whichever
+  // entry is newer as a whole — even the field the OLDER device itself
+  // edited.
+  // ===========================================================================
+  group('T401a entry-level LWW (15l)', () {
+    late Directory lwwTemp;
+    setUp(() async {
+      lwwTemp = await Directory.systemTemp.createTemp('sync-merge-lww-');
+    });
+    tearDown(() async {
+      if (lwwTemp.existsSync()) await lwwTemp.delete(recursive: true);
+    });
+
+    const entryUuid = 'DDDDDDDDDDDDDDDDDDDDAQ==';
+
+    Future<_FixturePair> lwwFixture({
+      required DateTime localAt,
+      required DateTime remoteAt,
+    }) async {
+      final credentials = Credentials(ProtectedValue.fromString(_password));
+      final seed = KdbxFormat().create(credentials, 'LWW fixture');
+      final entry = KdbxEntry.create(seed, seed.body.rootGroup)
+        ..forceSetUuid(KdbxUuid(entryUuid));
+      seed.body.rootGroup.addEntry(entry);
+      entry
+        ..setString(KdbxKeyCommon.TITLE, PlainValue('Shared'))
+        ..setString(KdbxKey('Notes'), PlainValue('base-notes'))
+        ..setString(KdbxKey('Custom_Other'), PlainValue('base-other'));
+      final baseBytes = Uint8List.fromList(await seed.save());
+
+      final localFile = await KdbxFormat().read(baseBytes, credentials);
+      final remoteFile = await KdbxFormat().read(baseBytes, credentials);
+
+      // Local edits ONLY Notes; remote edits ONLY the custom field. Neither
+      // device knows what the other changed, so BOTH fields still end up
+      // differing between the two sides — two INDEPENDENT fieldConflicts,
+      // not one shared edit.
+      _entry(localFile, entryUuid)!
+        ..setString(KdbxKey('Notes'), PlainValue('local-notes'))
+        ..times.lastModificationTime.set(localAt);
+      _entry(remoteFile, entryUuid)!
+        ..setString(KdbxKey('Custom_Other'), PlainValue('remote-other'))
+        ..times.lastModificationTime.set(remoteAt);
+
+      return _FixturePair(
+        keyFilePath: '${lwwTemp.path}/unused.keyx',
+        keyFileBytes: null,
+        credentials: credentials,
+        localBytes: Uint8List.fromList(await localFile.save()),
+        remoteBytes: Uint8List.fromList(await remoteFile.save()),
+        rootUuid: localFile.body.rootGroup.uuid,
+        deletionTime: DateTime.utc(2020),
+      );
+    }
+
+    test('both fields default toward the newer ENTRY, including the field '
+        'the OLDER device itself edited — asserted so a silent per-field '
+        'union reintroduction fails this test', () async {
+      final fixture = await lwwFixture(
+        localAt: DateTime.utc(2020, 1, 1),
+        remoteAt: DateTime.utc(2021, 1, 1),
+      );
+      final harness = await _Harness.build(lwwTemp, fixture: fixture);
+      final summary = await harness.repository.startReview(harness.databaseId);
+
+      final notes = summary.decisions.singleWhere(
+        (d) => d.category == MergeFieldCategory.notes,
+      );
+      final custom = summary.decisions.singleWhere(
+        (d) => d.category == MergeFieldCategory.customField,
+      );
+
+      // A per-field union would keep `local-notes` (LOCAL's own edit) and
+      // `remote-other` (REMOTE's own edit) — i.e. `notes` defaulting LOCAL.
+      // Entry-level LWW instead elects the newer ENTRY (remote) for BOTH,
+      // discarding local's Notes edit by default.
+      expect(notes.choice, MergeChoice.remote);
+      expect(custom.choice, MergeChoice.remote);
+    });
+
+    test('swapping which entry is newer swaps BOTH defaults together, never '
+        'independently', () async {
+      final fixture = await lwwFixture(
+        localAt: DateTime.utc(2021, 1, 1),
+        remoteAt: DateTime.utc(2020, 1, 1),
+      );
+      final harness = await _Harness.build(lwwTemp, fixture: fixture);
+      final summary = await harness.repository.startReview(harness.databaseId);
+
+      final notes = summary.decisions.singleWhere(
+        (d) => d.category == MergeFieldCategory.notes,
+      );
+      final custom = summary.decisions.singleWhere(
+        (d) => d.category == MergeFieldCategory.customField,
+      );
+
+      expect(notes.choice, MergeChoice.local);
+      expect(custom.choice, MergeChoice.local);
+    });
   });
 
   // ===========================================================================
@@ -980,8 +1098,10 @@ void main() {
         final summary = await harness.repository.startReview(
           harness.databaseId,
         );
+        // The engaged credential-block row (T401c), anchored on `password`:
+        // its display shows the anchor member, per the row's own `category`.
         final conflict = summary.decisions.firstWhere(
-          (d) => d.category == MergeFieldCategory.username,
+          (d) => d.category == MergeFieldCategory.password,
         );
 
         final display = await harness.repository.loadFieldDisplay(
@@ -989,8 +1109,8 @@ void main() {
           decisionId: conflict.decisionId,
         );
 
-        expect(display.local.value, _localUserName);
-        expect(display.remote.value, _remoteUserName);
+        expect(display.local.value, 'local-secret');
+        expect(display.remote.value, 'remote-secret');
         // ...and it is not a channel to anywhere durable.
         expect(display.toString(), 'MergeFieldDisplay(<redacted>)');
         expect(display.local.toString(), 'MergeDisplaySide(<redacted>)');

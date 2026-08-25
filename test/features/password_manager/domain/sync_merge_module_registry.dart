@@ -65,6 +65,7 @@ const mergeContractFiles = <String>[
 const mergeDataImplementationFiles = <String>[
   'lib/features/password_manager/data/services/kdbx_merge_adapter.dart',
   'lib/features/password_manager/data/services/kdbx_semantic_manifest.dart',
+  'lib/features/password_manager/data/services/merge_decision_ledger.dart',
   'lib/features/password_manager/data/repositories/sync_merge_repository_impl.dart',
 ];
 

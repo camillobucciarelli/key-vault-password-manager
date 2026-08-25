@@ -694,7 +694,7 @@ time under a wall clock does not do.
         Frozen-contract insufficiency, raised and deliberately not worked around.
         Statement: the Phase 3 Round 3 note above, "Frozen-contract insufficiency
         found and NOT resolved".
-- [ ] **T401a Deterministic tie-break** — implement FR-3's globally deterministic
+- [x] **T401a Deterministic tie-break** — implement FR-3's globally deterministic
       total order over candidate values (unsigned lexicographic, greater wins)
       for timestamp ties and unknown timestamps, and use the same order to fix
       the operand order of the deterministic notes concatenation. Never "prefer
@@ -736,7 +736,19 @@ time under a wall clock does not do.
       "present, equal → identical" row by asking the user about values that
       agree; FR-3's deterministic UTF-8 order is probably right but needs the
       comparator this task builds, which is why the decision lives here.
-- [ ] **T401c Atomic credential block** — implement FR-3a. Product decision of
+      *Landed and validated 2026-08-25 on `feat/008-gate4-tiebreak-ledger-credblock`
+      (uncommitted, PM-held pending Gate 4 continuation): `compareFieldPresent` and
+      the Notes sentinel-union in `kdbx_merge_adapter.dart` use `utf8.encode`
+      throughout, never `codeUnits`. Independent tester confirmed no UTF-16
+      comparison path, replayed the 15l entry-level-LWW tests directly (both
+      fields default to the newer entry, not a per-field union), and confirmed
+      15j/15g/15k via the promoted adapter-level tests in
+      `kdbx_merge_adapter_test.dart` and two new `sync_merge_repository_impl_test.dart`
+      cases. One pre-existing, non-regressed gap disclosed and carried forward:
+      `_takeRemote` (Gate 3 code) still resolves `fieldConflict` key-spelling by a
+      perspective-dependent local-preferring default, not this task's UTF-8 order —
+      tracked for a follow-up, not blocking.*
+- [x] **T401c Atomic credential block** — implement FR-3a. Product decision of
       2026-08-23: per-field merge is kept, and `UserName`, `Password` and `URL`
       become the one exception, moving together as a block. Not expressible
       inside T401a, which owns the comparator and not the diff/apply/review
@@ -764,12 +776,39 @@ time under a wall clock does not do.
       has no `credentialBlock`, so the summary names the row by its anchor only.
       Recorded beside the metadata-visibility insufficiency under T401; the row
       copy must state the scope in words (T602/T603).
-- [ ] **T401b Sticky decision ledger** — record explicit user decisions keyed by
+      *Landed and validated 2026-08-25 on `feat/008-gate4-tiebreak-ledger-credblock`
+      (uncommitted, PM-held pending Gate 4 continuation): 15m verified with a fixture
+      where per-field UTF-8 order elects opposite sides for `UserName`/`Password`,
+      asserting the block still takes both from one side from both mirrored
+      perspectives, and asserted to fail against a naive per-field comparator.
+      15n verified for dormant-fully-one-sided and engaged-with-one-one-sided-member
+      cases. Case-insensitive/closed-set membership and non-conflicting-shared-member
+      adoption both tested. Two LOW test-coverage gaps noted by tester, not blocking:
+      one-sided-member survival tested only with block winner = remote (not local) at
+      adapter level, and no attachment-named-`password`/`username`/`url` collision
+      test (code already guards it via `fieldKind != string`).*
+- [x] **T401b Sticky decision ledger** — record explicit user decisions keyed by
       object UUID plus field key/attachment name — and, for an FR-3a credential
       block, by entry UUID plus the block identity rather than per member —
       re-apply after every re-merge
       ahead of LWW/tie-break/shortcuts, and return the session to review when a
       re-merge introduces a conflict the user has never been shown.
+      *Landed and validated 2026-08-25 on `feat/008-gate4-tiebreak-ledger-credblock`
+      (uncommitted, PM-held pending Gate 4 continuation), in `merge_decision_ledger.dart`
+      — a pure, session-lived primitive with no caller yet (T401 wires it in later).
+      **Round 1 found HIGH**: `_replayValue` matched on the originally recorded side-tag
+      instead of on which current candidate holds the decided value, so a field decided
+      `remote` spuriously reopened review on the very next round where the true remote
+      moved again while the decided value was carried forward into local — reachable in
+      T401's ordinary re-merge shape, not the exotic neither-matches case. Repro:
+      decide `remote`/`B`, replay against `currentLocal=B, currentRemote=C` → measured
+      `MergeLedgerStale`, required `MergeLedgerReplayed(local)`. **Fixed and re-verified
+      round 2**: `_replayValue` now decides purely from which current side's value
+      matches the decision, with 4 new same-side-flip regression tests (both directions,
+      both field and credential-block paths); the defensive neither-matches-stale case
+      and the unconditional `bothNotes`/`keep`/`delete` operation replay were confirmed
+      unregressed. Full suite independently reproduced by tester: 1449 passed, 1 skipped,
+      `flutter analyze` clean.*
 - [ ] **T402 Local/remote staleness** — recompute local checksum and refetch remote
       checksum under path mutex immediately before backup; compare the remote
       against the **current** expected base, which the divergence branch

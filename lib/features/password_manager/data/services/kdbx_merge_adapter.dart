@@ -469,11 +469,19 @@ final class KdbxMergeResolution {
   KdbxMergeResolution({
     Map<KdbxFieldRef, MergeChoice> fieldChoices = const {},
     Map<String, MergeChoice> recordChoices = const {},
+    Map<String, MergeChoice> credentialBlockChoices = const {},
   }) : _fieldChoices = Map.unmodifiable(fieldChoices),
-       _recordChoices = Map.unmodifiable(recordChoices);
+       _recordChoices = Map.unmodifiable(recordChoices),
+       _credentialBlockChoices = Map.unmodifiable(credentialBlockChoices);
 
   final Map<KdbxFieldRef, MergeChoice> _fieldChoices;
   final Map<String, MergeChoice> _recordChoices;
+
+  /// FR-3a: keyed by entry UUID — the block identity — never by a member's
+  /// [KdbxFieldRef]. [engagedCredentialBlockEntryUuids] must have been used to
+  /// decide which entries these are; an engaged entry with no entry here is
+  /// the same programming error [fieldChoiceFor] guards against.
+  final Map<String, MergeChoice> _credentialBlockChoices;
 
   /// A conflict with no recorded answer is a programming error, not a merge
   /// outcome: every conflict carries a computed default from the moment the
@@ -491,6 +499,16 @@ final class KdbxMergeResolution {
   /// An unattended session can never delete.
   MergeChoice recordChoiceFor(String objectUuid) =>
       _recordChoices[objectUuid] ?? MergeChoice.keep;
+
+  /// FR-3a's one answer per engaged block, always `local` or `remote` — the
+  /// same programming-error contract as [fieldChoiceFor].
+  MergeChoice credentialBlockChoiceFor(String entryUuid) {
+    final choice = _credentialBlockChoices[entryUuid];
+    if (choice == null) {
+      throw StateError('no recorded choice for a credential-block conflict');
+    }
+    return choice;
+  }
 
   @override
   String toString() => 'KdbxMergeResolution(<redacted>)';
@@ -540,6 +558,100 @@ int compareUtf8Bytes(String a, String b) {
   }
   return left.length - right.length;
 }
+
+/// FR-3 rule 3, extended to the **protection dimension** [KdbxFieldPresent
+/// .sameAs] also compares (T401a).
+///
+/// Rule 3 as written orders "the candidate values", and on KDBX a candidate is
+/// a value **plus** a protected/plain flag — [KdbxFieldPresent.sameAs] already
+/// treats a value that only changed protection as a real conflict, so
+/// [KdbxFieldClassification.fieldConflict] is reachable with byte-identical
+/// [KdbxFieldPresent.semanticValue]s on both sides. Deciding that case by
+/// [compareUtf8Bytes] alone leaves it a bare tie, and a caller that broke the
+/// tie by defaulting to "local" reproduced exactly the perspective bug FR-3
+/// forbids for values: two mirrored devices, each keeping its OWN protection
+/// flag, converge on two different candidates forever. The flag is folded
+/// into the same order, after the value bytes: `protected` sorts after
+/// `plain` — arbitrary but fixed, exactly as "greater wins" is arbitrary but
+/// fixed for the value bytes themselves.
+int compareFieldPresent(KdbxFieldPresent a, KdbxFieldPresent b) {
+  final byValue = compareUtf8Bytes(a.semanticValue, b.semanticValue);
+  if (byValue != 0) return byValue;
+  if (a.isProtected == b.isProtected) return 0;
+  return a.isProtected ? 1 : -1;
+}
+
+/// FR-3a's exact, closed membership set — `UserName`/`Password`/`URL` by
+/// [canonicalFieldKey] — and nothing else. Not configurable and does not grow
+/// with an entry's contents: this is the only place the three keys are named
+/// as a set, so a future field can never join it by accident.
+const credentialBlockCanonicalKeys = {'password', 'url', 'username'};
+
+/// FR-3a's fixed block-image member order — ascending UTF-8 over the
+/// canonical keys themselves (`password` < `url` < `username`) — which is
+/// display priority order too, by coincidence of the alphabet, but is used
+/// here purely as the tie-break's fixed join order.
+const _credentialBlockImageOrder = ['password', 'url', 'username'];
+
+/// FR-3a's block-image join byte, `0x1E` (`INFORMATION SEPARATOR TWO`).
+/// Built with [String.fromCharCode] rather than a `\uXXXX` literal so the
+/// control character never has to sit unescaped in this source file.
+final String _credentialBlockImageSeparator = String.fromCharCode(0x1E);
+
+/// FR-3a membership: true for exactly `username`, `password` and `url`.
+bool isCredentialBlockKey(String canonicalKey) =>
+    credentialBlockCanonicalKeys.contains(canonicalKey);
+
+/// FR-3a's one-comparison-per-block tie-break (T401c), reusing
+/// [compareUtf8Bytes] directly rather than a second comparator (T401a).
+/// [local]/[remote] map canonical member key to that side's present value; an
+/// absent member is simply missing from the map and contributes an empty
+/// sequence to the image, per spec.
+int compareCredentialBlockImage(
+  Map<String, KdbxFieldPresent> local,
+  Map<String, KdbxFieldPresent> remote,
+) {
+  String imageOf(Map<String, KdbxFieldPresent> side) => [
+    for (final key in _credentialBlockImageOrder)
+      side[key]?.semanticValue ?? '',
+  ].join(_credentialBlockImageSeparator);
+  return compareUtf8Bytes(imageOf(local), imageOf(remote));
+}
+
+/// FR-3a's engagement rule: entry UUIDs whose credential block has at least
+/// one conflicting shared member (T401c).
+///
+/// Shared between the apply step below and the repository's decision
+/// building — both must agree on exactly this set, or the apply step and the
+/// review decisions it is built from disagree about which fields the block
+/// owns, and [KdbxMergeResolution.credentialBlockChoiceFor] either throws on
+/// a missing entry or is never consulted for one the apply step expected.
+Set<String> engagedCredentialBlockEntryUuids(KdbxPresenceDiff diff) {
+  final engaged = <String>{};
+  for (final field in diff.fieldDiffs) {
+    if (field.fieldKind != KdbxMergeFieldKind.string) continue;
+    if (!isCredentialBlockKey(field.canonicalKey)) continue;
+    if (field.classification != KdbxFieldClassification.fieldConflict) {
+      continue;
+    }
+    engaged.add(field.entryUuid);
+  }
+  return engaged;
+}
+
+/// All of one entry's credential-block field diffs — up to three (password,
+/// url, username), whichever classification each carries. Empty if the entry
+/// has none of the three fields on either side.
+List<KdbxFieldDiff> credentialBlockFieldsOf(
+  KdbxPresenceDiff diff,
+  String entryUuid,
+) => [
+  for (final field in diff.fieldDiffs)
+    if (field.fieldKind == KdbxMergeFieldKind.string &&
+        isCredentialBlockKey(field.canonicalKey) &&
+        field.entryUuid == entryUuid)
+      field,
+];
 
 /// One validated side: the open file plus its live-object UUID index.
 ///
@@ -788,7 +900,16 @@ class KdbxMergeAdapter {
       _importEntry(local: local, remote: remote, entryUuid: record.objectUuid);
     }
 
+    // FR-3a: an engaged credential block's SHARED members (`identical` and
+    // `fieldConflict`) are handled exclusively by [_applyCredentialBlocks]
+    // below, never by the general per-field loop — the whole point of
+    // atomicity is that these three fields never consult an independent
+    // per-field decision. A one-sided member is untouched by that exclusion
+    // and flows through here as an ordinary automatic union, which is exactly
+    // FR-4's no-deletion invariant applied to a block member.
+    final engagedBlocks = engagedCredentialBlockEntryUuids(diff);
     for (final field in diff.fieldDiffs) {
+      if (_isEngagedCredentialBlockMember(field, engagedBlocks)) continue;
       _applyField(
         local: local,
         remote: remote,
@@ -796,6 +917,13 @@ class KdbxMergeAdapter {
         resolution: resolution,
       );
     }
+    _applyCredentialBlocks(
+      local: local,
+      remote: remote,
+      diff: diff,
+      resolution: resolution,
+      engagedEntryUuids: engagedBlocks,
+    );
 
     for (final record in diff.deletionConflicts) {
       _applyRecordDecision(
@@ -1173,6 +1301,11 @@ class KdbxMergeAdapter {
 
     switch (field.classification) {
       case KdbxFieldClassification.identical:
+        // Value already correct; FR-4 preserves it with no decision. A
+        // divergent key SPELLING is the one thing still undecided on this
+        // row (T401a) — resolved deterministically, never "keep local".
+        _reconcileIdenticalKeySpelling(localEntry, field);
+        return;
       case KdbxFieldClassification.fieldLocalOnly:
         // Already in the candidate; FR-4 preserves it with no decision.
         return;
@@ -1241,6 +1374,98 @@ class KdbxMergeAdapter {
           name: targetKey.key,
           bytes: binary.value,
         );
+    }
+  }
+
+  /// FR-4's "identical" row (T401a): both sides hold the same value under
+  /// different spellings of the same canonical key — e.g. local
+  /// `Custom_Totp`, remote `custom_totp`. Nothing else in this method decides
+  /// values, only the spelling the candidate ends up holding: FR-3's UTF-8
+  /// order applied to the two spellings themselves, never "keep local" (that
+  /// is the exact perspective-dependent default FR-3 forbids for values, and
+  /// there is no reason a key spelling should be exempt).
+  ///
+  /// [KdbxEntry.renameKey] stamps a wall clock through `Changeable.modify`
+  /// like every other mutator here; [_stampDeterministicTimes] corrects it at
+  /// the end of [applyMerge], so no special-casing is needed here.
+  void _reconcileIdenticalKeySpelling(
+    KdbxEntry localEntry,
+    KdbxFieldDiff field,
+  ) {
+    if (!field.keySpellingDiverges) return;
+    final localKey = field.localKey!;
+    final remoteKey = field.remoteKey!;
+    if (compareUtf8Bytes(remoteKey, localKey) <= 0) {
+      return; // local's already wins
+    }
+
+    switch (field.fieldKind) {
+      case KdbxMergeFieldKind.string:
+        localEntry.renameKey(KdbxKey(localKey), KdbxKey(remoteKey));
+      case KdbxMergeFieldKind.attachment:
+        final binary = localEntry.getBinary(KdbxKey(localKey));
+        if (binary == null) return;
+        localEntry.removeBinary(KdbxKey(localKey));
+        localEntry.createBinary(
+          isProtected: binary.isProtected,
+          name: remoteKey,
+          bytes: binary.value,
+        );
+    }
+  }
+
+  /// True for a field the general per-field loop must skip because FR-3a's
+  /// atomic block owns it instead — a SHARED member (`identical` or
+  /// `fieldConflict`) of an entry whose block is engaged. A one-sided member
+  /// is never true here: FR-4's no-deletion invariant is unaffected by
+  /// atomicity, and the general loop's own union handling is what preserves
+  /// it.
+  bool _isEngagedCredentialBlockMember(
+    KdbxFieldDiff field,
+    Set<String> engagedEntryUuids,
+  ) {
+    if (field.fieldKind != KdbxMergeFieldKind.string) return false;
+    if (!isCredentialBlockKey(field.canonicalKey)) return false;
+    if (!engagedEntryUuids.contains(field.entryUuid)) return false;
+    return field.classification == KdbxFieldClassification.identical ||
+        field.classification == KdbxFieldClassification.fieldConflict;
+  }
+
+  /// FR-3a: for every engaged block, every SHARED member (value, protection
+  /// flag and verbatim key spelling all travel together, by copying the
+  /// winning side's `StringValue` object wholesale — the same trick
+  /// [_takeRemote] uses) is taken from [resolution]'s single answer for the
+  /// whole entry. A one-sided member is left alone: it was never a candidate
+  /// for this method, having been excluded from the very diff this iterates
+  /// (see [_isEngagedCredentialBlockMember]'s converse in [applyMerge]).
+  void _applyCredentialBlocks({
+    required KdbxFile local,
+    required KdbxFile remote,
+    required KdbxPresenceDiff diff,
+    required KdbxMergeResolution resolution,
+    required Set<String> engagedEntryUuids,
+  }) {
+    for (final entryUuid in engagedEntryUuids) {
+      final localEntry = _entryByUuid(local, entryUuid);
+      final remoteEntry = _entryByUuid(remote, entryUuid);
+      if (localEntry == null || remoteEntry == null) continue;
+
+      final winnerIsLocal =
+          resolution.credentialBlockChoiceFor(entryUuid) == MergeChoice.local;
+
+      for (final field in credentialBlockFieldsOf(diff, entryUuid)) {
+        if (field.local is! KdbxFieldPresent ||
+            field.remote is! KdbxFieldPresent) {
+          continue; // one-sided: preserved by the general loop already.
+        }
+        final targetKey = winnerIsLocal ? field.localKey! : field.remoteKey!;
+        final sourceEntry = winnerIsLocal ? localEntry : remoteEntry;
+        final winningValue = sourceEntry.getString(KdbxKey(targetKey));
+        if (field.localKey != null && field.localKey != targetKey) {
+          localEntry.removeString(KdbxKey(field.localKey!));
+        }
+        localEntry.setString(KdbxKey(targetKey), winningValue);
+      }
     }
   }
 

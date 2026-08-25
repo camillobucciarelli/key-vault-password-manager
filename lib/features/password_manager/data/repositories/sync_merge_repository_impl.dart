@@ -358,9 +358,20 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
   void _buildDecisions(_MergeSession session) {
     var ordinal = 0;
 
+    // FR-3a: an engaged block's shared username/password/url conflicts are
+    // ONE decision, never three (15n). `engagedCredentialBlockEntryUuids` is
+    // the SAME function `applyMerge` filters its per-field loop with, so the
+    // two halves can never disagree about which entries these are.
+    final engagedBlocks = engagedCredentialBlockEntryUuids(session.diff);
+
     for (final field in session.diff.fieldDiffs) {
       if (field.classification != KdbxFieldClassification.fieldConflict) {
         continue;
+      }
+      if (isCredentialBlockKey(field.canonicalKey) &&
+          field.fieldKind == KdbxMergeFieldKind.string &&
+          engagedBlocks.contains(field.entryUuid)) {
+        continue; // folded into the one block decision built below instead.
       }
       final local = field.local as KdbxFieldPresent;
       final remote = field.remote as KdbxFieldPresent;
@@ -375,6 +386,40 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
           category: _categoryOf(field),
           presence: MergePresence.presentBoth,
           choice: _defaultFieldChoice(relation, local, remote),
+          isDefault: true,
+          timestampRelation: relation,
+        ),
+      );
+    }
+
+    for (final entryUuid in engagedBlocks.toList()..sort()) {
+      final blockFields = credentialBlockFieldsOf(session.diff, entryUuid);
+      final conflicting =
+          blockFields
+              .where(
+                (f) =>
+                    f.classification == KdbxFieldClassification.fieldConflict,
+              )
+              .toList()
+            ..sort(
+              (a, b) => _anchorPriority[a.canonicalKey]!.compareTo(
+                _anchorPriority[b.canonicalKey]!,
+              ),
+            );
+      // `engagedBlocks` guarantees at least one conflicting member exists.
+      final anchor = conflicting.first;
+      final relation = session.timestampRelationFor(entryUuid);
+      final decisionId = _mintDecisionId();
+      session.decisions[decisionId.token] = _DecisionRecord.forCredentialBlock(
+        entryUuid: entryUuid,
+        anchorField: anchor,
+        redacted: RedactedMergeDecision(
+          decisionId: decisionId,
+          ordinal: ordinal++,
+          kind: MergeDecisionKind.fieldConflict,
+          category: _categoryOf(anchor),
+          presence: MergePresence.presentBoth,
+          choice: _defaultCredentialBlockChoice(relation, blockFields),
           isDefault: true,
           timestampRelation: relation,
         ),
@@ -462,11 +507,54 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
         return MergeChoice.remote;
       case TimestampRelation.tie:
       case TimestampRelation.bothUnknown:
-        return compareUtf8Bytes(local.semanticValue, remote.semanticValue) >= 0
+        // T401a: `compareFieldPresent`, not `compareUtf8Bytes` on the value
+        // alone — a field-conflict pair can be byte-identical and differ only
+        // in the protection flag `KdbxFieldPresent.sameAs` also compares, and
+        // resolving THAT case on the value alone is a bare tie that always
+        // fell to "local" — perspective-dependent, and forbidden by FR-3.
+        return compareFieldPresent(local, remote) >= 0
             ? MergeChoice.local
             : MergeChoice.remote;
     }
   }
+
+  /// spec-008 **T401c** — FR-3a's one comparison per credential block,
+  /// mirroring [_defaultFieldChoice]'s shape exactly but over the block image
+  /// (T401a's [compareCredentialBlockImage]) rather than one field.
+  MergeChoice _defaultCredentialBlockChoice(
+    TimestampRelation relation,
+    List<KdbxFieldDiff> blockFields,
+  ) {
+    switch (relation) {
+      case TimestampRelation.localNewer:
+      case TimestampRelation.localKnownRemoteUnknown:
+        return MergeChoice.local;
+      case TimestampRelation.remoteNewer:
+      case TimestampRelation.remoteKnownLocalUnknown:
+        return MergeChoice.remote;
+      case TimestampRelation.tie:
+      case TimestampRelation.bothUnknown:
+        final localImage = <String, KdbxFieldPresent>{
+          for (final f in blockFields)
+            if (f.local is KdbxFieldPresent)
+              f.canonicalKey: f.local as KdbxFieldPresent,
+        };
+        final remoteImage = <String, KdbxFieldPresent>{
+          for (final f in blockFields)
+            if (f.remote is KdbxFieldPresent)
+              f.canonicalKey: f.remote as KdbxFieldPresent,
+        };
+        return compareCredentialBlockImage(localImage, remoteImage) >= 0
+            ? MergeChoice.local
+            : MergeChoice.remote;
+    }
+  }
+
+  /// FR-3a's fixed display priority for the anchor member of an engaged
+  /// block — `password` > `username` > `url` — distinct from
+  /// [compareCredentialBlockImage]'s ascending-UTF-8 join order, which exists
+  /// only to fix the tie-break's byte sequence.
+  static const _anchorPriority = {'password': 0, 'username': 1, 'url': 2};
 }
 
 TimestampRelation _relationOf(DateTime? local, DateTime? remote) {
@@ -547,10 +635,16 @@ final class _MergeSession {
   KdbxMergeResolution resolution() {
     final fieldChoices = <KdbxFieldRef, MergeChoice>{};
     final recordChoices = <String, MergeChoice>{};
+    final credentialBlockChoices = <String, MergeChoice>{};
     for (final entry in decisions.values) {
       final field = entry.field;
       if (field != null) {
         fieldChoices[kdbxFieldRefOf(field)] = entry.redacted.choice;
+        continue;
+      }
+      final blockEntryUuid = entry.credentialBlockEntryUuid;
+      if (blockEntryUuid != null) {
+        credentialBlockChoices[blockEntryUuid] = entry.redacted.choice;
         continue;
       }
       recordChoices[entry.record!.objectUuid] = entry.redacted.choice;
@@ -558,6 +652,7 @@ final class _MergeSession {
     return KdbxMergeResolution(
       fieldChoices: fieldChoices,
       recordChoices: recordChoices,
+      credentialBlockChoices: credentialBlockChoices,
     );
   }
 
@@ -580,16 +675,35 @@ final class _DecisionRecord {
     required KdbxFieldDiff fieldDiff,
     required this.redacted,
   }) : field = fieldDiff,
-       record = null;
+       record = null,
+       credentialBlockEntryUuid = null,
+       credentialBlockAnchor = null;
 
   _DecisionRecord.forRecord({
     required KdbxRecordDiff recordDiff,
     required this.redacted,
   }) : record = recordDiff,
-       field = null;
+       field = null,
+       credentialBlockEntryUuid = null,
+       credentialBlockAnchor = null;
+
+  /// spec-008 T401c — one row for a whole FR-3a credential block, keyed for
+  /// [_MergeSession.resolution] by entry UUID rather than by any member's
+  /// field ref. [anchorField] exists only for [display]: the highest-priority
+  /// conflicting member, so the preview shown matches the row's `category`.
+  _DecisionRecord.forCredentialBlock({
+    required String entryUuid,
+    required KdbxFieldDiff anchorField,
+    required this.redacted,
+  }) : field = null,
+       record = null,
+       credentialBlockEntryUuid = entryUuid,
+       credentialBlockAnchor = anchorField;
 
   final KdbxFieldDiff? field;
   final KdbxRecordDiff? record;
+  final String? credentialBlockEntryUuid;
+  final KdbxFieldDiff? credentialBlockAnchor;
 
   RedactedMergeDecision redacted;
 
@@ -597,8 +711,13 @@ final class _DecisionRecord {
   /// the whole data implementation that produces a value the presentation layer
   /// can read, and its result is non-`Equatable`, non-serializable, redacted in
   /// `toString` and disposable.
+  ///
+  /// A credential-block row shows its ANCHOR member only. Showing all three
+  /// members is the UI-wording gap spec.md records as out of scope here
+  /// (T602/T603) — this is the minimum that keeps the row from crashing on
+  /// display, not the final word on what it should show.
   MergeFieldDisplay display(_MergeSession session) {
-    final field = this.field;
+    final field = this.field ?? credentialBlockAnchor;
     if (field != null) return _fieldDisplay(session, field);
     return _recordDisplay(session, record!);
   }
