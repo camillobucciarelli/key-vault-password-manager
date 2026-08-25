@@ -561,6 +561,37 @@ void main() {
 
       expect(registry.records.single.fileHash, 'trusted-hash');
     });
+
+    test('reconciliation completes without throwing when the registry list '
+        'itself fails (e.g. a corrupt registry file), so a crash reading the '
+        'registry never blocks app startup', () async {
+      final registry = _HashRegistryRepository();
+      final now = DateTime.utc(2026);
+      registry.records.add(
+        DatabaseRecord(
+          databaseId: 'db-1',
+          canonicalPath: databasePath,
+          displayName: 'vault.kdbx',
+          sourceType: DatabaseSourceType.local,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      registry.failListWith = const FormatException('corrupt registry');
+
+      await expectLater(
+        DatabaseFileHashRecorder(
+          registryRepository: registry,
+        ).reconcileMissingHashes(),
+        completes,
+      );
+
+      expect(
+        registry.records.single.fileHash,
+        isNull,
+        reason: 'a listing failure must skip reconciliation, not crash it',
+      );
+    });
   });
 
   test('maps created and modified timestamps for new entries', () async {
@@ -2074,6 +2105,7 @@ class _HashRegistryRepository implements DatabaseRegistryRepository {
   final List<DatabaseRecord> records = [];
   int? failUpsertOnCall;
   int upsertCalls = 0;
+  Object? failListWith;
 
   @override
   Future<DatabaseRecord?> findByHash(String fileHash) async => null;
@@ -2098,7 +2130,13 @@ class _HashRegistryRepository implements DatabaseRegistryRepository {
   }
 
   @override
-  Future<List<DatabaseRecord>> list() async => List.of(records);
+  Future<List<DatabaseRecord>> list() async {
+    final error = failListWith;
+    if (error != null) {
+      throw error;
+    }
+    return List.of(records);
+  }
 
   @override
   Future<void> remove(String databaseId) async {}

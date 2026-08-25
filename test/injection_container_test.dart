@@ -120,6 +120,41 @@ void main() {
       expect(records.single.fileHash, md5.convert([1, 2, 3]).toString());
     },
   );
+
+  test('di.init() completes and every other dependency stays usable when the '
+      'legacy migration fails, so a persistent migration failure never '
+      'bricks startup', () async {
+    final missingPath = p.join(documentsDirectory.path, 'missing.kdbx');
+    SharedPreferences.setMockInitialValues({
+      LegacyDatabaseRegistryMigration.recentDatabasePathsKey: [missingPath],
+    });
+    // Force the registry write inside `migrate()` to fail with a real
+    // filesystem error, without touching production code: pre-create a
+    // FILE where the registry's own metadata directory needs to go, so
+    // `Directory(...).create()` throws when the migration tries to
+    // persist the first legacy record.
+    await File(
+      p.join(documentsDirectory.path, 'metadata'),
+    ).create(recursive: true);
+
+    await expectLater(di.init(), completes);
+
+    // Startup did not stop: every other dependency this test can reach is
+    // still registered and answers normally.
+    expect(deletedKeys, contains(SecureDataSourceImpl.legacyMasterPasswordKey));
+    expect(di.sl.isRegistered<DatabaseRegistryRepository>(), isTrue);
+
+    // The migration rolled itself back before this test's failure point
+    // ever ran, and the marker was never written — the legacy key is
+    // still there for the next launch to retry.
+    final preferences = await SharedPreferences.getInstance();
+    expect(
+      preferences.containsKey(
+        LegacyDatabaseRegistryMigration.recentDatabasePathsKey,
+      ),
+      isTrue,
+    );
+  });
 }
 
 class _FakePathProvider extends PathProviderPlatform

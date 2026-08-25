@@ -1,4 +1,5 @@
 import 'package:get_it/get_it.dart';
+import 'package:loggy/loggy.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/di/core_di.dart';
@@ -21,7 +22,21 @@ Future<void> init() async {
 
   // P1-3: bridges the pre-registry SharedPreferences path keys into the
   // registry, exactly once (durable marker), before any widget is built.
-  await sl<LegacyDatabaseRegistryMigration>().migrate();
+  // A persistent failure (e.g. no write permission on the registry store)
+  // must not brick every future launch: `migrate()` has already rolled
+  // itself back to the empty-registry/previous-active snapshot before
+  // rethrowing, so it is safe to log and continue here — the marker was
+  // never written, so the next launch simply retries the migration.
+  try {
+    await sl<LegacyDatabaseRegistryMigration>().migrate();
+  } catch (error, stackTrace) {
+    logWarning(
+      'Legacy database registry migration failed and was rolled back; '
+      'continuing startup, the migration will retry on next launch.',
+      error,
+      stackTrace,
+    );
+  }
 
   // P1-4: fills in any registry record whose `fileHash` is absent (created
   // before this field existed, or left absent by a prior failed refresh)

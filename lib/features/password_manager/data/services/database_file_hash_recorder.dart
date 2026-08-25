@@ -127,7 +127,23 @@ class DatabaseFileHashRecorder {
   /// whose canonical file still exists. Cheap (one read per record) and
   /// best-effort — a failure here must not block startup.
   Future<void> reconcileMissingHashes() async {
-    for (final record in await registryRepository.list()) {
+    List<DatabaseRecord> records;
+    try {
+      records = await registryRepository.list();
+    } catch (error, stackTrace) {
+      // A corrupt/unreadable registry must not block startup either — the
+      // per-record loop below already treats every failure this way, but
+      // the `list()` call that feeds it was unprotected.
+      logWarning(
+        'Unable to list the database registry for hash reconciliation at '
+        'startup.',
+        error,
+        stackTrace,
+      );
+      return;
+    }
+
+    for (final record in records) {
       if (record.fileHash != null) {
         continue;
       }
