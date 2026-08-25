@@ -264,12 +264,13 @@ flutter test test/features/password_manager/data/services/sync_merge_convergence
       through the safe writer's replace instead.
 - [x] **T110 Failure tests** — backup create/write/flush/verify, disk-full/short
       write, target flush, rename and cleanup failures leave old/full new target.
-- [ ] **T111 Platform harness artifacts** — run target harness separately on
+- [x] **T111 Platform harness artifacts** — run target harness separately on
       Android, iOS, macOS, Windows and Linux. Feature flag defaults disabled until
       matching artifact passes; macOS host test qualifies macOS only. Update each
       `feasibility-report.md` row with result/artifact metadata. Evidence status
-      2026-08-24: Windows, Linux, macOS and iOS passed; Android is the only
-      missing artifact, so T111 remains open.
+      2026-08-25: Android, Windows, Linux, macOS and iOS all passed (Android on
+      Android 16 / API 36 emulator, arm64, 8/8 cases). T111 platform evidence
+      complete.
 
 **Gate 1 exit**: writer audit has no bypass, alias/rename tests pass, backups never
 overwrite, and enabled platform has its own artifact.

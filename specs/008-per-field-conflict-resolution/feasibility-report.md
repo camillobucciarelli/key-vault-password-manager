@@ -746,7 +746,7 @@ qualifies another target. macOS host unit tests executed for T001–T007 are
 
 | Platform | Status | Feature enabled | Required artifact | Command/runtime |
 | --- | --- | --- | --- | --- |
-| Android | `not-run` | no | `build/safety-evidence/android/safe-vault-writer.json` + log | Android app storage on named device/emulator; no artifact produced |
+| Android | `passed` | no | `build/safety-evidence/android/safe-vault-writer.json` + log | Android 16 (API 36) emulator, arm64; 8/8 cases passed; metadata below |
 | iOS | `passed` | no | `build/safety-evidence/ios/safe-vault-writer.json` + device log | Physical iPhone 16 Pro / iOS 26.6 / APFS; schema v1; 8/8 required cases passed; metadata below |
 | macOS | `passed` | no | `build/safety-evidence/macos/safe-vault-writer.json` + log | `tool/run_safety_harness.sh -H`; macOS 26.6.1 host / APFS; 8/8 cases passed; metadata below |
 | Windows | `passed` | no | Actions artifact `t111-safe-vault-writer-windows` | PR #127 run `32713786823`; native `windows-2022` / NTFS; 8/8 cases passed; metadata below |
@@ -759,6 +759,16 @@ later implementation gates remain open, so every feature flag above remains
 
 ### T111 artifact metadata — 2026-08-24
 
+- **Android — `passed`.** Schema 1; artifact and log under the ignored
+  `build/safety-evidence/android/`; commit
+  `14b3a87b22135b245b73f2f56e7c6fa0f09ed41e`; sanitized command
+  `tool/run_safety_harness.sh -d <emulator>`; Android 16 (API 36) emulator,
+  arm64; Flutter 3.44.8 / Dart 3.12.2; status `passed`; shared-schema
+  validation returned 0 errors; all 8 exact required cases passed.
+  Capabilities: `atomicReplaceOverExisting=true`, `backupNoOverwrite=true`,
+  `flushSupported=true`, `directorySyncSupported=false`. Directory sync is a
+  measured unsupported capability and remains best-effort; it is not claimed
+  as `true`.
 - **iOS — `passed`.** Schema 1; artifact and log under the ignored
   `build/safety-evidence/ios/`; commit
   `98467436cd9447eb4f45d5eef316d57faaba0058`; sanitized command
@@ -795,9 +805,8 @@ later implementation gates remain open, so every feature flag above remains
   `flushSupported=true`, `directorySyncSupported=false`.
 
 Artifacts and transcripts remain untracked: local output is under ignored
-`build/`, and CI JSON stays attached to its Actions run. T111 remains unchecked
-because Android has no artifact. iOS, macOS, Windows and Linux are `passed`;
-Android is the only missing platform artifact.
+`build/`, and CI JSON stays attached to its Actions run. Android, iOS, macOS,
+Windows and Linux are all `passed`; T111 platform evidence is complete.
 
 ## Model corrections from spike
 
