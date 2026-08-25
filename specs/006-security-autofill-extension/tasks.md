@@ -5,7 +5,7 @@
 
 ## Flutter — settings & security
 
-- [ ] **T1** `vault_settings.part.dart`: two groups with `labelUpper` labels and
+- [x] **T1** `vault_settings.part.dart`: two groups with `labelUpper` labels and
       16 section gap. Database — file name, Biometric protection `KvSwitch`,
       Lock on inactivity, Change master password, Key file. App — Appearance,
       Autofill & browsers, Backups & import. Plus "Close database" as a
@@ -24,7 +24,7 @@
 
 ## Flutter — autofill
 
-- [ ] **T6** `autofill_enablement_screen.dart` (iOS): the three system steps plus
+- [x] **T6** `autofill_enablement_screen.dart` (iOS): the three system steps plus
       the "what is shared" statement — titles, usernames, sites; **not**
       passwords.
 - [x] **T7** `Link AutoFill credential?` `KvBottomSheet`: Target / Entry /
@@ -55,7 +55,7 @@
       title 13/600, meta 11, `strong` **text** label, Fill button padding 7/12
       radius 999 `accent-300`), app locked, host not found ("Show me how" /
       "Check again"), possible-only (action "Ask app" → pending association).
-- [ ] **T14** `background.js`: the badge state machine from plan §Badge state
+- [x] **T14** `background.js`: the badge state machine from plan §Badge state
       machine, re-derived on `tabs.onActivated`, `tabs.onUpdated`, host
       connect/disconnect and app lock/unlock. Uses `chrome.action.setIcon` with
       the pre-rendered state PNGs + `setBadgeText`/`setBadgeBackgroundColor`.
