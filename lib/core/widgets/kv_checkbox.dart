@@ -57,6 +57,7 @@ class KvCheckboxRow extends StatelessWidget {
                 child: Text(
                   label,
                   style: AppTextStyles.fieldValue.copyWith(
+                    fontSize: 14,
                     color: colors.textPrimary,
                   ),
                 ),

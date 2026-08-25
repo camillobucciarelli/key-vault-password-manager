@@ -272,6 +272,7 @@ class _EntryDialogState extends State<_EntryDialog> {
 
     final form = _EntryEditorForm(
       formKey: _formKey,
+      isWide: isWide,
       titleController: _titleController,
       usernameController: _usernameController,
       passwordController: _passwordController,
@@ -419,6 +420,7 @@ class _EntryDialogState extends State<_EntryDialog> {
 class _EntryEditorForm extends StatelessWidget {
   const _EntryEditorForm({
     required this.formKey,
+    this.isWide = false,
     required this.titleController,
     required this.usernameController,
     required this.passwordController,
@@ -450,6 +452,7 @@ class _EntryEditorForm extends StatelessWidget {
   });
 
   final GlobalKey<FormState> formKey;
+  final bool isWide;
   final TextEditingController titleController;
   final TextEditingController usernameController;
   final TextEditingController passwordController;
@@ -585,6 +588,7 @@ class _EntryEditorForm extends StatelessWidget {
                   _OptionalRow(
                     icon: AppGlyph.add,
                     label: 'Custom field',
+                    isWide: isWide,
                     onTap: () {
                       onRevealCustomFields();
                       onAddCustomField();
@@ -595,6 +599,7 @@ class _EntryEditorForm extends StatelessWidget {
                   _OptionalRow(
                     icon: AppGlyph.attachment,
                     label: 'Attachment',
+                    isWide: isWide,
                     onTap: () {
                       onRevealAttachments();
                       onAddAttachment();
@@ -607,6 +612,7 @@ class _EntryEditorForm extends StatelessWidget {
                   _OptionalRow(
                     icon: AppGlyph.qrCode,
                     label: 'One-time code',
+                    isWide: isWide,
                     onTap: onRevealOtp,
                   ),
                 ],
@@ -742,10 +748,16 @@ class _EntryEditorForm extends StatelessWidget {
 }
 
 class _OptionalRow extends StatelessWidget {
-  const _OptionalRow({required this.icon, required this.label, this.onTap});
+  const _OptionalRow({
+    required this.icon,
+    required this.label,
+    this.isWide = false,
+    this.onTap,
+  });
 
   final AppGlyph icon;
   final String label;
+  final bool isWide;
   final VoidCallback? onTap;
 
   @override
@@ -757,9 +769,12 @@ class _OptionalRow extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(20),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+          padding: EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: isWide ? 12 : 13,
+          ),
           decoration: BoxDecoration(
-            color: colors.surface,
+            color: isWide ? colors.surfaceNested : colors.surface,
             borderRadius: BorderRadius.circular(20),
           ),
           child: Row(
@@ -895,6 +910,7 @@ class _EditorHeader extends StatelessWidget {
             child: Text(
               'Cancel',
               style: AppTextStyles.fieldValue.copyWith(
+                fontSize: 14,
                 color: colors.textSecondary,
               ),
             ),
@@ -915,6 +931,7 @@ class _EditorHeader extends StatelessWidget {
             child: Text(
               'Save',
               style: AppTextStyles.fieldValue.copyWith(
+                fontSize: 14,
                 color: canSave ? colors.linkText : colors.textTertiary,
               ),
             ),
