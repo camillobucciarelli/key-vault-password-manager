@@ -262,7 +262,7 @@ class _GeneratorErrorCard extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.error_outline, size: 19, color: colors.attentionText),
+          Icon(AppIcons.errorOutline, size: 19, color: colors.attentionText),
           const SizedBox(width: 12),
           Expanded(
             child: Text(

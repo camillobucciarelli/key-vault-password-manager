@@ -122,7 +122,7 @@ class _DecryptingView extends StatelessWidget {
                 width: 34,
                 height: 34,
                 child: reducedMotion
-                    ? Icon(Icons.hourglass_top, color: colors.actionEmphasis)
+                    ? Icon(AppIcons.hourglassTop, color: colors.actionEmphasis)
                     : CircularProgressIndicator(
                         strokeWidth: 3,
                         color: colors.actionEmphasis,

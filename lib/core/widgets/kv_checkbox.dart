@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_glyph.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/keyvault_colors.dart';
+import 'kv_icon.dart';
 
 /// Generator character-set row (PIXEL_SPEC "Switch/radio/checkbox" +
 /// "Generator" anchors): 22 px checkbox, radius 8, `accent-300` fill with
@@ -43,7 +45,11 @@ class KvCheckboxRow extends StatelessWidget {
                       : Border.all(color: colors.divider, width: 1.5),
                 ),
                 child: value
-                    ? Icon(Icons.check, size: 14, color: colors.actionText)
+                    ? KvIcon(
+                        glyph: AppGlyph.check,
+                        size: 14,
+                        color: colors.actionText,
+                      )
                     : null,
               ),
               const SizedBox(width: 12),
