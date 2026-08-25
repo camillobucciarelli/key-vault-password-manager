@@ -530,34 +530,39 @@ final class VaultShellRouter {
   }
 
   Widget _buildScoped(_VaultOperationSession session) {
-    return Builder(
-      builder: (context) {
-        if (!_sessions.containsKey(session.id)) {
-          return const SizedBox.shrink();
-        }
-        try {
-          final child = session.build(context);
-          return VaultOperationScope(
-            operationId: session.id,
-            completeOperation: (result) => complete(session.id, result),
-            cancelOperation: () => requestCancel(session.id),
-            registerDiscardGuard: (guard) =>
-                registerDiscardGuard(session.id, guard),
-            child: PopScope(
-              canPop: session.allowHostRemoval,
-              onPopInvokedWithResult: (didPop, _) {
-                if (!didPop) {
-                  unawaited(requestCancel(session.id));
-                }
-              },
-              child: child,
-            ),
-          );
-        } catch (_) {
-          cancel(session.id);
-          return const SizedBox.shrink();
-        }
-      },
+    // The session's own content must be built with a BuildContext that is
+    // already a descendant of VaultOperationScope: content calls
+    // `VaultOperationScope.of(context)` synchronously (e.g. Cancel/Confirm
+    // button callbacks), and `context.dependOnInheritedWidgetOfExactType`
+    // only finds ancestors of the context it is called with. Building
+    // `session.build` from a context ABOVE the scope (the previous shape)
+    // means every callback captured from that build sees no scope at all.
+    return VaultOperationScope(
+      operationId: session.id,
+      completeOperation: (result) => complete(session.id, result),
+      cancelOperation: () => requestCancel(session.id),
+      registerDiscardGuard: (guard) => registerDiscardGuard(session.id, guard),
+      child: PopScope(
+        canPop: session.allowHostRemoval,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) {
+            unawaited(requestCancel(session.id));
+          }
+        },
+        child: Builder(
+          builder: (scopedContext) {
+            if (!_sessions.containsKey(session.id)) {
+              return const SizedBox.shrink();
+            }
+            try {
+              return session.build(scopedContext);
+            } catch (_) {
+              cancel(session.id);
+              return const SizedBox.shrink();
+            }
+          },
+        ),
+      ),
     );
   }
 

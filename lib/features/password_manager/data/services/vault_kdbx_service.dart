@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:kdbx/kdbx.dart';
+import 'package:loggy/loggy.dart';
 import 'package:path/path.dart' as p;
 
 import '../../domain/models/vault_attachment.dart';
@@ -9,6 +10,7 @@ import '../../domain/models/vault_custom_field.dart';
 import '../../domain/models/vault_entry.dart';
 import '../../domain/models/vault_group.dart';
 import '../../domain/models/vault_snapshot.dart';
+import 'database_file_hash_recorder.dart';
 import 'database_path_mutex.dart';
 import 'safe_vault_file_writer.dart';
 
@@ -27,8 +29,10 @@ class VaultKdbxService {
     this.credentialTempWriter,
     DatabasePathMutex? mutex,
     SafeVaultFileWriter? safeWriter,
+    DatabaseFileHashRecorder? fileHashRecorder,
   }) : _mutex = mutex ?? DatabasePathMutex(),
-       _safeWriter = safeWriter ?? SafeVaultFileWriter();
+       _safeWriter = safeWriter ?? SafeVaultFileWriter(),
+       _fileHashRecorder = fileHashRecorder;
 
   /// spec 008 T105: every mutation below runs inside this lock so vault
   /// edits, sync replacement, import commits and renames on the same file
@@ -41,6 +45,27 @@ class VaultKdbxService {
   /// spec 008 T109: lock-free safe writer used INSIDE the mutex actions for
   /// every database byte write (temp + fsync + verify + atomic rename).
   final SafeVaultFileWriter _safeWriter;
+
+  /// Invalidate/complete/rollback hash protocol (P1-4) around vault save
+  /// and credential-change install/rollback. `null` in callers/tests that
+  /// do not need registry hash tracking.
+  final DatabaseFileHashRecorder? _fileHashRecorder;
+
+  Future<T> _trackDatabaseWrite<T>({
+    required String databasePath,
+    required Uint8List bytes,
+    required Future<T> Function() write,
+  }) {
+    final recorder = _fileHashRecorder;
+    if (recorder == null) {
+      return write();
+    }
+    return recorder.trackWrite(
+      databasePath: databasePath,
+      bytes: bytes,
+      write: write,
+    );
+  }
 
   static const maxAttachmentBytes = 20 * 1024 * 1024;
   static final _notesKey = KdbxKey('Notes');
@@ -392,13 +417,19 @@ class VaultKdbxService {
           keyFilePath: newKeyFilePath,
         );
 
-        await databaseFile.rename(backupFile.path);
-        try {
-          await tempFile.rename(databasePath);
-        } catch (_) {
-          await backupFile.rename(databasePath);
-          rethrow;
-        }
+        await _trackDatabaseWrite(
+          databasePath: databasePath,
+          bytes: bytes,
+          write: () async {
+            await databaseFile.rename(backupFile.path);
+            try {
+              await tempFile.rename(databasePath);
+            } catch (_) {
+              await backupFile.rename(databasePath);
+              rethrow;
+            }
+          },
+        );
 
         return KdbxCredentialChange(
           databasePath: databasePath,
@@ -433,19 +464,34 @@ class VaultKdbxService {
       final failedFile = File(
         '${change.databasePath}.credentials-rollback-${DateTime.now().microsecondsSinceEpoch}',
       );
-      if (await databaseFile.exists()) {
-        await databaseFile.rename(failedFile.path);
-      }
+      final restoredBytes = await backupFile.readAsBytes();
+      await _trackDatabaseWrite(
+        databasePath: change.databasePath,
+        bytes: restoredBytes,
+        write: () async {
+          if (await databaseFile.exists()) {
+            await databaseFile.rename(failedFile.path);
+          }
+          try {
+            await backupFile.rename(change.databasePath);
+          } catch (_) {
+            if (await failedFile.exists() && !await databaseFile.exists()) {
+              await failedFile.rename(change.databasePath);
+            }
+            rethrow;
+          }
+        },
+      );
       try {
-        await backupFile.rename(change.databasePath);
         if (await failedFile.exists()) {
           await failedFile.delete();
         }
-      } catch (_) {
-        if (await failedFile.exists() && !await databaseFile.exists()) {
-          await failedFile.rename(change.databasePath);
-        }
-        rethrow;
+      } catch (error, stackTrace) {
+        logWarning(
+          'Unable to remove a credential rollback artifact.',
+          error,
+          stackTrace,
+        );
       }
     });
   }
@@ -908,10 +954,14 @@ class VaultKdbxService {
     // T109: same-directory temp + fsync + verify + atomic rename. No backup
     // here: routine saves never produced one (user behaviour unchanged); the
     // old bytes stay intact until the atomic replace.
-    await _safeWriter.write(
-      targetPath: databasePath,
+    await _trackDatabaseWrite(
+      databasePath: databasePath,
       bytes: bytes,
-      operation: 'vault save',
+      write: () => _safeWriter.write(
+        targetPath: databasePath,
+        bytes: bytes,
+        operation: 'vault save',
+      ),
     );
   }
 

@@ -9,6 +9,7 @@ import '../../domain/models/drive_remote_file.dart';
 import '../../domain/models/sync_conflict.dart';
 import '../../domain/repositories/database_sync_repository.dart';
 import '../datasources/sync_metadata_data_source.dart';
+import 'database_file_hash_recorder.dart';
 import 'database_path_mutex.dart';
 import 'google_drive_api_service.dart';
 import 'safe_vault_file_writer.dart';
@@ -19,11 +20,13 @@ class DatabaseSyncOrchestrator {
     required GoogleDriveApiService googleDriveApiService,
     DatabasePathMutex? mutex,
     SafeVaultFileWriter? safeWriter,
+    DatabaseFileHashRecorder? fileHashRecorder,
     this.driveCallTimeout = const Duration(seconds: 30),
   }) : _syncMetadataDataSource = syncMetadataDataSource,
        _googleDriveApiService = googleDriveApiService,
        _mutex = mutex ?? DatabasePathMutex(),
-       _safeWriter = safeWriter ?? SafeVaultFileWriter();
+       _safeWriter = safeWriter ?? SafeVaultFileWriter(),
+       _fileHashRecorder = fileHashRecorder;
 
   /// Upper bound on each individual Drive call made while `syncNow` holds
   /// the database lock. The mutex is in-process and non-cancellable: a hung
@@ -53,6 +56,11 @@ class DatabaseSyncOrchestrator {
   /// pair; the backup now happens after the download (no backup litter when
   /// the download fails) and still strictly before the target write.
   final SafeVaultFileWriter _safeWriter;
+
+  /// Invalidate/complete/rollback hash protocol around every local
+  /// replacement below (P1-4). `null` in tests/callers that do not need
+  /// registry hash tracking.
+  final DatabaseFileHashRecorder? _fileHashRecorder;
 
   /// Applies [driveCallTimeout] to a Drive call issued under the lock.
   Future<T> _remote<T>(Future<T> call) => call.timeout(driveCallTimeout);
@@ -221,12 +229,7 @@ class DatabaseSyncOrchestrator {
       final downloaded = await _remote(
         _googleDriveApiService.downloadFile(mapping.driveFileId),
       );
-      await _safeWriter.write(
-        targetPath: databasePath,
-        bytes: downloaded,
-        backupExistingTarget: true,
-        operation: 'sync replace from remote',
-      );
+      await _replaceLocalDatabase(databasePath, downloaded);
       final refreshedLocal = md5.convert(downloaded).toString();
 
       await _syncMetadataDataSource.upsertMapping(
@@ -303,12 +306,7 @@ class DatabaseSyncOrchestrator {
       final downloaded = await _remote(
         _googleDriveApiService.downloadFile(mapping.driveFileId),
       );
-      await _safeWriter.write(
-        targetPath: databasePath,
-        bytes: downloaded,
-        backupExistingTarget: true,
-        operation: 'sync replace from remote',
-      );
+      await _replaceLocalDatabase(databasePath, downloaded);
       final refreshedLocal = md5.convert(downloaded).toString();
 
       await _syncMetadataDataSource.upsertMapping(
@@ -346,12 +344,7 @@ class DatabaseSyncOrchestrator {
       final downloaded = await _remote(
         _googleDriveApiService.downloadFile(mapping.driveFileId),
       );
-      await _safeWriter.write(
-        targetPath: databasePath,
-        bytes: downloaded,
-        backupExistingTarget: true,
-        operation: 'sync replace from remote',
-      );
+      await _replaceLocalDatabase(databasePath, downloaded);
       final refreshedLocal = md5.convert(downloaded).toString();
 
       await _syncMetadataDataSource.upsertMapping(
@@ -394,7 +387,7 @@ class DatabaseSyncOrchestrator {
     return _syncMetadataDataSource.removeMapping(databasePath);
   }
 
-  Future<void> moveMappingPath({
+  Future<DatabaseSyncMappingPathMove> moveMappingPath({
     required String fromDatabasePath,
     required String toDatabasePath,
   }) {
@@ -404,12 +397,38 @@ class DatabaseSyncOrchestrator {
     );
   }
 
+  Future<void> restoreMappingPathMove(DatabaseSyncMappingPathMove move) {
+    return _syncMetadataDataSource.restoreMappingPathMove(move);
+  }
+
   Future<DatabaseSyncMapping?> getMapping(String databasePath) {
     return _syncMetadataDataSource.getMapping(databasePath);
   }
 
   Future<List<DatabaseSyncMapping>> getAllMappings() {
     return _syncMetadataDataSource.getAllMappings();
+  }
+
+  /// Every `syncNow` branch that installs remote bytes locally converges
+  /// here: one guarded writer path so hash invalidation and backup can
+  /// never be skipped by a branch (GAP 4).
+  Future<void> _replaceLocalDatabase(String databasePath, Uint8List bytes) {
+    Future<void> write() => _safeWriter.write(
+      targetPath: databasePath,
+      bytes: bytes,
+      backupExistingTarget: true,
+      operation: 'sync replace from remote',
+    );
+
+    final recorder = _fileHashRecorder;
+    if (recorder == null) {
+      return write();
+    }
+    return recorder.trackWrite(
+      databasePath: databasePath,
+      bytes: bytes,
+      write: write,
+    );
   }
 
   String _normalizeFileName(String? custom, {required String fallbackPath}) {

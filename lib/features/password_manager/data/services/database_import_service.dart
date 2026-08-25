@@ -13,6 +13,7 @@ import '../../domain/models/database_import_result.dart';
 import '../../domain/models/database_import_transaction.dart';
 import '../../domain/repositories/database_file_repository.dart';
 import '../../domain/usecases/validate_database_usecase.dart';
+import 'database_file_hash_recorder.dart';
 import 'database_path_mutex.dart';
 import 'safe_vault_file_writer.dart';
 
@@ -24,8 +25,12 @@ class DatabaseImportService implements DatabaseFileRepository {
     required this.validateDatabaseUseCase,
     DatabasePathMutex? mutex,
     SafeVaultFileWriter? safeWriter,
+    DatabaseFileHashRecorder? fileHashRecorder,
+    Future<void> Function()? afterCommitInstall,
   }) : _mutex = mutex ?? DatabasePathMutex(),
-       _safeWriter = safeWriter ?? SafeVaultFileWriter();
+       _safeWriter = safeWriter ?? SafeVaultFileWriter(),
+       _fileHashRecorder = fileHashRecorder,
+       _afterCommitInstall = afterCommitInstall;
 
   final ValidateDatabaseUseCase validateDatabaseUseCase;
 
@@ -38,6 +43,33 @@ class DatabaseImportService implements DatabaseFileRepository {
   /// spec 008 T109: lock-free safe writer (temp + fsync + verify + atomic
   /// rename), invoked only inside the mutex actions of this service.
   final SafeVaultFileWriter _safeWriter;
+
+  /// Invalidate/complete/rollback hash protocol (P1-4) around every raw
+  /// replacement below. `null` in callers/tests that do not need registry
+  /// hash tracking.
+  final DatabaseFileHashRecorder? _fileHashRecorder;
+
+  /// Test-only hook invoked immediately after a commit installs its bytes
+  /// but before the method returns its rollback handle (P2). Production
+  /// code never sets this; tests use it to prove that a failure in this
+  /// window is compensated internally rather than leaving an orphan file.
+  final Future<void> Function()? _afterCommitInstall;
+
+  Future<T> _trackDatabaseWrite<T>({
+    required String databasePath,
+    required Uint8List bytes,
+    required Future<T> Function() write,
+  }) {
+    final recorder = _fileHashRecorder;
+    if (recorder == null) {
+      return write();
+    }
+    return recorder.trackWrite(
+      databasePath: databasePath,
+      bytes: bytes,
+      write: write,
+    );
+  }
 
   /// Prospective app-storage path used as the lock identity for writes whose
   /// final name is decided inside `MobileFileStorage` (unique-name suffixing).
@@ -268,39 +300,79 @@ class DatabaseImportService implements DatabaseFileRepository {
       return _mutex.withDatabaseLock(
         [stagedFile.path, prospectivePath],
         () async {
-          final committedPath = await MobileFileStorage.saveBytesToAppDirectory(
-            bytes: await stagedFile.readAsBytes(),
-            fileName: staged.preferredFileName,
-            subdirectory: 'databases',
-          );
-          // Inline, lock-free discard: calling the public
-          // `discardStagedDatabase` here would nest a second acquisition.
-          await _discardStagedDatabaseLockFree(staged);
-          return DatabaseFileCommit(databasePath: committedPath);
+          String? committedPath;
+          try {
+            committedPath = await MobileFileStorage.saveBytesToAppDirectory(
+              bytes: await stagedFile.readAsBytes(),
+              fileName: staged.preferredFileName,
+              subdirectory: 'databases',
+            );
+            await _afterCommitInstall?.call();
+            // Inline, lock-free discard: calling the public
+            // `discardStagedDatabase` here would nest a second acquisition.
+            await _discardStagedDatabaseLockFree(staged);
+            return DatabaseFileCommit(databasePath: committedPath);
+          } catch (error, stackTrace) {
+            // P2: a failure after the fresh install (compensation step or
+            // any future post-install work) must never surface without
+            // first removing the just-installed file — otherwise the
+            // caller gets an exception with no commit handle and the
+            // installed file becomes an orphan nothing can roll back.
+            if (committedPath != null) {
+              final committedFile = File(committedPath);
+              if (await committedFile.exists()) {
+                if (await stagedFile.exists()) {
+                  await committedFile.delete();
+                } else {
+                  await committedFile.rename(stagedFile.path);
+                }
+              }
+            }
+            Error.throwWithStackTrace(error, stackTrace);
+          }
         },
       );
     }
 
     return _mutex.withDatabaseLock([stagedFile.path, targetPath], () async {
-      final targetFile = File(targetPath);
-      String? backupPath;
-      if (await targetFile.exists()) {
-        backupPath =
-            '$targetPath.import-backup-${DateTime.now().microsecondsSinceEpoch}';
-        await targetFile.rename(backupPath);
-      }
-      try {
-        await _moveStagedFile(stagedFile, targetPath);
-        return DatabaseFileCommit(
-          databasePath: targetPath,
-          backupPath: backupPath,
-        );
-      } catch (_) {
-        if (backupPath != null && await File(backupPath).exists()) {
-          await File(backupPath).rename(targetPath);
-        }
-        rethrow;
-      }
+      final bytes = await stagedFile.readAsBytes();
+      return _trackDatabaseWrite(
+        databasePath: targetPath,
+        bytes: bytes,
+        write: () async {
+          final targetFile = File(targetPath);
+          String? backupPath;
+          if (await targetFile.exists()) {
+            backupPath =
+                '$targetPath.import-backup-${DateTime.now().microsecondsSinceEpoch}';
+            await targetFile.rename(backupPath);
+          }
+          try {
+            await _moveStagedFile(stagedFile, targetPath);
+            await _afterCommitInstall?.call();
+            return DatabaseFileCommit(
+              databasePath: targetPath,
+              backupPath: backupPath,
+            );
+          } catch (error, stackTrace) {
+            // P2: same orphan guard as above, for the replace-in-place path
+            // used by Locate — a post-install failure restores the staged
+            // file and the pre-existing target/backup before propagating.
+            final installedFile = File(targetPath);
+            if (await installedFile.exists()) {
+              if (await stagedFile.exists()) {
+                await installedFile.delete();
+              } else {
+                await installedFile.rename(stagedFile.path);
+              }
+            }
+            if (backupPath != null && await File(backupPath).exists()) {
+              await File(backupPath).rename(targetPath);
+            }
+            Error.throwWithStackTrace(error, stackTrace);
+          }
+        },
+      );
     });
   }
 
@@ -329,19 +401,33 @@ class DatabaseImportService implements DatabaseFileRepository {
       final rollbackFile = File(
         '${commit.databasePath}.import-rollback-${DateTime.now().microsecondsSinceEpoch}',
       );
-      if (await committedFile.exists()) {
-        await committedFile.rename(rollbackFile.path);
-      }
+      final backupFile = File(backupPath);
+      final restoredBytes = await backupFile.readAsBytes();
+      await _trackDatabaseWrite(
+        databasePath: commit.databasePath,
+        bytes: restoredBytes,
+        write: () async {
+          if (await committedFile.exists()) {
+            await committedFile.rename(rollbackFile.path);
+          }
+          try {
+            await backupFile.rename(commit.databasePath);
+          } catch (_) {
+            if (await rollbackFile.exists() && !await committedFile.exists()) {
+              await rollbackFile.rename(commit.databasePath);
+            }
+            rethrow;
+          }
+        },
+      );
       try {
-        await File(backupPath).rename(commit.databasePath);
         if (await rollbackFile.exists()) {
           await rollbackFile.delete();
         }
       } catch (_) {
-        if (await rollbackFile.exists() && !await committedFile.exists()) {
-          await rollbackFile.rename(commit.databasePath);
-        }
-        rethrow;
+        // Backup restoration is already durable; a stale rollback artifact
+        // is safe to leave behind and must not turn a successful rollback
+        // into a reported failure.
       }
     });
   }

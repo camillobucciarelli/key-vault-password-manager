@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kdbx/kdbx.dart';
 import 'package:password_manager/features/password_manager/data/datasources/sync_metadata_data_source.dart';
+import 'package:password_manager/features/password_manager/data/services/database_file_hash_recorder.dart';
 import 'package:password_manager/features/password_manager/data/services/database_import_service.dart';
 import 'package:password_manager/features/password_manager/data/services/database_path_mutex.dart';
 import 'package:password_manager/features/password_manager/data/services/database_sync_orchestrator.dart';
@@ -16,6 +17,7 @@ import 'package:password_manager/features/password_manager/domain/models/databas
 import 'package:password_manager/features/password_manager/domain/models/database_import_transaction.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/validate_database_usecase.dart';
 import 'package:path/path.dart' as p;
@@ -469,10 +471,16 @@ void main() {
       }
     });
 
-    DatabaseImportService service(DatabasePathMutex mutex) {
+    DatabaseImportService service(
+      DatabasePathMutex mutex, {
+      Future<void> Function()? afterCommitInstall,
+      DatabaseFileHashRecorder? fileHashRecorder,
+    }) {
       return DatabaseImportService(
         validateDatabaseUseCase: ValidateDatabaseUseCase(),
         mutex: mutex,
+        afterCommitInstall: afterCommitInstall,
+        fileHashRecorder: fileHashRecorder,
       );
     }
 
@@ -616,6 +624,124 @@ void main() {
         [staged.path, committedPath],
       ]);
       expect(recording.maxDepth, 1);
+    });
+
+    // P2: a failure that lands after a commit has installed its bytes but
+    // before the method returns its rollback handle must be compensated
+    // internally — the caller never gets an exception with no handle and
+    // an orphan file on disk.
+    test('commitStagedDatabase into managed storage compensates a failure '
+        'after install without orphaning the target', () async {
+      final staged = await stagedFile('managed-fault.kdbx', _kdbxMagic);
+      final import = stagedImport(staged);
+      final committedPath = p.join(
+        docsDir.path,
+        'databases',
+        'managed-fault.kdbx',
+      );
+
+      await expectLater(
+        () => service(
+          RecordingDatabasePathMutex(),
+          afterCommitInstall: () async {
+            throw Exception('fault after install');
+          },
+        ).commitStagedDatabase(import),
+        throwsException,
+      );
+
+      expect(File(committedPath).existsSync(), isFalse);
+      expect(staged.existsSync(), isTrue);
+      expect(await staged.readAsBytes(), _kdbxMagic);
+    });
+
+    test('commitStagedDatabase onto an explicit target compensates a failure '
+        'after install, restoring the staged file and prior target', () async {
+      final staged = await tempFile('staged-fault.kdbx', _kdbxMagic);
+      final target = await tempFile('target-fault.kdbx', const [9]);
+
+      await expectLater(
+        () => service(
+          RecordingDatabasePathMutex(),
+          afterCommitInstall: () async {
+            throw Exception('fault after install');
+          },
+        ).commitStagedDatabase(stagedImport(staged), targetPath: target.path),
+        throwsException,
+      );
+
+      expect(await target.readAsBytes(), [9]);
+      expect(staged.existsSync(), isTrue);
+      expect(await staged.readAsBytes(), _kdbxMagic);
+    });
+
+    test(
+      'commit invalidation failure blocks the replace-in-place write',
+      () async {
+        final staged = await tempFile('staged-hash-block.kdbx', _kdbxMagic);
+        final target = await tempFile('target-hash-block.kdbx', const [9]);
+        final registry = _ImportHashRegistry(target.path, 'old-hash')
+          ..failUpsertOnCall = 1;
+
+        await expectLater(
+          () => service(
+            RecordingDatabasePathMutex(),
+            fileHashRecorder: DatabaseFileHashRecorder(
+              registryRepository: registry,
+            ),
+          ).commitStagedDatabase(stagedImport(staged), targetPath: target.path),
+          throwsStateError,
+        );
+
+        expect(await target.readAsBytes(), [9]);
+        expect(staged.existsSync(), isTrue);
+        expect(registry.record.fileHash, 'old-hash');
+      },
+    );
+
+    test(
+      'commit hash-refresh failure leaves the hash absent, not stale',
+      () async {
+        final staged = await tempFile('staged-hash-refresh.kdbx', _kdbxMagic);
+        final target = await tempFile('target-hash-refresh.kdbx', const [9]);
+        final registry = _ImportHashRegistry(target.path, 'old-hash')
+          ..failUpsertOnCall = 2;
+
+        await service(
+          RecordingDatabasePathMutex(),
+          fileHashRecorder: DatabaseFileHashRecorder(
+            registryRepository: registry,
+          ),
+        ).commitStagedDatabase(stagedImport(staged), targetPath: target.path);
+
+        expect(await target.readAsBytes(), _kdbxMagic);
+        expect(registry.record.fileHash, isNull);
+      },
+    );
+
+    test('rollbackDatabaseCommit refreshes the hash to match the restored '
+        'bytes, not the pre-commit placeholder', () async {
+      final staged = await tempFile('staged-rollback.kdbx', _kdbxMagic);
+      final originalBytes = const [9];
+      final target = await tempFile('target-rollback.kdbx', originalBytes);
+      final registry = _ImportHashRegistry(target.path, 'old-hash');
+      final commit = await service(
+        RecordingDatabasePathMutex(),
+        fileHashRecorder: DatabaseFileHashRecorder(
+          registryRepository: registry,
+        ),
+      ).commitStagedDatabase(stagedImport(staged), targetPath: target.path);
+      expect(registry.record.fileHash, md5.convert(_kdbxMagic).toString());
+
+      await service(
+        RecordingDatabasePathMutex(),
+        fileHashRecorder: DatabaseFileHashRecorder(
+          registryRepository: registry,
+        ),
+      ).rollbackDatabaseCommit(commit);
+
+      expect(await target.readAsBytes(), originalBytes);
+      expect(registry.record.fileHash, md5.convert(originalBytes).toString());
     });
 
     test('finalizeDatabaseCommit', () async {
@@ -1014,6 +1140,42 @@ class _FakeDrive implements GoogleDriveApiService {
 
   @override
   Future<Uint8List> downloadFile(String fileId) async => downloadResult!;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName} not needed here');
+}
+
+class _ImportHashRegistry implements DatabaseRegistryRepository {
+  _ImportHashRegistry(String path, String hash)
+    : record = DatabaseRecord(
+        databaseId: 'db-1',
+        canonicalPath: path,
+        displayName: p.basename(path),
+        sourceType: DatabaseSourceType.local,
+        fileHash: hash,
+        createdAt: DateTime.utc(2026),
+        updatedAt: DateTime.utc(2026),
+      );
+
+  DatabaseRecord record;
+  int? failUpsertOnCall;
+  int upsertCalls = 0;
+
+  @override
+  Future<DatabaseRecord?> getById(String databaseId) async => record;
+
+  @override
+  Future<List<DatabaseRecord>> list() async => [record];
+
+  @override
+  Future<void> upsert(DatabaseRecord value) async {
+    upsertCalls += 1;
+    if (failUpsertOnCall == upsertCalls) {
+      throw StateError('registry write failed');
+    }
+    record = value;
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) =>

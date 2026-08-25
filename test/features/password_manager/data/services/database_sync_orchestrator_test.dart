@@ -4,10 +4,14 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/data/datasources/sync_metadata_data_source.dart';
+import 'package:password_manager/features/password_manager/data/services/database_file_hash_recorder.dart';
 import 'package:password_manager/features/password_manager/data/services/database_sync_orchestrator.dart';
 import 'package:password_manager/features/password_manager/data/services/google_drive_api_service.dart';
+import 'package:password_manager/features/password_manager/data/services/safe_vault_file_writer.dart';
+import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 
 void main() {
@@ -132,6 +136,224 @@ void main() {
     expect(updated!.lastSyncedLocalChecksum, checksum);
     expect(updated.lastSyncedRemoteChecksum, checksum);
   });
+
+  test('a Drive-linked mapping moves exactly, restorable on failure', () async {
+    final destination = DatabaseSyncMapping(
+      databasePath: '/tmp/dest.kdbx',
+      driveFileId: 'destination-remote-id',
+      driveFileName: 'destination.kdbx',
+    );
+    final source = DatabaseSyncMapping(
+      databasePath: '/tmp/source.kdbx',
+      driveFileId: 'source-remote-id',
+      driveFileName: 'source.kdbx',
+    );
+    await metadata.upsertMapping(source);
+    await metadata.upsertMapping(destination);
+
+    final move = await metadata.moveMappingPath(
+      fromDatabasePath: source.databasePath,
+      toDatabasePath: destination.databasePath,
+    );
+
+    // Forward move replaced the destination with the (renamed) source and
+    // left no trace at the old source path.
+    expect(await metadata.getMapping(source.databasePath), isNull);
+    expect(
+      (await metadata.getMapping(destination.databasePath))?.driveFileId,
+      'source-remote-id',
+    );
+
+    await metadata.restoreMappingPathMove(move);
+
+    // Restore is byte-for-byte, not a blind reverse move: the destination's
+    // ORIGINAL mapping is back, not the moved source.
+    expect(
+      (await metadata.getMapping(source.databasePath))?.driveFileId,
+      'source-remote-id',
+    );
+    expect(
+      (await metadata.getMapping(destination.databasePath))?.driveFileId,
+      'destination-remote-id',
+    );
+  });
+
+  test('sync invalidation failure blocks remote replacement', () async {
+    final harness = await _createHashSyncHarness(failUpsertOnCall: 1);
+    addTearDown(() => harness.localFile.parent.delete(recursive: true));
+
+    await expectLater(
+      harness.orchestrator.syncNow(harness.localFile.path),
+      throwsStateError,
+    );
+
+    expect(await harness.localFile.readAsBytes(), harness.localBytes);
+    expect(harness.registry.record.fileHash, harness.localHash);
+  });
+
+  test('sync writer failure restores the previous hash', () async {
+    final harness = await _createHashSyncHarness(
+      safeWriter: _FailingSafeVaultFileWriter(),
+    );
+    addTearDown(() => harness.localFile.parent.delete(recursive: true));
+
+    await expectLater(
+      harness.orchestrator.syncNow(harness.localFile.path),
+      throwsException,
+    );
+
+    expect(await harness.localFile.readAsBytes(), harness.localBytes);
+    expect(harness.registry.record.fileHash, harness.localHash);
+  });
+
+  test('sync hash refresh failure leaves the hash absent, not stale', () async {
+    final harness = await _createHashSyncHarness(failUpsertOnCall: 2);
+    addTearDown(() => harness.localFile.parent.delete(recursive: true));
+
+    final result = await harness.orchestrator.syncNow(harness.localFile.path);
+
+    expect(result, isA<SyncNowSuccess>());
+    expect(await harness.localFile.readAsBytes(), harness.remoteBytes);
+    expect(harness.registry.record.fileHash, isNull);
+  });
+
+  test('remote replacement refreshes the registry file hash', () async {
+    final harness = await _createHashSyncHarness();
+    addTearDown(() => harness.localFile.parent.delete(recursive: true));
+
+    final result = await harness.orchestrator.syncNow(harness.localFile.path);
+
+    expect(result, isA<SyncNowSuccess>());
+    expect(harness.registry.record.fileHash, harness.remoteHash);
+    expect(await harness.localFile.readAsBytes(), harness.remoteBytes);
+  });
+}
+
+class _HashSyncHarness {
+  const _HashSyncHarness({
+    required this.localFile,
+    required this.localBytes,
+    required this.remoteBytes,
+    required this.localHash,
+    required this.remoteHash,
+    required this.registry,
+    required this.orchestrator,
+  });
+
+  final File localFile;
+  final Uint8List localBytes;
+  final Uint8List remoteBytes;
+  final String localHash;
+  final String remoteHash;
+  final _FakeRegistryRepository registry;
+  final DatabaseSyncOrchestrator orchestrator;
+}
+
+Future<_HashSyncHarness> _createHashSyncHarness({
+  int? failUpsertOnCall,
+  SafeVaultFileWriter? safeWriter,
+}) async {
+  final localBytes = Uint8List.fromList([1, 2, 3]);
+  final remoteBytes = Uint8List.fromList([9, 8, 7]);
+  final localFile = await _createTempDatabase(localBytes);
+  final localHash = md5.convert(localBytes).toString();
+  final remoteHash = md5.convert(remoteBytes).toString();
+  const remoteFileId = 'remote-file-hash-refresh';
+  final registry = _FakeRegistryRepository(
+    DatabaseRecord(
+      databaseId: 'db-1',
+      canonicalPath: localFile.path,
+      displayName: 'vault.kdbx',
+      sourceType: DatabaseSourceType.drive,
+      fileHash: localHash,
+      createdAt: DateTime.utc(2026),
+      updatedAt: DateTime.utc(2026),
+    ),
+  )..failUpsertOnCall = failUpsertOnCall;
+  final localMetadata = _InMemorySyncMetadataDataSource();
+  final driveService = _FakeGoogleDriveApiService();
+  await localMetadata.upsertMapping(
+    DatabaseSyncMapping(
+      databasePath: localFile.path,
+      driveFileId: remoteFileId,
+      driveFileName: 'vault.kdbx',
+      lastSyncedLocalChecksum: localHash,
+      lastSyncedRemoteChecksum: localHash,
+    ),
+  );
+  driveService.setFile(
+    id: remoteFileId,
+    name: 'vault.kdbx',
+    bytes: remoteBytes,
+    md5Checksum: remoteHash,
+  );
+  return _HashSyncHarness(
+    localFile: localFile,
+    localBytes: localBytes,
+    remoteBytes: remoteBytes,
+    localHash: localHash,
+    remoteHash: remoteHash,
+    registry: registry,
+    orchestrator: DatabaseSyncOrchestrator(
+      syncMetadataDataSource: localMetadata,
+      googleDriveApiService: driveService,
+      safeWriter: safeWriter,
+      fileHashRecorder: DatabaseFileHashRecorder(registryRepository: registry),
+    ),
+  );
+}
+
+class _FakeRegistryRepository implements DatabaseRegistryRepository {
+  _FakeRegistryRepository(this.record);
+
+  DatabaseRecord record;
+  int? failUpsertOnCall;
+  int upsertCalls = 0;
+
+  @override
+  Future<DatabaseRecord?> findByHash(String fileHash) async => null;
+
+  @override
+  Future<DatabaseRecord?> findBySource({
+    required DatabaseSourceType sourceType,
+    required String sourceRef,
+  }) async => null;
+
+  @override
+  Future<String?> getActive() async => record.databaseId;
+
+  @override
+  Future<DatabaseRecord?> getById(String databaseId) async => record;
+
+  @override
+  Future<List<DatabaseRecord>> list() async => [record];
+
+  @override
+  Future<void> remove(String databaseId) async {}
+
+  @override
+  Future<void> setActive(String? databaseId) async {}
+
+  @override
+  Future<void> upsert(DatabaseRecord value) async {
+    upsertCalls += 1;
+    if (failUpsertOnCall == upsertCalls) {
+      throw StateError('registry write failed');
+    }
+    record = value;
+  }
+}
+
+class _FailingSafeVaultFileWriter extends SafeVaultFileWriter {
+  @override
+  Future<SafeVaultFileWriteResult> write({
+    required String targetPath,
+    required Uint8List bytes,
+    bool backupExistingTarget = false,
+    String? operation,
+  }) async {
+    throw Exception('writer unavailable');
+  }
 }
 
 Future<File> _createTempDatabase(Uint8List bytes) async {
@@ -162,18 +384,38 @@ class _InMemorySyncMetadataDataSource implements SyncMetadataDataSource {
   }
 
   @override
-  Future<void> moveMappingPath({
+  Future<DatabaseSyncMappingPathMove> moveMappingPath({
     required String fromDatabasePath,
     required String toDatabasePath,
   }) async {
+    final move = DatabaseSyncMappingPathMove(
+      fromDatabasePath: fromDatabasePath,
+      toDatabasePath: toDatabasePath,
+      sourceBefore: _mappings[fromDatabasePath],
+      destinationBefore: _mappings[toDatabasePath],
+    );
     if (fromDatabasePath == toDatabasePath) {
-      return;
+      return move;
     }
     final existing = _mappings.remove(fromDatabasePath);
     if (existing == null) {
-      return;
+      return move;
     }
     _mappings[toDatabasePath] = existing.copyWith(databasePath: toDatabasePath);
+    return move;
+  }
+
+  @override
+  Future<void> restoreMappingPathMove(DatabaseSyncMappingPathMove move) async {
+    _mappings
+      ..remove(move.fromDatabasePath)
+      ..remove(move.toDatabasePath);
+    if (move.sourceBefore != null) {
+      _mappings[move.fromDatabasePath] = move.sourceBefore!;
+    }
+    if (move.destinationBefore != null) {
+      _mappings[move.toDatabasePath] = move.destinationBefore!;
+    }
   }
 
   @override

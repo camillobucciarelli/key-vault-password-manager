@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/data/services/database_path_mutex.dart';
 import 'package:password_manager/features/password_manager/data/services/database_rename_transaction.dart';
+import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 
 import 'lock_routing_test_mutexes.dart';
@@ -159,7 +160,7 @@ class _MappingRecorder implements DatabaseSyncRepository {
   void Function()? onMove;
 
   @override
-  Future<void> moveMappingPath({
+  Future<DatabaseSyncMappingPathMove> moveMappingPath({
     required String fromDatabasePath,
     required String toDatabasePath,
   }) async {
@@ -169,7 +170,16 @@ class _MappingRecorder implements DatabaseSyncRepository {
     }
     onMove?.call();
     moves.add((fromDatabasePath, toDatabasePath));
+    return DatabaseSyncMappingPathMove(
+      fromDatabasePath: fromDatabasePath,
+      toDatabasePath: toDatabasePath,
+      sourceBefore: null,
+      destinationBefore: null,
+    );
   }
+
+  @override
+  Future<void> restoreMappingPathMove(DatabaseSyncMappingPathMove move) async {}
 
   @override
   dynamic noSuchMethod(Invocation invocation) =>

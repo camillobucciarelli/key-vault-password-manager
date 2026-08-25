@@ -346,13 +346,33 @@ class FakeDatabaseSyncRepository implements DatabaseSyncRepository {
       remoteFiles;
 
   @override
-  Future<void> moveMappingPath({
+  Future<DatabaseSyncMappingPathMove> moveMappingPath({
     required String fromDatabasePath,
     required String toDatabasePath,
   }) async {
+    final move = DatabaseSyncMappingPathMove(
+      fromDatabasePath: fromDatabasePath,
+      toDatabasePath: toDatabasePath,
+      sourceBefore: mappings[fromDatabasePath],
+      destinationBefore: mappings[toDatabasePath],
+    );
     final mapping = mappings.remove(fromDatabasePath);
     if (mapping != null) {
       mappings[toDatabasePath] = mapping.copyWith(databasePath: toDatabasePath);
+    }
+    return move;
+  }
+
+  @override
+  Future<void> restoreMappingPathMove(DatabaseSyncMappingPathMove move) async {
+    mappings
+      ..remove(move.fromDatabasePath)
+      ..remove(move.toDatabasePath);
+    if (move.sourceBefore != null) {
+      mappings[move.fromDatabasePath] = move.sourceBefore!;
+    }
+    if (move.destinationBefore != null) {
+      mappings[move.toDatabasePath] = move.destinationBefore!;
     }
   }
 
