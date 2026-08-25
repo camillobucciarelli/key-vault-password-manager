@@ -2,10 +2,10 @@ part of '../vault_screen.dart';
 
 // FR-4 / T4: Health destination (screen 9). Score circle 64 (Caprasimo 22);
 // five `KvListRow`-style category rows, each with a Caprasimo 18 count
-// before the chevron. Tapping "Duplicates" opens the Duplicates screen
-// (T10); the other four categories are informational rows today — no
-// filtered-list destination exists yet for weak/reused/old/unmatchable
-// (out of scope for this spec, see final report).
+// before the chevron. Every category is tappable: "Duplicates" opens the
+// full Duplicates screen (T10); the other four (weak/reused/old/unmatchable)
+// open a generic flat filtered-entries list (`_HealthCategoryListScreen`)
+// scoped to that category's `entryIds`.
 
 class _VaultHealthDestination extends StatelessWidget {
   const _VaultHealthDestination();
@@ -53,9 +53,15 @@ class _VaultHealthDestination extends StatelessWidget {
               for (final kind in HealthCategoryKind.values) ...[
                 _HealthCategoryRow(
                   category: report.category(kind),
-                  onTap: kind == HealthCategoryKind.duplicates
-                      ? () => _showDuplicatesDialog(context)
-                      : null,
+                  onTap: () => switch (kind) {
+                    HealthCategoryKind.duplicates => _showDuplicatesDialog(
+                      context,
+                    ),
+                    _ => _showHealthCategoryList(
+                      context,
+                      category: report.category(kind),
+                    ),
+                  },
                 ),
                 const SizedBox(height: 8),
               ],
@@ -255,6 +261,143 @@ class _HealthCategoryRow extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// T4: the flat filtered-entries destination for the four non-duplicate
+/// health categories (weak/reused/old/unmatchable). Deliberately not one of
+/// spec.md's 17 numbered design screens, so it skips grouping/search and the
+/// illustrated empty state `_DuplicatesEmptyState` uses — a one-line message
+/// is enough here.
+Future<VaultDone?> _showHealthCategoryList(
+  BuildContext context, {
+  required HealthCategory category,
+}) {
+  final bloc = context.read<VaultBloc>();
+  final title = _healthCategoryInfo[category.kind]!.title;
+  final entryIds = category.entryIds.toSet();
+
+  return VaultShellRouterScope.of(context).open<VaultDone>(
+    context: context,
+    surface: HealthCategorySurface<VaultDone>(
+      builder: (surfaceContext) => BlocProvider.value(
+        value: bloc,
+        child: _HealthCategoryListScreen(title: title, entryIds: entryIds),
+      ),
+    ),
+  );
+}
+
+class _HealthCategoryListScreen extends StatelessWidget {
+  const _HealthCategoryListScreen({
+    required this.title,
+    required this.entryIds,
+  });
+
+  final String title;
+  final Set<String> entryIds;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return Scaffold(
+      backgroundColor: colors.ground,
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () => VaultOperationScope.of(
+                      context,
+                    ).complete(const VaultDone()),
+                    icon: KvIcon(
+                      glyph: AppGlyph.back,
+                      size: 19,
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                  Expanded(
+                    child: BlocBuilder<VaultBloc, VaultState>(
+                      buildWhen: (p, n) =>
+                          p.allEntries.length != n.allEntries.length,
+                      builder: (context, state) {
+                        final count = state.allEntries
+                            .where((entry) => entryIds.contains(entry.id))
+                            .length;
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              title,
+                              style: AppTextStyles.panelTitleLarge.copyWith(
+                                fontSize: 19,
+                                color: colors.textPrimary,
+                              ),
+                            ),
+                            Text(
+                              '$count records',
+                              style: AppTextStyles.meta.copyWith(
+                                color: colors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: BlocBuilder<VaultBloc, VaultState>(
+                buildWhen: (p, n) => p.allEntries != n.allEntries,
+                builder: (context, state) {
+                  final entries = state.allEntries
+                      .where((entry) => entryIds.contains(entry.id))
+                      .toList(growable: false);
+
+                  if (entries.isEmpty) {
+                    return Center(
+                      child: Text(
+                        'No records in this category',
+                        style: AppTextStyles.body.copyWith(
+                          color: colors.textSecondary,
+                        ),
+                      ),
+                    );
+                  }
+
+                  return ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(14, 10, 14, 20),
+                    itemCount: entries.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final entry = entries[index];
+                      final subtitle = entry.username.isNotEmpty
+                          ? entry.username
+                          : (entry.url.isNotEmpty ? entry.url : null);
+                      return KvListRow(
+                        title: entry.title.isEmpty ? '(Untitled)' : entry.title,
+                        subtitle: subtitle,
+                        onTap: () => _openEntryDetailsSurface(
+                          context,
+                          entryId: entry.id,
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

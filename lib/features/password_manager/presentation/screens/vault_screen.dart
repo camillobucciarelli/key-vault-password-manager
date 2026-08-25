@@ -22,6 +22,7 @@ import '../../../../../core/theme/app_text_styles.dart';
 import '../../../../../core/theme/keyvault_colors.dart';
 import '../../../../../core/theme/theme_cubit.dart';
 import '../../../../../core/utils/clipboard_guard.dart';
+import '../../../../../core/utils/format_bytes.dart';
 import '../../../../../core/widgets/kv_bottom_sheet.dart';
 import '../../../../../core/widgets/kv_checkbox.dart';
 import '../../../../../core/widgets/kv_field_row.dart';

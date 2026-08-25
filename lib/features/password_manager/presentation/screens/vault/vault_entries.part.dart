@@ -1,5 +1,33 @@
 part of '../vault_screen.dart';
 
+/// Shared entry-detail-opening step: pushes an `EntrySurface<VaultDone>`
+/// wrapping `_EntryDetailsPage`. Factored out of `_EntriesCardState._openEntry`
+/// so other destinations (e.g. the health-category filtered list) can open
+/// the same detail surface without duplicating `_openEntry`'s full
+/// action-menu wiring. `onSelectedAction` is given the pushed surface's own
+/// context (see the comment in `_openEntry`) and may be omitted for callers
+/// that don't offer the edit/move/delete menu.
+Future<void> _openEntryDetailsSurface(
+  BuildContext context, {
+  required String entryId,
+  ValueChanged<_EntryAction> Function(BuildContext surfaceContext)?
+  onSelectedAction,
+}) {
+  final bloc = context.read<VaultBloc>();
+  return VaultShellRouterScope.of(context).open<VaultDone>(
+    context: context,
+    surface: EntrySurface<VaultDone>(
+      builder: (surfaceContext) => BlocProvider.value(
+        value: bloc,
+        child: _EntryDetailsPage(
+          entryId: entryId,
+          onSelectedAction: onSelectedAction?.call(surfaceContext),
+        ),
+      ),
+    ),
+  );
+}
+
 class _EntriesCard extends StatefulWidget {
   const _EntriesCard({
     required this.entries,
@@ -239,30 +267,23 @@ class _EntriesCardState extends State<_EntriesCard> {
     }
 
     final bloc = context.read<VaultBloc>();
-    await VaultShellRouterScope.of(context).open<VaultDone>(
-      context: context,
-      surface: EntrySurface<VaultDone>(
-        builder: (surfaceContext) => BlocProvider.value(
-          value: bloc,
-          child: _EntryDetailsPage(
-            entryId: entry.id,
-            onSelectedAction: (action) async {
-              final currentEntry = bloc.state.allEntries.firstWhere(
-                (e) => e.id == entry.id,
-                orElse: () => entry,
-              );
-              // Use the hosted surface's own (descendant) context, not the
-              // entries-list context captured when this route was opened:
-              // the outer context can be deactivated by the time an action
-              // is picked from a menu inside the pushed page, which made
-              // every dialog opened from here (Delete, Attachments, Move)
-              // throw "Looking up a deactivated widget's ancestor" at
-              // every width once the entries list rebuilt underneath.
-              await _handleEntryAction(surfaceContext, currentEntry, action);
-            },
-          ),
-        ),
-      ),
+    await _openEntryDetailsSurface(
+      context,
+      entryId: entry.id,
+      onSelectedAction: (surfaceContext) => (action) async {
+        final currentEntry = bloc.state.allEntries.firstWhere(
+          (e) => e.id == entry.id,
+          orElse: () => entry,
+        );
+        // Use the hosted surface's own (descendant) context, not the
+        // entries-list context captured when this route was opened: the
+        // outer context can be deactivated by the time an action is picked
+        // from a menu inside the pushed page, which made every dialog
+        // opened from here (Delete, Attachments, Move) throw "Looking up a
+        // deactivated widget's ancestor" at every width once the entries
+        // list rebuilt underneath.
+        await _handleEntryAction(surfaceContext, currentEntry, action);
+      },
     );
   }
 

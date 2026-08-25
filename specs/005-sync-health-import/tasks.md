@@ -12,15 +12,15 @@
       never map plaintext. Old = `lastPasswordChangedAt` older than the threshold,
       with an injected `now`. Duplicates = `VaultDuplicateService` groups.
       Unmatchable = empty url **and** empty username. Score per plan §Health score.
-- [ ] **T3** `VaultState.healthReport`, computed on unlock and after every write;
+- [x] **T3** `VaultState.healthReport`, computed on unlock and after every write;
       `Equatable` props limited to score + counts.
-- [ ] **T4** `vault_health.part.dart`: score circle 64 (Caprasimo 22), five
+- [x] **T4** `vault_health.part.dart`: score circle 64 (Caprasimo 22), five
       `KvListRow` categories each with a Caprasimo 18 count before the chevron.
       Tapping a category opens the filtered list (duplicates → T6).
 
 ## Sync
 
-- [ ] **T5** `sync_status_hero.dart`: radius 26, padding 20, 52 circle, title
+- [x] **T5** `sync_status_hero.dart`: radius 26, padding 20, 52 circle, title
       Caprasimo 20, meta 12.5, key/value list 12.5 `space-between`. One rendered
       state per `DatabaseSyncStatus` value.
       - `disconnected`: security-model explanation **before** any auth call —
@@ -35,7 +35,7 @@
       padding 11/14 from existing sync metadata.
 - [x] **T7** Offline state (adopted proposal): shown only for connection-level
       failures (`SocketException`), never for an HTTP error status.
-- [ ] **T8** `remote_file_row.dart`: name, `modifiedTime`, size, plus an
+- [x] **T8** `remote_file_row.dart`: name, `modifiedTime`, size, plus an
       already-linked warning `KvTag` when the file id appears in another
       `DatabaseSyncMapping`.
 - [x] **T9** Conflict sheet: two version cards radius 20 padding 14/16 with a 40

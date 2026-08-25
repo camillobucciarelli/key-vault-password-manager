@@ -58,7 +58,7 @@ class GoogleDriveApiService {
       final queryParameters = <String, String>{
         'spaces': 'drive',
         'q': driveQuery,
-        'fields': 'nextPageToken,files(id,name,modifiedTime,md5Checksum)',
+        'fields': 'nextPageToken,files(id,name,modifiedTime,md5Checksum,size)',
         'pageSize': '1000',
         'orderBy': 'modifiedTime desc',
         'supportsAllDrives': 'true',
@@ -91,7 +91,9 @@ class GoogleDriveApiService {
   Future<DriveRemoteFile> getFileMetadata(String fileId) async {
     final uri = Uri.parse(
       '$_apiBase/files/$fileId',
-    ).replace(queryParameters: {'fields': 'id,name,modifiedTime,md5Checksum'});
+    ).replace(
+      queryParameters: {'fields': 'id,name,modifiedTime,md5Checksum,size'},
+    );
 
     final response = await _authedGet(uri);
     _ensureSuccess(response, 'Unable to fetch Drive file metadata');
@@ -188,6 +190,7 @@ class GoogleDriveApiService {
           ? null
           : DateTime.tryParse(map['modifiedTime'] as String)?.toLocal(),
       md5Checksum: map['md5Checksum'] as String?,
+      size: map['size'] == null ? null : int.tryParse(map['size'] as String),
     );
   }
 

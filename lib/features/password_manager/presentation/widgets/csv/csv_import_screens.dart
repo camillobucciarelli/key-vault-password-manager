@@ -5,6 +5,7 @@ import '../../../../../core/theme/app_glyph.dart';
 import '../../../../../core/theme/app_radii.dart';
 import '../../../../../core/theme/app_text_styles.dart';
 import '../../../../../core/theme/keyvault_colors.dart';
+import '../../../../../core/utils/format_bytes.dart';
 import '../../../../../core/widgets/kv_icon.dart';
 import '../../../../../core/widgets/kv_list_row.dart';
 import '../../../../../core/widgets/kv_pill_button.dart';
@@ -89,7 +90,7 @@ class _CsvImportPreviewScreenState extends State<CsvImportPreviewScreen> {
                     KvListRow(
                       title: path.basename(widget.filePath),
                       subtitle:
-                          '${_formatBytes(widget.fileSizeBytes)} · picked from Files',
+                          '${formatBytes(widget.fileSizeBytes)} · picked from Files',
                       leading: Container(
                         width: 40,
                         height: 40,
@@ -431,14 +432,4 @@ String _csvSourceFormatLabel(VaultCsvSourceFormat format) {
     VaultCsvSourceFormat.applePasswords => 'Apple Passwords',
     VaultCsvSourceFormat.generic => 'Generic CSV',
   };
-}
-
-String _formatBytes(int bytes) {
-  if (bytes < 1024) {
-    return '$bytes B';
-  }
-  if (bytes < 1024 * 1024) {
-    return '${(bytes / 1024).toStringAsFixed(1)} KB';
-  }
-  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 }
