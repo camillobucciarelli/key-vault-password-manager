@@ -26,13 +26,13 @@ count, never rounded to the more flattering of the two.
 
 | Session | Platform / hardware needed | Items | Status | Last run | Notes |
 | --- | --- | --- | --- | --- | --- |
-| S1 | Android phone or emulator | 7 | `not-run` | — | S1-7 is no longer blocked — it is now one command, see below |
+| S1 | Android phone or emulator | 7 | 1 `passed`, 6 `not-run` | 2026-08-25 | S1-7 passed (T111 Android artifact, Android 16 / API 36 emulator, arm64, 8/8 cases). S1-1..S1-6 UI/manual items remain `not-run` |
 | S2 | iPhone or iPad (physical) | 6 | 1 `passed`, 5 `not-run` | 2026-08-24 | S2-1 automated keystore inspection passed on physical iPhone / iOS 26.6; S2-2 lifecycle and all UI items remain `not-run` — see evidence below |
 | S3 | macOS machine (also covers Chrome/Edge + native host) | 13 | 1 `passed`, 12 `not-run` | 2026-08-24 | S3-7 passed (v1 → v2 upgrade, Chrome 151). T111 macOS host artifact also passed, but is outside these 13 UI/manual items and qualifies macOS only |
 | S4 | Windows machine | 3 | `not-run` | — | Shrunk by the `test-windows` and `t111-platform-artifact` CI jobs, see "Removed" |
 | S5 | Linux machine | 3 | `not-run` | — | Shrunk by the `t111-platform-artifact` CI job, see "Removed" |
 
-Total: **32 items** — **2 `passed`** (S2-1, S3-7), 30 `not-run`.
+Total: **32 items** — **3 `passed`** (S1-7, S2-1, S3-7), 29 `not-run`.
 
 ### Earlier hardware QA evidence — 2026-08-24
 
