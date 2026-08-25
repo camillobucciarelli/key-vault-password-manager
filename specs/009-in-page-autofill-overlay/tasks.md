@@ -347,22 +347,33 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
         page-synthetic events. Pinned by `test/overlay_at_activation.test.js`
         (16 cases) and mutations A6-M1–A6-M4.
 
+      Done — **keyboard-only executed by hand**, 2026-08-25, Chrome 151/macOS,
+      real keys through a live CDP trace (not synthetic dispatch): click the
+      password field, Enter with no arrow fills the exact-origin suggestion
+      (`pw:4 usr:3`, overlay closed, no `SUBMIT!` anywhere in the trace);
+      Escape closes with no side effect; Tab closes and advances focus.
+      This same session first reproduced a real regression by hand — Enter
+      was implicitly submitting the empty form instead of filling — root-caused
+      and fixed in #132 (the session listener moved to `document` capture so a
+      page/framework listener earlier on the anchor could no longer win the
+      `stopImmediatePropagation()` race against the overlay's own
+      `preventDefault()`), then this row was re-run clean against the fix.
+      The six-case `A037:` automated coverage had already been shown
+      insufficient for this row by #121 above; this manual pass sits on top of
+      that coverage, not in place of it.
+
+      Also found in this same session, not by the suite, and root-caused as a
+      fixture property rather than a defect: Enter on the arrow-selected
+      **second** suggestion silently did nothing — no fill, no error. That
+      entry is `matchType: "possible"` (a domain-only match, no exact
+      scheme/port), so `fillEligible: false` is the correct SR-2 behaviour — a
+      domain-only match must never be fillable. Confirmed against the real
+      `overlayQueryCredentials` native round trip (the legacy popup channel
+      returns a different, non-representative classification for the same
+      entries and would have been misleading here). No code change; the test
+      vault simply has one exact match and one domain-only match.
+
       Not done:
-      - **Keyboard-only** — the first row of this task's own requirement — was
-        never exercised by hand. Arrow/Enter/Escape/Tab without AT are covered
-        automatically by the six `A037:` cases in
-        `test/overlay_interaction.test.js`, and that automated coverage is the
-        only evidence there is for it.
-        That coverage has since been shown to be insufficient for this row, so
-        it must not be read as a substitute. #121 was found in live QA, not by
-        the suite, and it presented **as a keyboard failure**: Enter on a
-        suggestion threw in an orphaned content-script world and the overlay
-        vanished with no message, while a CDP trace proved arrows and Enter had
-        been delivered and handled correctly the whole time. The six `A037:`
-        cases never run in an orphaned world. The fix is pinned by
-        `test/orphaned_context.test.js` (15 cases) and mutations A8-M1–A8-M10;
-        the keyboard-only manual row of this task remains unexecuted, and #121
-        did not change what this task requires.
       - The #81 fix has **not** been re-confirmed with VoiceOver on the device.
         The behaviour is pinned by the harness, which is not the same evidence as
         a screen reader actually announcing and activating it.
@@ -582,19 +593,26 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
       **(d) New manual rows created by Slice C — all still due.** These did not
       exist before PR #113. None has been executed; row 21 above is the only
       Slice C row that has.
-      22. **Single broad prompt under a gesture, macOS.** Exactly one prompt,
-          naming both patterns, on the first click, with no gesture lost when
-          the popup closes — plus the external-revoke half inherited from old
-          row 2: setting site access back from `chrome://extensions` must
-          reconcile the switch durably **off**. The popup-close race is the
-          failure mode #77 fixed; it was caught by mutation A2-M15 and by the
-          smoke session, **not** by the automated suite, which is why a human
-          still has to watch the prompt appear. `S3-6` in `docs/manual-qa.md`
-          covers the grant half; the revoke half has no scenario there yet.
-          Automated only today: `A017: a declined prompt persists nothing`,
-          `A017: siteState is global — the same answer whatever tab is open`,
-          and `A020: a permission revoked outside the popup durably disables the
-          overlay`.
+      22. **Single broad prompt under a gesture, macOS.** Two halves.
+          **Grant half — done**, 2026-08-25, Chrome 151/macOS: a real trusted
+          click on "Turn on" (dispatched via CDP `Input.dispatchMouseEvent`, a
+          genuine OS-level gesture, not a synthetic `.click()` — the popup
+          silently closed under the untrusted form of this click on the first
+          attempt, reproducing the #77 popup-close race live before retrying
+          trusted) produced exactly one native prompt, the popup stayed open
+          through it, and `chrome.permissions.getAll()` afterward showed both
+          patterns granted in one grant: `origins: ["http://*/*",
+          "https://*/*"]`. A single `kv-overlay-*` content-script registration
+          followed, matching both patterns — not two.
+          **Revoke half — still due**: setting site access back from
+          `chrome://extensions` must reconcile the switch durably **off**.
+          `S3-6` in `docs/manual-qa.md` covers the grant half now confirmed
+          twice (smoke + this manual pass); the revoke half still has no
+          manual scenario there.
+          Automated only today for the revoke half: `A017: a declined prompt
+          persists nothing`, `A017: siteState is global — the same answer
+          whatever tab is open`, and `A020: a permission revoked outside the
+          popup durably disables the overlay`.
       23. **An `http(s)` iframe inside a top document with no canonicalizable
           origin** (`file://`, `view-source:`, `data:`, the PDF viewer) must
           present the **unsupported** state. Slice C made this case *more*

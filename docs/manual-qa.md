@@ -28,11 +28,11 @@ count, never rounded to the more flattering of the two.
 | --- | --- | --- | --- | --- | --- |
 | S1 | Android phone or emulator | 7 | 1 `passed`, 6 `not-run` | 2026-08-25 | S1-7 passed (T111 Android artifact, Android 16 / API 36 emulator, arm64, 8/8 cases). S1-1..S1-6 UI/manual items remain `not-run` |
 | S2 | iPhone or iPad (physical) | 6 | 1 `passed`, 5 `not-run` | 2026-08-24 | S2-1 automated keystore inspection passed on physical iPhone / iOS 26.6; S2-2 lifecycle and all UI items remain `not-run` — see evidence below |
-| S3 | macOS machine (also covers Chrome/Edge + native host) | 13 | 1 `passed`, 12 `not-run` | 2026-08-24 | S3-7 passed (v1 → v2 upgrade, Chrome 151). T111 macOS host artifact also passed, but is outside these 13 UI/manual items and qualifies macOS only |
+| S3 | macOS machine (also covers Chrome/Edge + native host) | 13 | 2 `passed`, 11 `not-run` | 2026-08-25 | S3-7 passed (v1 → v2 upgrade, Chrome 151); S3-10 passed (keyboard-only, Chrome 151, same session that found and fixed #132). T111 macOS host artifact also passed, but is outside these 13 UI/manual items and qualifies macOS only |
 | S4 | Windows machine | 3 | `not-run` | — | Shrunk by the `test-windows` and `t111-platform-artifact` CI jobs, see "Removed" |
 | S5 | Linux machine | 3 | `not-run` | — | Shrunk by the `t111-platform-artifact` CI job, see "Removed" |
 
-Total: **32 items** — **3 `passed`** (S1-7, S2-1, S3-7), 29 `not-run`.
+Total: **32 items** — **4 `passed`** (S1-7, S2-1, S3-7, S3-10), 28 `not-run`.
 
 ### Earlier hardware QA evidence — 2026-08-24
 
@@ -856,22 +856,35 @@ The last one is the #81 regression returning.
 
 ---
 
-### S3-10 · Keyboard-only, no assistive technology (spec 009 A040, first row — never run by hand)
+### S3-10 · Keyboard-only, no assistive technology (spec 009 A040, first row)
 
-**Why this is here.** This is the first line of A040's own requirement and it has
-**never** been exercised manually. Its only evidence is the six `A037:` cases in
-`test/overlay_interaction.test.js` — and that evidence has since been shown to be
-insufficient for this row. #121 was found in live QA, not by the suite, and it
-presented **as a broken keyboard**: Enter on a suggestion threw in an orphaned
+**Status: `passed` on Chrome 151/macOS, 2026-08-25.** This is the first line of
+A040's own requirement. Until this date its only evidence was the six `A037:`
+cases in `test/overlay_interaction.test.js`, which #121 had already shown to be
+insufficient for this row: #121 was found in live QA, not by the suite, and it
+presented **as a broken keyboard** — Enter on a suggestion threw in an orphaned
 content-script world and the overlay vanished silently, while a CDP trace proved
 arrows and Enter had been delivered and handled correctly the whole time. The six
 `A037:` cases never run in an orphaned world.
 
-**Because of that, reload the extension before you start**, and do not begin from
-a tab that was open across a reload — otherwise a pass here proves nothing and a
-failure will be misread as a keyboard bug. If the overlay ever disappears with no
-message during this item, check for the orphan tombstone ("reload this page")
-first: that is #121's shape, not a keyboard defect.
+**Recorded observation.** Driven through a live CDP trace with real dispatched
+keys (not synthetic DOM events) against the running extension: click the
+password field, Enter with no arrow selects and fills the exact-origin
+suggestion (`pw:4 usr:3` in the trace, overlay closed, no implicit-submit
+signal at any point); Escape closes with no side effect; Tab closes and
+advances focus normally. This same pass first reproduced a real regression —
+Enter was implicitly submitting the empty form — root-caused and fixed in
+#132 (session listener moved to `document` capture, closing the race a
+page/framework listener on the anchor could otherwise win against the
+overlay's own `preventDefault()`), then re-run clean against the fix. See
+`specs/009-in-page-autofill-overlay/tasks.md` A040 for the full evidence.
+
+**Because of that history, still reload the extension before you start this
+item**, and do not begin from a tab that was open across a reload — otherwise a
+pass here proves nothing and a failure will be misread as a keyboard bug. If the
+overlay ever disappears with no message during this item, check for the orphan
+tombstone ("reload this page") first: that is #121's shape, not a keyboard
+defect.
 
 **Steps**
 
@@ -884,10 +897,15 @@ first: that is #121's shape, not a keyboard defect.
 
 **Expected observation.** Step 3 moves a visible selection. Step 4 closes the
 overlay and leaves focus in the field. Step 5 fills the field **without
-submitting the form**. Step 6 closes the overlay and moves focus onward normally.
+submitting the form** — note this only holds for a suggestion that is an exact
+scheme/port match; a domain-only ("possible") match is correctly never
+fillable by design (SR-2), and Enter on one is expected to no-op rather than
+fill. Step 6 closes the overlay and moves focus onward normally.
 
 **Fails if.** Focus is trapped, the selection is invisible, Escape does not
-close, or Enter submits the page.
+close, or Enter submits the page. Enter silently doing nothing on a
+domain-only match is **not** a failure of this item; confirm the entry's
+match type before treating it as one.
 
 ---
 
