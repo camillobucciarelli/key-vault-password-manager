@@ -387,7 +387,7 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
   }
 }
 
-const _kApplicationName = 'Antigravity Password Manager';
+const _kApplicationName = 'KeyVault';
 
 /// Marketing version, mirrored by hand from `pubspec.yaml` `version:`.
 /// `.github/workflows/release.yml` only bumps the build number after the `+`,
