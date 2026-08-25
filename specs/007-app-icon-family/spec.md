@@ -80,9 +80,9 @@ Byte reproducibility is promised only on this canonical host contract:
 
 | Property | Required value |
 | --- | --- |
-| OS | macOS `26.6`, build `25G72` |
+| OS | macOS `26.6.2`, build `25G83` |
 | Architecture | `arm64`, 64-bit, non-free-threaded CPython ABI `cp314` |
-| CPython | `3.14.6`; canonical executable `/opt/homebrew/opt/python@3.14/bin/python3.14`; SHA-256 `b502cb4c5b46b8d4192ec6bcb600ce8922f1afc396fcf646e8765c6eba74a0bf` |
+| CPython | `3.14.7`; canonical executable `/opt/homebrew/opt/python@3.14/bin/python3.14`; SHA-256 `87d4df53fd91304be5bac391fb204643c36b7df2023c04a0953bcbc7d4fdf634` |
 | Pillow wheel | `pillow-12.2.0-cp314-cp314-macosx_11_0_arm64.whl` |
 | Wheel URL | `https://files.pythonhosted.org/packages/ba/8c/1a9e46228571de18f8e28f16fabdfc20212a5d019f3e3303452b3f0a580d/pillow-12.2.0-cp314-cp314-macosx_11_0_arm64.whl` |
 | Wheel SHA-256 | `80b2da48193b2f33ed0c32c38140f9d3186583ce7d516526d462645fd98660ae` |

@@ -2,14 +2,14 @@
   "schema": 1,
   "os": {
     "name": "macOS",
-    "version": "26.6",
-    "build": "25G72",
+    "version": "26.6.2",
+    "build": "25G83",
     "architecture": "arm64"
   },
   "python": {
-    "version": "3.14.6",
+    "version": "3.14.7",
     "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
-    "sha256": "b502cb4c5b46b8d4192ec6bcb600ce8922f1afc396fcf646e8765c6eba74a0bf",
+    "sha256": "87d4df53fd91304be5bac391fb204643c36b7df2023c04a0953bcbc7d4fdf634",
     "abi": "cp314",
     "pointer_bits": 64,
     "free_threaded": false

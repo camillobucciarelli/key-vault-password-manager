@@ -17,8 +17,8 @@ fail() {
 [ -z "${PYTHONPATH:-}" ] || fail "PYTHONPATH must be unset"
 [ -z "${PYTHONHOME:-}" ] || fail "PYTHONHOME must be unset"
 [ "$(sw_vers -productName)" = macOS ] || fail "requires macOS"
-[ "$(sw_vers -productVersion)" = 26.6 ] || fail "requires macOS 26.6"
-[ "$(sw_vers -buildVersion)" = 25G72 ] || fail "requires macOS build 25G72"
+[ "$(sw_vers -productVersion)" = 26.6.2 ] || fail "requires macOS 26.6.2"
+[ "$(sw_vers -buildVersion)" = 25G83 ] || fail "requires macOS build 25G83"
 [ "$(uname -m)" = arm64 ] || fail "requires arm64"
 [ -x "$PYTHON" ] || fail "missing canonical Python: $PYTHON"
 
