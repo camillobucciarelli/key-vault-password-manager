@@ -226,7 +226,13 @@ jobs:
               ! -path 'test/core/utils/mobile_file_storage_guard_bypass_qa_test.dart'
           )
           (( ${#suites[@]} > 0 )) || { echo "No test files matched"; exit 1; }
-          flutter test "${suites[@]}"
+          # Batched rather than passed as one argument list: Windows caps the
+          # total command line length, and the full suite's paths exceed it
+          # when expanded into a single `flutter test` invocation.
+          batch_size=50
+          for ((i = 0; i < ${#suites[@]}; i += batch_size)); do
+            flutter test "${suites[@]:i:batch_size}"
+          done
 
       # These three build a `/var`->`/private/var` divergence with `Link.create`
       # and are run apart from the main suite purely so their outcome is legible
