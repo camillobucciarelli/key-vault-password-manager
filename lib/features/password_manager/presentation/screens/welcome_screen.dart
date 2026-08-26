@@ -33,10 +33,14 @@ class WelcomeScreen extends StatelessWidget {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(26),
               child: Image.asset(
-                'assets/logo/keyvault-source.png',
+                'assets/logo/app_icon_family/keyvault-source-1024.png',
                 width: 88,
                 height: 88,
                 fit: BoxFit.cover,
+                cacheWidth:
+                    (88 * MediaQuery.devicePixelRatioOf(context)).round(),
+                cacheHeight:
+                    (88 * MediaQuery.devicePixelRatioOf(context)).round(),
               ),
             ),
           ),

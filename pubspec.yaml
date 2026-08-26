@@ -69,8 +69,7 @@ flutter:
   assets:
     - assets/fonts/OFL.txt
     - assets/icons/lucide/
-    - assets/logo/keyvault-source.png
-    - assets/logo/keyvault-monochrome.png
+    - assets/logo/app_icon_family/keyvault-source-1024.png
   fonts:
     - family: Caprasimo
       fonts:
@@ -91,7 +90,7 @@ flutter_launcher_icons:
   ios: true
   remove_alpha_ios: true
   # Android adaptive icons (API 26+)
-  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_background: "#FFE1D0"
   adaptive_icon_foreground: assets/logo/app_icon_family/keyvault-adaptive-foreground-1024.png
   adaptive_icon_monochrome: assets/logo/app_icon_family/keyvault-monochrome-1024.png
   # iOS: dark/tinted variants for iOS 18+
