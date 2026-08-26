@@ -8,10 +8,9 @@
 // paints it, because `PaintingBinding.imageCache` is per-isolate and survives
 // between `testWidgets` cases.
 //
-// That made two goldens position-dependent: `db_welcome_390x844_light.png`
-// (first in its file, so the blank logo was baked into the golden) and
-// `lock_overlay_390x844.png`. Reordering the suite flipped which case paid
-// the cold-cache cost and failed both sides of the pair.
+// `cacheWidth` / `cacheHeight` wrap an `AssetImage` in a `ResizeImage`, whose
+// cache key includes the decoded dimensions. Warm every size used by goldens;
+// warming only the raw 1024 px asset does not populate those resized entries.
 //
 // Warming the cache once from `setUpAll` — which runs in real async, outside
 // the fake-async zone — makes the decode complete before any test body runs,
@@ -21,9 +20,17 @@ import 'dart:async';
 import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
 
-/// Assets that goldens render and therefore must be decoded up front.
-const _goldenAssets = <String>[
-  'assets/logo/app_icon_family/keyvault-source-1024.png',
+/// Image variants that goldens render and therefore must be decoded up front.
+final _goldenImageProviders = <ImageProvider<Object>>[
+  for (final size in [40, 76, 88])
+    ResizeImage(
+      AssetImage(
+        'assets/logo/app_icon_family/keyvault-source-1024.png',
+        bundle: rootBundle,
+      ),
+      width: size,
+      height: size,
+    ),
 ];
 
 /// Decodes every golden-visible asset into the image cache and keeps it alive
@@ -32,8 +39,7 @@ const _goldenAssets = <String>[
 /// Call from `setUpAll` in any golden test file that renders one of these
 /// assets. Safe to call more than once.
 Future<void> warmUpGoldenAssets() async {
-  for (final asset in _goldenAssets) {
-    final provider = AssetImage(asset, bundle: rootBundle);
+  for (final provider in _goldenImageProviders) {
     final completer = Completer<void>();
     final stream = provider.resolve(ImageConfiguration.empty);
 
