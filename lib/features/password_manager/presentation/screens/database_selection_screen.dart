@@ -550,7 +550,7 @@ class _RecentHeader extends StatelessWidget {
         ClipRRect(
           borderRadius: BorderRadius.circular(14),
           child: Image.asset(
-            'assets/logo/keyvault-source.png',
+            'assets/logo/app_icon_family/keyvault-source-1024.png',
             width: 40,
             height: 40,
             fit: BoxFit.cover,

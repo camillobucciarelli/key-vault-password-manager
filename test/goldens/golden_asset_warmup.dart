@@ -22,7 +22,9 @@ import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
 
 /// Assets that goldens render and therefore must be decoded up front.
-const _goldenAssets = <String>['assets/logo/keyvault-source.png'];
+const _goldenAssets = <String>[
+  'assets/logo/app_icon_family/keyvault-source-1024.png',
+];
 
 /// Decodes every golden-visible asset into the image cache and keeps it alive
 /// for the rest of the test file.

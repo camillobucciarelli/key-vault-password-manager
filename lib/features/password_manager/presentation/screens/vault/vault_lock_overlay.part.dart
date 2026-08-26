@@ -40,7 +40,7 @@ class PrivacyOverlay extends StatelessWidget {
           child: ClipRRect(
             borderRadius: BorderRadius.circular(24),
             child: Image.asset(
-              'assets/logo/keyvault-source.png',
+              'assets/logo/app_icon_family/keyvault-source-1024.png',
               width: 76,
               height: 76,
               fit: BoxFit.cover,
@@ -141,7 +141,7 @@ class _LockOverlayState extends State<_LockOverlay> {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(24),
                   child: Image.asset(
-                    'assets/logo/keyvault-source.png',
+                    'assets/logo/app_icon_family/keyvault-source-1024.png',
                     width: 76,
                     height: 76,
                     fit: BoxFit.cover,
