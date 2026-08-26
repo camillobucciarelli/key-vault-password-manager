@@ -223,6 +223,20 @@ Known limitation: the simulator does **not** reproduce the `/var` vs `/private/v
 
 Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `ci:`), scope optional (`fix(ci):`). Never hand-edit `version:` in `pubspec.yaml` — `.github/workflows/release.yml` bumps the build number on every push to `main`, commits `chore: bump build number to vX.Y.Z+N`, tags, and pushes.
 
+## Agent skills
+
+### Issue tracker
+
+Ordinary requests use GitHub Issues; roadmap specs remain repository-authored and are mirrored to GitHub Project #2. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Ordinary issues use the canonical `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix` states. Generated `spec` issues are excluded. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Use the single-context domain documentation layout. See `docs/agents/domain.md`.
+
 ## Agent Instructions
 
 Per `.github/copilot-instructions.md`: if `graphify-out/GRAPH_REPORT.md` exists, read it before answering structural questions about the repo.
