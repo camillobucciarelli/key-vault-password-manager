@@ -44,6 +44,10 @@ class PrivacyOverlay extends StatelessWidget {
               width: 76,
               height: 76,
               fit: BoxFit.cover,
+              cacheWidth:
+                  (76 * MediaQuery.devicePixelRatioOf(context)).round(),
+              cacheHeight:
+                  (76 * MediaQuery.devicePixelRatioOf(context)).round(),
             ),
           ),
         ),
@@ -145,6 +149,10 @@ class _LockOverlayState extends State<_LockOverlay> {
                     width: 76,
                     height: 76,
                     fit: BoxFit.cover,
+                    cacheWidth:
+                        (76 * MediaQuery.devicePixelRatioOf(context)).round(),
+                    cacheHeight:
+                        (76 * MediaQuery.devicePixelRatioOf(context)).round(),
                   ),
                 ),
                 const SizedBox(height: 24),

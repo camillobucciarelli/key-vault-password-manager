@@ -554,6 +554,8 @@ class _RecentHeader extends StatelessWidget {
             width: 40,
             height: 40,
             fit: BoxFit.cover,
+            cacheWidth: (40 * MediaQuery.devicePixelRatioOf(context)).round(),
+            cacheHeight: (40 * MediaQuery.devicePixelRatioOf(context)).round(),
           ),
         ),
         const SizedBox(width: 12),
