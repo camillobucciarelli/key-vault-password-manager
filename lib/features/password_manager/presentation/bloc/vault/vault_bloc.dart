@@ -8,6 +8,7 @@ import 'package:stream_transform/stream_transform.dart';
 import '../../../data/services/vault_csv_import_service.dart';
 import '../../../data/services/vault_duplicate_service.dart';
 import '../../../data/services/vault_kdbx_service.dart';
+import '../../../domain/errors/google_authorization_required_exception.dart';
 import '../../../domain/models/database_sync_status.dart';
 import '../../../domain/models/sync_conflict.dart';
 import '../../../domain/models/vault_custom_field.dart';
@@ -20,6 +21,9 @@ import '../../coordinators/apple_autofill_v2_coordinator.dart';
 import '../../coordinators/session_secret_holder.dart';
 import 'vault_event.dart';
 import 'vault_state.dart';
+
+const _driveAuthorizationRequiredMessage =
+    'Google authorization expired. Reconnect Google Drive to continue.';
 
 class VaultBloc extends Bloc<VaultEvent, VaultState> {
   VaultBloc({
@@ -71,6 +75,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<ImportVaultEntriesFromCsv>(_onImportVaultEntriesFromCsv);
     on<ClearVaultInfo>(_onClearVaultInfo);
     on<ConnectGoogleDrive>(_onConnectGoogleDrive);
+    on<GoogleDriveReconnectSucceeded>(_onGoogleDriveReconnectSucceeded);
+    on<GoogleDriveReconnectFailed>(_onGoogleDriveReconnectFailed);
     on<DisconnectGoogleDrive>(_onDisconnectGoogleDrive);
     on<LinkCurrentDatabaseToDrive>(_onLinkCurrentDatabaseToDrive);
     on<SyncCurrentDatabaseNow>(_onSyncCurrentDatabaseNow);
@@ -1442,6 +1448,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       state.copyWith(
         syncStatus: DatabaseSyncStatus.syncing,
         clearSyncError: true,
+        driveReconnectRequired: false,
       ),
     );
     try {
@@ -1452,6 +1459,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         state.copyWith(
           syncStatus: DatabaseSyncStatus.success,
           infoMessage: 'Google Drive connected.',
+          driveReconnectRequired: false,
         ),
       );
     } catch (e, st) {
@@ -1461,9 +1469,68 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         state.copyWith(
           syncStatus: DatabaseSyncStatus.error,
           syncError: _buildDriveConnectErrorMessage(e),
+          driveReconnectRequired: false,
         ),
       );
     }
+  }
+
+  void _onGoogleDriveReconnectSucceeded(
+    GoogleDriveReconnectSucceeded event,
+    Emitter<VaultState> emit,
+  ) {
+    _safeEmit(
+      emit,
+      state.copyWith(
+        isDriveConnected: true,
+        syncStatus: DatabaseSyncStatus.success,
+        driveReconnectRequired: false,
+        remoteDriveFiles: event.remoteFiles,
+        isLoadingRemoteDriveFiles: false,
+        clearSyncError: true,
+        clearRemoteDriveFilesError: event.remoteFiles != null,
+      ),
+    );
+  }
+
+  void _onGoogleDriveReconnectFailed(
+    GoogleDriveReconnectFailed event,
+    Emitter<VaultState> emit,
+  ) {
+    logError('Google Drive reconnect failed.', null, event.stackTrace);
+    final authorizationRequired = _requiresDrivePermissionReauth(event.error);
+    final message = authorizationRequired
+        ? _driveAuthorizationRequiredMessage
+        : event.duringRemoteLoad
+        ? 'Unable to load remote Drive files.'
+        : _buildDriveConnectErrorMessage(event.error);
+    if (event.remoteFiles) {
+      _safeEmit(
+        emit,
+        state.copyWith(
+          isDriveConnected: authorizationRequired
+              ? false
+              : state.isDriveConnected,
+          isLoadingRemoteDriveFiles: false,
+          remoteDriveFilesError: message,
+          remoteDriveFilesReconnectRequired: authorizationRequired,
+          syncStatus: DatabaseSyncStatus.error,
+          clearSyncError: true,
+        ),
+      );
+      return;
+    }
+    _safeEmit(
+      emit,
+      state.copyWith(
+        isDriveConnected: false,
+        syncStatus: DatabaseSyncStatus.error,
+        syncError: message,
+        driveReconnectRequired: true,
+        isOffline: false,
+        clearSyncConflict: true,
+      ),
+    );
   }
 
   Future<void> _onBackgroundDriveSync(
@@ -1508,8 +1575,12 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         }
       }
     } catch (e, st) {
-      logError('Background Drive sync failed.', e, st);
-      _safeEmit(emit, state.copyWith(isDriveConnected: false));
+      if (e is GoogleAuthorizationRequiredException) {
+        _emitDriveAuthorizationRequired(emit);
+      } else {
+        logError('Background Drive sync failed.', e, st);
+        _safeEmit(emit, state.copyWith(isDriveConnected: false));
+      }
     } finally {
       _safeEmit(emit, state.copyWith(isSyncing: false));
     }
@@ -1519,7 +1590,13 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     DisconnectGoogleDrive event,
     Emitter<VaultState> emit,
   ) async {
-    _safeEmit(emit, state.copyWith(syncStatus: DatabaseSyncStatus.syncing));
+    _safeEmit(
+      emit,
+      state.copyWith(
+        syncStatus: DatabaseSyncStatus.syncing,
+        driveReconnectRequired: false,
+      ),
+    );
     try {
       await databaseSyncRepository.disconnect();
       _safeEmit(
@@ -1586,6 +1663,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         ),
       );
     } catch (e, st) {
+      if (e is GoogleAuthorizationRequiredException) {
+        _emitDriveAuthorizationRequired(emit);
+        return;
+      }
       logError('Link database to Drive failed.', e, st);
       _safeEmit(
         emit,
@@ -1676,6 +1757,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     ClearVaultSyncFeedback event,
     Emitter<VaultState> emit,
   ) {
+    if (state.driveReconnectRequired) {
+      _safeEmit(emit, state.copyWith(clearSyncConflict: true));
+      return;
+    }
     _safeEmit(
       emit,
       state.copyWith(clearSyncError: true, clearSyncConflict: true),
@@ -1692,6 +1777,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         state.copyWith(
           remoteDriveFiles: const [],
           isLoadingRemoteDriveFiles: false,
+          clearRemoteDriveFilesError: true,
         ),
       );
       return;
@@ -1699,7 +1785,11 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
 
     _safeEmit(
       emit,
-      state.copyWith(isLoadingRemoteDriveFiles: true, clearSyncError: true),
+      state.copyWith(
+        isLoadingRemoteDriveFiles: true,
+        clearSyncError: true,
+        clearRemoteDriveFilesError: true,
+      ),
     );
     try {
       final files = await databaseSyncRepository.listRemoteFiles(
@@ -1711,6 +1801,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           remoteDriveFiles: files,
           isLoadingRemoteDriveFiles: false,
           clearSyncError: true,
+          clearRemoteDriveFilesError: true,
         ),
       );
     } catch (e, st) {
@@ -1718,10 +1809,15 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         _safeEmit(
           emit,
           state.copyWith(
+            isDriveConnected: false,
+            isDriveLinked: false,
             isLoadingRemoteDriveFiles: false,
-            syncError:
-                'Google authorization expired. Reconnect Google Drive to continue.',
+            remoteDriveFilesError: _driveAuthorizationRequiredMessage,
+            remoteDriveFilesReconnectRequired: true,
             syncStatus: DatabaseSyncStatus.error,
+            isOffline: false,
+            clearSyncError: true,
+            clearSyncConflict: true,
           ),
         );
         return;
@@ -1732,19 +1828,40 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         emit,
         state.copyWith(
           isLoadingRemoteDriveFiles: false,
-          syncError: 'Unable to load remote Drive files.',
+          remoteDriveFilesError: 'Unable to load remote Drive files.',
+          remoteDriveFilesReconnectRequired: false,
           syncStatus: DatabaseSyncStatus.error,
+          clearSyncError: true,
         ),
       );
     }
   }
 
   bool _requiresDrivePermissionReauth(Object error) {
+    if (error is GoogleAuthorizationRequiredException) {
+      return true;
+    }
     final message = error.toString().toLowerCase();
     return message.contains('authorization is outdated') ||
         message.contains('authorization needs to be renewed') ||
         message.contains('full drive access') ||
         message.contains('google account not connected');
+  }
+
+  void _emitDriveAuthorizationRequired(Emitter<VaultState> emit) {
+    _safeEmit(
+      emit,
+      state.copyWith(
+        isDriveConnected: false,
+        isDriveLinked: false,
+        isLoadingRemoteDriveFiles: false,
+        syncError: _driveAuthorizationRequiredMessage,
+        driveReconnectRequired: true,
+        syncStatus: DatabaseSyncStatus.error,
+        isOffline: false,
+        clearSyncConflict: true,
+      ),
+    );
   }
 
   String _buildDriveConnectErrorMessage(Object error) {
@@ -2322,6 +2439,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           clearSyncConflict: true,
         ),
       );
+    } on GoogleAuthorizationRequiredException {
+      _emitDriveAuthorizationRequired(emit);
     } on SocketException catch (e, st) {
       // T7 non-negotiable: offline is derived ONLY from a connection-level
       // failure (SocketException) — never from an HTTP error status, which

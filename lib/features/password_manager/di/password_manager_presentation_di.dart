@@ -7,6 +7,7 @@ import '../presentation/bloc/vault/vault_bloc.dart';
 import '../presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import '../presentation/coordinators/database_session_coordinator.dart';
 import '../presentation/coordinators/desktop_browser_autofill_coordinator.dart';
+import '../presentation/coordinators/google_drive_reconnect_coordinator.dart';
 import '../presentation/coordinators/otpauth_deep_link_coordinator.dart';
 import '../presentation/coordinators/session_secret_holder.dart';
 import '../presentation/coordinators/vault_session_coordinator.dart';
@@ -63,6 +64,10 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       sessionSecretHolder: sl(),
       appleAutofillV2Coordinator: sl(),
     ),
+  );
+
+  sl.registerLazySingleton<GoogleDriveReconnectCoordinator>(
+    () => GoogleDriveReconnectCoordinator(databaseSyncRepository: sl()),
   );
 
   sl.registerLazySingleton<OtpAuthDeepLinkCoordinator>(

@@ -56,6 +56,8 @@ class SyncStatusHero extends StatelessWidget {
     this.localChecksum,
     this.autoSyncEnabled = true,
     this.syncError,
+    this.reconnectRequired = false,
+    this.isReconnecting = false,
     this.recentActivity = const [],
     this.isOffline = false,
     this.offlineChangeCount = 0,
@@ -80,6 +82,8 @@ class SyncStatusHero extends StatelessWidget {
   final String? localChecksum;
   final bool autoSyncEnabled;
   final String? syncError;
+  final bool reconnectRequired;
+  final bool isReconnecting;
   final List<SyncActivityItem> recentActivity;
 
   /// T7 non-negotiable: true only for connection-level failures
@@ -120,6 +124,9 @@ class SyncStatusHero extends StatelessWidget {
   }
 
   Widget _primaryHero(BuildContext context) {
+    if (reconnectRequired) {
+      return _errorHero(context);
+    }
     // `isDriveConnected` (not `status`) is authoritative here: background
     // Drive checks (`VaultBloc._onBackgroundDriveSync`) deliberately update
     // `isDriveConnected`/`isDriveLinked` without touching `syncStatus` (its
@@ -616,10 +623,18 @@ class SyncStatusHero extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           // Persistent action, not a transient snackbar (FR-1 non-negotiable).
-          KvPillButton(
-            label: 'Reconnect',
-            compact: true,
-            onPressed: onReconnect,
+          Semantics(
+            container: true,
+            button: true,
+            enabled: onReconnect != null && !isReconnecting,
+            label: 'Reconnect Google Drive',
+            child: ExcludeSemantics(
+              child: KvPillButton(
+                label: isReconnecting ? 'Reconnecting...' : 'Reconnect',
+                compact: true,
+                onPressed: isReconnecting ? null : onReconnect,
+              ),
+            ),
           ),
         ],
       ),
@@ -723,7 +738,9 @@ class SyncStatusHero extends StatelessWidget {
     final diff = now.difference(value);
     if (diff.inMinutes < 1) return 'just now';
     if (diff.inMinutes < 60) {
-      return diff.inMinutes == 1 ? '1 minute ago' : '${diff.inMinutes} minutes ago';
+      return diff.inMinutes == 1
+          ? '1 minute ago'
+          : '${diff.inMinutes} minutes ago';
     }
     if (diff.inHours < 24) {
       return diff.inHours == 1 ? '1 hour ago' : '${diff.inHours} hours ago';

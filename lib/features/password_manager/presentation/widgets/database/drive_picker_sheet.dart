@@ -6,6 +6,7 @@ import '../../../../../core/theme/app_text_styles.dart';
 import '../../../../../core/theme/keyvault_colors.dart';
 import '../../../../../core/widgets/kv_bottom_sheet.dart';
 import '../../../../../core/widgets/kv_pill_button.dart';
+import '../../../domain/errors/google_authorization_required_exception.dart';
 import '../../../domain/models/drive_account_summary.dart';
 import '../../../domain/models/drive_remote_file.dart';
 import 'drive_picker_skeleton.dart';
@@ -64,13 +65,22 @@ String _driveOpenErrorMessage(Object error) {
   if (normalized.contains('ios google sign-in is not configured')) {
     return 'iOS Google Sign-In is not configured. Check GOOGLE_IOS_CLIENT_ID.';
   }
+  if (normalized.contains('desktop oauth is not configured')) {
+    return 'Desktop Google Sign-In is not configured. Check GOOGLE_DESKTOP_CLIENT_ID and GOOGLE_DESKTOP_CLIENT_SECRET.';
+  }
+  if (normalized.contains('unable to open system browser')) {
+    return 'Unable to open the system browser for Google sign-in. Check your default browser and try again.';
+  }
+  if (normalized.contains('google authentication timeout')) {
+    return 'Google sign-in timed out. Complete authorization in your browser and try again.';
+  }
   if (normalized.contains('authorization was not granted')) {
     return 'Google Drive permission was not granted. Enable Drive access and try again.';
   }
   if (normalized.contains('authorization needs to be renewed') ||
       normalized.contains('authorization is outdated') ||
       normalized.contains('google account not connected')) {
-    return 'Google Drive session expired or unavailable. Tap "Open from Google Drive" again and complete reconnection.';
+    return 'Google Drive session expired or unavailable. Use Reconnect below to sign in again.';
   }
   return 'Unable to open database from Google Drive.';
 }
@@ -88,6 +98,7 @@ class _DrivePickerSheetContent extends StatefulWidget {
 class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
   DrivePickerData? _data;
   Object? _error;
+  bool _isLoading = false;
 
   @override
   void initState() {
@@ -96,13 +107,24 @@ class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
   }
 
   Future<void> _load() async {
+    if (_isLoading) return;
+    setState(() {
+      _isLoading = true;
+    });
     try {
       final data = await widget.loadPickerData();
       if (!mounted) return;
-      setState(() => _data = data);
+      setState(() {
+        _data = data;
+        _isLoading = false;
+        _error = null;
+      });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e);
+      setState(() {
+        _error = e;
+        _isLoading = false;
+      });
     }
   }
 
@@ -136,13 +158,42 @@ class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
             ),
           ),
           const SizedBox(height: 14),
-          if (_error != null)
+          if (_error != null) ...[
+            Text(
+              _error is GoogleAuthorizationRequiredException
+                  ? 'Google authorization expired'
+                  : 'Unable to connect to Google Drive',
+              textAlign: TextAlign.center,
+              style: AppTextStyles.panelTitleLarge.copyWith(
+                color: colors.attentionText,
+              ),
+            ),
+            const SizedBox(height: 8),
             Text(
               _driveOpenErrorMessage(_error!),
               textAlign: TextAlign.center,
               style: AppTextStyles.body.copyWith(color: colors.attentionText),
-            )
-          else if (data == null) ...[
+            ),
+            const SizedBox(height: 14),
+            Semantics(
+              container: true,
+              button: true,
+              enabled: !_isLoading,
+              label: _error is GoogleAuthorizationRequiredException
+                  ? 'Reconnect Google Drive'
+                  : 'Retry Google Drive connection',
+              child: ExcludeSemantics(
+                child: KvPillButton(
+                  label: _isLoading
+                      ? 'Connecting...'
+                      : _error is GoogleAuthorizationRequiredException
+                      ? 'Reconnect'
+                      : 'Retry',
+                  onPressed: _isLoading ? null : _load,
+                ),
+              ),
+            ),
+          ] else if (_isLoading || data == null) ...[
             const DrivePickerSkeletonRow(),
             const DrivePickerSkeletonRow(),
             const DrivePickerSkeletonRow(),

@@ -22,6 +22,7 @@ import 'package:password_manager/features/password_manager/domain/models/vault_s
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_bloc.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/google_drive_reconnect_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/otpauth_deep_link_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/vault_session_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/screens/vault_screen.dart';
@@ -85,6 +86,11 @@ Future<Widget> pumpableVaultShell({
   );
   di.sl.registerLazySingleton<DatabaseSyncRepository>(
     () => resolvedSyncRepository,
+  );
+  di.sl.registerLazySingleton<GoogleDriveReconnectCoordinator>(
+    () => GoogleDriveReconnectCoordinator(
+      databaseSyncRepository: resolvedSyncRepository,
+    ),
   );
   di.sl.registerFactoryParam<VaultBloc, String, void>(
     (path, _) => VaultBloc(

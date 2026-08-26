@@ -7,6 +7,8 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher_string.dart';
 
+import '../../domain/errors/google_authorization_required_exception.dart';
+
 class DesktopOAuthTokenSet {
   const DesktopOAuthTokenSet({
     required this.accessToken,
@@ -141,6 +143,20 @@ class DesktopOAuthPkceService {
     );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      String? oauthError;
+      try {
+        final payload = jsonDecode(response.body);
+        final value = payload is Map<String, dynamic> ? payload['error'] : null;
+        if (value is String &&
+            RegExp(r'^[a-z][a-z0-9_]{0,63}$').hasMatch(value)) {
+          oauthError = value;
+        }
+      } catch (_) {}
+      if ((response.statusCode == 400 || response.statusCode == 401) &&
+          (oauthError == 'invalid_grant' ||
+              oauthError == 'unauthorized_client')) {
+        throw const GoogleAuthorizationRequiredException();
+      }
       throw Exception('Google token refresh failed (${response.statusCode}).');
     }
 

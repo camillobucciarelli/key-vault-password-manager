@@ -4,20 +4,37 @@
 // search query that removed the currently-selected file from the list, the
 // stale id survived — no row showed as selected, yet "Link" stayed enabled
 // and would have completed with an id no longer visible to the user.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
+import 'package:password_manager/features/password_manager/domain/errors/google_authorization_required_exception.dart';
 import 'package:password_manager/features/password_manager/domain/models/drive_account_summary.dart';
 import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
+import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/google_drive_reconnect_coordinator.dart';
+import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_bloc.dart';
+import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_event.dart';
 import 'package:password_manager/features/password_manager/presentation/widgets/sync/remote_file_row.dart';
+import 'package:password_manager/injection_container.dart' as di;
 
 import '../../coordinators/fake_database_ports.dart';
 import 'vault_shell_test_utils.dart';
 
 const _fileA = DriveRemoteFile(id: 'a1', name: 'Alpha.kdbx');
 const _fileB = DriveRemoteFile(id: 'b1', name: 'Beta.kdbx');
+
+void _usePhoneViewport(WidgetTester tester) {
+  tester.view.physicalSize = const Size(390, 844);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+}
 
 /// Connected but not-yet-linked repo so the Sync tab renders the "Pick an
 /// existing .kdbx" entry point. `listRemoteFiles` filters by query the same
@@ -44,6 +61,65 @@ class _FakeUnlinkedSyncRepository extends FakeDatabaseSyncRepository {
     return all
         .where((f) => f.name.toLowerCase().contains(query.toLowerCase()))
         .toList();
+  }
+}
+
+class _RecoveringUnlinkedSyncRepository extends _FakeUnlinkedSyncRepository {
+  int listCalls = 0;
+  int authorizationFailures = 1;
+  final queries = <String?>[];
+  Object? connectError;
+  Completer<void>? connectGate;
+
+  @override
+  Future<void> connect() async {
+    connectCalls += 1;
+    await connectGate?.future;
+    if (connectError != null) throw connectError!;
+  }
+
+  @override
+  Future<List<DriveRemoteFile>> listRemoteFiles({String? query}) async {
+    listCalls += 1;
+    queries.add(query);
+    if (listCalls <= authorizationFailures) {
+      throw const GoogleAuthorizationRequiredException();
+    }
+    return super.listRemoteFiles(query: query);
+  }
+}
+
+class _BackgroundReconnectSyncRepository extends FakeDatabaseSyncRepository {
+  _BackgroundReconnectSyncRepository() {
+    connected = true;
+    mappings[kTestDatabasePath] = const DatabaseSyncMapping(
+      databasePath: kTestDatabasePath,
+      driveFileId: 'remote-1',
+      driveFileName: 'Vault.kdbx',
+      autoSyncEnabled: true,
+    );
+  }
+
+  int syncCalls = 0;
+  Completer<void>? connectGate;
+
+  @override
+  Future<void> connect() async {
+    connectCalls += 1;
+    await connectGate?.future;
+    connected = true;
+  }
+
+  @override
+  Future<SyncNowResult> syncNow(
+    String databasePath, {
+    SyncConflictResolution? resolution,
+  }) async {
+    syncCalls += 1;
+    if (syncCalls == 1) {
+      throw const GoogleAuthorizationRequiredException();
+    }
+    return const SyncNowSuccess();
   }
 }
 
@@ -123,7 +199,9 @@ void main() {
       // "Link" is enabled and, if tapped, can only ever complete with a
       // file id that is actually visible in the current list.
       expect(
-        tester.widget<ElevatedButton>(find.widgetWithText(ElevatedButton, 'Link')).onPressed,
+        tester
+            .widget<ElevatedButton>(find.widgetWithText(ElevatedButton, 'Link'))
+            .onPressed,
         isNotNull,
       );
     },
@@ -176,9 +254,378 @@ void main() {
       // branch returns before reaching the old post-check location —
       // "Link" must be disabled, not still wired to an invisible file.
       expect(
-        tester.widget<ElevatedButton>(find.widgetWithText(ElevatedButton, 'Link')).onPressed,
+        tester
+            .widget<ElevatedButton>(find.widgetWithText(ElevatedButton, 'Link'))
+            .onPressed,
         isNull,
       );
     },
   );
+
+  testWidgets(
+    'auth-expired picker stays open and reconnect retries list once',
+    (tester) async {
+      addTearDown(resetVaultShellTestDi);
+      _usePhoneViewport(tester);
+      final repository = _RecoveringUnlinkedSyncRepository()
+        ..remoteFiles = const [_fileA];
+
+      await tester.pumpWidget(
+        await pumpableVaultShell(databaseSyncRepository: repository),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sync'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Pick an existing .kdbx'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Link to a Drive file'), findsOneWidget);
+      expect(find.text('Google authorization expired'), findsOneWidget);
+      expect(find.text('Reconnect'), findsOneWidget);
+
+      await tester.tap(find.text('Reconnect'));
+      await tester.pumpAndSettle();
+
+      expect(repository.connectCalls, 1);
+      expect(repository.listCalls, 2);
+      expect(find.text('Link to a Drive file'), findsOneWidget);
+      expect(find.text('Alpha.kdbx'), findsOneWidget);
+    },
+  );
+
+  testWidgets('picker reconnect failure stays open and Retry can succeed', (
+    tester,
+  ) async {
+    addTearDown(resetVaultShellTestDi);
+    _usePhoneViewport(tester);
+    final repository = _RecoveringUnlinkedSyncRepository()
+      ..remoteFiles = const [_fileA]
+      ..connectError = Exception('Google sign-in cancelled.');
+
+    await tester.pumpWidget(
+      await pumpableVaultShell(databaseSyncRepository: repository),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sync'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Pick an existing .kdbx'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Reconnect'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Link to a Drive file'), findsOneWidget);
+    expect(find.text('Google sign-in cancelled.'), findsOneWidget);
+    expect(
+      find.bySemanticsLabel('Retry Google Drive connection'),
+      findsOneWidget,
+    );
+
+    repository.connectError = null;
+    await tester.tap(find.bySemanticsLabel('Retry Google Drive connection'));
+    await tester.pumpAndSettle();
+
+    expect(repository.connectCalls, 2);
+    expect(repository.listCalls, 2);
+    expect(find.text('Alpha.kdbx'), findsOneWidget);
+  });
+
+  testWidgets('rapid picker reconnect taps start one connect', (tester) async {
+    addTearDown(resetVaultShellTestDi);
+    _usePhoneViewport(tester);
+    final repository = _RecoveringUnlinkedSyncRepository()
+      ..remoteFiles = const [_fileA]
+      ..connectGate = Completer<void>();
+
+    await tester.pumpWidget(
+      await pumpableVaultShell(databaseSyncRepository: repository),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sync'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Pick an existing .kdbx'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Reconnect'));
+    await tester.tap(find.text('Reconnect'));
+    tester
+        .state<ScaffoldMessengerState>(find.byType(ScaffoldMessenger))
+        .hideCurrentSnackBar();
+    await tester.pump();
+
+    expect(repository.connectCalls, 1);
+    expect(find.bySemanticsLabel('Reconnect Google Drive'), findsOneWidget);
+    expect(find.text('Google authorization expired'), findsOneWidget);
+    expect(
+      tester
+          .widget<ElevatedButton>(
+            find.widgetWithText(ElevatedButton, 'Reconnecting...'),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<ElevatedButton>(find.widgetWithText(ElevatedButton, 'Link'))
+          .onPressed,
+      isNull,
+    );
+
+    // Unrelated BLoC traffic must not complete this auth gesture or re-enable
+    // another OAuth launch while the first operation is pending.
+    final bloc = tester
+        .element(find.text('Link to a Drive file'))
+        .read<VaultBloc>();
+    bloc.add(const ClearVaultInfo());
+    await tester.pump();
+    await tester.tap(find.bySemanticsLabel('Reconnect Google Drive'));
+    expect(repository.connectCalls, 1);
+
+    repository.connectGate!.complete();
+    await tester.pumpAndSettle();
+    expect(repository.listCalls, 2);
+  });
+
+  testWidgets(
+    'query stays local during auth error and Link cannot close picker',
+    (tester) async {
+      addTearDown(resetVaultShellTestDi);
+      _usePhoneViewport(tester);
+      final repository = _RecoveringUnlinkedSyncRepository()
+        ..remoteFiles = const [_fileA];
+
+      await tester.pumpWidget(
+        await pumpableVaultShell(databaseSyncRepository: repository),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sync'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Pick an existing .kdbx'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'Alpha');
+      await tester.pumpAndSettle();
+
+      expect(repository.listCalls, 1);
+      expect(find.text('Google authorization expired'), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Semantics &&
+              widget.properties.label == 'Reconnect Google Drive',
+        ),
+        findsOneWidget,
+      );
+      final link = tester.widget<ElevatedButton>(
+        find.widgetWithText(ElevatedButton, 'Link'),
+      );
+      expect(link.onPressed, isNull);
+      await tester.tap(
+        find.widgetWithText(ElevatedButton, 'Link'),
+        warnIfMissed: false,
+      );
+      expect(find.text('Link to a Drive file'), findsOneWidget);
+
+      await tester.tap(find.bySemanticsLabel('Reconnect Google Drive'));
+      await tester.pumpAndSettle();
+
+      expect(repository.queries, [null, 'Alpha']);
+      expect(find.text('Alpha.kdbx'), findsOneWidget);
+    },
+  );
+
+  testWidgets('second auth failure stays inline without automatic loop', (
+    tester,
+  ) async {
+    addTearDown(resetVaultShellTestDi);
+    _usePhoneViewport(tester);
+    final repository = _RecoveringUnlinkedSyncRepository()
+      ..authorizationFailures = 2;
+
+    await tester.pumpWidget(
+      await pumpableVaultShell(databaseSyncRepository: repository),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sync'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Pick an existing .kdbx'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.bySemanticsLabel('Reconnect Google Drive'));
+    await tester.pumpAndSettle();
+
+    expect(repository.connectCalls, 1);
+    expect(repository.listCalls, 2);
+    expect(find.text('Google authorization expired'), findsOneWidget);
+    expect(find.bySemanticsLabel('Reconnect Google Drive'), findsOneWidget);
+  });
+
+  testWidgets('closing picker while auth is pending prevents list retry', (
+    tester,
+  ) async {
+    addTearDown(resetVaultShellTestDi);
+    _usePhoneViewport(tester);
+    final repository = _RecoveringUnlinkedSyncRepository()
+      ..connectGate = Completer<void>();
+
+    await tester.pumpWidget(
+      await pumpableVaultShell(databaseSyncRepository: repository),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sync'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Pick an existing .kdbx'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.bySemanticsLabel('Reconnect Google Drive'));
+    await tester.pump();
+    await tester.tap(find.byType(IconButton).first);
+    await tester.pumpAndSettle();
+
+    repository.connectGate!.complete();
+    await tester.pumpAndSettle();
+
+    expect(repository.connectCalls, 1);
+    expect(repository.listCalls, 1);
+    expect(find.text('Link to a Drive file'), findsNothing);
+  });
+
+  testWidgets(
+    'closed picker does not suppress hero continuation sharing its auth',
+    (tester) async {
+      addTearDown(resetVaultShellTestDi);
+      _usePhoneViewport(tester);
+      final repository = _RecoveringUnlinkedSyncRepository()
+        ..connectGate = Completer<void>();
+
+      await tester.pumpWidget(
+        await pumpableVaultShell(databaseSyncRepository: repository),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sync'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Pick an existing .kdbx'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.bySemanticsLabel('Reconnect Google Drive'));
+      await tester.pump();
+      await tester.tap(find.byType(IconButton).first);
+      await tester.pumpAndSettle();
+
+      final bloc = tester.element(find.text('Sync').last).read<VaultBloc>();
+      final heroContinuation = di
+          .sl<GoogleDriveReconnectCoordinator>()
+          .reconnect(
+            owner: Object(),
+            bloc: bloc,
+            continuation: GoogleDriveReconnectContinuation.resumeSync,
+            isOwnerActive: () => true,
+          );
+      expect(repository.connectCalls, 1);
+
+      repository.connectGate!.complete();
+      await heroContinuation;
+      await tester.pumpAndSettle();
+
+      expect(repository.listCalls, 1);
+      expect(find.text('Reconnect'), findsNothing);
+    },
+  );
+
+  testWidgets('snackbar reconnect performs one connect and one resume sync', (
+    tester,
+  ) async {
+    addTearDown(resetVaultShellTestDi);
+    _usePhoneViewport(tester);
+    final repository = _BackgroundReconnectSyncRepository();
+
+    await tester.pumpWidget(
+      await pumpableVaultShell(databaseSyncRepository: repository),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repository.syncCalls, 1);
+    expect(repository.connectCalls, 0);
+    await tester.tap(find.widgetWithText(SnackBarAction, 'Reconnect'));
+    await tester.pumpAndSettle();
+
+    expect(repository.connectCalls, 1);
+    expect(repository.syncCalls, 2);
+  });
+
+  testWidgets(
+    'rapid hero reconnect survives unrelated state and resumes once',
+    (tester) async {
+      addTearDown(resetVaultShellTestDi);
+      _usePhoneViewport(tester);
+      final repository = _BackgroundReconnectSyncRepository()
+        ..connectGate = Completer<void>();
+
+      await tester.pumpWidget(
+        await pumpableVaultShell(databaseSyncRepository: repository),
+      );
+      await tester.pumpAndSettle();
+      tester
+          .state<ScaffoldMessengerState>(find.byType(ScaffoldMessenger))
+          .hideCurrentSnackBar();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sync'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Reconnect'));
+      await tester.tap(find.text('Reconnect'));
+      final bloc = tester.element(find.text('Sync').last).read<VaultBloc>();
+      bloc.add(const ClearVaultInfo());
+      await tester.pump();
+
+      expect(repository.connectCalls, 1);
+      expect(repository.syncCalls, 1);
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Semantics &&
+              widget.properties.label == 'Reconnect Google Drive',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<ElevatedButton>(
+              find.widgetWithText(ElevatedButton, 'Reconnecting...'),
+            )
+            .onPressed,
+        isNull,
+      );
+
+      repository.connectGate!.complete();
+      await tester.pumpAndSettle();
+      expect(repository.connectCalls, 1);
+      expect(repository.syncCalls, 2);
+    },
+  );
+
+  testWidgets('background auth expiry waits for tap then resumes sync once', (
+    tester,
+  ) async {
+    addTearDown(resetVaultShellTestDi);
+    _usePhoneViewport(tester);
+    final repository = _BackgroundReconnectSyncRepository();
+
+    await tester.pumpWidget(
+      await pumpableVaultShell(databaseSyncRepository: repository),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repository.syncCalls, 1);
+    expect(repository.connectCalls, 0);
+
+    tester
+        .state<ScaffoldMessengerState>(find.byType(ScaffoldMessenger))
+        .hideCurrentSnackBar();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sync'));
+    await tester.pumpAndSettle();
+    expect(find.text('Reconnect'), findsOneWidget);
+
+    await tester.tap(find.text('Reconnect'));
+    await tester.pumpAndSettle();
+
+    expect(repository.connectCalls, 1);
+    expect(repository.syncCalls, 2);
+  });
 }

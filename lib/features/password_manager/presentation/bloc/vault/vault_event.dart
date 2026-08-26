@@ -3,6 +3,7 @@ import 'package:password_manager/core/utils/redacted_value.dart';
 
 import '../../../domain/models/vault_custom_field.dart';
 import '../../../domain/models/sync_conflict.dart';
+import '../../../domain/models/drive_remote_file.dart';
 import 'vault_state.dart';
 
 abstract class VaultEvent extends Equatable {
@@ -320,6 +321,33 @@ class ClearVaultInfo extends VaultEvent {
 
 class ConnectGoogleDrive extends VaultEvent {
   const ConnectGoogleDrive();
+}
+
+class GoogleDriveReconnectSucceeded extends VaultEvent {
+  const GoogleDriveReconnectSucceeded({this.remoteFiles});
+
+  final List<DriveRemoteFile>? remoteFiles;
+
+  @override
+  List<Object?> get props => [remoteFiles];
+}
+
+class GoogleDriveReconnectFailed extends VaultEvent {
+  const GoogleDriveReconnectFailed({
+    required this.error,
+    required this.stackTrace,
+    required this.remoteFiles,
+    this.duringRemoteLoad = false,
+  });
+
+  final Object error;
+  final StackTrace stackTrace;
+  final bool remoteFiles;
+  final bool duringRemoteLoad;
+
+  // Do not expose provider exception text through Equatable/toString.
+  @override
+  List<Object?> get props => [remoteFiles, duringRemoteLoad];
 }
 
 class DisconnectGoogleDrive extends VaultEvent {
