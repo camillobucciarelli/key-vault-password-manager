@@ -19,14 +19,17 @@ internal class AndroidAutofillStore(context: Context) {
     private val metadataFile = File(directory, "android_autofill_metadata_v2.json")
     private val encryptedFile = File(directory, "android_autofill_cache_v2.sealed.json")
     private val pendingAssociationsFile = File(directory, "android_autofill_pending_associations_v2.json")
+    private val authSessionFile = File(directory, "android_autofill_session_v2.json")
 
     fun publishCredentials(
         databaseId: String,
         entries: List<AndroidAutofillPublishEntry>,
+        authSessionTtlMs: Long = 0L,
     ): Map<String, Any> {
         val normalizedDatabaseId = databaseId.trim()
         require(normalizedDatabaseId.isNotEmpty()) { "databaseId is required" }
         require(entries.size <= MAX_ENTRIES) { "entries exceeds maximum" }
+        require(authSessionTtlMs >= 0L) { "authSessionTtlMs must not be negative" }
 
         val generatedAt = System.currentTimeMillis()
         val seenIds = mutableSetOf<String>()
@@ -83,6 +86,7 @@ internal class AndroidAutofillStore(context: Context) {
 
         val sortedMetadata = metadataEntries.sortedBy { it.sortKey }
         if (sortedMetadata.isEmpty()) {
+            clearAuthSessionBestEffort()
             removeCacheFilesBestEffort()
             val keyCleared = deleteKeyBestEffort()
             if (!keyCleared) {
@@ -115,6 +119,8 @@ internal class AndroidAutofillStore(context: Context) {
         val envelope = encrypt(secretBytes, metadataBytes, normalizedDatabaseId, generatedAt)
         writePrivate(metadataFile, metadataBytes)
         writePrivate(encryptedFile, envelope.toByteArray(Charsets.UTF_8))
+        // A fresh cache always starts unauthenticated.
+        writeAuthSession(AndroidAutofillAuthSession(authSessionTtlMs, null))
 
         Log.i(TAG, "Android Autofill cache published count=${sortedMetadata.size}")
         return mapOf(
@@ -143,6 +149,7 @@ internal class AndroidAutofillStore(context: Context) {
             )
         }
 
+        clearAuthSessionBestEffort()
         removeCacheFilesBestEffort()
         val keyCleared = deleteKeyBestEffort()
         val warnings = mutableListOf<String>()
@@ -163,13 +170,47 @@ internal class AndroidAutofillStore(context: Context) {
     fun status(): AndroidAutofillStoreStatus {
         val metadata = readMetadataCache()
         val encryptedExists = encryptedFile.exists()
+        val session = readAuthSession()
         return AndroidAutofillStoreStatus(
             metadataCount = metadata?.entries?.size ?: 0,
             encryptedCacheAvailable = encryptedExists,
             cacheAvailable = metadata != null && encryptedExists,
             databaseId = metadata?.databaseId,
             generatedAtEpochMs = metadata?.generatedAtEpochMs,
+            authSessionTtlMs = session.authSessionTtlMs,
+            lastAuthenticatedAtEpochMs = session.lastAuthenticatedAtEpochMs,
         )
+    }
+
+    fun readAuthSession(): AndroidAutofillAuthSession {
+        return runCatching {
+            if (!authSessionFile.exists()) {
+                null
+            } else {
+                AndroidAutofillJson.authSessionFromJson(authSessionFile.readText(Charsets.UTF_8))
+            }
+        }.getOrNull() ?: EMPTY_AUTH_SESSION
+    }
+
+    /** Stamps a successful device authentication. Best effort: a failure only costs an extra prompt. */
+    fun recordAuthentication(nowEpochMs: Long) {
+        runCatching {
+            writeAuthSession(readAuthSession().copy(lastAuthenticatedAtEpochMs = nowEpochMs))
+        }.onFailure {
+            Log.w(TAG, "Auth session stamp failed: ${it.javaClass.simpleName}")
+        }
+    }
+
+    private fun writeAuthSession(session: AndroidAutofillAuthSession) {
+        directory.mkdirs()
+        writePrivate(
+            authSessionFile,
+            AndroidAutofillJson.authSessionToJson(session).toByteArray(Charsets.UTF_8),
+        )
+    }
+
+    private fun clearAuthSessionBestEffort() {
+        runCatching { authSessionFile.delete() }
     }
 
     fun readCredentialMetadata(): List<AndroidAutofillCredentialMetadata> {
@@ -375,6 +416,10 @@ internal class AndroidAutofillStore(context: Context) {
     }
 
     private companion object {
+        private val EMPTY_AUTH_SESSION = AndroidAutofillAuthSession(
+            authSessionTtlMs = 0L,
+            lastAuthenticatedAtEpochMs = null,
+        )
         private const val TAG = "KeyVaultAutofill"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val KEY_ALIAS = "dev.camillobucciarelli.keyvault.android_autofill_v2"

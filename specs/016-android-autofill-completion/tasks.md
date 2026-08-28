@@ -54,7 +54,7 @@ T004 `pass` before Phase 3 starts.
 
 ## Phase 1 — Setup
 
-- [ ] **T101** Declare `androidx.biometric` — owner: `senior-android-dev`
+- [x] **T101** Declare `androidx.biometric` — owner: `senior-android-dev`
   Files: `android/app/build.gradle.kts`.
   Acceptance: the dependency is declared with an explicit version (no dynamic
   range, matching the repo's pinning convention); the debug and release variants
@@ -81,7 +81,7 @@ T004 `pass` before Phase 3 starts.
   rejected.
   Verify: new Kotlin unit test covering persistence, clearing and rejection.
 
-- [ ] **T202** Carry `authSessionTtlMs` over the channel — owner:
+- [x] **T202** Carry `authSessionTtlMs` over the channel — owner:
   `senior-android-dev`
   Files: `.../AndroidAutofillV2Channel.kt`, `.../AndroidAutofillJson.kt`.
   Acceptance: `publishCredentials` accepts the optional field (default `0`);
@@ -90,7 +90,7 @@ T004 `pass` before Phase 3 starts.
   Verify: Kotlin unit test for the argument mapping, including the absent-field
   default.
 
-- [ ] **T203** [P] Publish the TTL from Dart — owner: `senior-flutter-dev`
+- [x] **T203** [P] Publish the TTL from Dart — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/domain/models/apple_autofill_v2_models.dart`,
   `.../domain/services/apple_autofill_v2_payload_mapper.dart`,
   `.../data/services/apple_autofill_v2_method_channel_client.dart`,
@@ -101,7 +101,7 @@ T004 `pass` before Phase 3 starts.
   the configured TTL and that the Apple mapper output is byte-identical to
   before.
 
-- [ ] **T204** Extract the shared authentication gate — owner:
+- [x] **T204** Extract the shared authentication gate — owner:
   `senior-android-dev`
   Files: `android/app/src/main/kotlin/.../autofill/AutofillAuthGate.kt` (new).
   Acceptance: one entry point used by both the picker and the inline auth
@@ -157,7 +157,7 @@ authenticating. **Independent test**: quickstart.md section A.
   does; TTL `0` always prompts (FR-003).
   Verify: Kotlin unit test on the gate plus quickstart A step 4.
 
-- [ ] **T305** [P] [US1] Prompt strings — owner: `senior-android-dev`
+- [x] **T305** [P] [US1] Prompt strings — owner: `senior-android-dev`
   Files: `android/app/src/main/res/values/strings.xml`.
   Acceptance: title, subtitle and cancel label for the prompt; wording states
   that a password is about to be filled into another app.
@@ -408,6 +408,44 @@ Blocked by T002 `pass`. **Independent test**: quickstart.md section D.
 3. Add Phase 5 (save) → validate quickstart C → ship.
 4. Add Phase 6 (browsers) and Phase 7 (accessibility) → validate D and E → ship.
 5. Phase 8 before every one of those cuts, not only the last.
+
+## Implementation notes (slice 1)
+
+Plain bullets on purpose — these are not scheduled work.
+
+- **Session state lives in its own file, not in the metadata cache.** D2 and T201
+  say "the existing plaintext metadata file". That file is the AEAD associated
+  data of the sealed secret file (`AndroidAutofillStore.encrypt` calls
+  `updateAAD(metadataBytes)`), so stamping `lastAuthenticatedAtEpochMs` into it
+  would invalidate every sealed credential on the next read. The two fields are
+  written to `android_autofill_session_v2.json` in the same directory instead:
+  same plaintext-and-not-secret property, same clearing, no AAD churn.
+- **Publishing a cache resets the reuse window.** A republish always clears
+  `lastAuthenticatedAtEpochMs`, so a newly published cache starts
+  unauthenticated.
+- **The TTL value is a constant, not a setting.** D2 sources it from "the spec
+  011 master-password session scope", but spec 011 defines no timeout — it is
+  about never persisting the master password, and the codebase has no session
+  TTL to read. `AppleAutofillV2Coordinator.authSessionTtl` is 30 s: long enough
+  that filling a username field and then the password field of one login prompts
+  once, short enough that a later fill re-authenticates. The channel field stays
+  the seam a real setting would feed later.
+- **`AndroidAutofillStore` has no JVM unit test** (T201's stated verification).
+  It needs a `Context` and the Android Keystore; the module has no Robolectric
+  and no `isReturnDefaultValues`, so no store test exists today. The TTL
+  arithmetic was extracted into `AutofillAuthSessionWindow` precisely so it is
+  covered by a plain JVM test.
+- **Two pre-existing gate failures were fixed here**, both inherited from `main`
+  rather than introduced by this slice:
+  - `./gradlew :app:test` also compiled the release variant's unit tests, which
+    cannot resolve `dev.flutter.plugins.integration_test`:
+    `GeneratedPluginRegistrant.java` is generated once for every variant and
+    registers dev-dependency plugins that the Flutter Gradle plugin deliberately
+    keeps out of release. `android/app/build.gradle.kts` now disables release
+    unit tests, so the documented command works as written.
+  - `dart format --set-exit-if-changed lib test tool` failed on 42 untouched
+    files under Flutter 3.47.1's formatter. They are reformatted in their own
+    commit, separate from the feature diff.
 
 ## Deferred, not scheduled
 

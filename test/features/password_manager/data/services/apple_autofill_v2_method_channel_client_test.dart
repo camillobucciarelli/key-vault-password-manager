@@ -78,6 +78,31 @@ void main() {
           .setMockMethodCallHandler(channel, null);
     });
 
+    test('publishCredentials carries the requested auth session ttl', () async {
+      final client = AppleAutofillV2MethodChannelClient(
+        channel: channel,
+        isSupportedOverride: true,
+      );
+
+      await client.publishCredentials(
+        databaseId: 'db-1',
+        credentials: const [
+          AppleAutofillV2Credential(
+            id: 'entry-1',
+            title: 'Example',
+            username: 'alice',
+            password: 'super-secret',
+            url: null,
+            serviceIdentifiers: [],
+          ),
+        ],
+        authSessionTtlMs: 30000,
+      );
+
+      final args = calls.single.arguments as Map<dynamic, dynamic>;
+      expect(args['authSessionTtlMs'], 30000);
+    });
+
     test('publishCredentials sends the native v2 payload', () async {
       final client = AppleAutofillV2MethodChannelClient(
         channel: channel,
@@ -109,6 +134,7 @@ void main() {
       expect(calls.single.method, 'publishCredentials');
       final args = calls.single.arguments as Map<dynamic, dynamic>;
       expect(args['databaseId'], 'db-1');
+      expect(args['authSessionTtlMs'], 0);
       final entries = args['entries'] as List<dynamic>;
       final entry = entries.single as Map<dynamic, dynamic>;
       expect(entry['id'], 'entry-1');

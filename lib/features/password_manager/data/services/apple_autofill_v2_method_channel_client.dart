@@ -35,6 +35,7 @@ class AppleAutofillV2MethodChannelClient implements AppleAutofillV2Client {
   Future<AppleAutofillV2PublishResult> publishCredentials({
     required String databaseId,
     required List<AppleAutofillV2Credential> credentials,
+    int authSessionTtlMs = 0,
   }) async {
     if (!isSupported) {
       return const AppleAutofillV2PublishResult.unsupported();
@@ -46,6 +47,7 @@ class AppleAutofillV2MethodChannelClient implements AppleAutofillV2Client {
           'entries': credentials
               .map((credential) => credential.toChannelMap())
               .toList(growable: false),
+          'authSessionTtlMs': authSessionTtlMs,
         });
     return AppleAutofillV2PublishResult.fromMap(result);
   }

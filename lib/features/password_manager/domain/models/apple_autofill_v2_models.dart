@@ -190,6 +190,8 @@ class AppleAutofillV2Status extends Equatable {
     required this.cacheAvailable,
     this.databaseId,
     this.generatedAtEpochMs,
+    this.authSessionTtlMs = 0,
+    this.lastAuthenticatedAtEpochMs,
   });
 
   factory AppleAutofillV2Status.fromMap(
@@ -209,6 +211,11 @@ class AppleAutofillV2Status extends Equatable {
       cacheAvailable: _readBool(map, 'cacheAvailable'),
       databaseId: _readString(map, 'databaseId'),
       generatedAtEpochMs: _readIntOrNull(map, 'generatedAtEpochMs'),
+      authSessionTtlMs: _readInt(map, 'authSessionTtlMs'),
+      lastAuthenticatedAtEpochMs: _readIntOrNull(
+        map,
+        'lastAuthenticatedAtEpochMs',
+      ),
     );
   }
 
@@ -233,6 +240,12 @@ class AppleAutofillV2Status extends Equatable {
   final String? databaseId;
   final int? generatedAtEpochMs;
 
+  /// Android only: the reuse window currently stored natively. `0` on Apple.
+  final int authSessionTtlMs;
+
+  /// Android only: when a release was last authenticated. Never says which entry.
+  final int? lastAuthenticatedAtEpochMs;
+
   @override
   List<Object?> get props => [
     supported,
@@ -244,6 +257,8 @@ class AppleAutofillV2Status extends Equatable {
     cacheAvailable,
     databaseId,
     generatedAtEpochMs,
+    authSessionTtlMs,
+    lastAuthenticatedAtEpochMs,
   ];
 }
 

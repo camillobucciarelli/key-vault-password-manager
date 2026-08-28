@@ -70,6 +70,29 @@ internal object AndroidAutofillJson {
         return Triple(json.optInt("version"), json.optString("databaseId"), entries)
     }
 
+    fun authSessionToJson(session: AndroidAutofillAuthSession): String {
+        val json = JSONObject()
+            .put("version", ANDROID_AUTOFILL_CACHE_VERSION)
+            .put("authSessionTtlMs", session.authSessionTtlMs)
+        val lastAuthenticated = session.lastAuthenticatedAtEpochMs
+        if (lastAuthenticated != null) {
+            json.put("lastAuthenticatedAtEpochMs", lastAuthenticated)
+        }
+        return json.toString()
+    }
+
+    fun authSessionFromJson(value: String): AndroidAutofillAuthSession {
+        val json = JSONObject(value)
+        return AndroidAutofillAuthSession(
+            authSessionTtlMs = json.optLong("authSessionTtlMs").coerceAtLeast(0L),
+            lastAuthenticatedAtEpochMs = if (json.has("lastAuthenticatedAtEpochMs")) {
+                json.optLong("lastAuthenticatedAtEpochMs")
+            } else {
+                null
+            },
+        )
+    }
+
     fun pendingAssociationsToJson(associations: List<AndroidAutofillPendingAssociation>): String {
         return JSONArray(associations.map(::pendingAssociationToJson)).toString()
     }

@@ -32,6 +32,10 @@ void main() {
           _databaseIdForPath('/private/vaults/main.kdbx'),
         );
         expect(client.publishedDatabaseId, isNot(contains('/private/vaults')));
+        expect(
+          client.publishedAuthSessionTtlMs,
+          AppleAutofillV2Coordinator.authSessionTtl.inMilliseconds,
+        );
       },
     );
 
@@ -207,16 +211,19 @@ class _FakeAppleAutofillV2Client implements AppleAutofillV2Client {
   List<String>? clearedPendingIds;
   Object? clearPendingError;
   List<AppleAutofillV2Credential> publishedCredentials = const [];
+  int? publishedAuthSessionTtlMs;
   List<AppleAutofillV2PendingAssociation> pendingAssociations = const [];
 
   @override
   Future<AppleAutofillV2PublishResult> publishCredentials({
     required String databaseId,
     required List<AppleAutofillV2Credential> credentials,
+    int authSessionTtlMs = 0,
   }) async {
     publishCallCount += 1;
     publishedDatabaseId = databaseId;
     publishedCredentials = credentials;
+    publishedAuthSessionTtlMs = authSessionTtlMs;
     return AppleAutofillV2PublishResult(
       publishedCount: credentials.length,
       skippedCount: 0,

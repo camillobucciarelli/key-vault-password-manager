@@ -1,6 +1,5 @@
 package dev.camillobucciarelli.kdbxKeyVault.autofill
 
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -19,10 +18,13 @@ import android.widget.ListView
 import android.widget.RemoteViews
 import android.widget.TextView
 import android.widget.Toast
+import androidx.fragment.app.FragmentActivity
 import dev.camillobucciarelli.kdbxKeyVault.R
 
-class AutofillPickerActivity : Activity() {
+class AutofillPickerActivity : FragmentActivity() {
     private lateinit var store: AndroidAutofillStore
+    private lateinit var authGate: AutofillAuthGate
+    private var isAuthenticating: Boolean = false
     private lateinit var usernameIds: ArrayList<AutofillId>
     private lateinit var passwordIds: ArrayList<AutofillId>
     private lateinit var targets: List<AndroidAutofillServiceIdentifier>
@@ -33,6 +35,7 @@ class AutofillPickerActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = AndroidAutofillStore(applicationContext)
+        authGate = AutofillAuthGate(activity = this, store = store)
         usernameIds = intent.autofillIdsExtra(EXTRA_USERNAME_IDS)
         passwordIds = intent.autofillIdsExtra(EXTRA_PASSWORD_IDS)
         if (usernameIds.isEmpty() && passwordIds.isEmpty()) {
@@ -155,10 +158,35 @@ class AutofillPickerActivity : Activity() {
     }
 
     private fun selectCredential(metadata: AndroidAutofillCredentialMetadata) {
+        if (isAuthenticating) {
+            return
+        }
+        isAuthenticating = true
+        authGate.authenticate { outcome ->
+            isAuthenticating = false
+            when (outcome) {
+                AutofillAuthGate.Outcome.Authenticated -> releaseCredential(metadata)
+                AutofillAuthGate.Outcome.NoAuthenticator -> {
+                    Toast.makeText(this, R.string.autofill_auth_required_error, Toast.LENGTH_LONG).show()
+                    finishCanceled()
+                }
+                AutofillAuthGate.Outcome.Cancelled -> {
+                    Toast.makeText(this, R.string.autofill_auth_cancelled, Toast.LENGTH_SHORT).show()
+                    finishCanceled()
+                }
+            }
+        }
+    }
+
+    /** Only ever reached after [AutofillAuthGate] reports a successful authentication. */
+    private fun releaseCredential(metadata: AndroidAutofillCredentialMetadata) {
         val secret = runCatching { store.readCredentialSecret(metadata.id) }
             .onFailure { Toast.makeText(this, R.string.autofill_picker_secret_error, Toast.LENGTH_SHORT).show() }
             .getOrNull()
         if (secret == null) {
+            // The cache went away, was republished for another database, or no
+            // longer holds this entry between the prompt and the release.
+            Toast.makeText(this, R.string.autofill_picker_secret_error, Toast.LENGTH_SHORT).show()
             finishCanceled()
             return
         }

@@ -11,4 +11,8 @@
     <string name="autofill_picker_no_exact_match_subtitle">Search saved credential metadata. Choosing one fills once and creates a pending link for confirmation in KeyVault.</string>
     <string name="autofill_picker_search_hint">Search title, username, site, app</string>
     <string name="autofill_picker_secret_error">Unable to read selected credential.</string>
+    <string name="autofill_auth_prompt_title">Confirm it\'s you</string>
+    <string name="autofill_auth_prompt_subtitle">KeyVault is about to fill a saved password into another app.</string>
+    <string name="autofill_auth_required_error">Set a screen lock, PIN or biometric on this device to fill saved passwords.</string>
+    <string name="autofill_auth_cancelled">Not filled. Authentication was not completed.</string>
 </resources>

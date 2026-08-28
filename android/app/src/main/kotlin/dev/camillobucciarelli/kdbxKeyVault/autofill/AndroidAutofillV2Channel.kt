@@ -33,8 +33,15 @@ internal class AndroidAutofillV2Channel(context: Context) {
         val rawEntries = args["entries"] as? List<*>
             ?: throw IllegalArgumentException("entries must be a list")
         val entries = rawEntries.map(::parsePublishEntry)
+        val authSessionTtlMs = parseAuthSessionTtlMs(args["authSessionTtlMs"])
         Log.i(TAG, "publishCredentials received entryCount=${entries.size}")
-        result.success(store.publishCredentials(databaseId = databaseId, entries = entries))
+        result.success(
+            store.publishCredentials(
+                databaseId = databaseId,
+                entries = entries,
+                authSessionTtlMs = authSessionTtlMs,
+            ),
+        )
     }
 
     private fun handleClearCredentials(arguments: Any?, result: MethodChannel.Result) {
@@ -50,6 +57,17 @@ internal class AndroidAutofillV2Channel(context: Context) {
         result.success(mapOf("clearedCount" to clearedCount, "warnings" to emptyList<String>()))
     }
 
+    private fun parseAuthSessionTtlMs(rawValue: Any?): Long {
+        val value = when (rawValue) {
+            null -> 0L
+            is Int -> rawValue.toLong()
+            is Long -> rawValue
+            else -> throw IllegalArgumentException("authSessionTtlMs must be an integer")
+        }
+        require(value >= 0L) { "authSessionTtlMs must not be negative" }
+        return value
+    }
+
     private fun statusMap(): Map<String, Any?> {
         val status = store.status()
         return mapOf(
@@ -61,6 +79,8 @@ internal class AndroidAutofillV2Channel(context: Context) {
             "cacheAvailable" to status.cacheAvailable,
             "databaseId" to status.databaseId,
             "generatedAtEpochMs" to status.generatedAtEpochMs,
+            "authSessionTtlMs" to status.authSessionTtlMs,
+            "lastAuthenticatedAtEpochMs" to status.lastAuthenticatedAtEpochMs,
         )
     }
 

@@ -32,9 +32,13 @@ abstract interface class AutofillVaultPort {
 abstract interface class AppleAutofillV2Client {
   bool get isSupported;
 
+  /// [authSessionTtlMs] is Android-only: how long a device authentication may
+  /// be reused before the next release of a secret prompts again. `0` prompts
+  /// every time. The Apple side ignores it.
   Future<AppleAutofillV2PublishResult> publishCredentials({
     required String databaseId,
     required List<AppleAutofillV2Credential> credentials,
+    int authSessionTtlMs = 0,
   });
 
   Future<AppleAutofillV2ClearResult> clearCredentials({String? databaseId});
