@@ -6,8 +6,14 @@ Small, behavior-preserving slices. Tests characterize current Google behavior
 before production dependencies move. Preserve UI behavior and static/unrelated
 copy exactly. Sole intentional copy change: unsafe dynamic provider error details
 become spec-fixed provider-neutral safe messages. This authorizes no other copy
-change. No big-bang rewrite, provider registry, second provider, UI picker or sync
-algorithm change.
+change. No big-bang rewrite, provider registry, second provider, provider-picker
+UI or sync algorithm change.
+
+Spec 013 is the normative source for the Google OAuth scope and for how a remote
+file is selected. This plan neither changes the scope nor preserves the current
+remote file list as an invariant; whichever of 010 and 013 lands second rebases
+onto the other and re-runs the selection suites. Do not implement 013's tasks
+here.
 
 **Owner agent**: `senior-flutter-dev`  
 **Platform agents**: not needed. Involve Android/iOS/macOS/Windows/Linux specialist

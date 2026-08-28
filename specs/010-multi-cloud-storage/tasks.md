@@ -3,6 +3,12 @@
 Ordered immediate-slice tasks. Each task names owner, files and verification.
 Do not start production refactor before characterization tasks pass.
 
+Spec 013 owns the Google OAuth scope and the remote file selection mechanism. No
+task here changes the scope, and no task here guarantees the current file list
+survives. If 013 lands first, the tasks below that touch the selection surface
+rename what 013 shipped instead of what exists today. Do not restate 013's tasks
+in this file.
+
 ## Phase 0 — Baseline and coordination
 
 - [ ] **T001 Reconcile active spec 008** — owner: `senior-flutter-dev`  
@@ -204,9 +210,11 @@ Do not start production refactor before characterization tasks pass.
   `remoteDriveFiles` and `getDrivePickerData` are neutralized; intentional Google
   product labels remain narrow. Static/unrelated copy and visual behavior stay
   byte-identical; only unsafe dynamic provider error detail uses fixed safe text;
-  no provider picker.  
-  Verify: string assertions, remote picker and sync status/widget tests; no golden
-  changes expected.
+  no provider picker. The remote file selection surface is exempt from the
+  byte-identical guarantee when spec 013 has already replaced it; this task still
+  changes only vocabulary there.  
+  Verify: string assertions, remote selection and sync status/widget tests; no
+  golden changes expected from this task.
 
 ## Phase 5 — DI and cleanup
 
@@ -266,9 +274,10 @@ Do not start production refactor before characterization tasks pass.
 - [ ] **T603 Run presentation regression** — owner:
   `senior-flutter-dev`  
   Files: coordinator/BLoC/widget tests.  
-  Acceptance: static/unrelated copy, picker, link, sync status/conflict and
-  auto-sync behavior unchanged; unsafe dynamic provider error detail alone uses
-  exact fixed safe message; no unrelated golden update.  
+  Acceptance: static/unrelated copy, remote selection, link, sync status/conflict
+  and auto-sync behavior unchanged by this refactor; unsafe dynamic provider error
+  detail alone uses exact fixed safe message; no unrelated golden update. Selection
+  behavior is compared against whatever spec 013 defines when 013 has landed.  
   Verify: targeted presentation tests.
 
 - [ ] **T604 Full static/test gate** — owner: `senior-flutter-dev`  

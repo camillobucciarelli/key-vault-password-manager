@@ -36,6 +36,8 @@ specs/NNN-slug/spec.md|plan.md|tasks.md
 | 009 | [In-page autofill overlay](009-in-page-autofill-overlay/spec.md) | **New feature** | 006 |
 | 010 | [Cloud storage provider abstraction](010-multi-cloud-storage/spec.md) ([plan](010-multi-cloud-storage/plan.md), [tasks](010-multi-cloud-storage/tasks.md)) | **Architecture refactor** (planned, Google-only first slice) | 005; coordinates with 008 |
 | 011 | [Master password session scope](011-master-password-session-scope/spec.md) | **Security fix** | 003, 006 |
+| 012 | [Home Assistant object storage](012-home-assistant-object-storage/spec.md) | **New storage provider** (draft) | 005, 010 |
+| 013 | [Google Drive per-file access and Picker](013-google-drive-per-file-access/spec.md) ([tasks](013-google-drive-per-file-access/tasks.md)) | **Security / release blocker** | 005; coordinates with 010, 006 |
 
 Journey 03 (navigation models) resolved into spec 002; journey 14 (dark mode) is
 not a separate spec — the dark token mapping lands in 001 and every screen spec
@@ -55,7 +57,14 @@ carries dark acceptance criteria.
    [tasks](010-multi-cloud-storage/tasks.md) coordinate shared orchestrator,
    mapping, mutex and safe-writer work with active **008**. A second provider,
    provider picker, registry and capability UI remain deferred.
-6. **011** is a security fix, independent of the restyle sequence, and takes
+6. **012** drafts a second storage provider and therefore sits behind **010**'s
+   provider-neutral port; it stays a draft until that port exists.
+7. **013** is a release blocker and takes priority over **010** and **012**: the
+   public consent screen currently warns every non-owner account, because the app
+   requests a restricted Drive scope it has not been verified for. It is the
+   normative source for the Google OAuth scope and for how a remote file is
+   selected, while **010** stays the owner of the provider-neutral architecture.
+8. **011** is a security fix, independent of the restyle sequence, and takes
    priority over new-feature work: it removes an unbounded plaintext lifetime
    that violates constitution principle I and blocks the accurate privacy claim
    required for store submission.
