@@ -63,7 +63,7 @@ keys/
 
 # Local editor and agent tooling
 .agents/
-.claude/
+.claude/settings.local.json
 .lh/
 .serena/
 .vscode/settings.json
