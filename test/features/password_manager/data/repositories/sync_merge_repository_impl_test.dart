@@ -2638,9 +2638,31 @@ class _FakeGoogleDriveApiService implements GoogleDriveApiService {
 class _FakeSyncMetadataDataSource implements SyncMetadataDataSource {
   final List<DatabaseSyncMapping> upsertCalls = <DatabaseSyncMapping>[];
 
+  /// Every T404 record this store was handed, in order, including the
+  /// ambiguous flips. Kept as a list rather than a map so a test can assert
+  /// the transition happened, not merely the state it ended in.
+  final List<PendingMergeUpload> pendingUploadCalls = <PendingMergeUpload>[];
+  final Map<String, PendingMergeUpload> _pendingUploads = {};
+
   @override
   Future<void> upsertMapping(DatabaseSyncMapping mapping) async {
     upsertCalls.add(mapping);
+  }
+
+  @override
+  Future<PendingMergeUpload?> getPendingUpload(String databasePath) async {
+    return _pendingUploads[databasePath];
+  }
+
+  @override
+  Future<void> upsertPendingUpload(PendingMergeUpload record) async {
+    pendingUploadCalls.add(record);
+    _pendingUploads[record.databasePath] = record;
+  }
+
+  @override
+  Future<void> clearPendingUpload(String databasePath) async {
+    _pendingUploads.remove(databasePath);
   }
 
   @override

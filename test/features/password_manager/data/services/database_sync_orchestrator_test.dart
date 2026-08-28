@@ -367,6 +367,22 @@ Future<File> _createTempDatabase(Uint8List bytes) async {
 
 class _InMemorySyncMetadataDataSource implements SyncMetadataDataSource {
   final Map<String, DatabaseSyncMapping> _mappings = {};
+  final Map<String, PendingMergeUpload> _pendingUploads = {};
+
+  @override
+  Future<PendingMergeUpload?> getPendingUpload(String databasePath) async {
+    return _pendingUploads[databasePath];
+  }
+
+  @override
+  Future<void> upsertPendingUpload(PendingMergeUpload record) async {
+    _pendingUploads[record.databasePath] = record;
+  }
+
+  @override
+  Future<void> clearPendingUpload(String databasePath) async {
+    _pendingUploads.remove(databasePath);
+  }
 
   @override
   Future<List<DatabaseSyncMapping>> getAllMappings() async {

@@ -551,6 +551,23 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
     );
   }
 
+  /// Flips the pending record to ambiguous (T406) on the paths where the
+  /// upload's outcome cannot be known.
+  ///
+  /// A failure to persist the flip is swallowed on purpose: every caller is
+  /// already returning `uploadOutcomeAmbiguous`, and throwing here would
+  /// replace that answer with an unclassified error. The record then survives
+  /// in its pre-dispatch form, which recovery already treats as un-triaged
+  /// rather than as applied or failed -- strictly less information, never
+  /// wrong information.
+  Future<void> _markPendingAmbiguous(PendingMergeUpload pending) async {
+    try {
+      await _syncMetadata.upsertPendingUpload(pending.asAmbiguous());
+    } on Object {
+      // Deliberately ignored -- see above.
+    }
+  }
+
   Future<void> _finalizeMapping({
     required DatabaseSyncMapping mapping,
     required String localChecksum,
