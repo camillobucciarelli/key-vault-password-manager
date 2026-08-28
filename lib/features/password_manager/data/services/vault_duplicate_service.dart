@@ -71,10 +71,12 @@ class VaultDuplicateService {
         .map((f) => f.key)
         .toList(growable: false);
 
-    final primaryAttachmentNames =
-        primary.attachments.map((a) => a.name).toSet();
-    final willCopyAttachments =
-        secondary.attachments.any((a) => !primaryAttachmentNames.contains(a.name));
+    final primaryAttachmentNames = primary.attachments
+        .map((a) => a.name)
+        .toSet();
+    final willCopyAttachments = secondary.attachments.any(
+      (a) => !primaryAttachmentNames.contains(a.name),
+    );
 
     return MergePreview(
       primary: primary,

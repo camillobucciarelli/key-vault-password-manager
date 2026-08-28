@@ -38,11 +38,11 @@ class MergePreview extends Equatable {
 
   @override
   List<Object?> get props => [
-        primary,
-        secondary,
-        willCopyNotes,
-        willCopyOtp,
-        customFieldKeysToCopy,
-        willCopyAttachments,
-      ];
+    primary,
+    secondary,
+    willCopyNotes,
+    willCopyOtp,
+    customFieldKeysToCopy,
+    willCopyAttachments,
+  ];
 }

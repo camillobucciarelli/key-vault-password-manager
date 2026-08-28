@@ -150,8 +150,16 @@ void main() {
         // test's own dispatch (auto-open would rewrite its fileHash via
         // `openExistingPath`, corrupting the dedup fixture).
         records: [
-          buildRecord(id: 'db-existing', path: '/tmp/existing.kdbx', fileHash: 'dup-hash'),
-          buildRecord(id: 'db-other', path: '/tmp/other.kdbx', fileHash: 'unrelated'),
+          buildRecord(
+            id: 'db-existing',
+            path: '/tmp/existing.kdbx',
+            fileHash: 'dup-hash',
+          ),
+          buildRecord(
+            id: 'db-other',
+            path: '/tmp/other.kdbx',
+            fileHash: 'unrelated',
+          ),
         ],
       );
       result.harness.fileRepository.existingPaths.addAll([
@@ -212,8 +220,7 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(result.harness.registryRepository.records, hasLength(2));
       expect(
-        result.harness.registryRepository.records
-            .map((r) => r.databaseId),
+        result.harness.registryRepository.records.map((r) => r.databaseId),
         contains('db-existing'),
       );
     });
@@ -242,8 +249,7 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(result.harness.registryRepository.records, hasLength(2));
       expect(
-        result.harness.registryRepository.records
-            .map((r) => r.databaseId),
+        result.harness.registryRepository.records.map((r) => r.databaseId),
         contains('db-existing'),
       );
       expect(result.harness.fileRepository.discarded, isNotEmpty);

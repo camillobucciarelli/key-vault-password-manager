@@ -54,22 +54,21 @@ void main() {
       );
     });
 
-    test(
-      'wrong password on a structurally valid KDBX maps to '
-      'InvalidCredentialsFailure, never CorruptDatabaseFailure',
-      () async {
-        final path = await writeValidDatabase('kv-test-only-not-a-real-password');
-        await expectLater(
-          useCase(databasePath: path, password: 'wrong-password'),
-          throwsA(isA<InvalidCredentialsFailure>()),
-        );
-      },
-    );
+    test('wrong password on a structurally valid KDBX maps to '
+        'InvalidCredentialsFailure, never CorruptDatabaseFailure', () async {
+      final path = await writeValidDatabase('kv-test-only-not-a-real-password');
+      await expectLater(
+        useCase(databasePath: path, password: 'wrong-password'),
+        throwsA(isA<InvalidCredentialsFailure>()),
+      );
+    });
 
     test(
       'a KDBX-magic file with corrupted body maps to CorruptDatabaseFailure',
       () async {
-        final validPath = await writeValidDatabase('kv-test-only-not-a-real-password');
+        final validPath = await writeValidDatabase(
+          'kv-test-only-not-a-real-password',
+        );
         final validBytes = await File(validPath).readAsBytes();
         // Keep the KDBX magic header (first 12 bytes cover signature +
         // version) but corrupt everything after it so the package fails
@@ -82,7 +81,10 @@ void main() {
         await File(corruptPath).writeAsBytes(corrupted, flush: true);
 
         await expectLater(
-          useCase(databasePath: corruptPath, password: 'kv-test-only-not-a-real-password'),
+          useCase(
+            databasePath: corruptPath,
+            password: 'kv-test-only-not-a-real-password',
+          ),
           throwsA(isA<CorruptDatabaseFailure>()),
         );
       },
@@ -90,7 +92,10 @@ void main() {
 
     test('correct credentials succeed without throwing', () async {
       final path = await writeValidDatabase('kv-test-only-not-a-real-password');
-      await useCase(databasePath: path, password: 'kv-test-only-not-a-real-password');
+      await useCase(
+        databasePath: path,
+        password: 'kv-test-only-not-a-real-password',
+      );
     });
   });
 }

@@ -77,9 +77,7 @@ void main() {
   // AC3 non-negotiable, verified in true isolation: mounting `PrivacyOverlay`
   // alone (not the full `VaultScreen` behind it, which has plenty of its
   // own Text widgets merely covered up) and asserting a literal zero.
-  testWidgets('PrivacyOverlay renders zero Text widgets (AC3)', (
-    tester,
-  ) async {
+  testWidgets('PrivacyOverlay renders zero Text widgets (AC3)', (tester) async {
     await tester.pumpWidget(
       MaterialApp(theme: AppTheme.lightTheme, home: const PrivacyOverlay()),
     );

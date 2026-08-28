@@ -96,9 +96,7 @@ class _LinkAutofillCredentialSheet extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             'Link AutoFill credential?',
-            style: AppTextStyles.sheetTitle.copyWith(
-              color: colors.textPrimary,
-            ),
+            style: AppTextStyles.sheetTitle.copyWith(color: colors.textPrimary),
           ),
           const SizedBox(height: 6),
           Text(

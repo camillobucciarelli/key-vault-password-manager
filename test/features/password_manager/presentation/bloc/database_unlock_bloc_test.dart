@@ -102,7 +102,10 @@ void main() {
       bloc.add(const InitializeDatabaseUnlock());
       await _untilLast(states, (s) => s.phase == UnlockPhase.ready);
       bloc.add(const RetryBiometricAuthentication());
-      await _untilLast(states, (s) => s.biometricPrompted && !s.biometricVerified);
+      await _untilLast(
+        states,
+        (s) => s.biometricPrompted && !s.biometricVerified,
+      );
 
       expect(states.last.biometricVerified, isFalse);
       expect(unlockUseCase.callCount, 0);

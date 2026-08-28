@@ -578,43 +578,46 @@ void main() {
       },
     );
 
-    test('the retry budget bounds the uploads dispatched, not only a counter', () {
-      // M3. The budget of 3 was pinned only by `roundsUsed == 3` — a counter,
-      // which is exactly what this suite's standard forbids as a sole guard.
-      // The budget exists to bound COST: FR-7's stated rationale is that each
-      // round is a full download, merge, serialize and upload, so the
-      // observable outcome of the budget is how many uploads one commit
-      // session may dispatch. Budget 3 = the initial upload plus at most
-      // three retry uploads; a budget of 4 dispatches a fifth, which this
-      // test refuses.
-      final remote = Remote(doc({'a': const Field('r0', 10)}));
-      var n = 0;
-      var oursDispatched = 0;
+    test(
+      'the retry budget bounds the uploads dispatched, not only a counter',
+      () {
+        // M3. The budget of 3 was pinned only by `roundsUsed == 3` — a counter,
+        // which is exactly what this suite's standard forbids as a sole guard.
+        // The budget exists to bound COST: FR-7's stated rationale is that each
+        // round is a full download, merge, serialize and upload, so the
+        // observable outcome of the budget is how many uploads one commit
+        // session may dispatch. Budget 3 = the initial upload plus at most
+        // three retry uploads; a budget of 4 dispatches a fifth, which this
+        // test refuses.
+        final remote = Remote(doc({'a': const Field('r0', 10)}));
+        var n = 0;
+        var oursDispatched = 0;
 
-      final session = CommitSession(
-        local: doc({'a': const Field('r0', 10), 'l': const Field('L', 11)}),
-        remote: remote,
-        onAfterWrite: () {
-          // Fires once per upload WE dispatch, before the peer overwrites.
-          oursDispatched++;
-          final x = doc({
-            'a': const Field('r0', 10),
-            'peer$n': Field('P$n', 20 + n),
-          });
-          n++;
-          remote.put(serialize(x), x);
-        },
-      );
+        final session = CommitSession(
+          local: doc({'a': const Field('r0', 10), 'l': const Field('L', 11)}),
+          remote: remote,
+          onAfterWrite: () {
+            // Fires once per upload WE dispatch, before the peer overwrites.
+            oursDispatched++;
+            final x = doc({
+              'a': const Field('r0', 10),
+              'peer$n': Field('P$n', 20 + n),
+            });
+            n++;
+            remote.put(serialize(x), x);
+          },
+        );
 
-      expect(session.run(), Outcome.unresolved);
-      expect(
-        oursDispatched,
-        4,
-        reason:
-            'budget 3 = the initial upload plus exactly three retry uploads; '
-            'a fourth divergence round would be a fifth upload',
-      );
-    });
+        expect(session.run(), Outcome.unresolved);
+        expect(
+          oursDispatched,
+          4,
+          reason:
+              'budget 3 = the initial upload plus exactly three retry uploads; '
+              'a fourth divergence round would be a fifth upload',
+        );
+      },
+    );
   });
 
   group('T009 property 2 — nothing is lost, under any interleaving', () {
@@ -955,11 +958,10 @@ void main() {
 
       // The notes union sorts its segments with the same comparator, so it
       // inherits the same order rather than defining a second one.
-      expect(
-        mergeNotes(astral, bmpHigh).split(notesSeparator),
-        [bmpHigh, astral],
-        reason: 'ascending UTF-8 byte order: EF BF BD before F0 9F 98 80',
-      );
+      expect(mergeNotes(astral, bmpHigh).split(notesSeparator), [
+        bmpHigh,
+        astral,
+      ], reason: 'ascending UTF-8 byte order: EF BF BD before F0 9F 98 80');
 
       // UTF-8 is order-preserving over code points, so the byte order and the
       // code-point order are the same relation. UTF-16 is not.

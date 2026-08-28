@@ -364,10 +364,10 @@ Future<HarnessCase> _sameMicrosecondCollision(Directory dir) async {
   final backups = _backupsIn(dir);
   final distinct = first != second;
   final both = backups.length == 2;
-  final firstIntact = digest(await File(first).readAsBytes()) ==
-      digest(_oldBytes);
-  final secondIntact = digest(await File(second).readAsBytes()) ==
-      digest(_oldBytes);
+  final firstIntact =
+      digest(await File(first).readAsBytes()) == digest(_oldBytes);
+  final secondIntact =
+      digest(await File(second).readAsBytes()) == digest(_oldBytes);
   final finalSum = await _finalChecksum(target);
   final targetUntouched = finalSum == digest(_oldBytes);
   final passed =
@@ -409,10 +409,7 @@ Future<HarnessCase> _preexistingNameCollision(Directory dir) async {
   final sentinel = Uint8List.fromList(const [0xC0, 0xFF, 0xEE]);
   await squatted.writeAsBytes(sentinel, flush: true);
 
-  final writer = SafeVaultFileWriter(
-    clock: () => frozen,
-    random: Random(seed),
-  );
+  final writer = SafeVaultFileWriter(clock: () => frozen, random: Random(seed));
   final backup = await writer.createBackup(target.path, operation: 'harness');
 
   final squattedIntact =
@@ -500,7 +497,11 @@ Future<HarnessCase> _abortsBeforeTarget(
 /// that cannot be written, flushed OR verified must stop the save before the
 /// target is touched, and must not leave a partial backup behind.
 Future<HarnessCase> _backupWriteFlushVerify(Directory dir) async {
-  final phases = <Fault>[Fault.backupWrite, Fault.backupFlush, Fault.backupVerify];
+  final phases = <Fault>[
+    Fault.backupWrite,
+    Fault.backupFlush,
+    Fault.backupVerify,
+  ];
   final failures = <String>[];
   var finalSum = digest(_oldBytes);
 
@@ -596,7 +597,8 @@ Future<HarnessCase> _interruptionAroundReplace(Directory dir) async {
   final afterIsNew = afterSum == digest(_newBytes);
   final afterCrossed = afterIo.reachedDirectorySync;
 
-  final passed = beforeThrew &&
+  final passed =
+      beforeThrew &&
       beforeIsOld &&
       beforeStoppedShort &&
       afterSucceeded &&
@@ -646,7 +648,8 @@ Future<HarnessCapabilities> _measureCapabilities(
     // `atomic: false` is the sandbox fallback, i.e. a NON-atomic in-place
     // write. It must not be allowed to certify this platform as atomic.
     atomicReplace =
-        result.atomic && digest(await target.readAsBytes()) == digest(_newBytes);
+        result.atomic &&
+        digest(await target.readAsBytes()) == digest(_newBytes);
   } catch (_) {
     atomicReplace = false;
   }

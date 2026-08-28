@@ -72,7 +72,8 @@ void main() {
         // `_VaultRail` share.
         await tester.tap(
           find.byWidgetPredicate(
-            (widget) => widget is Semantics && widget.properties.label == 'Settings',
+            (widget) =>
+                widget is Semantics && widget.properties.label == 'Settings',
           ),
         );
         await tester.pumpAndSettle();
@@ -166,10 +167,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.enterText(
-        find.byType(TextField).at(0),
-        'current-password',
-      );
+      await tester.enterText(find.byType(TextField).at(0), 'current-password');
       await tester.enterText(find.byType(TextField).at(1), 'new-password-1');
       await tester.enterText(find.byType(TextField).at(2), 'new-password-1');
       await tester.pumpAndSettle();

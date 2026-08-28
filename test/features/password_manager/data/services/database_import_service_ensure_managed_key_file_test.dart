@@ -48,26 +48,23 @@ void main() {
       expect(await managedFile.readAsString(), contents);
     });
 
-    test(
-      'missing source file returns the original path unchanged and '
-      'creates nothing in managed storage',
-      () async {
-        final missingPath = p.join(tempDir.path, 'does_not_exist.key');
-        final keysDir = Directory(p.join(tempDir.path, 'keys'));
+    test('missing source file returns the original path unchanged and '
+        'creates nothing in managed storage', () async {
+      final missingPath = p.join(tempDir.path, 'does_not_exist.key');
+      final keysDir = Directory(p.join(tempDir.path, 'keys'));
 
-        final result = await service.ensureManagedKeyFilePath(missingPath);
+      final result = await service.ensureManagedKeyFilePath(missingPath);
 
-        expect(result, missingPath);
-        if (await keysDir.exists()) {
-          final createdFiles = await keysDir.list().toList();
-          expect(
-            createdFiles,
-            isEmpty,
-            reason: 'No empty key file should ever be written.',
-          );
-        }
-      },
-    );
+      expect(result, missingPath);
+      if (await keysDir.exists()) {
+        final createdFiles = await keysDir.list().toList();
+        expect(
+          createdFiles,
+          isEmpty,
+          reason: 'No empty key file should ever be written.',
+        );
+      }
+    });
   });
 }
 

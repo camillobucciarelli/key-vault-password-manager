@@ -93,7 +93,8 @@ void main() {
           ),
         );
         await _until(
-          () => states.whereType<DatabaseSelectionDuplicateDecisionRequired>()
+          () => states
+              .whereType<DatabaseSelectionDuplicateDecisionRequired>()
               .isNotEmpty,
         );
 
@@ -160,62 +161,53 @@ void main() {
       await sub.cancel();
     });
 
-    test(
-      'CreateDatabaseStep wizard advances only with valid facts and never '
-      'carries a password in state.toString()',
-      () async {
-        final states = <DatabaseSelectionState>[];
-        final sub = bloc.stream.listen(states.add);
+    test('CreateDatabaseStep wizard advances only with valid facts and never '
+        'carries a password in state.toString()', () async {
+      final states = <DatabaseSelectionState>[];
+      final sub = bloc.stream.listen(states.add);
 
-        List<DatabaseSelectionCreateStep> stepStates() =>
-            states.whereType<DatabaseSelectionCreateStep>().toList();
+      List<DatabaseSelectionCreateStep> stepStates() =>
+          states.whereType<DatabaseSelectionCreateStep>().toList();
 
-        bloc.add(const StartCreateDatabaseFlow());
-        bloc.add(const AdvanceCreateDatabaseStep(fieldsNonEmpty: false));
-        await _until(() => stepStates().isNotEmpty);
+      bloc.add(const StartCreateDatabaseFlow());
+      bloc.add(const AdvanceCreateDatabaseStep(fieldsNonEmpty: false));
+      await _until(() => stepStates().isNotEmpty);
 
-        final steps = stepStates();
-        expect(steps.first.step, CreateDatabaseStep.nameAndStorage);
-        // Empty fields must not advance the step.
-        expect(steps.last.step, CreateDatabaseStep.nameAndStorage);
+      final steps = stepStates();
+      expect(steps.first.step, CreateDatabaseStep.nameAndStorage);
+      // Empty fields must not advance the step.
+      expect(steps.last.step, CreateDatabaseStep.nameAndStorage);
 
-        bloc.add(const AdvanceCreateDatabaseStep(fieldsNonEmpty: true));
-        await _until(
-          () => stepStates().last.step == CreateDatabaseStep.masterPassword,
-        );
-        expect(
-          stepStates().last.step,
-          CreateDatabaseStep.masterPassword,
-        );
-        // The assertion above samples once `masterPassword` is reached, so the
-        // empty-fields event is now provably behind us (bloc events are FIFO).
-        // Every step state emitted before it must still have been
-        // `nameAndStorage` — this catches an advance-on-empty-fields
-        // regression even if the earlier check sampled before that emission.
-        expect(
-          stepStates()
-              .takeWhile((s) => s.step != CreateDatabaseStep.masterPassword)
-              .every((s) => s.step == CreateDatabaseStep.nameAndStorage),
-          isTrue,
-          reason: 'empty fields must never advance the wizard',
-        );
+      bloc.add(const AdvanceCreateDatabaseStep(fieldsNonEmpty: true));
+      await _until(
+        () => stepStates().last.step == CreateDatabaseStep.masterPassword,
+      );
+      expect(stepStates().last.step, CreateDatabaseStep.masterPassword);
+      // The assertion above samples once `masterPassword` is reached, so the
+      // empty-fields event is now provably behind us (bloc events are FIFO).
+      // Every step state emitted before it must still have been
+      // `nameAndStorage` — this catches an advance-on-empty-fields
+      // regression even if the earlier check sampled before that emission.
+      expect(
+        stepStates()
+            .takeWhile((s) => s.step != CreateDatabaseStep.masterPassword)
+            .every((s) => s.step == CreateDatabaseStep.nameAndStorage),
+        isTrue,
+        reason: 'empty fields must never advance the wizard',
+      );
 
-        bloc.add(const GoBackCreateDatabaseStep());
-        await _until(
-          () => stepStates().last.step == CreateDatabaseStep.nameAndStorage,
-        );
-        expect(
-          stepStates().last.step,
-          CreateDatabaseStep.nameAndStorage,
-        );
+      bloc.add(const GoBackCreateDatabaseStep());
+      await _until(
+        () => stepStates().last.step == CreateDatabaseStep.nameAndStorage,
+      );
+      expect(stepStates().last.step, CreateDatabaseStep.nameAndStorage);
 
-        for (final state in states) {
-          expect(state.toString(), isNot(contains('super-secret-password')));
-        }
+      for (final state in states) {
+        expect(state.toString(), isNot(contains('super-secret-password')));
+      }
 
-        await sub.cancel();
-      },
-    );
+      await sub.cancel();
+    });
   });
 }
 
@@ -240,4 +232,3 @@ Future<void> _until(bool Function() predicate) async {
     await Future<void>.delayed(Duration.zero);
   }
 }
-

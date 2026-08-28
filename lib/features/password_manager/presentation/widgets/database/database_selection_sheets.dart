@@ -120,10 +120,8 @@ Future<DatabaseDuplicateResolution?> showDuplicateDatabaseSheet(
 }) {
   return KvBottomSheet.show<DatabaseDuplicateResolution>(
     context: context,
-    builder: (sheetContext) => _DuplicateSheet(
-      importedName: importedName,
-      existingName: existingName,
-    ),
+    builder: (sheetContext) =>
+        _DuplicateSheet(importedName: importedName, existingName: existingName),
   );
 }
 

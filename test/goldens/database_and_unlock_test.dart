@@ -275,10 +275,8 @@ void main() {
 
     await tester.pumpWidget(
       pumpableSheetHost(
-        onOpen: (context) => showInvalidDatabaseFileSheet(
-          context,
-          basename: 'not-a-vault.kdbx',
-        ),
+        onOpen: (context) =>
+            showInvalidDatabaseFileSheet(context, basename: 'not-a-vault.kdbx'),
       ),
     );
     await tester.pumpAndSettle();
@@ -521,7 +519,10 @@ void main() {
     await tester.pumpWidget(result.widget);
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextFormField), 'kv-test-only-not-a-real-password');
+    await tester.enterText(
+      find.byType(TextFormField),
+      'kv-test-only-not-a-real-password',
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Unlock vault'));
     // Indeterminate progress animates forever: pump discrete frames instead

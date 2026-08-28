@@ -451,7 +451,8 @@ class _PasswordStep extends StatelessWidget {
                   icon: Icon(confirmVisible ? AppIcons.eyeOff : AppIcons.eye),
                   onPressed: onToggleConfirm,
                 ),
-                errorText: confirmCtrl.text.isNotEmpty &&
+                errorText:
+                    confirmCtrl.text.isNotEmpty &&
                         confirmCtrl.text != passwordCtrl.text
                     ? 'Passwords do not match.'
                     : null,
@@ -548,7 +549,10 @@ class _LocksStep extends StatelessWidget {
           onChanged: onBiometricChanged,
         ),
         const SizedBox(height: 8),
-        Text('Key File (optional)', style: Theme.of(context).textTheme.labelLarge),
+        Text(
+          'Key File (optional)',
+          style: Theme.of(context).textTheme.labelLarge,
+        ),
         const SizedBox(height: 8),
         SwitchListTile.adaptive(
           contentPadding: EdgeInsets.zero,
@@ -598,7 +602,10 @@ class _LocksStep extends StatelessWidget {
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(AppIcons.file),
-            title: Text(keyFileName ?? keyFilePath!, overflow: TextOverflow.ellipsis),
+            title: Text(
+              keyFileName ?? keyFilePath!,
+              overflow: TextOverflow.ellipsis,
+            ),
             trailing: Tooltip(
               message: 'Remove key file',
               child: IconButton(

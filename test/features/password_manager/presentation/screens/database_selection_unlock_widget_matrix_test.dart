@@ -50,7 +50,11 @@ double _contrastRatio(Color foreground, Color background) {
   return (high + 0.05) / (low + 0.05);
 }
 
-void _expectDeclaredPair(KeyVaultColors colors, Color foreground, Color background) {
+void _expectDeclaredPair(
+  KeyVaultColors colors,
+  Color foreground,
+  Color background,
+) {
   final declaredPairs = <Color>{
     colors.actionFill,
     colors.actionEmphasis,
@@ -158,10 +162,7 @@ void main() {
       await tester.tap(find.text('Continue'));
       await tester.pumpAndSettle();
       expect(
-        tester
-            .widget<Text>(find.text('Set a master password'))
-            .style!
-            .color,
+        tester.widget<Text>(find.text('Set a master password')).style!.color,
         KeyVaultColors.dark.textPrimary,
       );
 
@@ -200,9 +201,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
 
-      final title = tester.widget<Text>(
-        find.text('Open from Google Drive'),
-      );
+      final title = tester.widget<Text>(find.text('Open from Google Drive'));
       expect(title.style!.color, KeyVaultColors.dark.textPrimary);
     });
 
@@ -210,19 +209,14 @@ void main() {
       await tester.pumpWidget(
         pumpableSheetHost(
           themeMode: ThemeMode.dark,
-          onOpen: (context) => showInvalidDatabaseFileSheet(
-            context,
-            basename: 'bad.kdbx',
-          ),
+          onOpen: (context) =>
+              showInvalidDatabaseFileSheet(context, basename: 'bad.kdbx'),
         ),
       );
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(
-        tester
-            .widget<Text>(find.text('Invalid database file'))
-            .style!
-            .color,
+        tester.widget<Text>(find.text('Invalid database file')).style!.color,
         KeyVaultColors.dark.textPrimary,
       );
     });
@@ -231,10 +225,8 @@ void main() {
       await tester.pumpWidget(
         pumpableSheetHost(
           themeMode: ThemeMode.dark,
-          onOpen: (context) => showCorruptDatabaseFileSheet(
-            context,
-            basename: 'bad.kdbx',
-          ),
+          onOpen: (context) =>
+              showCorruptDatabaseFileSheet(context, basename: 'bad.kdbx'),
         ),
       );
       await tester.pumpAndSettle();
@@ -332,9 +324,7 @@ void main() {
       );
     });
 
-    testWidgets('unlock key-selected resolves declared roles', (
-      tester,
-    ) async {
+    testWidgets('unlock key-selected resolves declared roles', (tester) async {
       final result = await pumpableUnlockScreen(
         databasePath: '/tmp/personal.kdbx',
         themeMode: ThemeMode.dark,
@@ -426,7 +416,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(
-        tester.widget<Text>(find.text('Use Face ID for work.kdbx?')).style!.color,
+        tester
+            .widget<Text>(find.text('Use Face ID for work.kdbx?'))
+            .style!
+            .color,
         KeyVaultColors.dark.textPrimary,
       );
     });
@@ -466,7 +459,10 @@ void main() {
       expect(tester.takeException(), isNull);
       // Single-column layout stacks the header above the list in one
       // scroll view; no side-by-side Row hosting both columns.
-      expect(find.byKey(const ValueKey('selection-two-column-row')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('selection-two-column-row')),
+        findsNothing,
+      );
     });
 
     testWidgets('600 and 1024 render two-column without overflow', (
@@ -527,10 +523,12 @@ void main() {
       expect(constraints.maxWidth, lessThanOrEqualTo(600));
 
       final cardCenter = tester.getCenter(
-        find.ancestor(
-          of: find.text('personal.kdbx'),
-          matching: find.byType(ConstrainedBox),
-        ).first,
+        find
+            .ancestor(
+              of: find.text('personal.kdbx'),
+              matching: find.byType(ConstrainedBox),
+            )
+            .first,
       );
       expect(cardCenter.dx, closeTo(1024 / 2, 1));
     });
@@ -631,10 +629,7 @@ void main() {
         // Failure surface replaces the credential form entirely (C-4
         // `failure` phase): no TextFormField remains on screen.
         expect(find.byType(TextFormField), findsNothing);
-        expect(
-          find.textContaining('personal.kdbx'),
-          findsWidgets,
-        );
+        expect(find.textContaining('personal.kdbx'), findsWidgets);
       },
     );
   });
@@ -718,10 +713,8 @@ void main() {
           '(${themeMode.name})',
           (tester) async => expectSheetGeometry(
             tester,
-            (context) => showInvalidDatabaseFileSheet(
-              context,
-              basename: 'bad.kdbx',
-            ),
+            (context) =>
+                showInvalidDatabaseFileSheet(context, basename: 'bad.kdbx'),
             themeMode: themeMode,
             width: width,
           ),
@@ -732,10 +725,8 @@ void main() {
           '(${themeMode.name})',
           (tester) async => expectSheetGeometry(
             tester,
-            (context) => showCorruptDatabaseFileSheet(
-              context,
-              basename: 'bad.kdbx',
-            ),
+            (context) =>
+                showCorruptDatabaseFileSheet(context, basename: 'bad.kdbx'),
             themeMode: themeMode,
             width: width,
           ),

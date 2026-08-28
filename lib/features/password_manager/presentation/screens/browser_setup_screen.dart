@@ -410,10 +410,9 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                             child: TextButton(
                               onPressed: () => Navigator.of(context).push(
                                 MaterialPageRoute<void>(
-                                  builder: (_) =>
-                                      HostNotFoundDiagnosticScreen(
-                                        service: _service,
-                                      ),
+                                  builder: (_) => HostNotFoundDiagnosticScreen(
+                                    service: _service,
+                                  ),
                                 ),
                               ),
                               child: const Text('Diagnostica collegamento'),
@@ -853,9 +852,7 @@ class HostNotFoundDiagnosticScreen extends StatelessWidget {
               Text(
                 'Il resto di KeyVault continua a funzionare: senza host '
                 'manca solo il riempimento automatico nel browser.',
-                style: AppTextStyles.meta.copyWith(
-                  color: colors.textSecondary,
-                ),
+                style: AppTextStyles.meta.copyWith(color: colors.textSecondary),
               ),
             ],
           ),

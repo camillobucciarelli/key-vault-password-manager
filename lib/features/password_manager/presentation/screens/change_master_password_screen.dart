@@ -129,7 +129,8 @@ class _ChangeMasterPasswordScreenState
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = 'Unable to change the master password. Check the current '
+          _error =
+              'Unable to change the master password. Check the current '
               'password and try again.';
         });
       }
@@ -278,9 +279,7 @@ class _PasswordFieldRow extends StatelessWidget {
       children: [
         Text(
           label,
-          style: AppTextStyles.labelUpper.copyWith(
-            color: colors.textSecondary,
-          ),
+          style: AppTextStyles.labelUpper.copyWith(color: colors.textSecondary),
         ),
         const SizedBox(height: 6),
         Container(
@@ -399,9 +398,7 @@ class _ConfirmSecurityChangesSheet extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             'Confirm security changes',
-            style: AppTextStyles.sheetTitle.copyWith(
-              color: colors.textPrimary,
-            ),
+            style: AppTextStyles.sheetTitle.copyWith(color: colors.textPrimary),
           ),
           const SizedBox(height: 6),
           Text(
@@ -488,10 +485,7 @@ class _ChangeRow extends StatelessWidget {
         child: Row(
           children: [
             Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 3,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
                 color: tagBackground,
                 borderRadius: BorderRadius.circular(999),

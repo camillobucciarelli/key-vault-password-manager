@@ -135,11 +135,9 @@ void main() {
       final backupPath = await writer.createBackup(target.path);
 
       expect(backupPath, isNot(occupiedName));
-      expect(
-        await File(occupiedName).readAsBytes(),
-        [99],
-        reason: 'the preexisting backup was truncated or replaced',
-      );
+      expect(await File(occupiedName).readAsBytes(), [
+        99,
+      ], reason: 'the preexisting backup was truncated or replaced');
       expect(await File(backupPath).readAsBytes(), [1, 2, 3]);
     });
 
@@ -444,11 +442,9 @@ void main() {
           oldBytes,
           reason: '$fault corrupted the target',
         );
-        expect(
-          await sentinel.readAsBytes(),
-          [42],
-          reason: '$fault overwrote an existing backup',
-        );
+        expect(await sentinel.readAsBytes(), [
+          42,
+        ], reason: '$fault overwrote an existing backup');
       }
     });
   });
@@ -510,23 +506,19 @@ void main() {
       skip: Platform.isWindows ? 'POSIX modes are not meaningful' : null,
     );
 
-    test(
-      'a brand-new vault is created owner-only, never 0644',
-      () async {
-        final writer = SafeVaultFileWriter();
-        final path = p.join(tempDir.path, 'fresh.kdbx');
+    test('a brand-new vault is created owner-only, never 0644', () async {
+      final writer = SafeVaultFileWriter();
+      final path = p.join(tempDir.path, 'fresh.kdbx');
 
-        await writer.write(
-          targetPath: path,
-          bytes: Uint8List.fromList(const [1]),
-        );
+      await writer.write(
+        targetPath: path,
+        bytes: Uint8List.fromList(const [1]),
+      );
 
-        // Literal, NOT `SafeVaultFileWriter.defaultVaultMode`: comparing the
-        // constant against itself let a mutation of it to 0644 stay green.
-        expect(await modeOf(path), 0x180); // 0600
-      },
-      skip: Platform.isWindows ? 'POSIX modes are not meaningful' : null,
-    );
+      // Literal, NOT `SafeVaultFileWriter.defaultVaultMode`: comparing the
+      // constant against itself let a mutation of it to 0644 stay green.
+      expect(await modeOf(path), 0x180); // 0600
+    }, skip: Platform.isWindows ? 'POSIX modes are not meaningful' : null);
 
     test('the mode is applied BEFORE any content exists, so there is no '
         'world-readable window', () async {
@@ -867,11 +859,11 @@ void main() {
         operation: 'vault save',
       );
 
-      expect(
-        await real.readAsBytes(),
-        [1, 2, 3],
-        reason: 'the write escaped app storage through a planted link',
-      );
+      expect(await real.readAsBytes(), [
+        1,
+        2,
+        3,
+      ], reason: 'the write escaped app storage through a planted link');
       expect(FileSystemEntity.isLinkSync(linkPath), isFalse);
       expect(await File(linkPath).readAsBytes(), [9, 9, 9]);
     });
@@ -1075,11 +1067,10 @@ void main() {
         operation: 'vault save',
       );
 
-      expect(
-        await cloudVault.readAsBytes(),
-        [9, 9],
-        reason: 'the cloud vault froze: sync stops silently from here on',
-      );
+      expect(await cloudVault.readAsBytes(), [
+        9,
+        9,
+      ], reason: 'the cloud vault froze: sync stops silently from here on');
       expect(FileSystemEntity.isLinkSync(linkPath), isTrue);
     });
 
@@ -1152,11 +1143,11 @@ void main() {
           ),
         ),
       );
-      expect(
-        await victim.readAsBytes(),
-        [1, 2, 3],
-        reason: 'the write escaped the perimeter through link + ".."',
-      );
+      expect(await victim.readAsBytes(), [
+        1,
+        2,
+        3,
+      ], reason: 'the write escaped the perimeter through link + ".."');
       expect(
         outside.listSync().whereType<File>().map((f) => p.basename(f.path)),
         ['victim.kdbx'],

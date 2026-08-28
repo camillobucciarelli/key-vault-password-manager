@@ -63,9 +63,7 @@ void main() {
   group('Screen 7 — Link AutoFill credential sheet', () {
     tearDown(resetVaultShellTestDi);
 
-    testWidgets('link_autofill_credential_390x844_light.png', (
-      tester,
-    ) async {
+    testWidgets('link_autofill_credential_390x844_light.png', (tester) async {
       await setSize(tester, const Size(390, 844));
       await tester.pumpWidget(
         await pumpableVaultShell(
@@ -111,17 +109,13 @@ void main() {
     );
   });
 
-  testWidgets('host_not_found_diagnostic_1024x768_light.png', (
-    tester,
-  ) async {
+  testWidgets('host_not_found_diagnostic_1024x768_light.png', (tester) async {
     await setSize(tester, const Size(1024, 768));
     await tester.pumpWidget(
       MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
-        home: HostNotFoundDiagnosticScreen(
-          service: _FakeBrowserSetupService(),
-        ),
+        home: HostNotFoundDiagnosticScreen(service: _FakeBrowserSetupService()),
       ),
     );
     await tester.pumpAndSettle();

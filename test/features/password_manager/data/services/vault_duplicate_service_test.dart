@@ -97,7 +97,11 @@ void main() {
 
     test('strips query string and fragment', () {
       final entries = [
-        entry(id: '1', url: 'https://github.com?tab=repos#section', username: 'alice'),
+        entry(
+          id: '1',
+          url: 'https://github.com?tab=repos#section',
+          username: 'alice',
+        ),
         entry(id: '2', url: 'https://github.com', username: 'alice'),
       ];
       final groups = service.findDuplicates(entries);
@@ -125,8 +129,18 @@ void main() {
       final old = DateTime(2023, 1, 1);
       final recent = DateTime(2024, 6, 1);
       final entries = [
-        entry(id: 'old', url: 'https://github.com', username: 'alice', updatedAt: old),
-        entry(id: 'new', url: 'https://github.com', username: 'alice', updatedAt: recent),
+        entry(
+          id: 'old',
+          url: 'https://github.com',
+          username: 'alice',
+          updatedAt: old,
+        ),
+        entry(
+          id: 'new',
+          url: 'https://github.com',
+          username: 'alice',
+          updatedAt: recent,
+        ),
       ];
       final groups = service.findDuplicates(entries);
       expect(groups.first.entries.first.id, 'new');
@@ -162,14 +176,20 @@ void main() {
 
     test('copies OTP when primary has none', () {
       final primary = entry(id: 'p');
-      final secondary = entry(id: 's', otpUri: 'otpauth://totp/test?secret=ABC');
+      final secondary = entry(
+        id: 's',
+        otpUri: 'otpauth://totp/test?secret=ABC',
+      );
       final preview = service.previewMerge(primary, secondary);
       expect(preview.willCopyOtp, isTrue);
     });
 
     test('does not copy OTP when primary already has one', () {
       final primary = entry(id: 'p', otpUri: 'otpauth://totp/test?secret=XYZ');
-      final secondary = entry(id: 's', otpUri: 'otpauth://totp/test?secret=ABC');
+      final secondary = entry(
+        id: 's',
+        otpUri: 'otpauth://totp/test?secret=ABC',
+      );
       final preview = service.previewMerge(primary, secondary);
       expect(preview.willCopyOtp, isFalse);
     });
@@ -194,7 +214,12 @@ void main() {
       final primary = entry(id: 'p');
       final secondary = entry(
         id: 's',
-        customFields: [const VaultCustomField(key: 'otp', value: 'otpauth://totp?secret=ABC')],
+        customFields: [
+          const VaultCustomField(
+            key: 'otp',
+            value: 'otpauth://totp?secret=ABC',
+          ),
+        ],
       );
       final preview = service.previewMerge(primary, secondary);
       expect(preview.customFieldKeysToCopy, isEmpty);
@@ -203,11 +228,15 @@ void main() {
     test('detects attachments to copy', () {
       final primary = entry(
         id: 'p',
-        attachments: [const VaultAttachment(key: 'a.pdf', name: 'a.pdf', size: 100)],
+        attachments: [
+          const VaultAttachment(key: 'a.pdf', name: 'a.pdf', size: 100),
+        ],
       );
       final secondary = entry(
         id: 's',
-        attachments: [const VaultAttachment(key: 'b.png', name: 'b.png', size: 200)],
+        attachments: [
+          const VaultAttachment(key: 'b.png', name: 'b.png', size: 200),
+        ],
       );
       final preview = service.previewMerge(primary, secondary);
       expect(preview.willCopyAttachments, isTrue);

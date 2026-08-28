@@ -235,11 +235,12 @@ class DatabaseSelectionBloc
     final currentStep = current is DatabaseSelectionCreateStep
         ? current.step
         : CreateDatabaseStep.nameAndStorage;
-    final nextStep = databaseSessionCoordinator.resolveCreateDatabaseStepAdvance(
-      current: currentStep,
-      fieldsNonEmpty: event.fieldsNonEmpty,
-      confirmationMatches: event.confirmationMatches,
-    );
+    final nextStep = databaseSessionCoordinator
+        .resolveCreateDatabaseStepAdvance(
+          current: currentStep,
+          fieldsNonEmpty: event.fieldsNonEmpty,
+          confirmationMatches: event.confirmationMatches,
+        );
     _safeEmit(emit, DatabaseSelectionCreateStep(nextStep, items: state.items));
   }
 
@@ -251,9 +252,8 @@ class DatabaseSelectionBloc
     final currentStep = current is DatabaseSelectionCreateStep
         ? current.step
         : CreateDatabaseStep.nameAndStorage;
-    final previousStep = databaseSessionCoordinator.resolveCreateDatabaseStepBack(
-      currentStep,
-    );
+    final previousStep = databaseSessionCoordinator
+        .resolveCreateDatabaseStepBack(currentStep);
     _safeEmit(
       emit,
       DatabaseSelectionCreateStep(previousStep, items: state.items),
@@ -302,10 +302,7 @@ class DatabaseSelectionBloc
               items: result.items,
             ),
           );
-          _safeEmit(
-            emit,
-            DatabaseSelectionUnselected(items: result.items),
-          );
+          _safeEmit(emit, DatabaseSelectionUnselected(items: result.items));
           return;
         }
         if (result.message != null && result.message!.trim().isNotEmpty) {

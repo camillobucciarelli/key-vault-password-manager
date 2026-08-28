@@ -32,7 +32,11 @@ const approvedExternalPackages = <String>{'loggy', 'path'};
 
 /// Dart SDK libraries the coordinator may import. Deliberately excludes any
 /// platform-flag or I/O library (`dart:io`, `dart:ui`, `dart:html`, ...).
-const approvedDartSdkUris = <String>{'dart:async', 'dart:math', 'dart:typed_data'};
+const approvedDartSdkUris = <String>{
+  'dart:async',
+  'dart:math',
+  'dart:typed_data',
+};
 
 const disallowedExternalPackages = <String>{
   'file_picker',
@@ -51,63 +55,60 @@ const disallowedExternalPackages = <String>{
 };
 
 void main() {
-  test(
-    'database_session_coordinator.dart imports only domain ports/use cases, '
-    'presentation coordinator contracts and the approved core/package/SDK '
-    'allowlists (C-7)',
-    () async {
-      final projectRoot = _findProjectRoot();
-      final coordinatorPath = p.join(
-        projectRoot,
-        'lib',
-        'features',
-        'password_manager',
-        'presentation',
-        'coordinators',
-        'database_session_coordinator.dart',
-      );
-      final file = File(coordinatorPath);
-      expect(
-        file.existsSync(),
-        isTrue,
-        reason: 'Expected coordinator at $coordinatorPath',
-      );
+  test('database_session_coordinator.dart imports only domain ports/use cases, '
+      'presentation coordinator contracts and the approved core/package/SDK '
+      'allowlists (C-7)', () async {
+    final projectRoot = _findProjectRoot();
+    final coordinatorPath = p.join(
+      projectRoot,
+      'lib',
+      'features',
+      'password_manager',
+      'presentation',
+      'coordinators',
+      'database_session_coordinator.dart',
+    );
+    final file = File(coordinatorPath);
+    expect(
+      file.existsSync(),
+      isTrue,
+      reason: 'Expected coordinator at $coordinatorPath',
+    );
 
-      final content = file.readAsStringSync();
-      final parseResult = parseString(content: content, path: coordinatorPath);
+    final content = file.readAsStringSync();
+    final parseResult = parseString(content: content, path: coordinatorPath);
 
-      final rejected = <String>[];
+    final rejected = <String>[];
 
-      for (final directive in parseResult.unit.directives) {
-        if (directive is! ImportDirective) {
-          continue;
-        }
-        final rawUri = directive.uri.stringValue;
-        if (rawUri == null) {
-          rejected.add('<unresolvable import URI>');
-          continue;
-        }
-
-        final resolved = _resolveImportUri(
-          rawUri: rawUri,
-          coordinatorPath: coordinatorPath,
-          projectRoot: projectRoot,
-        );
-
-        final violation = _violationFor(resolved);
-        if (violation != null) {
-          rejected.add('$rawUri -> ${resolved.description} ($violation)');
-        }
+    for (final directive in parseResult.unit.directives) {
+      if (directive is! ImportDirective) {
+        continue;
+      }
+      final rawUri = directive.uri.stringValue;
+      if (rawUri == null) {
+        rejected.add('<unresolvable import URI>');
+        continue;
       }
 
-      if (rejected.isNotEmpty) {
-        fail(
-          'database_session_coordinator.dart has disallowed imports:\n'
-          '${rejected.map((line) => '  - $line').join('\n')}',
-        );
+      final resolved = _resolveImportUri(
+        rawUri: rawUri,
+        coordinatorPath: coordinatorPath,
+        projectRoot: projectRoot,
+      );
+
+      final violation = _violationFor(resolved);
+      if (violation != null) {
+        rejected.add('$rawUri -> ${resolved.description} ($violation)');
       }
-    },
-  );
+    }
+
+    if (rejected.isNotEmpty) {
+      fail(
+        'database_session_coordinator.dart has disallowed imports:\n'
+        '${rejected.map((line) => '  - $line').join('\n')}',
+      );
+    }
+  });
 }
 
 class _ResolvedImport {
@@ -153,9 +154,7 @@ _ResolvedImport _resolveImportUri({
   }
 
   // Relative import.
-  final absolute = p.normalize(
-    p.join(p.dirname(coordinatorPath), rawUri),
-  );
+  final absolute = p.normalize(p.join(p.dirname(coordinatorPath), rawUri));
   return _ResolvedImport.internalPath(p.relative(absolute, from: projectRoot));
 }
 

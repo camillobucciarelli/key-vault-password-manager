@@ -21,9 +21,7 @@ void main() {
     'only once per path',
     (tester) async {
       final spy = _SpyVaultSessionCoordinator();
-      final widget = await pumpableVaultShell(
-        vaultSessionCoordinator: spy,
-      );
+      final widget = await pumpableVaultShell(vaultSessionCoordinator: spy);
 
       await tester.pumpWidget(widget);
       await tester.pump();
@@ -63,25 +61,22 @@ void main() {
     },
   );
 
-  testWidgets(
-    'a coordinator failure during load does not crash the Settings '
-    'destination and leaves it retryable',
-    (tester) async {
-      final widget = await pumpableVaultShell(
-        vaultSessionCoordinator: _ThrowingVaultSessionCoordinator(),
-      );
+  testWidgets('a coordinator failure during load does not crash the Settings '
+      'destination and leaves it retryable', (tester) async {
+    final widget = await pumpableVaultShell(
+      vaultSessionCoordinator: _ThrowingVaultSessionCoordinator(),
+    );
 
-      await tester.pumpWidget(widget);
-      await tester.pump();
+    await tester.pumpWidget(widget);
+    await tester.pump();
 
-      await tester.tap(find.bySemanticsLabel('Settings'));
-      await tester.pumpAndSettle();
+    await tester.tap(find.bySemanticsLabel('Settings'));
+    await tester.pumpAndSettle();
 
-      // `_ensureLoaded`'s catch clause must swallow the exception rather
-      // than letting it escape as an unhandled async error from `build()`.
-      expect(tester.takeException(), isNull);
-    },
-  );
+    // `_ensureLoaded`'s catch clause must swallow the exception rather
+    // than letting it escape as an unhandled async error from `build()`.
+    expect(tester.takeException(), isNull);
+  });
 }
 
 /// Regression coverage note (PM-flagged scenario): "`_ensureLoaded` called

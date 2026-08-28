@@ -37,10 +37,10 @@ class WelcomeScreen extends StatelessWidget {
                 width: 88,
                 height: 88,
                 fit: BoxFit.cover,
-                cacheWidth:
-                    (88 * MediaQuery.devicePixelRatioOf(context)).round(),
-                cacheHeight:
-                    (88 * MediaQuery.devicePixelRatioOf(context)).round(),
+                cacheWidth: (88 * MediaQuery.devicePixelRatioOf(context))
+                    .round(),
+                cacheHeight: (88 * MediaQuery.devicePixelRatioOf(context))
+                    .round(),
               ),
             ),
           ),
