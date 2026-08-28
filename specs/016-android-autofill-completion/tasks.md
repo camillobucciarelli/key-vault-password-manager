@@ -272,7 +272,7 @@ Blocked by T001 `pass` and by Phase 3 (shares the gate).
   Verify: `flutter test` — new/update resolution, cancelled unlock writes
   nothing and reports "not saved", write failure still resolves the token.
 
-- [ ] **T507** [US3] Suppress a repeat prompt after decline — owner:
+- [x] **T507** [US3] Suppress a repeat prompt after decline — owner:
   `senior-android-dev`
   Files: `.../autofill/AndroidAutofillStore.kt`,
   `.../AndroidAutofillV2Channel.kt`.

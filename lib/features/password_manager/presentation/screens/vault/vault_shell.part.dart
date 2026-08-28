@@ -447,8 +447,11 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
         context: context,
         title: isUpdate ? 'Update this password?' : 'Save to your vault?',
         body: isUpdate
+            // "history" is the KDBX record, not a screen in this app: there is
+            // no history UI, so promising one sends the user looking for it.
             ? 'The password for $account in "${pending.displayTitle}" will be '
-                  'replaced. The previous one stays in the entry history.'
+                  'replaced. The previous one is kept in the entry\'s KDBX '
+                  'history, readable by any KeePass client.'
             : 'A new entry will be created for $account on $target.',
         cancelLabel: 'Not now',
         confirmLabel: isUpdate ? 'Update' : 'Save',

@@ -124,7 +124,7 @@ Remove the screen lock, attempt a fill, restore the lock afterwards.
 |---------|----|----|-------|
 | A — authentication gate | | | |
 | B — inline suggestions | B1–B3 pass | | B4 not reproducible: Gboard offers 9 slots and no test form matched more than 9 entries. B5 needs the API 29 device. |
-| C — save capture | C1, C2, C4 pass | | Run against practicetestautomation.com. C3, C5 and C6 still to run. |
+| C — save capture | C1–C6 pass | | Run against practicetestautomation.com. C3 needed a copy fix: the app writes KDBX history correctly but has no screen showing it, so the confirmation no longer promises one. |
 | D — browsers | | | |
 | E — accessibility | | | |
 | F — redaction | | | |
