@@ -197,17 +197,21 @@ class SyncMergeAstGate {
             strict: strict,
           );
         case ExtensionTypeDeclaration():
-          final name = declaration.primaryConstructor.typeName.lexeme;
+          final namePart = declaration.namePart;
+          final name = namePart.typeName.lexeme;
           if (strict) {
             _judgeSupertypes(
               file,
               name,
               implemented: declaration.implementsClause?.interfaces,
             );
-            // The representation parameter IS the stored state.
-            for (final parameter
-                in declaration.primaryConstructor.formalParameters.parameters) {
-              _judgeRepresentation(file, name, parameter);
+            // The representation parameter IS the stored state. Only the
+            // introductory declaration carries one; an augmentation's name part
+            // has no parameters to judge.
+            if (namePart is PrimaryConstructorDeclaration) {
+              for (final parameter in namePart.formalParameters.parameters) {
+                _judgeRepresentation(file, name, parameter);
+              }
             }
           }
           _judgeMembers(
@@ -686,7 +690,7 @@ Set<String> declaredTypeNames(CompilationUnit unit) {
       case EnumDeclaration():
         names.add(declaration.namePart.typeName.lexeme);
       case ExtensionTypeDeclaration():
-        names.add(declaration.primaryConstructor.typeName.lexeme);
+        names.add(declaration.namePart.typeName.lexeme);
       case MixinDeclaration():
         names.add(declaration.name.lexeme);
       case GenericTypeAlias():
