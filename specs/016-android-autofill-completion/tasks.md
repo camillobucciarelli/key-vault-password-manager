@@ -216,14 +216,14 @@ Blocked by T001 `pass` and by Phase 3 (shares the gate).
 
 **Independent test**: quickstart.md section C.
 
-- [ ] **T501** [US3] Parse submitted values — owner: `senior-android-dev`
+- [x] **T501** [US3] Parse submitted values — owner: `senior-android-dev`
   Files: `.../autofill/AssistStructureCredentialParser.kt`.
   Acceptance: extracts username and password at save time; a "new password" +
   "confirm password" pair collapses to one credential; a password-only screen
   yields a capture with an empty username.
   Verify: Kotlin unit tests over recorded structures for all three shapes.
 
-- [ ] **T502** [US3] Process-local capture holder — owner: `senior-android-dev`
+- [x] **T502** [US3] Process-local capture holder — owner: `senior-android-dev`
   Files: `.../autofill/AndroidAutofillCaptureHolder.kt` (new),
   `.../AndroidAutofillModels.kt`.
   Acceptance: token → capture map, single-read semantics, expiry, explicit clear;
@@ -251,7 +251,7 @@ Blocked by T001 `pass` and by Phase 3 (shares the gate).
   `android_autofill_capture_missing` and the safe unknown-token resolve.
   Verify: Kotlin unit tests for both methods and both error paths.
 
-- [ ] **T505** [P] [US3] Dart port and client — owner: `senior-flutter-dev`
+- [x] **T505** [P] [US3] Dart port and client — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/domain/repositories/autofill_ports.dart`,
   `.../domain/models/apple_autofill_v2_models.dart`,
   `.../data/services/apple_autofill_v2_method_channel_client.dart`.
@@ -260,7 +260,7 @@ Blocked by T001 `pass` and by Phase 3 (shares the gate).
   `UnsupportedError` rather than silently returning null.
   Verify: `flutter test` — redaction test and unsupported-path test.
 
-- [ ] **T506** [US3] Save coordinator — owner: `senior-flutter-dev`
+- [x] **T506** [US3] Save coordinator — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/coordinators/android_autofill_save_coordinator.dart`
   (new), `lib/features/password_manager/di/password_manager_presentation_di.dart`.
   Acceptance: reads the capture, unlocks the vault if locked (FR-010), resolves
@@ -281,7 +281,7 @@ Blocked by T001 `pass` and by Phase 3 (shares the gate).
   again (FR-011).
   Verify: Kotlin unit test plus quickstart C step 6.
 
-- [ ] **T508** [P] [US3] Save copy — owner: `senior-flutter-dev`
+- [x] **T508** [P] [US3] Save copy — owner: `senior-flutter-dev`
   Files: `android/app/src/main/res/values/strings.xml` and the Flutter strings
   used by the coordinator.
   Acceptance: new-entry confirmation, update confirmation naming the entry, and
@@ -446,6 +446,50 @@ Plain bullets on purpose — these are not scheduled work.
   - `dart format --set-exit-if-changed lib test tool` failed on 42 untouched
     files under Flutter 3.47.1's formatter. They are reformatted in their own
     commit, separate from the feature diff.
+
+## Implementation notes (slice 2 — Phase 5, save capture)
+
+Plain bullets on purpose — these are not scheduled work.
+
+- **The capture never leaves the process.** `AndroidAutofillCaptureHolder` keeps
+  the submitted credential in memory keyed by an opaque token; only the token
+  travels, in the `IntentSender` the service hands to `SaveCallback.onSuccess`.
+  The password is handed out exactly once (`readPendingCapture`), the entry
+  survives that read only so the decline path still knows which association and
+  username it was about, and `resolvePendingCapture` drops it whatever the
+  outcome. Nothing is persisted, so process death clears it implicitly.
+- **One extra channel method beyond the contract: `takePendingCaptureToken`.**
+  `contracts/android_autofill_channel.md` says Dart calls `readPendingCapture`
+  with "the opaque token carried in the launching intent", but Dart cannot read
+  an `Intent`. A cold start also reaches Dart only after the engine is up, so
+  the token cannot simply be pushed at it. `MainActivity` parks the token on the
+  channel handler and Dart pulls it — the same shape
+  `OtpAuthDeepLinkCoordinator.takePendingUrls` already uses for deep links.
+- **New-vs-update reuses the autofill payload mapper.** An entry matches when
+  one of the service identifiers `AppleAutofillV2PayloadMapper` already derives
+  for it equals the capture's association, under the same username. That is the
+  same vocabulary the fill side matches on, so save and fill cannot disagree
+  about what "this app" means.
+- **History comes from the existing writer.** `VaultKdbxService.updateEntry`
+  goes through `KdbxEntry.setString`, and the kdbx package pushes the previous
+  values into the entry history on every modification. No history handling was
+  added here, and none is needed.
+- **Two tasks are deliberately left open on their stated verification, not on
+  their code.** `T504` asks for Kotlin unit tests of both channel methods and
+  `T507` for a store test: `AndroidAutofillV2Channel` and `AndroidAutofillStore`
+  both need a `Context` and the module has no Robolectric, exactly as recorded
+  for `T201` in slice 1. What is testable without one is tested — the holder's
+  single-read, expiry and unknown-token semantics, and the decline key
+  normalization. `T503` is open on device evidence (quickstart C step 1 plus the
+  `dumpsys` check).
+- **`T508` is Flutter copy only.** The save path shows no native UI: the system
+  save bar is the platform's own, and the confirmation is the Flutter
+  confirmation surface. No Android string was added or edited.
+- **Quickstart C step 5 has a gap.** Cancelling the unlock leaves the user on
+  the unlock screen, where there is no place to show "not saved". Nothing is
+  written and the capture expires on its own, but the message only appears when
+  the vault is reachable. Worth resolving when the unlock screen grows a
+  message surface.
 
 ## Deferred, not scheduled
 

@@ -267,6 +267,20 @@ class _FakeAppleAutofillV2Client implements AppleAutofillV2Client {
   }
 
   @override
+  Future<String?> takePendingCaptureToken() async => null;
+
+  @override
+  Future<AndroidAutofillCapture?> readPendingCapture(String token) async => null;
+
+  @override
+  Future<AppleAutofillV2ClearPendingAssociationsResult> resolvePendingCapture({
+    required String token,
+    required AndroidAutofillCaptureOutcome outcome,
+  }) async {
+    return const AppleAutofillV2ClearPendingAssociationsResult(clearedCount: 0);
+  }
+
+  @override
   Future<AppleAutofillV2Status> getStatus() async {
     return const AppleAutofillV2Status(
       supported: true,

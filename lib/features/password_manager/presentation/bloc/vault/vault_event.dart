@@ -462,3 +462,21 @@ class ClearCsvImportOutcome extends VaultEvent {
 class UnlinkCurrentDatabaseFromDrive extends VaultEvent {
   const UnlinkCurrentDatabaseFromDrive();
 }
+
+/// spec-016 US3: a credential submitted to another app is waiting to be
+/// saved. Emitted when the app is opened by an Android save request.
+class CheckAndroidAutofillCapture extends VaultEvent {
+  const CheckAndroidAutofillCapture();
+}
+
+class ConfirmAndroidAutofillCapture extends VaultEvent {
+  const ConfirmAndroidAutofillCapture();
+}
+
+class DeclineAndroidAutofillCapture extends VaultEvent {
+  const DeclineAndroidAutofillCapture();
+}
+
+class CancelAndroidAutofillCapture extends VaultEvent {
+  const CancelAndroidAutofillCapture();
+}

@@ -14,6 +14,9 @@ class AppleAutofillV2MethodChannelClient implements AppleAutofillV2Client {
   static const channelName =
       'dev.camillobucciarelli.keyvault/apple_autofill_v2';
 
+  /// The native side's "this capture is gone" answer — expected, not an error.
+  static const _captureMissingCode = 'android_autofill_capture_missing';
+
   final MethodChannel _channel;
   final bool? _isSupportedOverride;
 
@@ -93,6 +96,62 @@ class AppleAutofillV2MethodChannelClient implements AppleAutofillV2Client {
     final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
       'clearPendingAssociations',
       ids == null ? null : {'ids': ids},
+    );
+    return AppleAutofillV2ClearPendingAssociationsResult.fromMap(result);
+  }
+
+  /// Save capture is an Android-only path: the Apple credential provider has no
+  /// equivalent of `onSaveRequest`.
+  bool get _supportsCapture =>
+      isSupported &&
+      (_isSupportedOverride == null
+          ? defaultTargetPlatform == TargetPlatform.android
+          : true);
+
+  @override
+  Future<String?> takePendingCaptureToken() async {
+    if (!_supportsCapture) {
+      return null;
+    }
+    return _channel.invokeMethod<String>('takePendingCaptureToken');
+  }
+
+  @override
+  Future<AndroidAutofillCapture?> readPendingCapture(String token) async {
+    if (!_supportsCapture) {
+      throw UnsupportedError(
+        'Autofill save capture is not supported on this platform.',
+      );
+    }
+
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+        'readPendingCapture',
+        {'token': token},
+      );
+      return result == null ? null : AndroidAutofillCapture.fromMap(result);
+    } on PlatformException catch (error) {
+      if (error.code == _captureMissingCode) {
+        return null;
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<AppleAutofillV2ClearPendingAssociationsResult> resolvePendingCapture({
+    required String token,
+    required AndroidAutofillCaptureOutcome outcome,
+  }) async {
+    if (!_supportsCapture) {
+      throw UnsupportedError(
+        'Autofill save capture is not supported on this platform.',
+      );
+    }
+
+    final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+      'resolvePendingCapture',
+      {'token': token, 'outcome': outcome.channelValue},
     );
     return AppleAutofillV2ClearPendingAssociationsResult.fromMap(result);
   }

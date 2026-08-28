@@ -9,10 +9,16 @@ import android.service.autofill.FillCallback
 import android.service.autofill.FillRequest
 import android.service.autofill.FillResponse
 import android.service.autofill.SaveCallback
+import android.service.autofill.SaveInfo
 import android.service.autofill.SaveRequest
 import android.view.autofill.AutofillValue
 import android.widget.RemoteViews
+import dev.camillobucciarelli.kdbxKeyVault.MainActivity
 import dev.camillobucciarelli.kdbxKeyVault.R
+
+/** Launch action and extra carrying a save capture into the app. */
+internal const val ACTION_SAVE_CAPTURE = "dev.camillobucciarelli.kdbxKeyVault.SAVE_CAPTURE"
+internal const val EXTRA_CAPTURE_TOKEN = "keyvault_autofill_capture_token"
 
 /**
  * Native Android Autofill v2 service.
@@ -83,6 +89,7 @@ class KeyVaultAutofillService : AutofillService() {
             .build()
         val response = FillResponse.Builder()
             .addDataset(dataset)
+            .apply { saveInfo(parsed)?.let(::setSaveInfo) }
             .build()
 
         if (!cancellationSignal.isCanceled) {
@@ -90,9 +97,71 @@ class KeyVaultAutofillService : AutofillService() {
         }
     }
 
+    /**
+     * Declares what the response is able to save. A screen with no password
+     * field has nothing worth capturing, so it gets no save bar at all.
+     */
+    private fun saveInfo(parsed: ParsedAutofillStructure): SaveInfo? {
+        val passwordIds = parsed.passwordFields.map { it.autofillId }
+        if (passwordIds.isEmpty()) {
+            return null
+        }
+        val usernameIds = parsed.usernameFields.map { it.autofillId }
+        val type = if (usernameIds.isEmpty()) {
+            SaveInfo.SAVE_DATA_TYPE_PASSWORD
+        } else {
+            SaveInfo.SAVE_DATA_TYPE_PASSWORD or SaveInfo.SAVE_DATA_TYPE_USERNAME
+        }
+        return SaveInfo.Builder(type, passwordIds.toTypedArray())
+            .apply {
+                if (usernameIds.isNotEmpty()) {
+                    setOptionalIds(usernameIds.toTypedArray())
+                }
+            }
+            .build()
+    }
+
+    /**
+     * Captures the submitted credential and hands the app a token for it. The
+     * password stays in this process's memory: it never reaches an `Intent`
+     * extra, which would pass through the system server (research R4, D5).
+     */
     override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
-        // Native save flows do not write KDBX. Associations are confirmed app-side.
-        callback.onSuccess()
+        val parsed = request.fillContexts.lastOrNull()?.structure?.let { structure ->
+            AssistStructureCredentialParser.parse(structure)
+        }
+        val submitted = parsed?.let { SubmittedCredentialExtractor.extract(it.submittedFields) }
+        if (parsed == null || submitted == null) {
+            callback.onSuccess()
+            return
+        }
+
+        val webDomain = parsed.webDomains.firstOrNull()
+        val association = webDomain ?: parsed.packageName
+        val store = AndroidAutofillStore(applicationContext)
+        if (store.isDeclinedSave(association, submitted.username)) {
+            // The user already said no to this submission (FR-011).
+            callback.onSuccess()
+            return
+        }
+
+        val capture = AndroidAutofillCaptureHolder.shared.store(
+            username = submitted.username,
+            password = submitted.password,
+            packageName = parsed.packageName,
+            webDomain = webDomain,
+        )
+        val intent = Intent(this, MainActivity::class.java)
+            .setAction(ACTION_SAVE_CAPTURE)
+            .putExtra(EXTRA_CAPTURE_TOKEN, capture.token)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            capture.token.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        callback.onSuccess(pendingIntent.intentSender)
     }
 
     private fun presentation(text: String): RemoteViews {

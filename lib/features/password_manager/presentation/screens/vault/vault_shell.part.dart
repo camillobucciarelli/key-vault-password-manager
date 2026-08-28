@@ -127,6 +127,10 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   bool _otpAuthVaultMarkedAvailable = false;
   bool _isHandlingOtpAuth = false;
   String? _activeAppleAutofillAssociationDialogId;
+  // spec-016 US3: one capture confirmation at a time, and one pull per
+  // foregrounding — the app is launched again for every save request.
+  bool _isAndroidAutofillSaveDialogOpen = false;
+  bool _androidAutofillCapturePulled = false;
   // Guards against `_router.dispose()` (below) synchronously cancelling any
   // open session and calling back into `onPaneChanged` -> `setState` while
   // *this* State's own `dispose()` is still running. `mounted` alone does
@@ -350,6 +354,8 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     if (!shouldLock) {
       _resetInactivityTimer();
     }
+    // A save request brings the app forward with a new capture waiting.
+    _androidAutofillCapturePulled = false;
   }
 
   void _maybeShowAutofillOnboardingDialog() {
@@ -395,6 +401,67 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Unable to close current database.')),
       );
+    }
+  }
+
+  void _maybePullAndroidAutofillCapture(
+    BuildContext context,
+    VaultState state,
+  ) {
+    if (_androidAutofillCapturePulled ||
+        state.isLoading ||
+        state.rootGroupId == null) {
+      return;
+    }
+    _androidAutofillCapturePulled = true;
+    context.read<VaultBloc>().add(const CheckAndroidAutofillCapture());
+  }
+
+  void _maybeShowAndroidAutofillSaveDialog(
+    BuildContext context,
+    VaultState state,
+  ) {
+    final pending = state.pendingAndroidAutofillSave;
+    if (pending == null || _isAndroidAutofillSaveDialogOpen || state.isSaving) {
+      return;
+    }
+    _isAndroidAutofillSaveDialogOpen = true;
+    unawaited(_showAndroidAutofillSaveDialog(context, pending));
+  }
+
+  /// FR-008: says which of the two things is about to happen before anything
+  /// is written, and names the entry when it is an update.
+  Future<void> _showAndroidAutofillSaveDialog(
+    BuildContext context,
+    AndroidAutofillPendingSave pending,
+  ) async {
+    final bloc = context.read<VaultBloc>();
+    final isUpdate = pending.kind == AndroidAutofillSaveKind.update;
+    final username = pending.capture.username.trim();
+    final target = pending.capture.association ?? 'this app';
+    try {
+      final decision = await _router.confirm(
+        context: context,
+        title: isUpdate ? 'Update this password?' : 'Save to your vault?',
+        body: isUpdate
+            ? 'The password for "${pending.displayTitle}" will be replaced. '
+                  'The previous one stays in the entry history.'
+            : 'A new entry will be created for $target'
+                  '${username.isEmpty ? '' : ' ($username)'}.',
+        cancelLabel: 'Not now',
+        confirmLabel: isUpdate ? 'Update' : 'Save',
+      );
+      if (decision == ConfirmDecision.confirm) {
+        bloc.add(const ConfirmAndroidAutofillCapture());
+      } else if (decision == ConfirmDecision.cancel) {
+        // An explicit no is remembered, so the same submission is not
+        // offered again (FR-011).
+        bloc.add(const DeclineAndroidAutofillCapture());
+      } else {
+        bloc.add(const CancelAndroidAutofillCapture());
+      }
+    } finally {
+      _isAndroidAutofillSaveDialogOpen = false;
     }
   }
 
@@ -585,6 +652,8 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                   _showSyncConflictDialog(context, state.pendingSyncConflict!);
                 }
                 _maybeShowAppleAutofillAssociationDialog(state);
+                _maybePullAndroidAutofillCapture(context, state);
+                _maybeShowAndroidAutofillSaveDialog(context, state);
               },
               child: BlocSelector<VaultBloc, VaultState, bool>(
                 selector: (state) => state.isLoading,

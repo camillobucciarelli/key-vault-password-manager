@@ -4,6 +4,7 @@ import '../../../core/utils/clipboard_guard.dart';
 import '../presentation/bloc/database_selection/database_selection_bloc.dart';
 import '../presentation/bloc/database_unlock/database_unlock_bloc.dart';
 import '../presentation/bloc/vault/vault_bloc.dart';
+import '../presentation/coordinators/android_autofill_save_coordinator.dart';
 import '../presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import '../presentation/coordinators/database_session_coordinator.dart';
 import '../presentation/coordinators/desktop_browser_autofill_coordinator.dart';
@@ -33,6 +34,17 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
         pendingGeneration: sl(),
       ),
     ]),
+  );
+
+  // spec-016 US3: Android save capture. Registered everywhere, inert wherever
+  // the client reports no capture support.
+  sl.registerLazySingleton<AndroidAutofillSaveCoordinator>(
+    () => AndroidAutofillSaveCoordinator(
+      client: sl(),
+      mapper: sl(),
+      vaultKdbxService: sl(),
+      sessionSecretHolder: sl(),
+    ),
   );
 
   sl.registerLazySingleton<DatabaseSessionCoordinator>(
@@ -97,6 +109,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       vaultDuplicateService: sl(),
       databaseSyncRepository: sl(),
       appleAutofillV2Coordinator: sl(),
+      androidAutofillSaveCoordinator: sl(),
     ),
   );
 }

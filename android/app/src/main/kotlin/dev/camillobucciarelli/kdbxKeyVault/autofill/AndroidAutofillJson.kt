@@ -118,6 +118,33 @@ internal object AndroidAutofillJson {
         }
     }
 
+    fun declinedSavesToJson(declined: List<AndroidAutofillDeclinedSave>): String {
+        return JSONArray(
+            declined.map { record ->
+                JSONObject()
+                    .put("association", record.association)
+                    .put("username", record.username)
+                    .put("declinedAtEpochMs", record.declinedAtEpochMs)
+            },
+        ).toString()
+    }
+
+    fun declinedSavesFromJson(value: String): List<AndroidAutofillDeclinedSave> {
+        val array = JSONArray(value)
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                add(
+                    AndroidAutofillDeclinedSave(
+                        association = item.optString("association"),
+                        username = item.optString("username"),
+                        declinedAtEpochMs = item.optLong("declinedAtEpochMs"),
+                    ),
+                )
+            }
+        }
+    }
+
     fun pendingAssociationToMap(association: AndroidAutofillPendingAssociation): Map<String, Any> {
         return mapOf(
             "id" to association.id,

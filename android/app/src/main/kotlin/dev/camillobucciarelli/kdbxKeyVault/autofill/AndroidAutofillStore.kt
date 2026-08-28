@@ -20,6 +20,7 @@ internal class AndroidAutofillStore(context: Context) {
     private val encryptedFile = File(directory, "android_autofill_cache_v2.sealed.json")
     private val pendingAssociationsFile = File(directory, "android_autofill_pending_associations_v2.json")
     private val authSessionFile = File(directory, "android_autofill_session_v2.json")
+    private val declinedSavesFile = File(directory, "android_autofill_declined_saves_v2.json")
 
     fun publishCredentials(
         databaseId: String,
@@ -150,6 +151,8 @@ internal class AndroidAutofillStore(context: Context) {
         }
 
         clearAuthSessionBestEffort()
+        // Declines hold usernames; clearing the cache forgets them too.
+        runCatching { declinedSavesFile.delete() }
         removeCacheFilesBestEffort()
         val keyCleared = deleteKeyBestEffort()
         val warnings = mutableListOf<String>()
@@ -211,6 +214,57 @@ internal class AndroidAutofillStore(context: Context) {
 
     private fun clearAuthSessionBestEffort() {
         runCatching { authSessionFile.delete() }
+    }
+
+    /**
+     * Remembers that the user declined this save, so the same submission is not
+     * offered again (FR-011). Records the association and the username only.
+     */
+    fun recordDeclinedSave(association: String?, username: String) {
+        val normalizedAssociation = association?.trim().orEmpty()
+        if (normalizedAssociation.isEmpty()) {
+            return
+        }
+        runCatching {
+            val key = AndroidAutofillDeclinedSave.keyOf(normalizedAssociation, username)
+            val records = readDeclinedSaves()
+                .filterNot { AndroidAutofillDeclinedSave.keyOf(it.association, it.username) == key }
+                .plus(
+                    AndroidAutofillDeclinedSave(
+                        association = normalizedAssociation,
+                        username = username.trim(),
+                        declinedAtEpochMs = System.currentTimeMillis(),
+                    ),
+                )
+                .takeLast(MAX_DECLINED_SAVES)
+            directory.mkdirs()
+            writePrivate(
+                declinedSavesFile,
+                AndroidAutofillJson.declinedSavesToJson(records).toByteArray(Charsets.UTF_8),
+            )
+        }.onFailure {
+            Log.w(TAG, "Declined save record failed: ${it.javaClass.simpleName}")
+        }
+    }
+
+    fun isDeclinedSave(association: String?, username: String): Boolean {
+        if (association?.trim().isNullOrEmpty()) {
+            return false
+        }
+        val key = AndroidAutofillDeclinedSave.keyOf(association, username)
+        return readDeclinedSaves().any {
+            AndroidAutofillDeclinedSave.keyOf(it.association, it.username) == key
+        }
+    }
+
+    fun readDeclinedSaves(): List<AndroidAutofillDeclinedSave> {
+        return runCatching {
+            if (!declinedSavesFile.exists()) {
+                emptyList()
+            } else {
+                AndroidAutofillJson.declinedSavesFromJson(declinedSavesFile.readText(Charsets.UTF_8))
+            }
+        }.getOrDefault(emptyList())
     }
 
     fun readCredentialMetadata(): List<AndroidAutofillCredentialMetadata> {
@@ -428,5 +482,6 @@ internal class AndroidAutofillStore(context: Context) {
         private const val MAX_ENTRIES = 10_000
         private const val MAX_METADATA_LENGTH = 512
         private const val MAX_PENDING_ASSOCIATIONS = 200
+        private const val MAX_DECLINED_SAVES = 200
     }
 }
