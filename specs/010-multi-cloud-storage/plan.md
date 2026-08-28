@@ -22,8 +22,10 @@ part of this plan.
 
 ## Dependency and safety gates
 
-1. Reconcile branch with active spec 008 before implementation. Gate 0/T009 and
-   deletion T009b are closed; Phase 1 writer work remains active.
+1. Reconcile branch with active spec 008 before implementation. Read 008's
+   `tasks.md` at that moment for what is closed and what is still moving — do not
+   trust a progress snapshot written here, it goes stale. Writer routing,
+   collision-safe backup and safe local writer are the parts that matter to 010.
 2. Do not edit around or instantiate a private `DatabasePathMutex`. DI must keep
    one process-wide singleton used by every database writer.
 3. Do not replace, bypass or duplicate spec 008's collision-safe backup and safe
@@ -331,6 +333,7 @@ flutter test test/features/password_manager/presentation/bloc/vault_bloc_backgro
 flutter test test/features/password_manager/presentation/screens/vault/remote_file_picker_test.dart
 flutter test test/features/password_manager/presentation/screens/vault/sync_status_test.dart
 flutter test test/goldens/sync_health_import_test.dart
+flutter test test/goldens/database_and_unlock_test.dart
 flutter test
 ```
 
@@ -347,6 +350,8 @@ flutter test test/features/password_manager/data/services/sync_merge_deletion_co
 Run from repository root after migration:
 
 ```bash
+# identifier list is owned by spec.md acceptance criterion 3; keep this in sync
+# with that list only, never with a third copy elsewhere
 rg -n 'DriveRemoteFile|DriveAccountSummary|DrivePickerData|LoadDriveRemoteFiles|linkedDriveFileName|remoteDriveFiles|getDrivePickerData|linkDatabaseToDrive' lib test
 rg -n 'driveFileId|driveFileName' lib test
 rg -n '\b[A-Za-z_][A-Za-z0-9_]*Drive[A-Za-z0-9_]*\b' \
@@ -382,7 +387,8 @@ than relying on review alone.
 ### Manual gate
 
 Run the complete `spec.md` matrix independently on Android, iOS, macOS, Windows
-and Linux. Record `pass|fail|not-run`; every `not-run` requires approved waiver,
+and Linux. Record the results in `specs/010-multi-cloud-storage/manual-qa.md` as
+`pass|fail|not-run`; every `not-run` requires approved waiver,
 date and reason. Mobile Google Sign-In evidence does not qualify desktop PKCE,
 and no host qualifies another platform. No native change is expected, so platform
 specialists are needed only if native source changes. Release gate permits no
