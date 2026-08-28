@@ -223,12 +223,27 @@ jobs:
               ! -path 'test/goldens/*' \
               ! -path 'test/features/password_manager/data/portable_path_symlink_qa_test.dart' \
               ! -path 'test/core/utils/mobile_file_storage_guard_qa_test.dart' \
-              ! -path 'test/core/utils/mobile_file_storage_guard_bypass_qa_test.dart'
+              ! -path 'test/core/utils/mobile_file_storage_guard_bypass_qa_test.dart' | sort
           )
           (( ${#suites[@]} > 0 )) || { echo "No test files matched"; exit 1; }
           # Batched rather than passed as one argument list: Windows caps the
           # total command line length, and the full suite's paths exceed it
-          # when expanded into a single `flutter test` invocation.
+          # when expanded into a single `flutter test` invocation: the current
+          # 99 suites are 8108 chars of arguments, which is at the ~8191-char
+          # cmd.exe cap once the interpreter path and wrapper are counted.
+          #
+          # Batching by count bounds the line no matter how the suite grows: a
+          # batch of 50 stays under the cap until the average test path passes
+          # 160 chars (longest today is 116), and the largest batch currently
+          # measures 4118. A smaller batch would only add `flutter test` cold
+          # starts for headroom that is already structural.
+          #
+          # `find` output is sorted because the batches are separate processes
+          # and this step runs under `-e`: the first failing batch aborts the
+          # rest, so the enumeration order decides which files ran at all.
+          # Sorted input makes that set reproducible and the log readable. It is
+          # not a correctness requirement -- `test-random-order` already proves
+          # the suite does not depend on execution order.
           batch_size=50
           for ((i = 0; i < ${#suites[@]}; i += batch_size)); do
             flutter test "${suites[@]:i:batch_size}"
