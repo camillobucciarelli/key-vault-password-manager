@@ -1,6 +1,9 @@
 # 009 — In-page autofill overlay
 
-**Status**: Draft · **Kind**: New feature · **Depends on**: 006
+**Status**: Implemented on `main` · **manual accessibility and browser-matrix
+verification outstanding**, see [`tasks.md`](tasks.md) A040/A046 and the shared
+ledger [`docs/manual-qa.md`](../../docs/manual-qa.md)  
+**Kind**: New feature · **Depends on**: 006
 
 Technical baseline: desktop browser autofill protocol v2 in
 `tool/native_host_protocol.dart`. This baseline does not replace dependency 006.

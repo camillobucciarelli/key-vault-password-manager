@@ -218,8 +218,13 @@ waiver.
   Files: the database selection and vault sync presentation surfaces.  
   Acceptance: exactly two actions are exposed — choose an existing file, and
   upload this vault as a new file. The `files.list` global list is removed from
-  both the UI and the data layer. Goldens are updated for the removed list.  
-  Verify: widget, coordinator and golden tests.
+  both the UI and the data layer. The golden inventory in `spec.md` is realised
+  exactly: `db_drive_empty_390x844_light.png`,
+  `db_drive_loading_390x844_light.png` and `sync_picker_390x844_light.png` are
+  deleted, `db_drive_actions_390x844_light.png` is added, and the omitted axes
+  named there are covered by widget assertions.  
+  Verify: widget, coordinator and golden tests; no golden listed in the inventory
+  is missing and none outside it is added.
 
 - [ ] **T306 New remote file: editable name and folder destination** — owner:
   `senior-flutter-dev`  

@@ -1,11 +1,18 @@
 # 008 — Per-field sync conflict resolution
 
-**Status**: Draft · **Gate 0 OPEN**. The 2026-08-15 close was reverted on
-independent review: the exit bar was rewritten in the same commit that declared
-it met, and the replacement mechanism — the FR-7 write-verify-converge cycle — is
-itself `not-run`. Gate 0 now closes on **T009**, the model validation of that
-cycle. **T201 and the domain freeze stay blocked.** Feature also stays disabled
-per platform until Gate 1 atomicity artifacts  
+**Status**: In progress · **Gate 0 CLOSED 2026-08-21** (PR #79). T009, the model
+validation of the FR-7 write-verify-converge cycle, passed with executable
+evidence, so **T201 and the domain freeze are unblocked** — `data-model.md` was
+frozen 2026-08-22. **T009b remains a separate open gate** and blocks only
+deletion/tombstone/attachment work. The feature stays disabled per platform until
+the Gate 1 atomicity artifacts land. Manual items for this spec live in the
+shared ledger [`docs/manual-qa.md`](../../docs/manual-qa.md) as S1-6, S1-7,
+S3-11, S4-2 and S4-3.
+
+History: Gate 0 was declared closed on 2026-08-15 and that close was reverted the
+same day on independent review — the exit bar had been rewritten in the commit
+that declared it met. The bar was then rebuilt around T009, which is what closed
+it six days later. See `tasks.md` Phase 0 for the full account.  
 **Kind**: New feature  
 **Depends on**: 001, 002, 005 · consumes the storage-capability port defined by
 **010** (008 is the consumer; 010 owns the port)

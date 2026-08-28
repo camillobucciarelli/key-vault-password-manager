@@ -109,6 +109,29 @@ Rules:
 7. **Shared Drives** are out of scope. A file that resolves to a Shared Drive is
    refused with a safe message; no mapping is created.
 
+### Golden inventory
+
+Constitution principle IV. Replacing the in-app list with two actions removes
+three goldens and adds one:
+
+| Golden | Status |
+| --- | --- |
+| `db_drive_empty_390x844_light.png` | deleted with the list |
+| `db_drive_loading_390x844_light.png` | deleted with the list |
+| `sync_picker_390x844_light.png` | deleted with the list |
+| `db_drive_actions_390x844_light.png` | new — the two-action connection surface |
+
+Following the convention already in `test/goldens`, the new surface is a state
+variant and is captured at one representative size and theme. **Omitted axes:**
+1024×768, and dark theme. Both are covered by widget assertions instead, together
+with the states that have no golden at all: the read-only-file local-copy notice,
+the Shared Drive refusal, the editable new-file name with its destination
+outcome, and the generic `Google Drive connected` label.
+
+The Picker and the consent screen are OS-owned UI. They get no golden by
+definition; they are covered by an assertion on the trigger plus the manual
+five-platform release gate.
+
 ## Architecture
 
 ```text
