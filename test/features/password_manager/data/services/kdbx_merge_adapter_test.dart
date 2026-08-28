@@ -2202,6 +2202,102 @@ void main() {
   });
 
   // ===========================================================================
+  // T401a — the CONFLICTING row's divergent key spelling. Same rule as the
+  // identical row, and the one place it was missing: `_takeRemote` used to
+  // keep the LOCAL spelling. Mirrored devices resolve the same conflict to the
+  // same value from opposite sides — one runs `_takeRemote`, the other takes
+  // the `MergeChoice.local` branch — so a local-preferring spelling left the
+  // two holding different verbatim keys forever, which is precisely the
+  // perspective-dependent class FR-3 forbids.
+  // ===========================================================================
+  group('T401a conflicting-row key spelling', () {
+    KdbxFile mergedWith({
+      required String localSpelling,
+      required String localValue,
+      required String remoteSpelling,
+      required String remoteValue,
+    }) {
+      final pair = _replicaPair(credentials);
+      _sharedEntry(
+        pair.local,
+      ).setString(KdbxKey(localSpelling), PlainValue(localValue));
+      _sharedEntry(
+        pair.remote,
+      ).setString(KdbxKey(remoteSpelling), PlainValue(remoteValue));
+      final validated = adapter.validatePair(
+        local: pair.local,
+        remote: pair.remote,
+      );
+      final diff = adapter.diffPresence(validated);
+      final field = _diffFor(diff, KdbxMergeFieldKind.string, 'custom_totp');
+      expect(field.classification, KdbxFieldClassification.fieldConflict);
+      // Resolved the way a real caller resolves it: T401a's deterministic
+      // tie-break, which is what makes the two perspectives agree on the
+      // VALUE and leaves only the spelling to this test.
+      final choice =
+          compareFieldPresent(
+                field.local as KdbxFieldPresent,
+                field.remote as KdbxFieldPresent,
+              ) >=
+              0
+          ? MergeChoice.local
+          : MergeChoice.remote;
+      return adapter.applyMerge(
+        pair: validated,
+        diff: diff,
+        resolution: KdbxMergeResolution(
+          fieldChoices: {kdbxFieldRefOf(field): choice},
+        ),
+      );
+    }
+
+    MapEntry<KdbxKey, StringValue?> fieldOf(KdbxFile file) => _sharedEntry(file)
+        .stringEntries
+        .firstWhere((e) => canonicalFieldKey(e.key.key) == 'custom_totp');
+
+    test('mirrored perspectives persist the SAME verbatim spelling, not each '
+        'device its own', () {
+      // 'c' (0x63) > 'C' (0x43) → 'custom_totp' is the greater spelling;
+      // 'BBB' > 'AAA' → the remote value wins forward, the local one mirrored.
+      final forward = mergedWith(
+        localSpelling: 'Custom_Totp',
+        localValue: 'AAA',
+        remoteSpelling: 'custom_totp',
+        remoteValue: 'BBB',
+      );
+      final mirrored = mergedWith(
+        localSpelling: 'custom_totp',
+        localValue: 'BBB',
+        remoteSpelling: 'Custom_Totp',
+        remoteValue: 'AAA',
+      );
+
+      expect(fieldOf(forward).key.key, fieldOf(mirrored).key.key);
+      expect(
+        fieldOf(forward).value?.getText(),
+        fieldOf(mirrored).value?.getText(),
+      );
+      // Pinned so the equality above cannot pass vacuously.
+      expect(fieldOf(forward).key.key, 'custom_totp');
+      expect(fieldOf(forward).value?.getText(), 'BBB');
+    });
+
+    test('the spelling order is independent of which side won the value: the '
+        'losing side\'s greater spelling still survives', () {
+      // Local wins the VALUE ('zzz' > 'aaa') but remote holds the greater
+      // SPELLING — the two dimensions are decided separately.
+      final merged = mergedWith(
+        localSpelling: 'Custom_Totp',
+        localValue: 'zzz',
+        remoteSpelling: 'custom_totp',
+        remoteValue: 'aaa',
+      );
+      expect(fieldOf(merged).key.key, 'custom_totp');
+      expect(fieldOf(merged).value?.getText(), 'zzz');
+    });
+  });
+
+  // ===========================================================================
   // T401a — FR-3 associativity at 3 and 4 devices (criterion 15j), promoted
   // from the T009 model to the real adapter: the SAME tie-break comparator
   // (`compareFieldPresent`), applied through the REAL diff/apply/serialize
@@ -2598,6 +2694,130 @@ void main() {
         entry.getString(KdbxKeyCommon.URL)?.getText(),
         'https://local-only',
       );
+    });
+
+    test('the same holds with the block winner LOCAL and the one-sided member '
+        'on the REMOTE side — survival is not an artefact of one winner', () {
+      final pair = _replicaPair(credentials);
+      final localEntry = _sharedEntry(pair.local);
+      final remoteEntry = _sharedEntry(pair.remote);
+
+      localEntry.setString(KdbxKeyCommon.USER_NAME, PlainValue('local-user'));
+      remoteEntry.setString(KdbxKeyCommon.USER_NAME, PlainValue('remote-user'));
+      localEntry.setString(
+        KdbxKeyCommon.PASSWORD,
+        PlainValue('local-password'),
+      );
+      remoteEntry.setString(
+        KdbxKeyCommon.PASSWORD,
+        PlainValue('remote-password'),
+      );
+      // URL exists ONLY on remote — the mirror of the case above, and the
+      // harder one: the candidate is built from the LOCAL file, so a member
+      // the winner never held has to be carried across rather than merely
+      // left alone.
+      remoteEntry.setString(
+        KdbxKeyCommon.URL,
+        PlainValue('https://remote-only'),
+      );
+
+      final validated = adapter.validatePair(
+        local: pair.local,
+        remote: pair.remote,
+      );
+      final diff = adapter.diffPresence(validated);
+      expect(
+        engagedCredentialBlockEntryUuids(diff),
+        contains(_sharedEntryUuid),
+      );
+
+      final merged = adapter.applyMerge(
+        pair: validated,
+        diff: diff,
+        resolution: KdbxMergeResolution(
+          credentialBlockChoices: {_sharedEntryUuid: MergeChoice.local},
+        ),
+      );
+      final entry = _sharedEntry(merged);
+
+      expect(entry.getString(KdbxKeyCommon.USER_NAME)?.getText(), 'local-user');
+      expect(
+        entry.getString(KdbxKeyCommon.PASSWORD)?.getText(),
+        'local-password',
+      );
+      expect(
+        entry.getString(KdbxKeyCommon.URL)?.getText(),
+        'https://remote-only',
+      );
+    });
+
+    test('an ATTACHMENT named like a block member is never absorbed: block '
+        'membership is gated on the field KIND, so it stays per-field and '
+        'answerable independently', () {
+      final pair = _replicaPair(credentials);
+      final localEntry = _sharedEntry(pair.local);
+      final remoteEntry = _sharedEntry(pair.remote);
+
+      // Engage the block on the STRINGS.
+      localEntry.setString(KdbxKeyCommon.USER_NAME, PlainValue('local-user'));
+      remoteEntry.setString(KdbxKeyCommon.USER_NAME, PlainValue('remote-user'));
+      // ...and hang attachments off the entry whose NAMES canonicalise to the
+      // block's three member keys. Nothing but the field kind distinguishes
+      // them from real members.
+      for (final name in ['password', 'UserName', 'url']) {
+        localEntry.createBinary(
+          isProtected: false,
+          name: name,
+          bytes: Uint8List.fromList([1]),
+        );
+        remoteEntry.createBinary(
+          isProtected: false,
+          name: name,
+          bytes: Uint8List.fromList([2]),
+        );
+      }
+
+      final validated = adapter.validatePair(
+        local: pair.local,
+        remote: pair.remote,
+      );
+      final diff = adapter.diffPresence(validated);
+
+      expect(
+        credentialBlockFieldsOf(diff, _sharedEntryUuid)
+            .map((f) => f.fieldKind)
+            .toSet(),
+        {KdbxMergeFieldKind.string},
+        reason: 'the block owns strings only',
+      );
+
+      // Each attachment is answered per-field, against the block winner, so a
+      // block that had absorbed them could not honour these choices at all.
+      final attachments = [
+        for (final name in ['password', 'UserName', 'url'])
+          _diffFor(diff, KdbxMergeFieldKind.attachment, name),
+      ];
+      final merged = adapter.applyMerge(
+        pair: validated,
+        diff: diff,
+        resolution: KdbxMergeResolution(
+          fieldChoices: {
+            for (final field in attachments)
+              kdbxFieldRefOf(field): MergeChoice.local,
+          },
+          credentialBlockChoices: {_sharedEntryUuid: MergeChoice.remote},
+        ),
+      );
+      final entry = _sharedEntry(merged);
+
+      expect(entry.getString(KdbxKeyCommon.USER_NAME)?.getText(), 'remote-user');
+      for (final name in ['password', 'UserName', 'url']) {
+        expect(
+          entry.getBinary(KdbxKey(name))?.value,
+          orderedEquals([1]),
+          reason: 'the attachment kept the side its OWN decision named',
+        );
+      }
     });
   });
 }
