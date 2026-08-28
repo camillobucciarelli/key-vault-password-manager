@@ -32,6 +32,20 @@ fail() {
   exit 1
 }
 
+retry() {
+  local attempts=3
+  local delay=30
+  local n=1
+  until "$@"; do
+    if (( n >= attempts )); then
+      return 1
+    fi
+    printf 'Command failed (attempt %d/%d), retrying in %ds: %s\n' "$n" "$attempts" "$delay" "$*" >&2
+    sleep "$delay"
+    n=$(( n + 1 ))
+  done
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --output)
@@ -199,7 +213,7 @@ xcrun notarytool submit "${OUTPUT_PATH}" \
   --key-id "${ASC_KEY_ID}" \
   --issuer "${ASC_ISSUER_ID}" \
   --wait
-xcrun stapler staple "${OUTPUT_PATH}"
-xcrun stapler validate "${OUTPUT_PATH}"
+retry xcrun stapler staple "${OUTPUT_PATH}" || fail "stapler staple failed after retries."
+retry xcrun stapler validate "${OUTPUT_PATH}" || fail "stapler validate failed after retries."
 
 printf 'Package ready: %s\n' "${OUTPUT_PATH}"
