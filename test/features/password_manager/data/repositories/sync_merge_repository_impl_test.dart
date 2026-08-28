@@ -835,10 +835,91 @@ void main() {
 
       // T406: the transport failure flips the SAME record rather than
       // replacing or clearing it.
-      expect(harness.syncMetadata.pendingUploadCalls.first.outcomeAmbiguous,
-          isFalse);
-      expect(harness.syncMetadata.pendingUploadCalls.last.outcomeAmbiguous,
-          isTrue);
+      expect(
+        harness.syncMetadata.pendingUploadCalls.first.outcomeAmbiguous,
+        isFalse,
+      );
+      expect(
+        harness.syncMetadata.pendingUploadCalls.last.outcomeAmbiguous,
+        isTrue,
+      );
+    });
+
+    test('T404 a confirmed read-back drops the pending record', () async {
+      final fixture = await _t401Fixture(t401Temp);
+      final harness = await _Harness.build(t401Temp, fixture: fixture);
+      final summary = await harness.repository.startReview(harness.databaseId);
+
+      final outcome = await harness.repository.commit(summary.sessionId);
+
+      expect(outcome, isA<MergeApplied>());
+      // The record was written before the dispatch, so it must have existed...
+      expect(harness.syncMetadata.pendingUploadCalls, isNotEmpty);
+      // ...and must be gone once the read-back confirmed the remote holds the
+      // dispatched bytes and the mapping was finalized. Left behind, recovery
+      // (T407-T409) would read a completed merge as an un-triaged upload.
+      expect(
+        await harness.syncMetadata.getPendingUpload(harness.databasePath),
+        isNull,
+      );
+    });
+
+    test(
+      'T404 the semantic short-circuit drops the pending record too',
+      () async {
+        final fixture = await _t401Fixture(t401Temp);
+        final harness = await _Harness.build(t401Temp, fixture: fixture);
+        final summary = await harness.repository.startReview(
+          harness.databaseId,
+        );
+        // Same content, different bytes: finalized on the observed checksum via
+        // the second success path, which must clear the record just as the first
+        // one does.
+        harness.remote.onUpload = (uploaded) =>
+            _resave(uploaded, fixture.credentials);
+
+        final outcome = await harness.repository.commit(summary.sessionId);
+
+        expect(outcome, isA<MergeApplied>());
+        expect(harness.syncMetadata.pendingUploadCalls, isNotEmpty);
+        expect(
+          await harness.syncMetadata.getPendingUpload(harness.databasePath),
+          isNull,
+        );
+      },
+    );
+
+    test('T406 a failed re-download after divergence marks the record '
+        'ambiguous', () async {
+      final fixture = await _t401Fixture(t401Temp);
+      final harness = await _Harness.build(t401Temp, fixture: fixture);
+      final summary = await harness.repository.startReview(harness.databaseId);
+      // Break the network strictly between the upload and the re-download the
+      // divergence branch performs — the precheck download has already
+      // happened by then, so this reaches the branch under test and no other.
+      harness.remote.onUpload = (uploaded) async {
+        harness.remote.downloadError = Exception('network boom');
+        return _resave(uploaded, fixture.credentials);
+      };
+
+      final outcome = await harness.repository.commit(summary.sessionId);
+
+      expect(
+        outcome,
+        isA<MergeRejected>().having(
+          (r) => r.code,
+          'code',
+          MergeFailureCode.uploadOutcomeAmbiguous,
+        ),
+      );
+      // The write went out and its outcome is unknown, exactly as on the two
+      // sibling paths. The record must say so rather than keep its
+      // pre-dispatch `false` while the returned code says ambiguous.
+      final record = await harness.syncMetadata.getPendingUpload(
+        harness.databasePath,
+      );
+      expect(record, isNotNull);
+      expect(record!.outcomeAmbiguous, isTrue);
     });
 
     test('a metadata-recheck failure before any write is ambiguous and touches '

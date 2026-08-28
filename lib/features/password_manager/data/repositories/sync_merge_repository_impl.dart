@@ -492,6 +492,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
           remoteChecksum: observedChecksum,
           modifiedTime: updated.modifiedTime,
         );
+        await _clearPending(pending);
         _disposeSession(session);
         return MergeApplied(
           entryCount: entryCount,
@@ -507,6 +508,11 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       try {
         redownloaded = await _sync.downloadRemoteFile(mapping.driveFileId);
       } on Object {
+        // The write went out and the read-back showed divergence, so the
+        // outcome is exactly as unknown as the two paths above — mark it the
+        // same way. Without this the record keeps `outcomeAmbiguous: false`
+        // while the returned code says ambiguous, and the two disagree.
+        await _markPendingAmbiguous(pending);
         _disposeSession(session);
         return const MergeRejected(
           MergeFailureCode.uploadOutcomeAmbiguous,
@@ -528,6 +534,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
           remoteChecksum: _checksumOf(redownloaded),
           modifiedTime: updated.modifiedTime,
         );
+        await _clearPending(pending);
         _disposeSession(session);
         return MergeApplied(
           entryCount: entryCount,
@@ -563,6 +570,24 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
   Future<void> _markPendingAmbiguous(PendingMergeUpload pending) async {
     try {
       await _syncMetadata.upsertPendingUpload(pending.asAmbiguous());
+    } on Object {
+      // Deliberately ignored -- see above.
+    }
+  }
+
+  /// Drops the pending record (T404) once the read-back has proved the remote
+  /// holds the dispatched bytes and [_finalizeMapping] has run — the only
+  /// condition the data source's contract allows it under.
+  ///
+  /// A failure to persist the drop is swallowed for the same reason as in
+  /// [_markPendingAmbiguous]: the merge genuinely succeeded, and throwing here
+  /// would turn it into an unclassified error after the fact. The stale record
+  /// is self-correcting rather than wrong — recovery re-hashes the local file,
+  /// refetches, finds the remote already holds `mergedChecksum`, and converges
+  /// on the outcome that in fact occurred.
+  Future<void> _clearPending(PendingMergeUpload pending) async {
+    try {
+      await _syncMetadata.clearPendingUpload(pending.databasePath);
     } on Object {
       // Deliberately ignored -- see above.
     }
