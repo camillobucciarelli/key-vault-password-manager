@@ -1,16 +1,29 @@
 # 010 — Cloud storage provider abstraction
 
 **Status**: Planned · **Immediate delivery**: Google-only refactor  
-**Kind**: Architecture refactor · **Depends on**: 005 · **Coordinates with**: 008
+**Kind**: Architecture refactor · **Depends on**: 005 · **Coordinates with**: 008, 013
+
+## Normative boundary with spec 013
+
+Spec 013 is the normative source for the **Google OAuth scope** and for **how a
+remote file is chosen**. It narrows the scope to `drive.file` and replaces the
+in-app remote file list with the Google Picker.
+
+010 remains the owner of the provider-neutral architecture: the port, the mapping
+schema, the safe error taxonomy and the dependency rules. 010 does **not** define
+which scope is requested and does **not** preserve the current file-picker
+behavior. Where this document previously assumed "scope unchanged" or "picker
+unchanged", 013 governs instead. Neither spec duplicates the other's tasks.
 
 ## Summary
 
 Refactor existing Google Drive sync behind one provider-neutral storage port and
 one Google Drive implementation. Preserve current sync, UI behavior, static copy,
-checksums, conflicts, auto-sync, account, file-picker and mapping behavior. Sole
-intentional copy change: unsafe dynamic provider error details become fixed
-provider-neutral safe messages from this spec; this authorizes no other copy
-change.
+checksums, conflicts, auto-sync, account and mapping behavior. Remote file
+selection is excluded from that preservation guarantee: spec 013 replaces it.
+Sole intentional copy change owned by this spec: unsafe dynamic provider error
+details become fixed provider-neutral safe messages from this spec; this
+authorizes no other copy change.
 
 This delivery does **not** add multi-cloud product behavior. It creates only the
 boundary needed to add a second provider later without leaking its SDK, OAuth or
@@ -160,7 +173,10 @@ Exact Dart syntax may follow repository style, but semantics are fixed.
 - stable `providerId`;
 - `isConnected`, `connect`, `disconnect`;
 - connected `StorageAccountSummary`;
-- list eligible `.kdbx` remote files with optional query;
+- obtain one eligible `.kdbx` remote file chosen by the user. Today that is the
+  existing list-with-optional-query operation; spec 013 replaces it with a
+  select-exactly-one operation and removes list-all. The port shape follows 013
+  whenever 013 has landed;
 - read object metadata;
 - create object from name and bytes;
 - replace object bytes by opaque ID;
@@ -409,6 +425,9 @@ operations. Exactly one Google implementation is registered.
 Google adapter composes existing Google auth/API technical services, maps their
 results to neutral models and maps all errors to safe storage errors. OAuth,
 scopes, retries, token refresh, HTTP fields and query syntax stay Google-private.
+Their *values* are not this spec's to choose: the requested scope and the file
+selection mechanism are defined by spec 013, and this adapter carries whatever
+013 specifies.
 
 ### FR-3 — Neutral orchestrator
 
@@ -477,7 +496,9 @@ provider selection, OAuth or remote sequencing.
     boundaries remain unchanged. No sync algorithm or checksum branch changes.
 13. Existing UI strings and widget behavior remain byte-identical except explicit
     normalization of unsafe dynamic error detail to fixed safe messages; no provider
-    picker or new settings appear.
+    picker or new settings appear. Remote file selection copy and behavior are
+    exempt when spec 013 has landed, because 013 replaces that surface; 010 still
+    changes nothing there on its own.
 14. `flutter analyze`, targeted suites and full `flutter test` pass.
 15. No native platform or file outside documentation/tests/Dart implementation
     scope changes during eventual implementation.
@@ -524,7 +545,8 @@ blank or “covered on host” is invalid. Store no account, object, path or tok
 Every platform run covers the same checklist:
 
 1. connect and show safe account label/fallback;
-2. list/search remote `.kdbx` files;
+2. select a remote `.kdbx` through whichever selection mechanism ships at the
+   time — the current list/search, or the spec 013 Picker once 013 has landed;
 3. link/download existing and create/link new remote file;
 4. manual no-change/local-only/remote-only sync;
 5. restart, then verify persisted mapping and auto-sync after a local edit;
@@ -566,6 +588,7 @@ than guessing Google identity.
 | Active spec 008 changes same files | Sequence/rebase explicitly; preserve singleton mutex and safe-writer invariants; run 008 gates |
 | Old binary cannot read v2 metadata | Reader-compatible rollback build; never touch vault bytes to downgrade |
 | Presentation rename expands scope | Rename only touched Drive-shaped data identifiers; preserve literal Google UI copy |
+| Spec 013 replaces the selection surface this refactor renames | Sequence the two explicitly; 013 owns scope and picking, 010 owns the port shape; rebase and re-run the selection suites after either lands |
 
 Spec 008 is active. Its Gate 0 and deletion model are closed, while writer routing,
 collision-safe backup and safe local writer work remain relevant dependencies.
