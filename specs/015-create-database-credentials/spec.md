@@ -201,13 +201,39 @@ databases.
   wizard open.
 - Unlock — the FR-12 fallback matrix, including the device-authentication gate on
   the managed key picker.
-- Goldens — update the wizard step goldens for the new two-step shape.
+- Goldens — realise the inventory below for the new two-step shape.
 - Web — the download-only path verified without a real browser (bytes generated
   once, both artefacts consistent, nothing persisted).
 - Remove the `FLUTTER_TEST` shortcut in `create_database_usecase.dart:63-65` so
   the key-preparation branch is actually covered.
 - Manual — Safari and Firefox before any web release; Chrome is the automated
   gate.
+
+### Golden inventory
+
+Constitution principle IV. Collapsing three steps to two retires one golden and
+re-shoots the other two:
+
+| Golden | Status |
+| --- | --- |
+| `db_create_step1_390x844_light.png` | re-shot — name and storage, now blocking on an invalid name |
+| `db_create_step2_390x844_light.png` | re-shot — the merged credentials step |
+| `db_create_step3_390x844_light.png` | deleted with `CreateDatabaseStep.optionalLocks` |
+
+Following the convention already in `test/goldens`, wizard steps are state
+variants captured at one representative size and theme. **Omitted axes:**
+1024×768, and dark theme.
+
+The credentials step has more states than a golden per combination would justify,
+so these are covered by named widget assertions instead: the three key modes
+(*none* / *select* / *generate*), an empty password with the confirmation field
+and strength meter hidden, a non-empty password with its confirmation mandatory,
+the inert submit control stating why it is inert, the FR-13 backup warning on the
+generated-key option, and a failed submission leaving the wizard mounted with the
+draft intact.
+
+The web path renders no golden: it persists nothing and its two-gesture download
+flow is asserted behaviourally per FR-14.
 
 ## Risks
 

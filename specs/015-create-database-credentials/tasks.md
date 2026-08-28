@@ -55,7 +55,12 @@ on-disk name is 014 FR-3 and is not restated here.
       option.
 - [ ] T014 Widget tests for the three key modes, the optional password, the
       invalid name, and a failure that keeps the wizard open.
-- [ ] T015 Update the wizard step goldens for the two-step shape.
+- [ ] T015 Realise the `spec.md` golden inventory for the two-step shape: re-shoot
+      `db_create_step1_390x844_light.png` and `db_create_step2_390x844_light.png`,
+      delete `db_create_step3_390x844_light.png` with
+      `CreateDatabaseStep.optionalLocks`, and cover the omitted axes and the
+      credentials-step states named there with widget assertions rather than
+      further goldens.
 
 ## Phase 4 — biometrics and unlock fallback
 

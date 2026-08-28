@@ -31,6 +31,12 @@ reads or repairs a previous on-disk layout.
 - [ ] T006 FR-3: test that a managed directory listing contains no readable
       name, no `.kdbx`/`.key` extension, and no value shared with the registry
       that would rebind a key to its database.
+- [ ] T006b FR-1: assert managed ownership still holds after the renaming work.
+      Importing a database or selecting a key file copies it into managed storage,
+      and the user's original file is neither modified nor deleted. This is a
+      preserved invariant rather than new behaviour, but T004 and T005 rewrite the
+      copy path in `database_import_service.dart` and `create_database_usecase.dart`
+      that enforces it, so it needs its own assertion rather than being assumed.
 
 ## Phase 3 — encrypted metadata
 
@@ -63,10 +69,38 @@ reads or repairs a previous on-disk layout.
 
 ## Phase 6 — single key source
 
-- [ ] T014 FR-8: remove `cachedKeyFilePath` from `LocalDataSource` and the
-      fallback in `DatabaseSessionCoordinator`, leaving the per-database
-      security profile as the only key-file source; test that a database with no
-      profile key does not silently borrow another database's key.
+- [ ] T014a FR-8: remove the cached-key-path API from the data layer and the
+      domain port — `LocalDataSource.getCachedKeyFilePath`/`cacheKeyFilePath` and
+      the `keyFilePathKey = 'cachedKeyFilePath'` constant, their forwarding pair
+      in `DatabaseSessionRepositoryImpl`, and both declarations on the
+      `DatabaseSessionRepository` port. Removing them from the port is a breaking
+      interface change: every implementation and every test fake that satisfies it
+      must be updated in the same commit.
+- [ ] T014b FR-8: remove all 11 coordinator call sites, not only the unlock
+      fallback. `DatabaseSessionCoordinator` holds 8 (a read at the rollback
+      capture, the unlock-time fallback read and its normalisation, writes on
+      import/create/unlock/relink, and clears on removal and on
+      `_clearSessionCredentials`); `VaultSessionCoordinator` holds 3 (a clear on
+      lock and two writes on unlock/change-database) and is named in no earlier
+      draft of this task. A write site is deleted outright; a clear site becomes
+      dead and is deleted with it; the rollback capture stops restoring a value
+      that no longer exists.
+- [ ] T014c FR-8: `SyncMergeRepositoryImpl` reads the cached path as a key-file
+      fallback during a merge. That is spec 008 code, so removing it is a
+      cross-spec change: it must resolve the key file from the per-database
+      security profile instead, and the spec 008 merge and convergence suites must
+      be re-run. Coordinate with the spec 008 owner before editing; do not leave
+      the merge path silently without a key-file source.
+- [ ] T014d FR-8: update the seven test files that stub or assert the removed API
+      — including `fake_database_ports.dart`, the two coordinator test fakes, the
+      repository impl test and `portable_path_regression_qa_test.dart:154` — and
+      test that a database with no profile key does not silently borrow another
+      database's key.
+
+      **Inventory note.** A search at the time of writing finds 32 references in
+      `lib/` across 7 files and 7 test files. Regenerate the inventory at
+      implementation time with `rg -n 'cacheKeyFilePath|getCachedKeyFilePath|cachedKeyFilePath' lib test`
+      and treat AC-8 as satisfied only when that search returns nothing in `lib/`.
 
 ## Phase 7 — closing checks
 
