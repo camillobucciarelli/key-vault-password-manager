@@ -20,14 +20,22 @@ in this file.
 
 - [ ] **T001b Fix spec 013 sequencing** — owner: `senior-flutter-dev`  
   Files: `specs/013-google-drive-per-file-access/{spec,tasks}.md`, this file.  
-  Acceptance: the landing order of 010 and 013 is decided and written down before
-  any 010 production change, because 013 is normative for the Google OAuth scope
-  and for how a remote file is selected, and it is a release blocker with no
-  implementation started. Record the decision in one line here. If 013 lands
-  first, T105, T404 and T603 rename and compare against the surface 013 shipped
-  (Picker), not the current in-app list; if 010 lands first, 013 rebases onto the
-  neutral models and re-runs the selection suites. Either way the second one to
-  land re-runs `remote_file_picker_test.dart` and `sync_status_test.dart`.
+  **Decision (2026-08-28): 010 lands first in production; 013 rebases onto the
+  neutral models.** 013's Gate 0-A spike runs in parallel on its own
+  non-production branch, since it depends on nothing in 010 and blocks everything
+  else in 013. The order is forced by 013's external dependencies — a live site,
+  a domain verified in Search Console, published consent-screen branding, Gate 0
+  runs on a physical Android device, a physical iPhone and real macOS, and a
+  Chrome Web Store re-approval — none of which any amount of engineering
+  compresses. 010 is pure Dart, unblocked today, and blocking it on that calendar
+  buys nothing. The cost of this order is bounded and known: `RemoteFileSelectionData`
+  and the characterization of the `files.list` path are work 013 later deletes.
+  The reverse order costs more, because 010's whole inventory and baseline would
+  be rewritten against a surface that does not exist yet.
+  Consequences for this file: T105, T404 and T603 rename and compare against the
+  **current in-app list**, which is the surface that exists while 010 lands. 013
+  then replaces that implementation behind the port and re-runs
+  `remote_file_picker_test.dart` and `sync_status_test.dart`.
   This task changes no 013 task and adds no scope change here.  
   Verify: order recorded; the selection-surface tasks name which surface they
   target; selection suites listed in the rebase step.

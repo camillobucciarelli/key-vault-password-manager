@@ -20,6 +20,39 @@ here.
 only if implementation unexpectedly requires native code; native changes are not
 part of this plan.
 
+## Constitution Check
+
+Checked against `.specify/memory/constitution.md` v1.1.2. No gate is violated and
+no complexity waiver is needed.
+
+| Principle | Verdict | Evidence |
+| --- | --- | --- |
+| I — Secrets never leak into the shell | PASS | Spec §Error and security requirements rules 1–8; M2 gate injects a token-like sentinel and asserts absence from `safeCode`/`safeMessage`/`toString`/logs/state/mapping JSON. Neutral models carry no token or SDK object. |
+| II — Clean architecture layering holds | PASS | Port in `domain/repositories/`, adapter in `data/services/`, orchestrator behind the port, multi-step flows stay in the two existing coordinators (M4), no new BLoC. |
+| III — Design tokens | N/A | No restyle; no colour, type or metric is touched. |
+| IV — Pixel fidelity | PASS | No new screen. M4/M6 gate the two existing golden suites as unchanged. |
+| V — Accessibility floor | N/A | No layout, contrast, target or animation change. |
+| VI — Copy preserved unless a spec marks a change | PASS | Sole authorized change is the dynamic provider-error detail slot, marked in spec §Error and security requirements; all static copy and action labels stay byte-identical. |
+| VII — Destructive operations ask first and back up | PASS | This refactor adds no KDBX write path; spec 008 backup/safe-writer and the singleton `DatabasePathMutex` are preserved by gates 2–4. Migration writes only `sync_mappings.json`. |
+| VIII — Ship the smallest thing | PASS | The port is covered by the explicit exemption for domain ports and platform trust-boundary adapters. No registry, factory, capability interface or second provider (spec §Immediate non-goals); only two use cases, both with transaction value. |
+| IX — Verification is local | PASS | M6 runs `flutter analyze` and the full `flutter test` before commit; `pubspec.yaml` is untouched. |
+
+### Phase 0 / Phase 1 artifacts
+
+`research.md` is not generated: `spec.md` carries no `[NEEDS CLARIFICATION]`
+marker and no technology choice is open — the provider, the SDKs and the
+persistence format are all already in the codebase.
+
+`data-model.md`, `contracts/` and `quickstart.md` are deliberately not generated
+either. The constitution requires `data-model.md` only for specs 008 and 009, and
+this spec already owns each of those artifacts inline and normatively: entities
+and vocabulary in §Domain vocabulary, the port contract in §Provider contract
+semantics, the persisted schema and its migration rules in §Persisted mapping
+schema and migration, and the error contract in §Error and security requirements.
+Validation commands and the manual matrix live in M6 below. Restating any of them
+in a side file would create the third copy this spec's acceptance criteria
+explicitly forbid, and the copies would drift.
+
 ## Dependency and safety gates
 
 1. Reconcile branch with active spec 008 before implementation. Read 008's
@@ -140,8 +173,10 @@ search commands in M6 find no unreviewed caller.
 
 - `lib/features/password_manager/domain/models/remote_file.dart`
 - `lib/features/password_manager/domain/models/storage_account_summary.dart`
-- colocate `RemoteFilePickerData` with account summary, matching current
-  small-model style; do not create an extra abstraction layer.
+- `lib/features/password_manager/domain/models/remote_file_selection_data.dart`
+  (`RemoteFileSelectionData`, owned by T101, one model per file like its two
+  siblings; no extra abstraction layer). Dropped instead of added where spec 013
+  has already removed the in-app selection surface.
 
 ### Change
 

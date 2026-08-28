@@ -146,11 +146,11 @@ Names describe application semantics, not current provider:
 | --- | --- | --- |
 | `DriveRemoteFile` | `RemoteFile` | Provider ID, opaque remote ID, display name, optional modified time and content checksum |
 | `DriveAccountSummary` | `StorageAccountSummary` | Safe display label and optional email; no token/account SDK object |
-| `DrivePickerData` | `RemoteFilePickerData` | Files plus account summary for one picker load |
+| `DrivePickerData` | `RemoteFileSelectionData` | Files plus account summary for one picker load |
 | `LoadDriveRemoteFiles` | `LoadRemoteFiles` | Request provider-neutral picker/list data |
 | `linkedDriveFileName` | `linkedRemoteFileName` | Current mapping display name |
 | `remoteDriveFiles` | `remoteFiles` | Current provider's listed remote files |
-| `getDrivePickerData` | `getRemoteFilePickerData` | Coordinator picker-data workflow |
+| `getDrivePickerData` | `getRemoteFileSelectionData` | Coordinator picker-data workflow |
 | `driveFileId` | `remoteFileId` | Opaque provider object identity |
 | `driveFileName` | `remoteFileName` | Display name only; never identity |
 | `linkDatabaseToDrive` | `linkDatabaseToRemote` | Create or link one remote object through mapped provider |
