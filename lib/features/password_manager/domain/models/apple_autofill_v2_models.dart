@@ -190,6 +190,8 @@ class AppleAutofillV2Status extends Equatable {
     required this.cacheAvailable,
     this.databaseId,
     this.generatedAtEpochMs,
+    this.authSessionTtlMs = 0,
+    this.lastAuthenticatedAtEpochMs,
   });
 
   factory AppleAutofillV2Status.fromMap(
@@ -209,6 +211,11 @@ class AppleAutofillV2Status extends Equatable {
       cacheAvailable: _readBool(map, 'cacheAvailable'),
       databaseId: _readString(map, 'databaseId'),
       generatedAtEpochMs: _readIntOrNull(map, 'generatedAtEpochMs'),
+      authSessionTtlMs: _readInt(map, 'authSessionTtlMs'),
+      lastAuthenticatedAtEpochMs: _readIntOrNull(
+        map,
+        'lastAuthenticatedAtEpochMs',
+      ),
     );
   }
 
@@ -233,6 +240,12 @@ class AppleAutofillV2Status extends Equatable {
   final String? databaseId;
   final int? generatedAtEpochMs;
 
+  /// Android only: the reuse window currently stored natively. `0` on Apple.
+  final int authSessionTtlMs;
+
+  /// Android only: when a release was last authenticated. Never says which entry.
+  final int? lastAuthenticatedAtEpochMs;
+
   @override
   List<Object?> get props => [
     supported,
@@ -244,6 +257,8 @@ class AppleAutofillV2Status extends Equatable {
     cacheAvailable,
     databaseId,
     generatedAtEpochMs,
+    authSessionTtlMs,
+    lastAuthenticatedAtEpochMs,
   ];
 }
 
@@ -341,6 +356,87 @@ class AppleAutofillV2ClearPendingAssociationsResult extends Equatable {
 
   @override
   List<Object?> get props => [clearedCount, warnings];
+}
+
+/// What the vault did with a capture. Reported back to the native side so the
+/// token is dropped, and so a decline is remembered (FR-011).
+enum AndroidAutofillCaptureOutcome {
+  saved('saved'),
+  updated('updated'),
+  declined('declined'),
+  cancelled('cancelled'),
+  failed('failed');
+
+  const AndroidAutofillCaptureOutcome(this.channelValue);
+
+  final String channelValue;
+}
+
+/// A credential the user submitted to another app, handed over by the Android
+/// autofill service exactly once.
+///
+/// Android only. The password lives in this object and nowhere else: it is
+/// never persisted, logged, or included in [toString] or [props].
+class AndroidAutofillCapture extends Equatable {
+  const AndroidAutofillCapture({
+    required this.token,
+    required this.username,
+    required this.password,
+    required this.packageName,
+    required this.webDomain,
+    required this.capturedAtEpochMs,
+  });
+
+  factory AndroidAutofillCapture.fromMap(Map<dynamic, dynamic>? map) {
+    return AndroidAutofillCapture(
+      token: _readString(map, 'token') ?? '',
+      username: _readString(map, 'username') ?? '',
+      password: _readString(map, 'password') ?? '',
+      packageName: _readString(map, 'packageName'),
+      webDomain: _readString(map, 'webDomain'),
+      capturedAtEpochMs: _readInt(map, 'capturedAtEpochMs'),
+    );
+  }
+
+  final String token;
+
+  /// Empty on a change-password screen with no username field.
+  final String username;
+  final String password;
+  final String? packageName;
+  final String? webDomain;
+  final int capturedAtEpochMs;
+
+  /// The site if the capture came from a browser, otherwise the app.
+  String? get association {
+    final domain = webDomain?.trim();
+    if (domain != null && domain.isNotEmpty) {
+      return domain;
+    }
+    final package = packageName?.trim();
+    return package == null || package.isEmpty ? null : package;
+  }
+
+  @override
+  List<Object?> get props => [
+    token,
+    RedactedValue(username),
+    RedactedValue(password),
+    packageName,
+    webDomain,
+    capturedAtEpochMs,
+  ];
+
+  @override
+  String toString() {
+    return 'AndroidAutofillCapture('
+        'token: $token, '
+        'username: <redacted>, '
+        'password: <redacted>, '
+        'packageName: $packageName, '
+        'webDomain: $webDomain, '
+        'capturedAtEpochMs: $capturedAtEpochMs)';
+  }
 }
 
 Object? _read(Map<dynamic, dynamic>? map, String key) =>

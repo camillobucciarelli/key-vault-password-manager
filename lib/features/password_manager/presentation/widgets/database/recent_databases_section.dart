@@ -39,13 +39,15 @@ class _RecentDatabasesSectionState extends State<RecentDatabasesSection> {
 
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
     final normalizedQuery = _query.trim().toLowerCase();
-    final filtered = widget.items.where((item) {
-      if (normalizedQuery.isEmpty) {
-        return true;
-      }
-      return item.displayName.toLowerCase().contains(normalizedQuery) ||
-          item.canonicalPath.toLowerCase().contains(normalizedQuery);
-    }).toList(growable: false);
+    final filtered = widget.items
+        .where((item) {
+          if (normalizedQuery.isEmpty) {
+            return true;
+          }
+          return item.displayName.toLowerCase().contains(normalizedQuery) ||
+              item.canonicalPath.toLowerCase().contains(normalizedQuery);
+        })
+        .toList(growable: false);
     final showSearch = widget.items.length > 5;
 
     return Column(

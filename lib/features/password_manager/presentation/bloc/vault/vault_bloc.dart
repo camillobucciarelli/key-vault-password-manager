@@ -17,6 +17,7 @@ import '../../../domain/models/vault_entry.dart';
 import '../../../domain/models/vault_group.dart';
 import '../../../domain/models/vault_snapshot.dart';
 import '../../../domain/services/vault_health_service.dart';
+import '../../coordinators/android_autofill_save_coordinator.dart';
 import '../../coordinators/apple_autofill_v2_coordinator.dart';
 import '../../coordinators/session_secret_holder.dart';
 import 'vault_event.dart';
@@ -35,6 +36,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     required this.vaultDuplicateService,
     required this.databaseSyncRepository,
     this.appleAutofillV2Coordinator = const NoopAppleAutofillV2Coordinator(),
+    this.androidAutofillSaveCoordinator,
     this.vaultHealthService = const VaultHealthService(),
     this.now = DateTime.now,
   }) : super(VaultState.initial(databasePath: databasePath)) {
@@ -92,6 +94,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<RejectAppleAutofillPendingAssociation>(
       _onRejectAppleAutofillPendingAssociation,
     );
+    on<CheckAndroidAutofillCapture>(_onCheckAndroidAutofillCapture);
+    on<ConfirmAndroidAutofillCapture>(_onConfirmAndroidAutofillCapture);
+    on<DeclineAndroidAutofillCapture>(_onDeclineAndroidAutofillCapture);
+    on<CancelAndroidAutofillCapture>(_onCancelAndroidAutofillCapture);
     on<LoadDuplicates>(_onLoadDuplicates);
     on<DeleteDuplicateEntry>(_onDeleteDuplicateEntry);
     on<MergeDuplicateEntries>(_onMergeDuplicateEntries);
@@ -115,6 +121,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   /// state/props and never logged (constitution principle I).
   final SessionSecretHolder sessionSecretHolder;
   final VaultKdbxService vaultKdbxService;
+
+  /// spec-016 US3. Absent on every platform but Android, where nothing ever
+  /// captures a submitted credential.
+  final AndroidAutofillSaveCoordinator? androidAutofillSaveCoordinator;
   final VaultCsvImportService vaultCsvImportService;
   final VaultDuplicateService vaultDuplicateService;
   final DatabaseSyncRepository databaseSyncRepository;
@@ -894,6 +904,122 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
 
     if (!keepLoadingFlag && state.isLoading) {
       _safeEmit(emit, state.copyWith(isLoading: false));
+    }
+  }
+
+  Future<void> _onCheckAndroidAutofillCapture(
+    CheckAndroidAutofillCapture event,
+    Emitter<VaultState> emit,
+  ) async {
+    final coordinator = androidAutofillSaveCoordinator;
+    if (coordinator == null || state.pendingAndroidAutofillSave != null) {
+      return;
+    }
+
+    final pending = await coordinator.takePendingSave(
+      entries: state.allEntries,
+    );
+    if (pending == null) {
+      return;
+    }
+    _safeEmit(emit, state.copyWith(pendingAndroidAutofillSave: pending));
+  }
+
+  Future<void> _onConfirmAndroidAutofillCapture(
+    ConfirmAndroidAutofillCapture event,
+    Emitter<VaultState> emit,
+  ) async {
+    final coordinator = androidAutofillSaveCoordinator;
+    final pending = state.pendingAndroidAutofillSave;
+    if (coordinator == null || pending == null) {
+      return;
+    }
+
+    // The pending save is cleared here, before the write, not after it: the
+    // reload below emits intermediate states, and any one of them still holding
+    // a pending save re-opens the confirmation the user just answered.
+    _safeEmit(
+      emit,
+      state.copyWith(
+        isSaving: true,
+        clearPendingAndroidAutofillSave: true,
+        clearError: true,
+        clearInfo: true,
+      ),
+    );
+    final result = await coordinator.confirm(
+      pending: pending,
+      databasePath: state.databasePath,
+      keyFilePath: _keyFilePath,
+      groupId: state.rootGroupId ?? state.currentGroupId ?? '',
+    );
+
+    switch (result.status) {
+      case AndroidAutofillSaveStatus.created:
+      case AndroidAutofillSaveStatus.updated:
+        await _reload(
+          emit,
+          currentGroupId: state.currentGroupId,
+          keepLoadingFlag: false,
+        );
+        await _scheduleAutoSync(emit);
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            clearPendingAndroidAutofillSave: true,
+            infoMessage: result.status == AndroidAutofillSaveStatus.created
+                ? 'Saved to your vault.'
+                : 'Password updated in your vault.',
+            clearError: true,
+          ),
+        );
+      case AndroidAutofillSaveStatus.notSaved:
+      case AndroidAutofillSaveStatus.failed:
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            clearPendingAndroidAutofillSave: true,
+            errorMessage: 'Not saved. The credential was discarded.',
+          ),
+        );
+    }
+  }
+
+  Future<void> _onDeclineAndroidAutofillCapture(
+    DeclineAndroidAutofillCapture event,
+    Emitter<VaultState> emit,
+  ) async {
+    await _dismissAndroidAutofillCapture(emit, declined: true);
+  }
+
+  Future<void> _onCancelAndroidAutofillCapture(
+    CancelAndroidAutofillCapture event,
+    Emitter<VaultState> emit,
+  ) async {
+    await _dismissAndroidAutofillCapture(emit, declined: false);
+  }
+
+  Future<void> _dismissAndroidAutofillCapture(
+    Emitter<VaultState> emit, {
+    required bool declined,
+  }) async {
+    final coordinator = androidAutofillSaveCoordinator;
+    final pending = state.pendingAndroidAutofillSave;
+    if (coordinator == null || pending == null) {
+      return;
+    }
+
+    // Cleared first, for the same reason as the confirm path.
+    _safeEmit(
+      emit,
+      state.copyWith(clearPendingAndroidAutofillSave: true, clearError: true),
+    );
+    if (declined) {
+      await coordinator.decline(pending);
+    } else {
+      await coordinator.cancel(pending);
     }
   }
 

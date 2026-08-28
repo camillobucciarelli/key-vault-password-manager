@@ -33,100 +33,110 @@ import 'package:path/path.dart' as p;
 const _password = 'test-password';
 
 void main() {
-  test('a vault edit racing syncNow serializes and neither write is lost',
-      () async {
-    final tempDir =
-        await Directory.systemTemp.createTemp('edit_vs_sync_');
-    addTearDown(() => tempDir.delete(recursive: true));
-    final databasePath = p.join(tempDir.path, 'vault.kdbx');
+  test(
+    'a vault edit racing syncNow serializes and neither write is lost',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp('edit_vs_sync_');
+      addTearDown(() => tempDir.delete(recursive: true));
+      final databasePath = p.join(tempDir.path, 'vault.kdbx');
 
-    final credentials = Credentials(ProtectedValue.fromString(_password));
-    final localKdbx = KdbxFormat().create(credentials, 'Local');
-    final localBytes = await localKdbx.save();
-    await File(databasePath).writeAsBytes(localBytes, flush: true);
+      final credentials = Credentials(ProtectedValue.fromString(_password));
+      final localKdbx = KdbxFormat().create(credentials, 'Local');
+      final localBytes = await localKdbx.save();
+      await File(databasePath).writeAsBytes(localBytes, flush: true);
 
-    // Remote: a DIFFERENT valid vault with the same password, containing a
-    // marker entry so the replacement is observable.
-    final remoteKdbx = KdbxFormat().create(
-      Credentials(ProtectedValue.fromString(_password)),
-      'Remote',
-    );
-    final remoteEntry = KdbxEntry.create(remoteKdbx, remoteKdbx.body.rootGroup);
-    remoteEntry.setString(KdbxKeyCommon.TITLE, PlainValue('remote-entry'));
-    remoteKdbx.body.rootGroup.addEntry(remoteEntry);
-    final remoteBytes = await remoteKdbx.save();
+      // Remote: a DIFFERENT valid vault with the same password, containing a
+      // marker entry so the replacement is observable.
+      final remoteKdbx = KdbxFormat().create(
+        Credentials(ProtectedValue.fromString(_password)),
+        'Remote',
+      );
+      final remoteEntry = KdbxEntry.create(
+        remoteKdbx,
+        remoteKdbx.body.rootGroup,
+      );
+      remoteEntry.setString(KdbxKeyCommon.TITLE, PlainValue('remote-entry'));
+      remoteKdbx.body.rootGroup.addEntry(remoteEntry);
+      final remoteBytes = await remoteKdbx.save();
 
-    final mutex = DatabasePathMutex();
-    final vaultService = VaultKdbxService(mutex: mutex);
-    final metadata = _InMemoryMetadata();
-    final drive = _GatedDrive()
-      ..metadataResult = DriveRemoteFile(
-        id: 'remote-1',
-        name: 'vault.kdbx',
-        md5Checksum: md5.convert(remoteBytes).toString(),
-      )
-      ..downloadResult = Uint8List.fromList(remoteBytes);
-    await metadata.upsertMapping(
-      DatabaseSyncMapping(
+      final mutex = DatabasePathMutex();
+      final vaultService = VaultKdbxService(mutex: mutex);
+      final metadata = _InMemoryMetadata();
+      final drive = _GatedDrive()
+        ..metadataResult = DriveRemoteFile(
+          id: 'remote-1',
+          name: 'vault.kdbx',
+          md5Checksum: md5.convert(remoteBytes).toString(),
+        )
+        ..downloadResult = Uint8List.fromList(remoteBytes);
+      await metadata.upsertMapping(
+        DatabaseSyncMapping(
+          databasePath: databasePath,
+          driveFileId: 'remote-1',
+          driveFileName: 'vault.kdbx',
+          // Local unchanged, remote changed -> download+replace branch.
+          lastSyncedLocalChecksum: md5.convert(localBytes).toString(),
+          lastSyncedRemoteChecksum: 'stale-remote-checksum',
+          lastSyncedRemoteModifiedTime: null,
+          lastSyncAt: DateTime(2026),
+        ),
+      );
+      final orchestrator = DatabaseSyncOrchestrator(
+        syncMetadataDataSource: metadata,
+        googleDriveApiService: drive,
+        mutex: mutex,
+      );
+
+      // 1. Sync takes the lock and parks on the gated download.
+      final syncFuture = orchestrator.syncNow(databasePath);
+      await drive.downloadRequested.future;
+
+      // 2. Edit dispatched while sync holds the lock.
+      // Target the remote root group: after serialization the edit reopens the
+      // REPLACED file, so a pre-sync group id would fail loudly ("Group not
+      // found" — correct, no silent loss; pinned implicitly here).
+      final editFuture = vaultService.createEntry(
         databasePath: databasePath,
-        driveFileId: 'remote-1',
-        driveFileName: 'vault.kdbx',
-        // Local unchanged, remote changed -> download+replace branch.
-        lastSyncedLocalChecksum: md5.convert(localBytes).toString(),
-        lastSyncedRemoteChecksum: 'stale-remote-checksum',
-        lastSyncedRemoteModifiedTime: null,
-        lastSyncAt: DateTime(2026),
-      ),
-    );
-    final orchestrator = DatabaseSyncOrchestrator(
-      syncMetadataDataSource: metadata,
-      googleDriveApiService: drive,
-      mutex: mutex,
-    );
+        password: _password,
+        groupId: remoteKdbx.body.rootGroup.uuid.uuid,
+        title: 'edited-entry',
+        username: 'user',
+        entryPassword: 'secret',
+        url: '',
+        notes: '',
+      );
+      // Give the edit every chance to (incorrectly) run before the download
+      // completes: if it is not serialized behind the lock it writes NOW.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
 
-    // 1. Sync takes the lock and parks on the gated download.
-    final syncFuture = orchestrator.syncNow(databasePath);
-    await drive.downloadRequested.future;
+      // 3. Open the gate; both operations settle.
+      drive.downloadGate.complete();
+      final syncResult = await syncFuture.timeout(const Duration(seconds: 10));
+      await editFuture.timeout(const Duration(seconds: 10));
+      expect(syncResult, isA<SyncNowSuccess>());
 
-    // 2. Edit dispatched while sync holds the lock.
-    // Target the remote root group: after serialization the edit reopens the
-    // REPLACED file, so a pre-sync group id would fail loudly ("Group not
-    // found" — correct, no silent loss; pinned implicitly here).
-    final editFuture = vaultService.createEntry(
-      databasePath: databasePath,
-      password: _password,
-      groupId: remoteKdbx.body.rootGroup.uuid.uuid,
-      title: 'edited-entry',
-      username: 'user',
-      entryPassword: 'secret',
-      url: '',
-      notes: '',
-    );
-    // Give the edit every chance to (incorrectly) run before the download
-    // completes: if it is not serialized behind the lock it writes NOW.
-    await Future<void>.delayed(const Duration(milliseconds: 50));
-
-    // 3. Open the gate; both operations settle.
-    drive.downloadGate.complete();
-    final syncResult = await syncFuture.timeout(const Duration(seconds: 10));
-    await editFuture.timeout(const Duration(seconds: 10));
-    expect(syncResult, isA<SyncNowSuccess>());
-
-    // 4. Neither write lost: the final file is the REMOTE vault (sync won the
-    // lock first) with the edited entry applied on top.
-    final finalKdbx = await KdbxFormat().read(
-      await File(databasePath).readAsBytes(),
-      Credentials(ProtectedValue.fromString(_password)),
-    );
-    final titles = finalKdbx.body.rootGroup
-        .getAllEntries()
-        .map((e) => e.getString(KdbxKeyCommon.TITLE)?.getText())
-        .toList();
-    expect(titles, contains('remote-entry'),
-        reason: 'the sync replacement was clobbered by the racing edit');
-    expect(titles, contains('edited-entry'),
-        reason: 'the vault edit was clobbered by the sync replacement');
-  });
+      // 4. Neither write lost: the final file is the REMOTE vault (sync won the
+      // lock first) with the edited entry applied on top.
+      final finalKdbx = await KdbxFormat().read(
+        await File(databasePath).readAsBytes(),
+        Credentials(ProtectedValue.fromString(_password)),
+      );
+      final titles = finalKdbx.body.rootGroup
+          .getAllEntries()
+          .map((e) => e.getString(KdbxKeyCommon.TITLE)?.getText())
+          .toList();
+      expect(
+        titles,
+        contains('remote-entry'),
+        reason: 'the sync replacement was clobbered by the racing edit',
+      );
+      expect(
+        titles,
+        contains('edited-entry'),
+        reason: 'the vault edit was clobbered by the sync replacement',
+      );
+    },
+  );
 }
 
 class _InMemoryMetadata implements SyncMetadataDataSource {

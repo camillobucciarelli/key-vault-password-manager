@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- spec-016 T702: one credential row. minHeight keeps the touch target at
+     44dp even when the subtitle is empty.
+
+     The row is deliberately NOT focusable and carries no background: a focusable
+     row makes a ListView swallow item clicks. Focus and press states come from
+     the list's selector (kv_picker_row_background), which draws the same 2dp
+     ring under the row. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:minHeight="@dimen/kv_picker_touch_target"
+    android:minWidth="@dimen/kv_picker_touch_target"
+    android:orientation="vertical"
+    android:gravity="center_vertical"
+    android:paddingStart="@dimen/kv_picker_row_padding_horizontal"
+    android:paddingEnd="@dimen/kv_picker_row_padding_horizontal"
+    android:paddingTop="@dimen/kv_picker_row_padding_vertical"
+    android:paddingBottom="@dimen/kv_picker_row_padding_vertical">
+
+    <TextView
+        android:id="@+id/autofill_picker_row_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="@dimen/kv_picker_row_title_text"
+        android:textColor="@color/kv_picker_text_primary"
+        android:fontFamily="@font/figtree_semibold"
+        android:singleLine="true"
+        android:ellipsize="end" />
+
+    <TextView
+        android:id="@+id/autofill_picker_row_subtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="@dimen/kv_picker_row_subtitle_text"
+        android:textColor="@color/kv_picker_text_secondary"
+        android:fontFamily="@font/figtree_regular"
+        android:singleLine="true"
+        android:ellipsize="end" />
+</LinearLayout>

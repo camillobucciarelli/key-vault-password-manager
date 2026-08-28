@@ -427,6 +427,66 @@ class _UnlockReadyForm extends StatelessWidget {
 /// FR-5 mobile default: "Use a key file" link, plus (only when
 /// `biometricAvailable`) a 1×14 divider and "Face ID" — 13 px `linkText`
 /// inline links (mock 01-02 "Unlock" default state).
+/// spec-016: an autofill save is waiting on this unlock.
+///
+/// It sits above every unlock phase, not inside the password form: with
+/// biometrics enabled that form is never shown, and that is exactly the case
+/// where the user is most likely to walk away without knowing what it costs.
+///
+/// Styled as part of the screen rather than as a coloured block: the system
+/// biometric prompt covers the app while it is up, so this has to still read
+/// as the screen's own message once the prompt is dismissed.
+class _PendingCaptureNotice extends StatelessWidget {
+  const _PendingCaptureNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+
+    return SafeArea(
+      bottom: false,
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(AppRadii.rowNested),
+          border: Border.all(color: colors.attentionText, width: 1.5),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(AppIcons.save, size: 20, color: colors.attentionText),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'A password is waiting to be saved',
+                    style: AppTextStyles.rowTitle.copyWith(
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'You just submitted it in another app. Unlock to save it — '
+                    'leave this screen and it is discarded.',
+                    style: AppTextStyles.secondary.copyWith(
+                      color: colors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _UnlockLinkRow extends StatelessWidget {
   const _UnlockLinkRow({
     required this.onPickKeyFile,

@@ -1,28 +1,30 @@
 package dev.camillobucciarelli.kdbxKeyVault.autofill
 
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.service.autofill.Dataset
-import android.view.Gravity
+import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.view.autofill.AutofillId
 import android.view.autofill.AutofillManager
 import android.view.autofill.AutofillValue
 import android.widget.AdapterView
 import android.widget.BaseAdapter
 import android.widget.EditText
-import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.RemoteViews
 import android.widget.TextView
 import android.widget.Toast
+import androidx.fragment.app.FragmentActivity
 import dev.camillobucciarelli.kdbxKeyVault.R
 
-class AutofillPickerActivity : Activity() {
+class AutofillPickerActivity : FragmentActivity() {
     private lateinit var store: AndroidAutofillStore
+    private lateinit var authGate: AutofillAuthGate
+    private var isAuthenticating: Boolean = false
     private lateinit var usernameIds: ArrayList<AutofillId>
     private lateinit var passwordIds: ArrayList<AutofillId>
     private lateinit var targets: List<AndroidAutofillServiceIdentifier>
@@ -33,6 +35,7 @@ class AutofillPickerActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = AndroidAutofillStore(applicationContext)
+        authGate = AutofillAuthGate(activity = this, store = store)
         usernameIds = intent.autofillIdsExtra(EXTRA_USERNAME_IDS)
         passwordIds = intent.autofillIdsExtra(EXTRA_PASSWORD_IDS)
         if (usernameIds.isEmpty() && passwordIds.isEmpty()) {
@@ -66,64 +69,31 @@ class AutofillPickerActivity : Activity() {
             strongMatches.ifEmpty { allEntries.sortedBy { it.sortKey } }
         }
 
-        setContentView(buildContentView())
+        bindContentView()
     }
 
-    private fun buildContentView(): View {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(32, 32, 32, 16)
-        }
+    private fun bindContentView() {
+        setContentView(R.layout.autofill_picker_activity)
 
-        val title = TextView(this).apply {
-            text = if (isGlobalSearch) {
-                getString(R.string.autofill_picker_no_exact_match_title)
-            } else {
-                getString(R.string.autofill_picker_exact_match_title)
-            }
-            textSize = 20f
-            gravity = Gravity.START
+        findViewById<TextView>(R.id.autofill_picker_title).text = if (isGlobalSearch) {
+            getString(R.string.autofill_picker_no_exact_match_title)
+        } else {
+            getString(R.string.autofill_picker_exact_match_title)
         }
-        root.addView(title)
-
-        val subtitle = TextView(this).apply {
-            text = if (isGlobalSearch) {
-                getString(R.string.autofill_picker_no_exact_match_subtitle)
-            } else {
-                getString(R.string.autofill_picker_exact_match_subtitle)
-            }
-            textSize = 14f
-            setPadding(0, 8, 0, 16)
+        findViewById<TextView>(R.id.autofill_picker_subtitle).text = if (isGlobalSearch) {
+            getString(R.string.autofill_picker_no_exact_match_subtitle)
+        } else {
+            getString(R.string.autofill_picker_exact_match_subtitle)
         }
-        root.addView(subtitle)
-
-        val search = EditText(this).apply {
-            hint = getString(R.string.autofill_picker_search_hint)
-            isSingleLine = true
-        }
-        root.addView(
-            search,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            ),
-        )
 
         val adapter = CredentialAdapter(this)
-        val list = ListView(this).apply {
+        val list = findViewById<ListView>(R.id.autofill_picker_list).apply {
             this.adapter = adapter
+            contentDescription = getString(R.string.autofill_picker_list_description)
             onItemClickListener = AdapterView.OnItemClickListener { _, _, position, _ ->
                 visibleEntries.getOrNull(position)?.let(::selectCredential)
             }
         }
-        root.addView(
-            list,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f,
-            ),
-        )
 
         fun updateList(query: String = "") {
             visibleEntries = when {
@@ -146,24 +116,49 @@ class AutofillPickerActivity : Activity() {
             }
             adapter.replace(visibleEntries, isGlobalSearch)
         }
-        search.addTextChangedListener(
+
+        findViewById<EditText>(R.id.autofill_picker_search).addTextChangedListener(
             SimpleTextWatcher { text -> updateList(text) },
         )
         updateList()
-
-        return root
+        list.requestFocus()
     }
 
     private fun selectCredential(metadata: AndroidAutofillCredentialMetadata) {
+        if (isAuthenticating) {
+            return
+        }
+        isAuthenticating = true
+        authGate.authenticate { outcome ->
+            isAuthenticating = false
+            when (outcome) {
+                AutofillAuthGate.Outcome.Authenticated -> releaseCredential(metadata)
+                AutofillAuthGate.Outcome.NoAuthenticator -> {
+                    Toast.makeText(this, R.string.autofill_auth_required_error, Toast.LENGTH_LONG).show()
+                    finishCanceled()
+                }
+                AutofillAuthGate.Outcome.Cancelled -> {
+                    Toast.makeText(this, R.string.autofill_auth_cancelled, Toast.LENGTH_SHORT).show()
+                    finishCanceled()
+                }
+            }
+        }
+    }
+
+    /** Only ever reached after [AutofillAuthGate] reports a successful authentication. */
+    private fun releaseCredential(metadata: AndroidAutofillCredentialMetadata) {
         val secret = runCatching { store.readCredentialSecret(metadata.id) }
             .onFailure { Toast.makeText(this, R.string.autofill_picker_secret_error, Toast.LENGTH_SHORT).show() }
             .getOrNull()
         if (secret == null) {
+            // The cache went away, was republished for another database, or no
+            // longer holds this entry between the prompt and the release.
+            Toast.makeText(this, R.string.autofill_picker_secret_error, Toast.LENGTH_SHORT).show()
             finishCanceled()
             return
         }
 
-        val dataset = Dataset.Builder(presentation(metadata.title.ifEmpty { metadata.displayService }))
+        val dataset = Dataset.Builder(presentation(metadata))
             .apply {
                 val usernameValue = AutofillValue.forText(secret.username)
                 val passwordValue = AutofillValue.forText(secret.password)
@@ -185,10 +180,15 @@ class AutofillPickerActivity : Activity() {
         finish()
     }
 
-    private fun presentation(text: String): RemoteViews {
-        return RemoteViews(packageName, android.R.layout.simple_list_item_1).apply {
-            setTextViewText(android.R.id.text1, text.ifBlank { getString(R.string.autofill_dataset_selected) })
-        }
+    private fun presentation(metadata: AndroidAutofillCredentialMetadata): RemoteViews {
+        val title = metadata.title
+            .ifBlank { metadata.displayService }
+            .ifBlank { getString(R.string.autofill_dataset_selected) }
+        return datasetPresentation(
+            packageName = packageName,
+            title = title,
+            subtitle = metadata.username,
+        )
     }
 
     private fun finishCanceled() {
@@ -198,6 +198,7 @@ class AutofillPickerActivity : Activity() {
 
     private class CredentialAdapter(private val context: Context) : BaseAdapter() {
         private val rows = mutableListOf<CredentialRow>()
+        private val inflater = LayoutInflater.from(context)
 
         fun replace(entries: List<AndroidAutofillCredentialMetadata>, possible: Boolean) {
             rows.clear()
@@ -211,28 +212,34 @@ class AutofillPickerActivity : Activity() {
 
         override fun getItemId(position: Int): Long = position.toLong()
 
-        override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup?): View {
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
             val row = rows[position]
-            val root = (convertView as? LinearLayout) ?: LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(8, 14, 8, 14)
-                addView(TextView(context).apply { id = android.R.id.text1; textSize = 16f })
-                addView(TextView(context).apply { id = android.R.id.text2; textSize = 13f })
+            val view = convertView
+                ?: inflater.inflate(R.layout.autofill_picker_row, parent, false)
+            view.findViewById<TextView>(R.id.autofill_picker_row_title).text = row.title
+            view.findViewById<TextView>(R.id.autofill_picker_row_subtitle).apply {
+                text = row.subtitle
+                visibility = if (row.subtitle.isEmpty()) View.GONE else View.VISIBLE
             }
-            root.findViewById<TextView>(android.R.id.text1).text = row.title
-            root.findViewById<TextView>(android.R.id.text2).text = row.subtitle
-            return root
+            // One label for the whole row: TalkBack should announce the credential
+            // once, not read two separate text nodes.
+            view.contentDescription = context.getString(
+                R.string.autofill_picker_row_content_description,
+                row.title,
+                row.subtitle,
+            )
+            return view
         }
 
         private fun rowFor(
             entry: AndroidAutofillCredentialMetadata,
             possible: Boolean,
         ): CredentialRow {
-            val title = entry.title.ifEmpty { "Untitled" }
+            val title = entry.title.ifEmpty { context.getString(R.string.autofill_picker_row_untitled) }
             val subtitleParts = buildList {
                 if (entry.username.isNotBlank()) add(entry.username)
                 if (entry.displayService.isNotBlank()) add(entry.displayService)
-                if (possible) add("Possible match — not linked")
+                if (possible) add(context.getString(R.string.autofill_picker_row_possible_match))
             }
             return CredentialRow(
                 title = title,

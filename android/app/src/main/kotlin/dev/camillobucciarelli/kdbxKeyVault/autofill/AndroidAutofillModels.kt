@@ -82,4 +82,19 @@ internal data class AndroidAutofillStoreStatus(
     val cacheAvailable: Boolean,
     val databaseId: String?,
     val generatedAtEpochMs: Long?,
+    val authSessionTtlMs: Long,
+    val lastAuthenticatedAtEpochMs: Long?,
+)
+
+/**
+ * Authentication session state for the autofill picker.
+ *
+ * Neither field is a secret. They live in their own plaintext file rather than
+ * in the metadata cache because that cache is the AEAD associated data of the
+ * sealed secret file: rewriting it to stamp a timestamp would invalidate every
+ * sealed credential.
+ */
+internal data class AndroidAutofillAuthSession(
+    val authSessionTtlMs: Long,
+    val lastAuthenticatedAtEpochMs: Long?,
 )

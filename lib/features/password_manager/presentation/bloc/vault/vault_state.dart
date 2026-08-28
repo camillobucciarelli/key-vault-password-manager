@@ -8,6 +8,7 @@ import '../../../domain/models/sync_conflict.dart';
 import '../../../domain/models/vault_entry.dart';
 import '../../../domain/models/vault_group.dart';
 import '../../../domain/models/vault_health_report.dart';
+import '../../coordinators/android_autofill_save_coordinator.dart';
 import '../../../data/services/vault_csv_import_service.dart'
     show CsvImportOutcome;
 
@@ -51,6 +52,7 @@ class VaultState extends Equatable {
     this.duplicateGroups = const [],
     this.isDuplicatesLoading = false,
     this.pendingAppleAutofillAssociations = const [],
+    this.pendingAndroidAutofillSave,
     this.healthReport = VaultHealthReport.empty,
     this.lastCsvImportOutcome,
   });
@@ -101,6 +103,11 @@ class VaultState extends Equatable {
   final List<AppleAutofillV2PendingAssociation>
   pendingAppleAutofillAssociations;
 
+  /// spec-016 US3: a credential submitted to another app, waiting for the
+  /// user to confirm whether it becomes a new entry or updates one. The
+  /// captured password lives inside it and is never rendered.
+  final AndroidAutofillPendingSave? pendingAndroidAutofillSave;
+
   /// spec-005 T3: computed on unlock and after every write (never per
   /// keystroke) — see `VaultBloc._computeHealth`.
   final VaultHealthReport healthReport;
@@ -147,6 +154,7 @@ class VaultState extends Equatable {
     List<DuplicateGroup>? duplicateGroups,
     bool? isDuplicatesLoading,
     List<AppleAutofillV2PendingAssociation>? pendingAppleAutofillAssociations,
+    AndroidAutofillPendingSave? pendingAndroidAutofillSave,
     VaultHealthReport? healthReport,
     CsvImportOutcome? lastCsvImportOutcome,
     bool clearError = false,
@@ -156,6 +164,7 @@ class VaultState extends Equatable {
     bool clearSyncConflict = false,
     bool clearSyncReloadPending = false,
     bool clearCsvImportOutcome = false,
+    bool clearPendingAndroidAutofillSave = false,
   }) {
     return VaultState(
       databasePath: databasePath,
@@ -207,6 +216,9 @@ class VaultState extends Equatable {
       pendingAppleAutofillAssociations:
           pendingAppleAutofillAssociations ??
           this.pendingAppleAutofillAssociations,
+      pendingAndroidAutofillSave: clearPendingAndroidAutofillSave
+          ? null
+          : pendingAndroidAutofillSave ?? this.pendingAndroidAutofillSave,
       healthReport: healthReport ?? this.healthReport,
       lastCsvImportOutcome: clearCsvImportOutcome
           ? null
@@ -292,6 +304,7 @@ class VaultState extends Equatable {
     duplicateGroups,
     isDuplicatesLoading,
     pendingAppleAutofillAssociations,
+    pendingAndroidAutofillSave,
     // Deliberately NOT `healthReport` itself (plan.md risk: "Adding
     // healthReport to VaultState triggers rebuild storms" — its
     // categories carry full entryIds lists that would make every
@@ -343,6 +356,8 @@ class VaultState extends Equatable {
         'isDuplicatesLoading: $isDuplicatesLoading, '
         'pendingAppleAutofillAssociations: '
         '${pendingAppleAutofillAssociations.length}, '
+        'pendingAndroidAutofillSave: '
+        '${pendingAndroidAutofillSave != null}, '
         'healthReport.score: ${healthReport.score}, '
         'lastCsvImportOutcome: ${lastCsvImportOutcome != null})';
   }

@@ -15,4 +15,16 @@
     <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
+    <!-- spec-016 T701: same tokens, dark values (values-night/colors.xml). Only the
+         parent changes, so the picker inherits dark system widgets. -->
+    <style name="AutofillPickerTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">@color/kv_picker_ground</item>
+        <item name="android:colorBackground">@color/kv_picker_ground</item>
+        <item name="android:textColorPrimary">@color/kv_picker_text_primary</item>
+        <item name="android:textColorSecondary">@color/kv_picker_text_secondary</item>
+        <item name="android:textColorHint">@color/kv_picker_text_secondary</item>
+        <item name="android:colorAccent">@color/kv_picker_focus</item>
+        <item name="android:fontFamily">@font/figtree_regular</item>
+    </style>
 </resources>

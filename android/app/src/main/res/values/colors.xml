@@ -1,4 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#FFE1D0</color>
+
+    <!--
+        spec-016 T701 — mirror of `lib/core/theme/app_colors.dart`.
+
+        The autofill picker is a native Android activity, so it cannot read the
+        Flutter theme. Every value below is copied verbatim from an `AppColors`
+        constant, named after its source; `test/core/theme/android_autofill_token_mirror_test.dart`
+        fails if the two drift apart. Do not hand-tune a value here — change the
+        Dart token and copy it over.
+    -->
+    <color name="kv_picker_ground">#FFF9F4ED</color>          <!-- AppColors.neutral100 -->
+    <color name="kv_picker_surface">#FFEEE7DB</color>         <!-- AppColors.neutral200 -->
+    <color name="kv_picker_text_primary">#FF201E1D</color>    <!-- AppColors.text -->
+    <color name="kv_picker_text_secondary">#FF665F53</color>  <!-- AppColors.neutral700 -->
+    <color name="kv_picker_divider">#29201E1D</color>         <!-- AppColors.divider -->
+    <color name="kv_picker_focus">#FF8C491A</color>           <!-- AppColors.accent700 -->
+    <color name="kv_picker_accent_tint">#FFFFF2EB</color>     <!-- AppColors.accent100 -->
 </resources>

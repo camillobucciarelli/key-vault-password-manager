@@ -57,6 +57,26 @@ void main() {
                   'clearedCount': ids?.length ?? 1,
                   'warnings': <String>[],
                 };
+              case 'takePendingCaptureToken':
+                return 'token-1';
+              case 'readPendingCapture':
+                final args = call.arguments as Map<dynamic, dynamic>;
+                if (args['token'] != 'token-1') {
+                  throw PlatformException(
+                    code: 'android_autofill_capture_missing',
+                    message: 'No pending capture for this token.',
+                  );
+                }
+                return {
+                  'token': 'token-1',
+                  'username': 'alice',
+                  'password': 'submitted-secret',
+                  'packageName': 'com.example.app',
+                  'webDomain': null,
+                  'capturedAtEpochMs': 42,
+                };
+              case 'resolvePendingCapture':
+                return {'clearedCount': 1, 'warnings': <String>[]};
               case 'getStatus':
                 return {
                   'version': 2,
@@ -76,6 +96,31 @@ void main() {
     tearDown(() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(channel, null);
+    });
+
+    test('publishCredentials carries the requested auth session ttl', () async {
+      final client = AppleAutofillV2MethodChannelClient(
+        channel: channel,
+        isSupportedOverride: true,
+      );
+
+      await client.publishCredentials(
+        databaseId: 'db-1',
+        credentials: const [
+          AppleAutofillV2Credential(
+            id: 'entry-1',
+            title: 'Example',
+            username: 'alice',
+            password: 'super-secret',
+            url: null,
+            serviceIdentifiers: [],
+          ),
+        ],
+        authSessionTtlMs: 30000,
+      );
+
+      final args = calls.single.arguments as Map<dynamic, dynamic>;
+      expect(args['authSessionTtlMs'], 30000);
     });
 
     test('publishCredentials sends the native v2 payload', () async {
@@ -109,6 +154,7 @@ void main() {
       expect(calls.single.method, 'publishCredentials');
       final args = calls.single.arguments as Map<dynamic, dynamic>;
       expect(args['databaseId'], 'db-1');
+      expect(args['authSessionTtlMs'], 0);
       final entries = args['entries'] as List<dynamic>;
       final entry = entries.single as Map<dynamic, dynamic>;
       expect(entry['id'], 'entry-1');
@@ -222,5 +268,77 @@ void main() {
         expect(calls, isEmpty);
       },
     );
+
+    test('readPendingCapture returns the captured credential once', () async {
+      final client = AppleAutofillV2MethodChannelClient(
+        channel: channel,
+        isSupportedOverride: true,
+      );
+
+      final capture = await client.readPendingCapture('token-1');
+
+      expect(capture?.token, 'token-1');
+      expect(capture?.username, 'alice');
+      expect(capture?.password, 'submitted-secret');
+      expect(capture?.association, 'com.example.app');
+    });
+
+    test('a capture that is gone reads as null, not as an error', () async {
+      final client = AppleAutofillV2MethodChannelClient(
+        channel: channel,
+        isSupportedOverride: true,
+      );
+
+      expect(await client.readPendingCapture('other-token'), isNull);
+    });
+
+    test('the captured password is never rendered', () async {
+      final client = AppleAutofillV2MethodChannelClient(
+        channel: channel,
+        isSupportedOverride: true,
+      );
+
+      final capture = await client.readPendingCapture('token-1');
+
+      expect(capture.toString(), isNot(contains('submitted-secret')));
+      expect(capture.toString(), isNot(contains('alice')));
+      expect(capture!.props.join(), isNot(contains('submitted-secret')));
+    });
+
+    test('resolvePendingCapture reports the outcome', () async {
+      final client = AppleAutofillV2MethodChannelClient(
+        channel: channel,
+        isSupportedOverride: true,
+      );
+
+      final result = await client.resolvePendingCapture(
+        token: 'token-1',
+        outcome: AndroidAutofillCaptureOutcome.declined,
+      );
+
+      expect(result.clearedCount, 1);
+      final args = calls.single.arguments as Map<dynamic, dynamic>;
+      expect(args['outcome'], 'declined');
+    });
+
+    test('an unsupported platform refuses instead of answering null', () async {
+      final client = AppleAutofillV2MethodChannelClient(
+        channel: channel,
+        isSupportedOverride: false,
+      );
+
+      expect(
+        () => client.readPendingCapture('token-1'),
+        throwsUnsupportedError,
+      );
+      expect(
+        () => client.resolvePendingCapture(
+          token: 'token-1',
+          outcome: AndroidAutofillCaptureOutcome.saved,
+        ),
+        throwsUnsupportedError,
+      );
+      expect(await client.takePendingCaptureToken(), isNull);
+    });
   });
 }

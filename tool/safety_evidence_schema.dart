@@ -40,13 +40,7 @@ const requiredHarnessCases = <String>[
   'interruption_before_and_after_replace_dispatch',
 ];
 
-const targetPlatforms = <String>[
-  'android',
-  'ios',
-  'macos',
-  'windows',
-  'linux',
-];
+const targetPlatforms = <String>['android', 'ios', 'macos', 'windows', 'linux'];
 
 const requiredTopLevelFields = <String>[
   'schemaVersion',
@@ -78,7 +72,11 @@ String artifactLogPath(String platform) =>
     'build/safety-evidence/$platform/safe-vault-writer.log';
 
 class PlatformStatus {
-  const PlatformStatus(this.status, {required this.featureEnabled, this.reason});
+  const PlatformStatus(
+    this.status, {
+    required this.featureEnabled,
+    this.reason,
+  });
 
   final String status;
   final bool featureEnabled;

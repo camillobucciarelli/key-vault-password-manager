@@ -103,32 +103,35 @@ void main() {
       );
     });
 
-    test('the assembled artifact validates and enables only this host',
-        () async {
-      final started = DateTime.now().toUtc();
-      final run = await runHarness(workspace);
-      final artifact = buildArtifact(
-        run: run,
-        platform: Platform.operatingSystem,
-        osVersion: Platform.operatingSystemVersion,
-        deviceOrRunner: 'host test',
-        filesystem: 'host',
-        flutterVersion: 'host test',
-        dartVersion: Platform.version,
-        commit: 'host test',
-        command: 'flutter test test/tool/safe_vault_writer_harness_test.dart',
-        startedAtUtc: started,
-        completedAtUtc: DateTime.now().toUtc(),
-      );
+    test(
+      'the assembled artifact validates and enables only this host',
+      () async {
+        final started = DateTime.now().toUtc();
+        final run = await runHarness(workspace);
+        final artifact = buildArtifact(
+          run: run,
+          platform: Platform.operatingSystem,
+          osVersion: Platform.operatingSystemVersion,
+          deviceOrRunner: 'host test',
+          filesystem: 'host',
+          flutterVersion: 'host test',
+          dartVersion: Platform.version,
+          commit: 'host test',
+          command: 'flutter test test/tool/safe_vault_writer_harness_test.dart',
+          startedAtUtc: started,
+          completedAtUtc: DateTime.now().toUtc(),
+        );
 
-      expect(validateArtifact(artifact), isEmpty);
-      expect(artifact['status'], 'passed');
-      expect(qualifiedPlatforms(artifact), [Platform.operatingSystem]);
-      for (final other
-          in targetPlatforms.where((p) => p != Platform.operatingSystem)) {
-        expect(qualifiedPlatforms(artifact), isNot(contains(other)));
-      }
-    });
+        expect(validateArtifact(artifact), isEmpty);
+        expect(artifact['status'], 'passed');
+        expect(qualifiedPlatforms(artifact), [Platform.operatingSystem]);
+        for (final other in targetPlatforms.where(
+          (p) => p != Platform.operatingSystem,
+        )) {
+          expect(qualifiedPlatforms(artifact), isNot(contains(other)));
+        }
+      },
+    );
 
     // The gate's whole purpose is to REFUSE a platform, so the refusing path
     // needs its own evidence. Without this, a harness that could never report
@@ -279,8 +282,11 @@ void main() {
 // =============================================================================
 
 void _filerTests() {
-  Future<ProcessResult> file(String transcript, String outRoot,
-      [String platform = '']) {
+  Future<ProcessResult> file(
+    String transcript,
+    String outRoot, [
+    String platform = '',
+  ]) {
     return Process.run('dart', [
       'run',
       'tool/file_safety_evidence.dart',
@@ -308,34 +314,34 @@ void _filerTests() {
   }
 
   Map<String, dynamic> passing() => <String, dynamic>{
-        'schemaVersion': 1,
-        'platform': 'linux',
-        'osVersion': 'x',
-        'deviceOrRunner': 'x',
-        'filesystem': 'x',
-        'flutterVersion': 'x',
-        'dartVersion': 'x',
-        'commit': 'deadbeef',
-        'command': 'tool/run_safety_harness.sh -d x',
-        'startedAtUtc': '2026-01-01T00:00:00Z',
-        'completedAtUtc': '2026-01-01T00:00:01Z',
-        'status': 'passed',
-        'flushSupported': true,
-        'directorySyncSupported': true,
-        'atomicReplaceOverExisting': true,
-        'backupNoOverwrite': true,
-        'cases': [
-          for (final name in requiredHarnessCases)
-            <String, dynamic>{
-              'name': name,
-              'injectedFailurePhase': name,
-              'targetState': 'old',
-              'passed': true,
-              'finalChecksum': 'x',
-            },
-        ],
-        'logPath': 'build/safety-evidence/linux/safe-vault-writer.log',
-      };
+    'schemaVersion': 1,
+    'platform': 'linux',
+    'osVersion': 'x',
+    'deviceOrRunner': 'x',
+    'filesystem': 'x',
+    'flutterVersion': 'x',
+    'dartVersion': 'x',
+    'commit': 'deadbeef',
+    'command': 'tool/run_safety_harness.sh -d x',
+    'startedAtUtc': '2026-01-01T00:00:00Z',
+    'completedAtUtc': '2026-01-01T00:00:01Z',
+    'status': 'passed',
+    'flushSupported': true,
+    'directorySyncSupported': true,
+    'atomicReplaceOverExisting': true,
+    'backupNoOverwrite': true,
+    'cases': [
+      for (final name in requiredHarnessCases)
+        <String, dynamic>{
+          'name': name,
+          'injectedFailurePhase': name,
+          'targetState': 'old',
+          'passed': true,
+          'finalChecksum': 'x',
+        },
+    ],
+    'logPath': 'build/safety-evidence/linux/safe-vault-writer.log',
+  };
 
   test('a passing artifact is filed and exits 0', () async {
     final out = joinPath(scratch.path, 'out');
@@ -373,17 +379,19 @@ void _filerTests() {
     expect(Directory(out).existsSync(), isFalse);
   });
 
-  test('an artifact for another platform is refused and files nothing',
-      () async {
-    final out = joinPath(scratch.path, 'out');
-    final r = await file(await transcriptFor(passing()), out, 'android');
-    expect(
-      r.exitCode,
-      1,
-      reason: 'host evidence never qualifies another target',
-    );
-    expect(Directory(out).existsSync(), isFalse);
-  });
+  test(
+    'an artifact for another platform is refused and files nothing',
+    () async {
+      final out = joinPath(scratch.path, 'out');
+      final r = await file(await transcriptFor(passing()), out, 'android');
+      expect(
+        r.exitCode,
+        1,
+        reason: 'host evidence never qualifies another target',
+      );
+      expect(Directory(out).existsSync(), isFalse);
+    },
+  );
 
   test('a transcript with no artifact is refused and files nothing', () async {
     final f = File(joinPath(scratch.path, 'noise.log'));

@@ -17,6 +17,9 @@ internal class AndroidAutofillV2Channel(context: Context) {
                     store.readPendingAssociations().map(AndroidAutofillJson::pendingAssociationToMap),
                 )
                 "clearPendingAssociations" -> handleClearPendingAssociations(call.arguments, result)
+                "readPendingCapture" -> handleReadPendingCapture(call.arguments, result)
+                "resolvePendingCapture" -> handleResolvePendingCapture(call.arguments, result)
+                "takePendingCaptureToken" -> result.success(takePendingCaptureToken())
                 "getStatus" -> result.success(statusMap())
                 else -> result.notImplemented()
             }
@@ -33,8 +36,15 @@ internal class AndroidAutofillV2Channel(context: Context) {
         val rawEntries = args["entries"] as? List<*>
             ?: throw IllegalArgumentException("entries must be a list")
         val entries = rawEntries.map(::parsePublishEntry)
+        val authSessionTtlMs = parseAuthSessionTtlMs(args["authSessionTtlMs"])
         Log.i(TAG, "publishCredentials received entryCount=${entries.size}")
-        result.success(store.publishCredentials(databaseId = databaseId, entries = entries))
+        result.success(
+            store.publishCredentials(
+                databaseId = databaseId,
+                entries = entries,
+                authSessionTtlMs = authSessionTtlMs,
+            ),
+        )
     }
 
     private fun handleClearCredentials(arguments: Any?, result: MethodChannel.Result) {
@@ -50,6 +60,87 @@ internal class AndroidAutofillV2Channel(context: Context) {
         result.success(mapOf("clearedCount" to clearedCount, "warnings" to emptyList<String>()))
     }
 
+    /**
+     * The token of a save capture the app was launched for, kept until Dart
+     * asks for it: a cold start reaches [handle] only after the engine is up,
+     * so the launching intent cannot simply be pushed at it.
+     */
+    private var pendingCaptureToken: String? = null
+
+    fun setPendingCaptureToken(token: String?) {
+        pendingCaptureToken = token?.trim()?.takeIf { it.isNotEmpty() }
+        Log.d(TAG, "pendingCaptureToken set=${pendingCaptureToken != null}")
+    }
+
+    private fun takePendingCaptureToken(): String? {
+        val token = pendingCaptureToken
+        pendingCaptureToken = null
+        Log.d(TAG, "takePendingCaptureToken -> ${token != null}")
+        return token
+    }
+
+    private fun handleReadPendingCapture(arguments: Any?, result: MethodChannel.Result) {
+        val token = parseToken(arguments)
+        val capture = AndroidAutofillCaptureHolder.shared.readSecret(token)
+        Log.d(TAG, "readPendingCapture found=${capture != null} pending=${AndroidAutofillCaptureHolder.shared.size()}")
+        if (capture == null) {
+            // Expected: process death, expiry, or a second read of one token.
+            result.error(CAPTURE_MISSING, "No pending capture for this token.", null)
+            return
+        }
+        result.success(
+            mapOf(
+                "token" to capture.token,
+                "username" to capture.username,
+                "password" to capture.password,
+                "packageName" to capture.packageName,
+                "webDomain" to capture.webDomain,
+                "capturedAtEpochMs" to capture.capturedAtEpochMs,
+            ),
+        )
+    }
+
+    private fun handleResolvePendingCapture(arguments: Any?, result: MethodChannel.Result) {
+        val args = arguments as? Map<*, *> ?: throw IllegalArgumentException("arguments must be a map")
+        val token = parseToken(arguments)
+        val outcome = args["outcome"] as? String
+            ?: throw IllegalArgumentException("outcome must be a string")
+        require(outcome in RESOLVE_OUTCOMES) { "outcome is not a known value" }
+
+        val capture = AndroidAutofillCaptureHolder.shared.resolve(token)
+        if (outcome == "declined" && capture != null) {
+            store.recordDeclinedSave(
+                association = capture.association,
+                username = capture.username,
+            )
+        }
+        Log.i(TAG, "resolvePendingCapture outcome=$outcome known=${capture != null}")
+        result.success(
+            mapOf(
+                "clearedCount" to if (capture == null) 0 else 1,
+                "warnings" to emptyList<String>(),
+            ),
+        )
+    }
+
+    private fun parseToken(arguments: Any?): String {
+        val args = arguments as? Map<*, *> ?: throw IllegalArgumentException("arguments must be a map")
+        val token = (args["token"] as? String)?.trim()
+        require(!token.isNullOrEmpty()) { "token must be a non-empty string" }
+        return token
+    }
+
+    private fun parseAuthSessionTtlMs(rawValue: Any?): Long {
+        val value = when (rawValue) {
+            null -> 0L
+            is Int -> rawValue.toLong()
+            is Long -> rawValue
+            else -> throw IllegalArgumentException("authSessionTtlMs must be an integer")
+        }
+        require(value >= 0L) { "authSessionTtlMs must not be negative" }
+        return value
+    }
+
     private fun statusMap(): Map<String, Any?> {
         val status = store.status()
         return mapOf(
@@ -61,6 +152,8 @@ internal class AndroidAutofillV2Channel(context: Context) {
             "cacheAvailable" to status.cacheAvailable,
             "databaseId" to status.databaseId,
             "generatedAtEpochMs" to status.generatedAtEpochMs,
+            "authSessionTtlMs" to status.authSessionTtlMs,
+            "lastAuthenticatedAtEpochMs" to status.lastAuthenticatedAtEpochMs,
         )
     }
 
@@ -94,6 +187,8 @@ internal class AndroidAutofillV2Channel(context: Context) {
 
     companion object {
         const val CHANNEL_NAME = "dev.camillobucciarelli.keyvault/apple_autofill_v2"
+        const val CAPTURE_MISSING = "android_autofill_capture_missing"
         private const val TAG = "KeyVaultAutofill"
+        private val RESOLVE_OUTCOMES = setOf("saved", "updated", "declined", "cancelled", "failed")
     }
 }

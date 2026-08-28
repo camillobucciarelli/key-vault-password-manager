@@ -50,6 +50,12 @@ class NoopAppleAutofillV2Coordinator
 class AppleAutofillV2Coordinator implements AppleAutofillV2CoordinatorContract {
   AppleAutofillV2Coordinator({required this.client, required this.mapper});
 
+  /// Android only: how long one device authentication is reused before the
+  /// picker prompts again. Long enough that filling a username field and then
+  /// the password field of the same login prompts once, short enough that a
+  /// later fill re-authenticates.
+  static const authSessionTtl = Duration(seconds: 30);
+
   final AppleAutofillV2Client client;
   final AppleAutofillV2PayloadMapper mapper;
 
@@ -72,6 +78,7 @@ class AppleAutofillV2Coordinator implements AppleAutofillV2CoordinatorContract {
       await client.publishCredentials(
         databaseId: databaseId,
         credentials: mapper.mapEntries(entries),
+        authSessionTtlMs: authSessionTtl.inMilliseconds,
       );
     } catch (e, st) {
       logWarning('Apple Autofill v2 publish failed.', e, st);

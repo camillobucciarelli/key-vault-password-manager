@@ -19,12 +19,64 @@ internal data class ParsedAutofillStructure(
 
     val hasCredentialFields: Boolean
         get() = usernameFields.isNotEmpty() || passwordFields.isNotEmpty()
+
+    /** The submitted values, stripped of the Android types. */
+    val submittedFields: List<CredentialFieldValue>
+        get() = fields.map { CredentialFieldValue(kind = it.kind, value = it.value) }
 }
 
 internal data class ParsedAutofillField(
     val autofillId: AutofillId,
     val kind: CredentialFieldKind,
-)
+    /** What the field holds. Empty on a fill request; set on a save request. */
+    val value: String = "",
+) {
+    override fun toString(): String {
+        return "ParsedAutofillField(autofillId=$autofillId, kind=$kind, value=<redacted>)"
+    }
+}
+
+/** One submitted field, without the Android types, so the rules below are unit-testable. */
+internal data class CredentialFieldValue(val kind: CredentialFieldKind, val value: String) {
+    override fun toString(): String = "CredentialFieldValue(kind=$kind, value=<redacted>)"
+}
+
+internal data class SubmittedCredential(val username: String, val password: String) {
+    override fun toString(): String = "SubmittedCredential(username=<redacted>, password=<redacted>)"
+}
+
+/**
+ * Turns the fields of a submitted form into the one credential worth saving.
+ *
+ * A sign-up screen shows "new password" and "confirm password"; a
+ * change-password screen adds "current password". Both collapse to a single
+ * value by picking the password that was typed most often, latest wins on a
+ * tie: on the first shape that is the confirmed password, on the second it is
+ * the new one rather than the old.
+ */
+internal object SubmittedCredentialExtractor {
+    fun extract(fields: List<CredentialFieldValue>): SubmittedCredential? {
+        val passwords = fields
+            .filter { it.kind == CredentialFieldKind.Password }
+            .map { it.value }
+            .filter { it.isNotEmpty() }
+        if (passwords.isEmpty()) {
+            return null
+        }
+
+        val occurrences = passwords.groupingBy { it }.eachCount()
+        val mostTyped = occurrences.values.max()
+        val password = passwords.last { occurrences[it] == mostTyped }
+
+        val username = fields
+            .firstOrNull { it.kind == CredentialFieldKind.Username && it.value.isNotBlank() }
+            ?.value
+            ?.trim()
+            .orEmpty()
+
+        return SubmittedCredential(username = username, password = password)
+    }
+}
 
 internal object AssistStructureCredentialParser {
     private val relevantHtmlAttributes = setOf(
@@ -85,7 +137,20 @@ internal object AssistStructureCredentialParser {
             else -> return null
         }
 
-        return ParsedAutofillField(autofillId = autofillId, kind = kind)
+        return ParsedAutofillField(
+            autofillId = autofillId,
+            kind = kind,
+            value = node.submittedValue(),
+        )
+    }
+
+    /** Empty during a fill request; the typed text during a save request. */
+    private fun AssistStructure.ViewNode.submittedValue(): String {
+        val autofillValue = autofillValue
+        if (autofillValue != null && autofillValue.isText) {
+            return autofillValue.textValue?.toString().orEmpty()
+        }
+        return text?.toString().orEmpty()
     }
 
     private fun AssistStructure.ViewNode.mayAcceptText(): Boolean {

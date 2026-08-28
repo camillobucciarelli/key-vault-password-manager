@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        spec-016 T701 — picker metrics mirrored from the Flutter design system.
+
+        Type sizes come from `AppTextStyles`, radii from `AppRadii`; the names say
+        which. 44dp is the minimum touch target (Constitution V) and belongs to no
+        Dart token. `test/core/theme/android_autofill_token_mirror_test.dart` keeps
+        the mirrored halves honest.
+    -->
+    <dimen name="kv_picker_touch_target">44dp</dimen>
+
+    <!-- AppRadii.rowCompact / AppRadii.rowNested -->
+    <dimen name="kv_picker_radius">20dp</dimen>
+    <dimen name="kv_picker_radius_field">16dp</dimen>
+
+    <dimen name="kv_picker_screen_padding">16dp</dimen>
+    <dimen name="kv_picker_row_padding_vertical">10dp</dimen>
+    <dimen name="kv_picker_row_padding_horizontal">14dp</dimen>
+    <dimen name="kv_picker_gap_small">8dp</dimen>
+    <dimen name="kv_picker_gap">16dp</dimen>
+    <dimen name="kv_picker_focus_ring">2dp</dimen>
+
+    <!-- AppTextStyles.panelTitleLarge (Caprasimo 20) -->
+    <dimen name="kv_picker_title_text">20sp</dimen>
+    <!-- AppTextStyles.body (Figtree 13.5) -->
+    <dimen name="kv_picker_body_text">13.5sp</dimen>
+    <!-- AppTextStyles.rowTitle (Figtree SemiBold 15) -->
+    <dimen name="kv_picker_row_title_text">15sp</dimen>
+    <!-- AppTextStyles.secondary (Figtree 12.5) -->
+    <dimen name="kv_picker_row_subtitle_text">12.5sp</dimen>
+    <!-- AppTextStyles.fieldValue (Figtree 15) -->
+    <dimen name="kv_picker_field_text">15sp</dimen>
+</resources>

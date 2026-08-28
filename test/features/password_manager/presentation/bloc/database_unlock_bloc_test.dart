@@ -102,7 +102,10 @@ void main() {
       bloc.add(const InitializeDatabaseUnlock());
       await _untilLast(states, (s) => s.phase == UnlockPhase.ready);
       bloc.add(const RetryBiometricAuthentication());
-      await _untilLast(states, (s) => s.biometricPrompted && !s.biometricVerified);
+      await _untilLast(
+        states,
+        (s) => s.biometricPrompted && !s.biometricVerified,
+      );
 
       expect(states.last.biometricVerified, isFalse);
       expect(unlockUseCase.callCount, 0);
@@ -384,6 +387,42 @@ void main() {
 
       await sub.cancel();
     });
+
+    // spec-016: the system biometric prompt covers the app while it is up, so it
+    // is the only place a user unlocking by fingerprint can be told that an
+    // autofill save is waiting on them.
+    group('unlock prompt wording', () {
+      test('says why when an autofill capture is waiting', () async {
+        biometric.available = true;
+        final capturePendingBloc = DatabaseUnlockBloc(
+          databasePath: '/tmp/vault.kdbx',
+          biometricDataSource: biometric,
+          databaseSessionCoordinator: coordinator,
+          isAutofillCapturePending: () => true,
+        );
+        addTearDown(capturePendingBloc.close);
+
+        capturePendingBloc.add(const RetryBiometricAuthentication());
+        await _until(() => biometric.reasons.isNotEmpty);
+
+        expect(
+          biometric.reasons.single,
+          'Authenticate to save the password you just submitted',
+        );
+      });
+
+      test('keeps the generic wording otherwise', () async {
+        biometric.available = true;
+
+        bloc.add(const RetryBiometricAuthentication());
+        await _until(() => biometric.reasons.isNotEmpty);
+
+        expect(
+          biometric.reasons.single,
+          'Authenticate to unlock your password database',
+        );
+      });
+    });
   });
 
   group('DatabaseUnlockState.copyWith', () {
@@ -442,9 +481,11 @@ Future<void> _untilLast(
 class _FakeBiometricDataSource implements BiometricDataSource {
   bool available = false;
   bool authenticateResult = true;
+  final List<String> reasons = [];
 
   @override
   Future<bool> authenticate({required String reason}) async {
+    reasons.add(reason);
     return authenticateResult;
   }
 

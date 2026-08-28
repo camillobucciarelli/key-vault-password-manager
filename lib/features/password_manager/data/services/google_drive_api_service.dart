@@ -89,9 +89,7 @@ class GoogleDriveApiService {
   }
 
   Future<DriveRemoteFile> getFileMetadata(String fileId) async {
-    final uri = Uri.parse(
-      '$_apiBase/files/$fileId',
-    ).replace(
+    final uri = Uri.parse('$_apiBase/files/$fileId').replace(
       queryParameters: {'fields': 'id,name,modifiedTime,md5Checksum,size'},
     );
 

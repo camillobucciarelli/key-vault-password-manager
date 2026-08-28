@@ -13,53 +13,50 @@ import 'package:password_manager/features/password_manager/presentation/screens/
 
 void main() {
   group('AC8: published-payload keys vs. the screen\'s disclosed fields', () {
-    test(
-      'AutofillEnablementScreen.sharedFieldKeys equals the real '
-      'AppleAutofillV2Credential.toChannelMap() key set',
-      () {
-        const mapper = AppleAutofillV2PayloadMapper();
-        const entry = VaultEntry(
-          id: 'e1',
-          groupId: 'root',
-          title: 'GitHub',
-          username: 'camillo@bucciarelli.dev',
-          password: 'super-secret-password',
-          url: 'https://github.com',
-          notes: 'must not be published',
-        );
+    test('AutofillEnablementScreen.sharedFieldKeys equals the real '
+        'AppleAutofillV2Credential.toChannelMap() key set', () {
+      const mapper = AppleAutofillV2PayloadMapper();
+      const entry = VaultEntry(
+        id: 'e1',
+        groupId: 'root',
+        title: 'GitHub',
+        username: 'camillo@bucciarelli.dev',
+        password: 'super-secret-password',
+        url: 'https://github.com',
+        notes: 'must not be published',
+      );
 
-        final credential = mapper.mapEntry(entry);
-        expect(credential, isNotNull);
-        final publishedKeys = credential!.toChannelMap().keys.toSet();
+      final credential = mapper.mapEntry(entry);
+      expect(credential, isNotNull);
+      final publishedKeys = credential!.toChannelMap().keys.toSet();
 
-        // The literal, structural guard: if a dev ever adds/renames a field
-        // on the wire (e.g. nests the password under a different key, or
-        // adds a new sensitive field) without updating the screen's
-        // disclosure, this fails — same for the reverse (the screen
-        // claiming a field that isn't actually sent).
-        expect(
-          AutofillEnablementScreen.sharedFieldKeys,
-          publishedKeys,
-          reason:
-              'AutofillEnablementScreen.sharedFieldKeys must name every key '
-              'AppleAutofillV2Credential.toChannelMap() actually publishes '
-              '(currently: $publishedKeys) — update both together.',
-        );
+      // The literal, structural guard: if a dev ever adds/renames a field
+      // on the wire (e.g. nests the password under a different key, or
+      // adds a new sensitive field) without updating the screen's
+      // disclosure, this fails — same for the reverse (the screen
+      // claiming a field that isn't actually sent).
+      expect(
+        AutofillEnablementScreen.sharedFieldKeys,
+        publishedKeys,
+        reason:
+            'AutofillEnablementScreen.sharedFieldKeys must name every key '
+            'AppleAutofillV2Credential.toChannelMap() actually publishes '
+            '(currently: $publishedKeys) — update both together.',
+      );
 
-        // The specific, non-negotiable check this test exists for: the
-        // payload DOES include a password today (the Credential Provider
-        // extension needs it on-device to fill it), so the claim must not
-        // hide that fact.
-        expect(
-          publishedKeys.contains('password'),
-          isTrue,
-          reason:
-              'Sanity check on the fixture entry itself — if this ever '
-              'becomes false because the mapper changed, the "password" '
-              'key must be removed from sharedFieldKeys too.',
-        );
-      },
-    );
+      // The specific, non-negotiable check this test exists for: the
+      // payload DOES include a password today (the Credential Provider
+      // extension needs it on-device to fill it), so the claim must not
+      // hide that fact.
+      expect(
+        publishedKeys.contains('password'),
+        isTrue,
+        reason:
+            'Sanity check on the fixture entry itself — if this ever '
+            'becomes false because the mapper changed, the "password" '
+            'key must be removed from sharedFieldKeys too.',
+      );
+    });
   });
 
   group('AutofillEnablementScreen', () {

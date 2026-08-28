@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- spec-016 T702: a 2dp focus ring on keyboard focus and on press, so the
+     picker is operable without touch (Constitution V / FR-014). -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/kv_picker_accent_tint" />
+            <stroke
+                android:width="@dimen/kv_picker_focus_ring"
+                android:color="@color/kv_picker_focus" />
+            <corners android:radius="@dimen/kv_picker_radius" />
+        </shape>
+    </item>
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/kv_picker_accent_tint" />
+            <corners android:radius="@dimen/kv_picker_radius" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent" />
+            <corners android:radius="@dimen/kv_picker_radius" />
+        </shape>
+    </item>
+</selector>

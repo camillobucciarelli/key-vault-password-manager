@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -8,6 +10,7 @@ import '../../../../../core/navigation/app_navigation.dart';
 import '../../../../../core/responsive/breakpoints.dart';
 import '../../../../../core/theme/app_icons.dart';
 import '../../../../../core/theme/app_motion.dart';
+import '../../../../../core/theme/app_radii.dart';
 import '../../../../../core/theme/app_text_styles.dart';
 import '../../../../../core/theme/app_theme.dart';
 import '../../../../../core/theme/keyvault_colors.dart';
@@ -17,6 +20,7 @@ import '../../../../../injection_container.dart' as di;
 import '../bloc/database_unlock/database_unlock_bloc.dart';
 import '../bloc/database_unlock/database_unlock_event.dart';
 import '../bloc/database_unlock/database_unlock_state.dart';
+import '../coordinators/android_autofill_save_coordinator.dart';
 import '../coordinators/database_session_coordinator.dart';
 import '../../domain/errors/database_access_failure.dart';
 import '../widgets/database/face_id_prompt_sheet.dart';
@@ -62,8 +66,53 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
   bool _passwordVisible = false;
   bool _biometricPromptHandled = false;
 
+  /// Captured in `initState`: teardown must not need the locator (golden tests
+  /// run in any order).
+  /// Null where autofill save capture is not wired in (same optional
+  /// integration `VaultBloc` already takes).
+  AndroidAutofillSaveCoordinator? _autofillSaveCoordinator;
+  bool _hasPendingCapture = false;
+  bool _unlocked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (di.sl.isRegistered<AndroidAutofillSaveCoordinator>()) {
+      _autofillSaveCoordinator = di.sl<AndroidAutofillSaveCoordinator>();
+    }
+    unawaited(_checkPendingCapture());
+  }
+
+  Future<void> _checkPendingCapture() async {
+    final coordinator = _autofillSaveCoordinator;
+    if (coordinator == null) {
+      return;
+    }
+    // `hasPendingCapture` claims the token before it returns, so from here on
+    // this screen owns it and must not simply walk away from it.
+    final pending = await coordinator.hasPendingCapture();
+    if (!pending) {
+      return;
+    }
+    if (!mounted) {
+      // The screen went away while we were asking. Nothing will show the notice
+      // and nothing will run dispose's abandon, so drop the capture here —
+      // otherwise it outlives the unlock the user abandoned and the next
+      // unlock, of a possibly different database, would be offered it.
+      unawaited(coordinator.abandonPendingCapture());
+      return;
+    }
+    setState(() => _hasPendingCapture = true);
+  }
+
   @override
   void dispose() {
+    // Leaving the unlock screen without unlocking discards the capture now,
+    // instead of leaving the submitted password in the autofill service's
+    // memory until it expires.
+    if (_hasPendingCapture && !_unlocked) {
+      unawaited(_autofillSaveCoordinator?.abandonPendingCapture());
+    }
     _passwordCtrl.dispose();
     super.dispose();
   }
@@ -138,6 +187,7 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
             });
           }
           if (state.unlocked) {
+            _unlocked = true;
             AppNavigation.pushFadeReplacement(
               context,
               VaultScreen(databasePath: state.databasePath),
@@ -145,64 +195,81 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
           }
         },
         builder: (context, state) {
-          switch (state.phase) {
-            case UnlockPhase.initializing:
-              return const _UnlockLoading();
-            case UnlockPhase.biometricGate:
-              return _BiometricGate(
-                onRetry: () => context.read<DatabaseUnlockBloc>().add(
-                  const RetryBiometricAuthentication(),
-                ),
-                onUseMasterPassword: () => context
-                    .read<DatabaseUnlockBloc>()
-                    .add(const RequestManualUnlockFallback()),
-                errorMessage: state.errorMessage,
-              );
-            case UnlockPhase.decrypting:
-              return _DecryptingView(basename: p.basename(state.databasePath));
-            case UnlockPhase.failure:
-              return _UnlockFailureView(
-                state: state,
-                onBack: _goToDatabaseSelection,
-              );
-            case UnlockPhase.unlocked:
-              return const _UnlockLoading();
-            case UnlockPhase.ready:
-              final hasPassword = _passwordCtrl.text.isNotEmpty;
-              final hasKeyFile =
-                  state.keyFilePath != null &&
-                  state.keyFilePath!.trim().isNotEmpty;
-              final canSubmit = hasPassword || hasKeyFile;
-              return _UnlockReadyForm(
-                state: state,
-                passwordCtrl: _passwordCtrl,
-                passwordVisible: _passwordVisible,
-                onPasswordChanged: () => setState(() {}),
-                onTogglePasswordVisible: () =>
-                    setState(() => _passwordVisible = !_passwordVisible),
-                onPickKeyFile: _pickKeyFile,
-                onClearKeyFile: () => context.read<DatabaseUnlockBloc>().add(
-                  const UpdateKeyFilePath(null),
-                ),
-                onFaceIdRetry: () => context.read<DatabaseUnlockBloc>().add(
-                  const RetryBiometricAuthentication(),
-                ),
-                onSubmit: canSubmit
-                    ? () {
-                        context.read<DatabaseUnlockBloc>().add(
-                          UnlockWithManualCredentials(
-                            password: _passwordCtrl.text,
-                            keyFilePath: state.keyFilePath,
-                          ),
-                        );
-                      }
-                    : null,
-                onBack: _goToDatabaseSelection,
-              );
-          }
+          // The notice sits outside the phase switch: with biometrics enabled the
+          // manual form is never shown, and that is precisely the case where the
+          // user is most likely to walk away without knowing what they lose.
+          return Column(
+            children: [
+              if (_hasPendingCapture &&
+                  state.phase != UnlockPhase.unlocked &&
+                  state.phase != UnlockPhase.decrypting)
+                const _PendingCaptureNotice(),
+              Expanded(child: _phaseView(context, state)),
+            ],
+          );
         },
       ),
     );
+  }
+
+  Widget _phaseView(BuildContext context, DatabaseUnlockState state) {
+    {
+      switch (state.phase) {
+        case UnlockPhase.initializing:
+          return const _UnlockLoading();
+        case UnlockPhase.biometricGate:
+          return _BiometricGate(
+            onRetry: () => context.read<DatabaseUnlockBloc>().add(
+              const RetryBiometricAuthentication(),
+            ),
+            onUseMasterPassword: () => context.read<DatabaseUnlockBloc>().add(
+              const RequestManualUnlockFallback(),
+            ),
+            errorMessage: state.errorMessage,
+          );
+        case UnlockPhase.decrypting:
+          return _DecryptingView(basename: p.basename(state.databasePath));
+        case UnlockPhase.failure:
+          return _UnlockFailureView(
+            state: state,
+            onBack: _goToDatabaseSelection,
+          );
+        case UnlockPhase.unlocked:
+          return const _UnlockLoading();
+        case UnlockPhase.ready:
+          final hasPassword = _passwordCtrl.text.isNotEmpty;
+          final hasKeyFile =
+              state.keyFilePath != null && state.keyFilePath!.trim().isNotEmpty;
+          final canSubmit = hasPassword || hasKeyFile;
+          return _UnlockReadyForm(
+            state: state,
+            passwordCtrl: _passwordCtrl,
+            passwordVisible: _passwordVisible,
+            onPasswordChanged: () => setState(() {}),
+            onTogglePasswordVisible: () =>
+                setState(() => _passwordVisible = !_passwordVisible),
+            onPickKeyFile: _pickKeyFile,
+            onClearKeyFile: () => context.read<DatabaseUnlockBloc>().add(
+              const UpdateKeyFilePath(null),
+            ),
+            onFaceIdRetry: () => context.read<DatabaseUnlockBloc>().add(
+              const RetryBiometricAuthentication(),
+            ),
+
+            onSubmit: canSubmit
+                ? () {
+                    context.read<DatabaseUnlockBloc>().add(
+                      UnlockWithManualCredentials(
+                        password: _passwordCtrl.text,
+                        keyFilePath: state.keyFilePath,
+                      ),
+                    );
+                  }
+                : null,
+            onBack: _goToDatabaseSelection,
+          );
+      }
+    }
   }
 
   Future<void> _goToDatabaseSelection() async {

@@ -321,23 +321,22 @@ void main() {
       );
     }
 
-    test('getFileMetadata parses the string "size" the Drive API returns', () async {
-      service = buildService(
-        MockClient((request) async {
-          return http.Response(
-            jsonEncode({
-              'id': 'f1',
-              'name': 'vault.kdbx',
-              'size': '123456',
-            }),
-            HttpStatus.ok,
-          );
-        }),
-      );
+    test(
+      'getFileMetadata parses the string "size" the Drive API returns',
+      () async {
+        service = buildService(
+          MockClient((request) async {
+            return http.Response(
+              jsonEncode({'id': 'f1', 'name': 'vault.kdbx', 'size': '123456'}),
+              HttpStatus.ok,
+            );
+          }),
+        );
 
-      final file = await service.getFileMetadata('f1');
-      expect(file.size, 123456);
-    });
+        final file = await service.getFileMetadata('f1');
+        expect(file.size, 123456);
+      },
+    );
 
     test('getFileMetadata leaves size null when Drive omits it', () async {
       service = buildService(
@@ -357,7 +356,10 @@ void main() {
       service = buildService(
         MockClient((request) async {
           expect(request.url.queryParameters['fields'], contains('size'));
-          return http.Response(jsonEncode({'files': <Object?>[]}), HttpStatus.ok);
+          return http.Response(
+            jsonEncode({'files': <Object?>[]}),
+            HttpStatus.ok,
+          );
         }),
       );
 

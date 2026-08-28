@@ -81,9 +81,10 @@ Expect `android_autofill_metadata_v2.json` and
 4. Lock the vault, repeat step 1, and accept.
    **Expect**: the KeyVault unlock screen; after unlocking, the entry is written.
 5. Repeat step 4 but cancel the unlock.
-   **Expect**: an explicit "not saved" message; nothing written; the captured
-   password is not recoverable afterwards (re-check `files/autofill_v2` — no new
-   file).
+   **Expect**: the unlock screen states that a captured password is waiting and
+   will be discarded if you leave; leaving discards it immediately — nothing
+   written, and the captured password is not recoverable afterwards (re-check
+   `files/autofill_v2` — no new file). Returning to the app must not re-offer it.
 6. Decline a save prompt, then resubmit the same form.
    **Expect**: no repeat prompt for that submission.
 

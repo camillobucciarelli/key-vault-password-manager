@@ -2784,9 +2784,10 @@ void main() {
       final diff = adapter.diffPresence(validated);
 
       expect(
-        credentialBlockFieldsOf(diff, _sharedEntryUuid)
-            .map((f) => f.fieldKind)
-            .toSet(),
+        credentialBlockFieldsOf(
+          diff,
+          _sharedEntryUuid,
+        ).map((f) => f.fieldKind).toSet(),
         {KdbxMergeFieldKind.string},
         reason: 'the block owns strings only',
       );
@@ -2810,7 +2811,10 @@ void main() {
       );
       final entry = _sharedEntry(merged);
 
-      expect(entry.getString(KdbxKeyCommon.USER_NAME)?.getText(), 'remote-user');
+      expect(
+        entry.getString(KdbxKeyCommon.USER_NAME)?.getText(),
+        'remote-user',
+      );
       for (final name in ['password', 'UserName', 'url']) {
         expect(
           entry.getBinary(KdbxKey(name))?.value,

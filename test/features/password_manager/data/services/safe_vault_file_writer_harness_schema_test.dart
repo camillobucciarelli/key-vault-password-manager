@@ -68,10 +68,7 @@ void main() {
 
     test('artifact with an unknown platform is rejected', () {
       final artifact = _sampleArtifact()..['platform'] = 'fuchsia';
-      expect(
-        validateArtifact(artifact),
-        contains('unknown platform: fuchsia'),
-      );
+      expect(validateArtifact(artifact), contains('unknown platform: fuchsia'));
     });
 
     test('artifact missing a required case is rejected', () {

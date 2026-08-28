@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- spec-016 T702: the picker's layout. Every colour and metric comes from the
+     mirrored tokens in values/colors.xml and values/dimens.xml. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/kv_picker_ground"
+    android:fitsSystemWindows="true">
+
+<!-- The outer frame takes the system-bar and IME insets as padding
+     (fitsSystemWindows); the inner column keeps the screen padding, which
+     fitsSystemWindows would otherwise overwrite. Android 15+ enforces
+     edge-to-edge, so without this the title sits under the status bar. -->
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:paddingStart="@dimen/kv_picker_screen_padding"
+    android:paddingEnd="@dimen/kv_picker_screen_padding"
+    android:paddingTop="@dimen/kv_picker_screen_padding"
+    android:paddingBottom="@dimen/kv_picker_gap_small">
+
+    <TextView
+        android:id="@+id/autofill_picker_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="@dimen/kv_picker_title_text"
+        android:textColor="@color/kv_picker_text_primary"
+        android:fontFamily="@font/caprasimo_regular"
+        android:letterSpacing="-0.015"
+        android:accessibilityHeading="true"
+        android:textAlignment="viewStart" />
+
+    <TextView
+        android:id="@+id/autofill_picker_subtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/kv_picker_gap_small"
+        android:layout_marginBottom="@dimen/kv_picker_gap"
+        android:textSize="@dimen/kv_picker_body_text"
+        android:textColor="@color/kv_picker_text_secondary"
+        android:fontFamily="@font/figtree_regular"
+        android:lineSpacingMultiplier="1.45"
+        android:textAlignment="viewStart" />
+
+    <EditText
+        android:id="@+id/autofill_picker_search"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/kv_picker_touch_target"
+        android:minHeight="@dimen/kv_picker_touch_target"
+        android:background="@drawable/kv_picker_search_background"
+        android:paddingStart="@dimen/kv_picker_row_padding_horizontal"
+        android:paddingEnd="@dimen/kv_picker_row_padding_horizontal"
+        android:hint="@string/autofill_picker_search_hint"
+        android:contentDescription="@string/autofill_picker_search_hint"
+        android:importantForAutofill="no"
+        android:inputType="text"
+        android:imeOptions="actionSearch"
+        android:singleLine="true"
+        android:textSize="@dimen/kv_picker_field_text"
+        android:textColor="@color/kv_picker_text_primary"
+        android:fontFamily="@font/figtree_regular"
+        android:textColorHint="@color/kv_picker_text_secondary" />
+
+    <ListView
+        android:id="@+id/autofill_picker_list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="@dimen/kv_picker_gap_small"
+        android:divider="@color/kv_picker_divider"
+        android:dividerHeight="1dp"
+        android:drawSelectorOnTop="false"
+        android:listSelector="@drawable/kv_picker_row_background"
+        android:scrollbarStyle="outsideOverlay" />
+</LinearLayout>
+</FrameLayout>

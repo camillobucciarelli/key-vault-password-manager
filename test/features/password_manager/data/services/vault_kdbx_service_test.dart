@@ -744,6 +744,60 @@ void main() {
     },
   );
 
+  // spec-016 C3: the save-capture flow tells the user the previous password
+  // stays in the entry's history. Nothing in this repo writes that history —
+  // the KDBX writer does it — so this test is what makes the claim true rather
+  // than assumed.
+  test(
+    'updateEntry keeps the previous password in the entry history',
+    () async {
+      final rootGroupId = await _rootGroupId(service, databasePath, password);
+      await service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: rootGroupId,
+        title: 'Example',
+        username: 'alice',
+        entryPassword: 'first-password',
+        url: 'https://example.com',
+        notes: '',
+      );
+
+      final created = (await service.loadAllEntries(
+        databasePath: databasePath,
+        password: password,
+      )).single;
+
+      await service.updateEntry(
+        databasePath: databasePath,
+        password: password,
+        entryId: created.id,
+        title: created.title,
+        username: created.username,
+        entryPassword: 'second-password',
+        url: created.url,
+        notes: created.notes,
+      );
+
+      final file = await KdbxFormat().read(
+        await File(databasePath).readAsBytes(),
+        Credentials(ProtectedValue.fromString(password)),
+      );
+      final entry = file.body.rootGroup.getAllEntries().single;
+
+      expect(
+        entry.getString(KdbxKeyCommon.PASSWORD)?.getText(),
+        'second-password',
+      );
+      expect(
+        entry.history.map(
+          (revision) => revision.getString(KdbxKeyCommon.PASSWORD)?.getText(),
+        ),
+        contains('first-password'),
+      );
+    },
+  );
+
   group('mergeEntries', () {
     test(
       'copies notes from secondary to primary when primary notes is empty',

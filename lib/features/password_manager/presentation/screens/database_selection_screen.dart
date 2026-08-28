@@ -60,7 +60,9 @@ class DatabaseSelectionScreen extends StatelessWidget {
       // implicitly through the coordinator's normal connect-if-needed path.
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Choose "Open from Google Drive" again to switch account.'),
+          content: Text(
+            'Choose "Open from Google Drive" again to switch account.',
+          ),
         ),
       );
       return;
@@ -81,7 +83,10 @@ class DatabaseSelectionScreen extends StatelessWidget {
       final exists = await coordinator.hasManagedDatabaseNamed(selected.name);
       if (!context.mounted) return;
       if (exists) {
-        final confirm = await _showOverwriteDatabaseSheet(context, selected.name);
+        final confirm = await _showOverwriteDatabaseSheet(
+          context,
+          selected.name,
+        );
         if (confirm != true || !context.mounted) return;
         overwriteExisting = true;
       }
@@ -101,7 +106,9 @@ class DatabaseSelectionScreen extends StatelessWidget {
     BuildContext context,
     DatabaseSelectionItem item,
   ) async {
-    context.read<DatabaseSelectionBloc>().add(OpenRecentDatabase(item.canonicalPath));
+    context.read<DatabaseSelectionBloc>().add(
+      OpenRecentDatabase(item.canonicalPath),
+    );
   }
 
   Future<void> _onLocateDatabase(
@@ -117,7 +124,10 @@ class DatabaseSelectionScreen extends StatelessWidget {
     if (selectedPath == null || selectedPath.trim().isEmpty) return;
 
     context.read<DatabaseSelectionBloc>().add(
-      LocateMissingDatabase(databaseId: item.databaseId, selectedPath: selectedPath),
+      LocateMissingDatabase(
+        databaseId: item.databaseId,
+        selectedPath: selectedPath,
+      ),
     );
   }
 
@@ -131,7 +141,9 @@ class DatabaseSelectionScreen extends StatelessWidget {
     if (kIsWeb) {
       messenger.showSnackBar(
         const SnackBar(
-          content: Text('Export is currently available on desktop/mobile only.'),
+          content: Text(
+            'Export is currently available on desktop/mobile only.',
+          ),
         ),
       );
       return;
@@ -218,9 +230,10 @@ class DatabaseSelectionScreen extends StatelessWidget {
   }
 
   Future<void> _onCreateDatabase(BuildContext context) async {
-    final credentials = await Navigator.of(context).push<CreateDatabaseCredentials>(
-      MaterialPageRoute(builder: (_) => const CreateDatabaseScreen()),
-    );
+    final credentials = await Navigator.of(context)
+        .push<CreateDatabaseCredentials>(
+          MaterialPageRoute(builder: (_) => const CreateDatabaseScreen()),
+        );
     if (credentials != null && context.mounted) {
       context.read<DatabaseSelectionBloc>().add(
         CreateNewDatabase(
@@ -239,7 +252,10 @@ class DatabaseSelectionScreen extends StatelessWidget {
     BuildContext context,
     DatabaseSelectionItem item,
   ) async {
-    final mode = await _showRecentDatabaseRemovalSheet(context, item.displayName);
+    final mode = await _showRecentDatabaseRemovalSheet(
+      context,
+      item.displayName,
+    );
     if (mode == null || !context.mounted) return;
 
     if (mode == RecentDatabaseRemovalMode.removeAndDeleteFile) {
@@ -271,7 +287,9 @@ class DatabaseSelectionScreen extends StatelessWidget {
             children: [
               Text(
                 'Remove recent database',
-                style: AppTextStyles.sheetTitle.copyWith(color: colors.textPrimary),
+                style: AppTextStyles.sheetTitle.copyWith(
+                  color: colors.textPrimary,
+                ),
               ),
               const SizedBox(height: 8),
               Text(
@@ -280,18 +298,18 @@ class DatabaseSelectionScreen extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               TextButton(
-                onPressed: () => Navigator.of(sheetContext).pop(
-                  RecentDatabaseRemovalMode.removeOnly,
-                ),
+                onPressed: () => Navigator.of(
+                  sheetContext,
+                ).pop(RecentDatabaseRemovalMode.removeOnly),
                 child: const Text('Remove from list'),
               ),
               KvSecondaryPillButton(
                 label: 'Remove and delete file',
                 onPressed: kIsWeb
                     ? null
-                    : () => Navigator.of(sheetContext).pop(
-                        RecentDatabaseRemovalMode.removeAndDeleteFile,
-                      ),
+                    : () => Navigator.of(
+                        sheetContext,
+                      ).pop(RecentDatabaseRemovalMode.removeAndDeleteFile),
               ),
               const SizedBox(height: 8),
               TextButton(
@@ -322,7 +340,9 @@ class DatabaseSelectionScreen extends StatelessWidget {
             children: [
               Text(
                 'Delete file?',
-                style: AppTextStyles.sheetTitle.copyWith(color: colors.textPrimary),
+                style: AppTextStyles.sheetTitle.copyWith(
+                  color: colors.textPrimary,
+                ),
               ),
               const SizedBox(height: 8),
               Text(
@@ -355,7 +375,10 @@ class DatabaseSelectionScreen extends StatelessWidget {
     );
   }
 
-  Future<bool?> _showOverwriteDatabaseSheet(BuildContext context, String fileName) {
+  Future<bool?> _showOverwriteDatabaseSheet(
+    BuildContext context,
+    String fileName,
+  ) {
     return KvBottomSheet.show<bool>(
       context: context,
       barrierAlpha: 0.3,
@@ -369,7 +392,9 @@ class DatabaseSelectionScreen extends StatelessWidget {
             children: [
               Text(
                 'Replace existing database?',
-                style: AppTextStyles.sheetTitle.copyWith(color: colors.textPrimary),
+                style: AppTextStyles.sheetTitle.copyWith(
+                  color: colors.textPrimary,
+                ),
               ),
               const SizedBox(height: 8),
               Text(
@@ -413,7 +438,9 @@ class DatabaseSelectionScreen extends StatelessWidget {
     );
     if (!context.mounted || decision == null) return;
 
-    context.read<DatabaseSelectionBloc>().add(ResolveDuplicateDecision(decision));
+    context.read<DatabaseSelectionBloc>().add(
+      ResolveDuplicateDecision(decision),
+    );
   }
 
   Future<void> _handleTypedFailure(
@@ -429,7 +456,9 @@ class DatabaseSelectionScreen extends StatelessWidget {
       await showCorruptDatabaseFileSheet(context, basename: failure.basename);
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(state.message)));
   }
 
   @override
@@ -478,7 +507,8 @@ class DatabaseSelectionScreen extends StatelessWidget {
             if (state.items.isEmpty) {
               return WelcomeScreen(
                 onCreateDatabase: () => _onCreateDatabase(context),
-                onOpenExistingDatabase: () => _onSelectExistingDatabase(context),
+                onOpenExistingDatabase: () =>
+                    _onSelectExistingDatabase(context),
                 onOpenFromGoogleDrive: () => _openFromGoogleDrive(context),
               );
             }
@@ -486,7 +516,9 @@ class DatabaseSelectionScreen extends StatelessWidget {
             final viewportWidth = MediaQuery.sizeOf(context).width;
             final isTablet = viewportWidth >= Breakpoints.mobile;
 
-            final header = _RecentHeader(onAdd: () => _onCreateDatabase(context));
+            final header = _RecentHeader(
+              onAdd: () => _onCreateDatabase(context),
+            );
             final list = RecentDatabasesSection(
               items: state.items,
               onOpen: (item) => _onOpenRecentDatabase(context, item),
@@ -504,7 +536,13 @@ class DatabaseSelectionScreen extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [header, const SizedBox(height: 18), list, const SizedBox(height: 16), addSection],
+                  children: [
+                    header,
+                    const SizedBox(height: 18),
+                    list,
+                    const SizedBox(height: 16),
+                    addSection,
+                  ],
                 ),
               );
             }
@@ -521,7 +559,11 @@ class DatabaseSelectionScreen extends StatelessWidget {
                     child: SingleChildScrollView(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [header, const SizedBox(height: 18), addSection],
+                        children: [
+                          header,
+                          const SizedBox(height: 18),
+                          addSection,
+                        ],
                       ),
                     ),
                   ),
@@ -564,7 +606,9 @@ class _RecentHeader extends StatelessWidget {
             message: 'Choose a database to continue',
             child: Text(
               'Databases',
-              style: AppTextStyles.screenTitle.copyWith(color: colors.textPrimary),
+              style: AppTextStyles.screenTitle.copyWith(
+                color: colors.textPrimary,
+              ),
             ),
           ),
         ),
@@ -590,7 +634,10 @@ class _RecentHeader extends StatelessWidget {
 }
 
 class _AddSection extends StatelessWidget {
-  const _AddSection({required this.onOpenExisting, required this.onOpenFromDrive});
+  const _AddSection({
+    required this.onOpenExisting,
+    required this.onOpenFromDrive,
+  });
 
   final VoidCallback onOpenExisting;
   final VoidCallback onOpenFromDrive;
@@ -599,7 +646,11 @@ class _AddSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
 
-    Widget row({required IconData icon, required String label, required VoidCallback onTap}) {
+    Widget row({
+      required IconData icon,
+      required String label,
+      required VoidCallback onTap,
+    }) {
       return InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: onTap,
@@ -612,7 +663,9 @@ class _AddSection extends StatelessWidget {
               Expanded(
                 child: Text(
                   label,
-                  style: AppTextStyles.rowTitle.copyWith(color: colors.textPrimary),
+                  style: AppTextStyles.rowTitle.copyWith(
+                    color: colors.textPrimary,
+                  ),
                 ),
               ),
               Icon(AppIcons.chevronRight, size: 17, color: colors.iconNeutral),
@@ -627,7 +680,9 @@ class _AddSection extends StatelessWidget {
       children: [
         Text(
           'Add',
-          style: AppTextStyles.panelTitleLarge.copyWith(color: colors.textPrimary),
+          style: AppTextStyles.panelTitleLarge.copyWith(
+            color: colors.textPrimary,
+          ),
         ),
         const SizedBox(height: 8),
         row(

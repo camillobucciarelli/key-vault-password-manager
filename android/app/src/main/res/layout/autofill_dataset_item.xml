@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- spec-016: the row the system draws in its own dropdown for our dataset.
+     It is a RemoteViews layout, inflated in the filled app's process but with
+     THIS package's resources, so the mirrored tokens and fonts apply and the
+     suggestion matches the picker it opens. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:minHeight="@dimen/kv_picker_touch_target"
+    android:orientation="vertical"
+    android:gravity="center_vertical"
+    android:background="@color/kv_picker_ground"
+    android:paddingStart="@dimen/kv_picker_row_padding_horizontal"
+    android:paddingEnd="@dimen/kv_picker_row_padding_horizontal"
+    android:paddingTop="@dimen/kv_picker_row_padding_vertical"
+    android:paddingBottom="@dimen/kv_picker_row_padding_vertical">
+
+    <TextView
+        android:id="@+id/autofill_dataset_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="@dimen/kv_picker_row_title_text"
+        android:textColor="@color/kv_picker_text_primary"
+        android:fontFamily="@font/figtree_semibold"
+        android:singleLine="true"
+        android:ellipsize="end" />
+
+    <TextView
+        android:id="@+id/autofill_dataset_subtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="@dimen/kv_picker_row_subtitle_text"
+        android:textColor="@color/kv_picker_text_secondary"
+        android:fontFamily="@font/figtree_regular"
+        android:singleLine="true"
+        android:ellipsize="end" />
+</LinearLayout>

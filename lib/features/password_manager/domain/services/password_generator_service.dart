@@ -10,11 +10,11 @@ class PasswordGeneratorOptions {
   });
 
   const PasswordGeneratorOptions.defaults()
-      : length = 16,
-        includeLowercase = true,
-        includeUppercase = true,
-        includeDigits = true,
-        includeSymbols = true;
+    : length = 16,
+      includeLowercase = true,
+      includeUppercase = true,
+      includeDigits = true,
+      includeSymbols = true;
 
   final int length;
   final bool includeLowercase;

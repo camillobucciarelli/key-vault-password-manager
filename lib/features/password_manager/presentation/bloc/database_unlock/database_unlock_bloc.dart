@@ -8,11 +8,14 @@ import '../database_selection/database_selection_bloc.dart' show failureMessage;
 import 'database_unlock_event.dart';
 import 'database_unlock_state.dart';
 
+bool _noPendingCapture() => false;
+
 class DatabaseUnlockBloc
     extends Bloc<DatabaseUnlockEvent, DatabaseUnlockState> {
   DatabaseUnlockBloc({
     required String databasePath,
     required this.biometricDataSource,
+    this.isAutofillCapturePending = _noPendingCapture,
     required this.databaseSessionCoordinator,
   }) : super(DatabaseUnlockState.initial(databasePath: databasePath)) {
     on<InitializeDatabaseUnlock>(_onInitializeDatabaseUnlock);
@@ -23,7 +26,20 @@ class DatabaseUnlockBloc
   }
 
   final BiometricDataSource biometricDataSource;
+
+  /// spec-016: whether an autofill save is waiting on this unlock. Only the
+  /// prompt's wording depends on it — the bloc is told, it does not go looking.
+  final bool Function() isAutofillCapturePending;
   final DatabaseSessionCoordinator databaseSessionCoordinator;
+
+  /// The generic wording is unchanged; a pending capture adds a second one, so
+  /// the system prompt — which covers the app while it is up — is where the
+  /// user learns what this unlock is for.
+  String _unlockReason() {
+    return isAutofillCapturePending()
+        ? 'Authenticate to save the password you just submitted'
+        : 'Authenticate to unlock your password database';
+  }
 
   Future<void> _onInitializeDatabaseUnlock(
     InitializeDatabaseUnlock event,
@@ -53,7 +69,7 @@ class DatabaseUnlockBloc
         _safeEmit(emit, nextState);
 
         final biometricsOk = await biometricDataSource.authenticate(
-          reason: 'Authenticate to unlock your password database',
+          reason: _unlockReason(),
         );
 
         nextState = nextState.copyWith(
@@ -109,7 +125,7 @@ class DatabaseUnlockBloc
       state.copyWith(phase: UnlockPhase.biometricGate, clearError: true),
     );
     final isOk = await biometricDataSource.authenticate(
-      reason: 'Authenticate to unlock your password database',
+      reason: _unlockReason(),
     );
 
     _safeEmit(

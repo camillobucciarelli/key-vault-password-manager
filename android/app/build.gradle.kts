@@ -67,11 +67,26 @@ android {
     }
 }
 
+// Unit tests run on the debug variant only. `GeneratedPluginRegistrant.java` is
+// generated once for all variants and registers dev-dependency plugins such as
+// `integration_test`, which the Flutter Gradle plugin deliberately keeps out of
+// release. Compiling release unit tests therefore fails on a symbol that is
+// absent by design, and release unit tests buy nothing here.
+androidComponents {
+    beforeVariants(selector().withBuildType("release")) { variant ->
+        variant.enableUnitTest = false
+    }
+}
+
 flutter {
     source = "../.."
 }
 
 dependencies {
+    implementation("androidx.biometric:biometric:1.1.0")
+    // spec-016 T102: InlineSuggestionUi, the only supported way to build the
+    // Slice an IME renders on its suggestion strip.
+    implementation("androidx.autofill:autofill:1.1.0")
     testImplementation("junit:junit:4.13.2")
 }
 

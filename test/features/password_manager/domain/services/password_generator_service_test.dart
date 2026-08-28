@@ -6,13 +6,15 @@ void main() {
     final service = PasswordGeneratorService();
 
     test('generates password of requested length', () {
-      final pw = service.generate(const PasswordGeneratorOptions(
-        length: 20,
-        includeLowercase: true,
-        includeUppercase: true,
-        includeDigits: true,
-        includeSymbols: true,
-      ));
+      final pw = service.generate(
+        const PasswordGeneratorOptions(
+          length: 20,
+          includeLowercase: true,
+          includeUppercase: true,
+          includeDigits: true,
+          includeSymbols: true,
+        ),
+      );
       expect(pw.length, 20);
     });
 
@@ -22,28 +24,35 @@ void main() {
     });
 
     test('only includes chars from selected sets', () {
-      final pw = service.generate(const PasswordGeneratorOptions(
-        length: 40,
-        includeLowercase: false,
-        includeUppercase: false,
-        includeDigits: true,
-        includeSymbols: false,
-      ));
+      final pw = service.generate(
+        const PasswordGeneratorOptions(
+          length: 40,
+          includeLowercase: false,
+          includeUppercase: false,
+          includeDigits: true,
+          includeSymbols: false,
+        ),
+      );
       for (final char in pw.split('')) {
-        expect('0123456789'.contains(char), isTrue,
-            reason: 'unexpected char: $char');
+        expect(
+          '0123456789'.contains(char),
+          isTrue,
+          reason: 'unexpected char: $char',
+        );
       }
     });
 
     test('always includes at least one char from each enabled set', () {
       for (var i = 0; i < 50; i++) {
-        final pw = service.generate(const PasswordGeneratorOptions(
-          length: 8,
-          includeLowercase: true,
-          includeUppercase: true,
-          includeDigits: true,
-          includeSymbols: true,
-        ));
+        final pw = service.generate(
+          const PasswordGeneratorOptions(
+            length: 8,
+            includeLowercase: true,
+            includeUppercase: true,
+            includeDigits: true,
+            includeSymbols: true,
+          ),
+        );
         expect(pw.contains(RegExp('[a-z]')), isTrue);
         expect(pw.contains(RegExp('[A-Z]')), isTrue);
         expect(pw.contains(RegExp('[0-9]')), isTrue);
@@ -53,26 +62,30 @@ void main() {
 
     test('throws when no character sets selected', () {
       expect(
-        () => service.generate(const PasswordGeneratorOptions(
-          length: 8,
-          includeLowercase: false,
-          includeUppercase: false,
-          includeDigits: false,
-          includeSymbols: false,
-        )),
+        () => service.generate(
+          const PasswordGeneratorOptions(
+            length: 8,
+            includeLowercase: false,
+            includeUppercase: false,
+            includeDigits: false,
+            includeSymbols: false,
+          ),
+        ),
         throwsStateError,
       );
     });
 
     test('throws when length shorter than enabled set count', () {
       expect(
-        () => service.generate(const PasswordGeneratorOptions(
-          length: 3,
-          includeLowercase: true,
-          includeUppercase: true,
-          includeDigits: true,
-          includeSymbols: true,
-        )),
+        () => service.generate(
+          const PasswordGeneratorOptions(
+            length: 3,
+            includeLowercase: true,
+            includeUppercase: true,
+            includeDigits: true,
+            includeSymbols: true,
+          ),
+        ),
         throwsStateError,
       );
     });

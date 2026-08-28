@@ -120,12 +120,16 @@ Future<int> _run(List<String> args) async {
     ..writeln(
       '    cases: ${cases.length - failed.length}/${cases.length} passed',
     )
-    ..writeln('    atomicReplaceOverExisting: '
-        '${artifact['atomicReplaceOverExisting']}')
+    ..writeln(
+      '    atomicReplaceOverExisting: '
+      '${artifact['atomicReplaceOverExisting']}',
+    )
     ..writeln('    backupNoOverwrite:         ${artifact['backupNoOverwrite']}')
     ..writeln('    flushSupported:            ${artifact['flushSupported']}')
-    ..writeln('    directorySyncSupported:    '
-        '${artifact['directorySyncSupported']}');
+    ..writeln(
+      '    directorySyncSupported:    '
+      '${artifact['directorySyncSupported']}',
+    );
 
   for (final c in failed) {
     stdout.writeln('    FAILED ${c['name']}: ${c['detail'] ?? 'no detail'}');

@@ -150,11 +150,7 @@ void main() {
       otherTitle: 'GitHub',
     ),
     (rowLabel: 'Reused passwords', title: 'GitHub', otherTitle: 'Spotify'),
-    (
-      rowLabel: 'Old passwords',
-      title: 'Spotify',
-      otherTitle: 'Loose note',
-    ),
+    (rowLabel: 'Old passwords', title: 'Spotify', otherTitle: 'Loose note'),
     (
       rowLabel: 'Missing URL or username',
       title: 'Loose note',

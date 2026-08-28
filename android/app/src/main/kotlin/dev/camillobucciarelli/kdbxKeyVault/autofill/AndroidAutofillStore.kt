@@ -19,14 +19,18 @@ internal class AndroidAutofillStore(context: Context) {
     private val metadataFile = File(directory, "android_autofill_metadata_v2.json")
     private val encryptedFile = File(directory, "android_autofill_cache_v2.sealed.json")
     private val pendingAssociationsFile = File(directory, "android_autofill_pending_associations_v2.json")
+    private val authSessionFile = File(directory, "android_autofill_session_v2.json")
+    private val declinedSavesFile = File(directory, "android_autofill_declined_saves_v2.json")
 
     fun publishCredentials(
         databaseId: String,
         entries: List<AndroidAutofillPublishEntry>,
+        authSessionTtlMs: Long = 0L,
     ): Map<String, Any> {
         val normalizedDatabaseId = databaseId.trim()
         require(normalizedDatabaseId.isNotEmpty()) { "databaseId is required" }
         require(entries.size <= MAX_ENTRIES) { "entries exceeds maximum" }
+        require(authSessionTtlMs >= 0L) { "authSessionTtlMs must not be negative" }
 
         val generatedAt = System.currentTimeMillis()
         val seenIds = mutableSetOf<String>()
@@ -83,6 +87,7 @@ internal class AndroidAutofillStore(context: Context) {
 
         val sortedMetadata = metadataEntries.sortedBy { it.sortKey }
         if (sortedMetadata.isEmpty()) {
+            clearAuthSessionBestEffort()
             removeCacheFilesBestEffort()
             val keyCleared = deleteKeyBestEffort()
             if (!keyCleared) {
@@ -115,6 +120,8 @@ internal class AndroidAutofillStore(context: Context) {
         val envelope = encrypt(secretBytes, metadataBytes, normalizedDatabaseId, generatedAt)
         writePrivate(metadataFile, metadataBytes)
         writePrivate(encryptedFile, envelope.toByteArray(Charsets.UTF_8))
+        // A fresh cache always starts unauthenticated.
+        writeAuthSession(AndroidAutofillAuthSession(authSessionTtlMs, null))
 
         Log.i(TAG, "Android Autofill cache published count=${sortedMetadata.size}")
         return mapOf(
@@ -143,6 +150,9 @@ internal class AndroidAutofillStore(context: Context) {
             )
         }
 
+        clearAuthSessionBestEffort()
+        // Declines hold usernames; clearing the cache forgets them too.
+        runCatching { declinedSavesFile.delete() }
         removeCacheFilesBestEffort()
         val keyCleared = deleteKeyBestEffort()
         val warnings = mutableListOf<String>()
@@ -163,13 +173,98 @@ internal class AndroidAutofillStore(context: Context) {
     fun status(): AndroidAutofillStoreStatus {
         val metadata = readMetadataCache()
         val encryptedExists = encryptedFile.exists()
+        val session = readAuthSession()
         return AndroidAutofillStoreStatus(
             metadataCount = metadata?.entries?.size ?: 0,
             encryptedCacheAvailable = encryptedExists,
             cacheAvailable = metadata != null && encryptedExists,
             databaseId = metadata?.databaseId,
             generatedAtEpochMs = metadata?.generatedAtEpochMs,
+            authSessionTtlMs = session.authSessionTtlMs,
+            lastAuthenticatedAtEpochMs = session.lastAuthenticatedAtEpochMs,
         )
+    }
+
+    fun readAuthSession(): AndroidAutofillAuthSession {
+        return runCatching {
+            if (!authSessionFile.exists()) {
+                null
+            } else {
+                AndroidAutofillJson.authSessionFromJson(authSessionFile.readText(Charsets.UTF_8))
+            }
+        }.getOrNull() ?: EMPTY_AUTH_SESSION
+    }
+
+    /** Stamps a successful device authentication. Best effort: a failure only costs an extra prompt. */
+    fun recordAuthentication(nowEpochMs: Long) {
+        runCatching {
+            writeAuthSession(readAuthSession().copy(lastAuthenticatedAtEpochMs = nowEpochMs))
+        }.onFailure {
+            Log.w(TAG, "Auth session stamp failed: ${it.javaClass.simpleName}")
+        }
+    }
+
+    private fun writeAuthSession(session: AndroidAutofillAuthSession) {
+        directory.mkdirs()
+        writePrivate(
+            authSessionFile,
+            AndroidAutofillJson.authSessionToJson(session).toByteArray(Charsets.UTF_8),
+        )
+    }
+
+    private fun clearAuthSessionBestEffort() {
+        runCatching { authSessionFile.delete() }
+    }
+
+    /**
+     * Remembers that the user declined this save, so the same submission is not
+     * offered again (FR-011). Records the association and the username only.
+     */
+    fun recordDeclinedSave(association: String?, username: String) {
+        val normalizedAssociation = association?.trim().orEmpty()
+        if (normalizedAssociation.isEmpty()) {
+            return
+        }
+        runCatching {
+            val key = AndroidAutofillDeclinedSave.keyOf(normalizedAssociation, username)
+            val records = readDeclinedSaves()
+                .filterNot { AndroidAutofillDeclinedSave.keyOf(it.association, it.username) == key }
+                .plus(
+                    AndroidAutofillDeclinedSave(
+                        association = normalizedAssociation,
+                        username = username.trim(),
+                        declinedAtEpochMs = System.currentTimeMillis(),
+                    ),
+                )
+                .takeLast(MAX_DECLINED_SAVES)
+            directory.mkdirs()
+            writePrivate(
+                declinedSavesFile,
+                AndroidAutofillJson.declinedSavesToJson(records).toByteArray(Charsets.UTF_8),
+            )
+        }.onFailure {
+            Log.w(TAG, "Declined save record failed: ${it.javaClass.simpleName}")
+        }
+    }
+
+    fun isDeclinedSave(association: String?, username: String): Boolean {
+        if (association?.trim().isNullOrEmpty()) {
+            return false
+        }
+        val key = AndroidAutofillDeclinedSave.keyOf(association, username)
+        return readDeclinedSaves().any {
+            AndroidAutofillDeclinedSave.keyOf(it.association, it.username) == key
+        }
+    }
+
+    fun readDeclinedSaves(): List<AndroidAutofillDeclinedSave> {
+        return runCatching {
+            if (!declinedSavesFile.exists()) {
+                emptyList()
+            } else {
+                AndroidAutofillJson.declinedSavesFromJson(declinedSavesFile.readText(Charsets.UTF_8))
+            }
+        }.getOrDefault(emptyList())
     }
 
     fun readCredentialMetadata(): List<AndroidAutofillCredentialMetadata> {
@@ -375,6 +470,10 @@ internal class AndroidAutofillStore(context: Context) {
     }
 
     private companion object {
+        private val EMPTY_AUTH_SESSION = AndroidAutofillAuthSession(
+            authSessionTtlMs = 0L,
+            lastAuthenticatedAtEpochMs = null,
+        )
         private const val TAG = "KeyVaultAutofill"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val KEY_ALIAS = "dev.camillobucciarelli.keyvault.android_autofill_v2"
@@ -383,5 +482,6 @@ internal class AndroidAutofillStore(context: Context) {
         private const val MAX_ENTRIES = 10_000
         private const val MAX_METADATA_LENGTH = 512
         private const val MAX_PENDING_ASSOCIATIONS = 200
+        private const val MAX_DECLINED_SAVES = 200
     }
 }
