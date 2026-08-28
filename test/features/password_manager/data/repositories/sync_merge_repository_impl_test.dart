@@ -808,6 +808,39 @@ void main() {
       },
     );
 
+    test('T404 the pending record is written before the dispatch, describes '
+        'both sides, and carries no credential', () async {
+      final fixture = await _t401Fixture(t401Temp);
+      final harness = await _Harness.build(t401Temp, fixture: fixture);
+      final summary = await harness.repository.startReview(harness.databaseId);
+      // Fail the upload so the record is observed in its pre-dispatch form:
+      // if it were written after the request, this would leave none at all.
+      harness.remote.updateFileError = Exception('network boom');
+
+      await harness.repository.commit(summary.sessionId);
+
+      final record = harness.syncMetadata.pendingUploadCalls.first;
+      expect(record.databasePath, harness.databasePath);
+      expect(record.remoteFileId, isNotEmpty);
+      // Separate fields answering separate recovery questions, even though
+      // the bytes written are the bytes sent, so they coincide here.
+      expect(record.mergedChecksum, isNotEmpty);
+      expect(record.localCommittedChecksum, record.mergedChecksum);
+      expect(record.backupPath, isNotNull);
+
+      // The security boundary: this file is persisted unencrypted next to the
+      // sync mappings, so nothing secret may appear in it.
+      final serialized = jsonEncode(record.toMap());
+      expect(serialized, isNot(contains(_password)));
+
+      // T406: the transport failure flips the SAME record rather than
+      // replacing or clearing it.
+      expect(harness.syncMetadata.pendingUploadCalls.first.outcomeAmbiguous,
+          isFalse);
+      expect(harness.syncMetadata.pendingUploadCalls.last.outcomeAmbiguous,
+          isTrue);
+    });
+
     test('a metadata-recheck failure before any write is ambiguous and touches '
         'nothing', () async {
       final fixture = await _t401Fixture(t401Temp);

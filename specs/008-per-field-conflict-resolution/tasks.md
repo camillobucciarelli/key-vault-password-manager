@@ -871,16 +871,16 @@ time under a wall clock does not do.
       code written for this task.*
 - [ ] **T403 Atomic commit integration** — candidate semantic validation, verified
       collision-safe backup, target temp/replace and mapping transaction.
-- [ ] **T404 Persist `_PendingMergeUpload` before dispatch** — merged/local
+- [x] **T404 Persist `_PendingMergeUpload` before dispatch** — merged/local
       checksums, expected old remote checksum, remote file ID, private backup/
       path, no plaintext/credentials. The expected old **token** is persisted
       only on a `conditionalWrite` adapter; on a bare adapter there is none.
-- [ ] **T405 Outcome classification** — a **certain rejection exists only on a
+- [x] **T405 Outcome classification** — a **certain rejection exists only on a
       `conditionalWrite` adapter** and means not applied. On every other backend
       a success response is an **apparent** success, never terminal: the FR-7
       step-5 read-back promotes it to confirmed before the mapping is finalized.
       Absence of a rejection is not evidence that nothing was overwritten.
-- [ ] **T406 Ambiguous transport outcome** — timeout/disconnect after dispatch
+- [x] **T406 Ambiguous transport outcome** — timeout/disconnect after dispatch
       persists `outcomeAmbiguous`; do not retry blindly or mark synced/failed.
 - [ ] **T407 Recovery local guard** — under per-database mutex, hash current local
       bytes and compare persisted `localCommittedChecksum` before remote client
