@@ -1,14 +1,5 @@
 part of '../vault_screen.dart';
 
-bool _syncErrorNeedsReconnectAction(String message) {
-  final normalized = message.toLowerCase();
-  return normalized.contains('authorization expired') ||
-      normalized.contains('authorization needs to be renewed') ||
-      normalized.contains('authorization is outdated') ||
-      normalized.contains('reconnect google drive') ||
-      normalized.contains('google account not connected');
-}
-
 class _VaultLayoutBreakpoints {
   const _VaultLayoutBreakpoints._();
 
@@ -562,9 +553,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                   context.read<VaultBloc>().add(const ClearVaultInfo());
                 }
                 if (state.syncError != null && state.syncError!.isNotEmpty) {
-                  final needsReconnectAction = _syncErrorNeedsReconnectAction(
-                    state.syncError!,
-                  );
+                  final needsReconnectAction = state.driveReconnectRequired;
                   _showSyncSnackBar(
                     context,
                     state.syncError!,
@@ -573,8 +562,18 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                         ? SnackBarAction(
                             label: 'Reconnect',
                             onPressed: () {
-                              context.read<VaultBloc>().add(
-                                const ConnectGoogleDrive(),
+                              final bloc = context.read<VaultBloc>();
+                              unawaited(
+                                di
+                                    .sl<GoogleDriveReconnectCoordinator>()
+                                    .reconnect(
+                                      owner: this,
+                                      bloc: bloc,
+                                      continuation:
+                                          GoogleDriveReconnectContinuation
+                                              .resumeSync,
+                                      isOwnerActive: () => context.mounted,
+                                    ),
                               );
                             },
                           )

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_sign_in/google_sign_in.dart';
 
+import '../../domain/errors/google_authorization_required_exception.dart';
 import '../../domain/models/drive_account_summary.dart';
 import '../datasources/google_token_data_source.dart';
 import 'desktop_oauth_pkce_service.dart';
@@ -28,6 +29,7 @@ class DriveAuthService {
   bool _googleSignInInitialized = false;
   String? _cachedAccessToken;
   DateTime? _cachedAccessTokenAt;
+  Future<void>? _connectInFlight;
 
   static const _requiredDriveScope = 'https://www.googleapis.com/auth/drive';
   static const _mobileAccessTokenCacheTtl = Duration(minutes: 5);
@@ -53,7 +55,23 @@ class DriveAuthService {
     _googleSignInInitialized = true;
   }
 
-  Future<void> connect() async {
+  Future<void> connect() {
+    final inFlight = _connectInFlight;
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    late final Future<void> operation;
+    operation = Future.sync(_connect).whenComplete(() {
+      if (identical(_connectInFlight, operation)) {
+        _connectInFlight = null;
+      }
+    });
+    _connectInFlight = operation;
+    return operation;
+  }
+
+  Future<void> _connect() async {
     _clearCachedAccessToken();
 
     if (_isDesktop) {
@@ -134,12 +152,20 @@ class DriveAuthService {
       }
 
       var tokenSet = DesktopOAuthTokenSet.fromJson(raw);
-      if (DateTime.now().isAfter(tokenSet.expiresAt)) {
-        tokenSet = await _desktopOAuthPkceService.refreshToken(
-          clientId: clientId,
-          clientSecret: clientSecret,
-          refreshToken: tokenSet.refreshToken,
-        );
+      if (forceRefresh || DateTime.now().isAfter(tokenSet.expiresAt)) {
+        try {
+          tokenSet = await _desktopOAuthPkceService.refreshToken(
+            clientId: clientId,
+            clientSecret: clientSecret,
+            refreshToken: tokenSet.refreshToken,
+          );
+        } on GoogleAuthorizationRequiredException {
+          _clearCachedAccessToken();
+          try {
+            await _googleTokenDataSource.clearDesktopCredentialsJson();
+          } catch (_) {}
+          rethrow;
+        }
       }
 
       final hasRequiredScope = await _desktopOAuthPkceService

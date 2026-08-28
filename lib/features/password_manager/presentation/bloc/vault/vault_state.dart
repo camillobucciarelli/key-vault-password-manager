@@ -37,10 +37,13 @@ class VaultState extends Equatable {
     this.autoSyncEnabled = true,
     this.syncStatus = DatabaseSyncStatus.disconnected,
     this.syncError,
+    this.driveReconnectRequired = false,
     this.lastSyncAt,
     this.pendingSyncConflict,
     this.remoteDriveFiles = const [],
     this.isLoadingRemoteDriveFiles = false,
+    this.remoteDriveFilesError,
+    this.remoteDriveFilesReconnectRequired = false,
     this.linkedDriveFileName,
     this.isSyncing = false,
     this.isSyncReloadPending = false,
@@ -78,10 +81,13 @@ class VaultState extends Equatable {
   final bool autoSyncEnabled;
   final DatabaseSyncStatus syncStatus;
   final String? syncError;
+  final bool driveReconnectRequired;
   final DateTime? lastSyncAt;
   final SyncConflict? pendingSyncConflict;
   final List<DriveRemoteFile> remoteDriveFiles;
   final bool isLoadingRemoteDriveFiles;
+  final String? remoteDriveFilesError;
+  final bool remoteDriveFilesReconnectRequired;
   final String? linkedDriveFileName;
   final bool isSyncing;
   final bool isSyncReloadPending;
@@ -127,10 +133,13 @@ class VaultState extends Equatable {
     bool? autoSyncEnabled,
     DatabaseSyncStatus? syncStatus,
     String? syncError,
+    bool? driveReconnectRequired,
     DateTime? lastSyncAt,
     SyncConflict? pendingSyncConflict,
     List<DriveRemoteFile>? remoteDriveFiles,
     bool? isLoadingRemoteDriveFiles,
+    String? remoteDriveFilesError,
+    bool? remoteDriveFilesReconnectRequired,
     String? linkedDriveFileName,
     bool? isSyncing,
     bool? isSyncReloadPending,
@@ -143,6 +152,7 @@ class VaultState extends Equatable {
     bool clearError = false,
     bool clearInfo = false,
     bool clearSyncError = false,
+    bool clearRemoteDriveFilesError = false,
     bool clearSyncConflict = false,
     bool clearSyncReloadPending = false,
     bool clearCsvImportOutcome = false,
@@ -170,6 +180,8 @@ class VaultState extends Equatable {
       autoSyncEnabled: autoSyncEnabled ?? this.autoSyncEnabled,
       syncStatus: syncStatus ?? this.syncStatus,
       syncError: clearSyncError ? null : syncError ?? this.syncError,
+      driveReconnectRequired:
+          driveReconnectRequired ?? this.driveReconnectRequired,
       lastSyncAt: lastSyncAt ?? this.lastSyncAt,
       pendingSyncConflict: clearSyncConflict
           ? null
@@ -177,6 +189,13 @@ class VaultState extends Equatable {
       remoteDriveFiles: remoteDriveFiles ?? this.remoteDriveFiles,
       isLoadingRemoteDriveFiles:
           isLoadingRemoteDriveFiles ?? this.isLoadingRemoteDriveFiles,
+      remoteDriveFilesError: clearRemoteDriveFilesError
+          ? null
+          : remoteDriveFilesError ?? this.remoteDriveFilesError,
+      remoteDriveFilesReconnectRequired: clearRemoteDriveFilesError
+          ? false
+          : remoteDriveFilesReconnectRequired ??
+                this.remoteDriveFilesReconnectRequired,
       linkedDriveFileName: linkedDriveFileName ?? this.linkedDriveFileName,
       isSyncing: isSyncing ?? this.isSyncing,
       isSyncReloadPending: clearSyncReloadPending
@@ -259,10 +278,13 @@ class VaultState extends Equatable {
     autoSyncEnabled,
     syncStatus,
     syncError,
+    driveReconnectRequired,
     lastSyncAt,
     pendingSyncConflict,
     remoteDriveFiles,
     isLoadingRemoteDriveFiles,
+    remoteDriveFilesError,
+    remoteDriveFilesReconnectRequired,
     linkedDriveFileName,
     isSyncing,
     isSyncReloadPending,
@@ -305,10 +327,14 @@ class VaultState extends Equatable {
         'autoSyncEnabled: $autoSyncEnabled, '
         'syncStatus: $syncStatus, '
         'syncError: $syncError, '
+        'driveReconnectRequired: $driveReconnectRequired, '
         'lastSyncAt: $lastSyncAt, '
         'pendingSyncConflict: $pendingSyncConflict, '
         'remoteDriveFiles: ${remoteDriveFiles.length}, '
         'isLoadingRemoteDriveFiles: $isLoadingRemoteDriveFiles, '
+        'remoteDriveFilesError: $remoteDriveFilesError, '
+        'remoteDriveFilesReconnectRequired: '
+        '$remoteDriveFilesReconnectRequired, '
         'linkedDriveFileName: $linkedDriveFileName, '
         'isSyncing: $isSyncing, '
         'isSyncReloadPending: $isSyncReloadPending, '

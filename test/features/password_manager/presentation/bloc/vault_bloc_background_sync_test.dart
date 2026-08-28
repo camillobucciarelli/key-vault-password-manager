@@ -1,8 +1,17 @@
 import 'dart:async';
-import 'dart:io' show SocketException;
+import 'dart:convert';
+import 'dart:io' show HttpStatus, SocketException;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:password_manager/features/password_manager/data/datasources/google_token_data_source.dart';
+import 'package:password_manager/features/password_manager/data/services/desktop_oauth_pkce_service.dart';
+import 'package:password_manager/features/password_manager/data/services/drive_auth_service.dart';
+import 'package:password_manager/features/password_manager/data/services/google_drive_api_service.dart';
+import 'package:password_manager/features/password_manager/data/services/google_oauth_config.dart';
+import 'package:password_manager/features/password_manager/domain/errors/google_authorization_required_exception.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_csv_import_service.dart';
@@ -79,6 +88,21 @@ void main() {
       expect(const BackgroundDriveSync(), equals(const BackgroundDriveSync()));
     });
   });
+
+  test(
+    'reconnect failure event preserves stack without exposing diagnostics',
+    () {
+      final stackTrace = StackTrace.current;
+      final event = GoogleDriveReconnectFailed(
+        error: Exception('raw-provider-detail'),
+        stackTrace: stackTrace,
+        remoteFiles: false,
+      );
+
+      expect(identical(event.stackTrace, stackTrace), isTrue);
+      expect(event.toString(), isNot(contains('raw-provider-detail')));
+    },
+  );
 
   group('Apple autofill lifecycle', () {
     test('publishes after vault is loaded', () async {
@@ -423,6 +447,78 @@ void main() {
     );
   });
 
+  test(
+    'cleanup failure still surfaces authorization renewal during Drive list load',
+    () async {
+      http.Request? refreshRequest;
+      final httpClient = MockClient((request) async {
+        refreshRequest = request;
+        return http.Response(
+          jsonEncode({'error': 'invalid_grant'}),
+          HttpStatus.badRequest,
+        );
+      });
+      addTearDown(httpClient.close);
+
+      final storedTokens = _StoredGoogleTokenDataSource(
+        DesktopOAuthTokenSet(
+          accessToken: 'expired-access-token',
+          refreshToken: 'old-client-refresh-token',
+          expiresAt: DateTime.utc(2000),
+        ).toJson(),
+        throwOnClear: true,
+      );
+      final auth = DriveAuthService(
+        config: const GoogleOAuthConfig(
+          mobileClientId: null,
+          androidServerClientId: null,
+          desktopClientId: 'current-client-id',
+          desktopClientSecret: 'current-client-secret',
+        ),
+        googleTokenDataSource: storedTokens,
+        desktopOAuthPkceService: DesktopOAuthPkceService(
+          httpClient: httpClient,
+        ),
+        isDesktopOverride: true,
+      );
+      final api = GoogleDriveApiService(
+        driveAuthService: auth,
+        httpClient: httpClient,
+      );
+      final repo = _FakeSyncRepo()
+        ..mapping = _testMapping.copyWith(autoSyncEnabled: false)
+        ..isConnectedResult = true
+        ..listRemoteFilesOverride = (_) => api.listKdbxFilesInDrive();
+      final bloc = _makeBloc(repo, _FakeVaultKdbxService());
+      addTearDown(bloc.close);
+
+      bloc.add(const BackgroundDriveSync());
+      await _waitUntil(
+        () => bloc.state.isDriveConnected && bloc.state.isDriveLinked,
+      );
+      bloc.add(const LoadDriveRemoteFiles());
+      await _waitUntil(() => bloc.state.remoteDriveFilesError != null);
+
+      final request = refreshRequest;
+      expect(request, isNotNull);
+      expect(request!.url.host, 'oauth2.googleapis.com');
+      expect(Uri.splitQueryString(request.body), {
+        'client_id': 'current-client-id',
+        'client_secret': 'current-client-secret',
+        'grant_type': 'refresh_token',
+        'refresh_token': 'old-client-refresh-token',
+      });
+      expect(storedTokens.value, isNotNull);
+      expect(bloc.state.isDriveConnected, isFalse);
+      expect(bloc.state.isDriveLinked, isFalse);
+      expect(
+        bloc.state.remoteDriveFilesError,
+        'Google authorization expired. Reconnect Google Drive to continue.',
+      );
+      expect(bloc.state.remoteDriveFilesReconnectRequired, isTrue);
+    },
+  );
+
   group('BackgroundDriveSync', () {
     late _FakeSyncRepo repo;
     late _FakeVaultKdbxService kdbx;
@@ -563,6 +659,30 @@ void main() {
       // No exception, no error message, no popup
       expect(bloc.state.errorMessage, isNull);
       expect(states.any((s) => s.isSyncing), isFalse);
+    });
+
+    test('terminal auth failure requires explicit reconnect', () async {
+      repo.syncNowError = const GoogleAuthorizationRequiredException();
+
+      bloc.add(const BackgroundDriveSync());
+      await _waitUntil(
+        () =>
+            bloc.state.syncError ==
+            'Google authorization expired. Reconnect Google Drive to continue.',
+      );
+
+      expect(bloc.state.isDriveConnected, isFalse);
+      expect(bloc.state.isDriveLinked, isFalse);
+      expect(bloc.state.syncStatus, DatabaseSyncStatus.error);
+      expect(bloc.state.driveReconnectRequired, isTrue);
+
+      bloc.add(const ClearVaultSyncFeedback());
+      await Future<void>.delayed(Duration.zero);
+      expect(bloc.state.driveReconnectRequired, isTrue);
+      expect(
+        bloc.state.syncError,
+        'Google authorization expired. Reconnect Google Drive to continue.',
+      );
     });
   });
 
@@ -876,6 +996,8 @@ class _FakeSyncRepo implements DatabaseSyncRepository {
   /// [syncResult] — lets tests exercise `SocketException` (offline) vs any
   /// other error (HTTP-status-like) without a real network stack.
   Object? syncNowError;
+  Future<List<DriveRemoteFile>> Function(String? query)?
+  listRemoteFilesOverride;
 
   @override
   Future<bool> isConnected() async => isConnectedResult;
@@ -926,7 +1048,9 @@ class _FakeSyncRepo implements DatabaseSyncRepository {
   Future<void> setAutoSync(String p, bool e) async {}
 
   @override
-  Future<List<DriveRemoteFile>> listRemoteFiles({String? query}) async => [];
+  Future<List<DriveRemoteFile>> listRemoteFiles({String? query}) async {
+    return listRemoteFilesOverride?.call(query) ?? [];
+  }
 
   @override
   Future<Uint8List> downloadRemoteFile(String id) async =>
@@ -942,6 +1066,27 @@ class _FakeSyncRepo implements DatabaseSyncRepository {
   @override
   Future<DriveAccountSummary> getConnectedAccount() async =>
       DriveAccountSummary.fallback;
+}
+
+class _StoredGoogleTokenDataSource implements GoogleTokenDataSource {
+  _StoredGoogleTokenDataSource(this.value, {this.throwOnClear = false});
+
+  final bool throwOnClear;
+  String? value;
+
+  @override
+  Future<void> clearDesktopCredentialsJson() async {
+    if (throwOnClear) {
+      throw StateError('synthetic secure-storage failure');
+    }
+    value = null;
+  }
+
+  @override
+  Future<String?> getDesktopCredentialsJson() async => value;
+
+  @override
+  Future<void> saveDesktopCredentialsJson(String json) async => value = json;
 }
 
 VaultBloc _makeBloc(

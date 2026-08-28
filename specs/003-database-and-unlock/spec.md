@@ -252,6 +252,12 @@ approved:
 - `Key file not found. Locate or select the required key file.`;
 - decrypting and Face ID strings in FR-5;
 - basename-only invalid/corrupt sheet titles required by C-3.
+- reconnect guidance supersedes
+  `Google Drive session expired or unavailable. Tap "Open from Google Drive" again and complete reconnection.`
+  with
+  `Google Drive session expired or unavailable. Use Reconnect below to sign in again.`;
+  the Drive surface remains open and exposes a `Reconnect` CTA, so instructing
+  the user to open it again is stale and contradicts the inline recovery flow.
 
 No other copy rewrite is in scope.
 

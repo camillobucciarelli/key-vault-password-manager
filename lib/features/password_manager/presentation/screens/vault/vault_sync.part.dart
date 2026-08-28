@@ -6,8 +6,29 @@ part of '../vault_screen.dart';
 // hero now offers "Create a new file" and "Pick an existing .kdbx" as two
 // independent one-tap actions, matching the mock.
 
-class _VaultSyncDestination extends StatelessWidget {
+class _VaultSyncDestination extends StatefulWidget {
   const _VaultSyncDestination();
+
+  @override
+  State<_VaultSyncDestination> createState() => _VaultSyncDestinationState();
+}
+
+class _VaultSyncDestinationState extends State<_VaultSyncDestination> {
+  bool _isReconnecting = false;
+
+  Future<void> _reconnectAndResume() async {
+    if (_isReconnecting) return;
+    setState(() => _isReconnecting = true);
+    final bloc = context.read<VaultBloc>();
+    await di.sl<GoogleDriveReconnectCoordinator>().reconnect(
+      owner: this,
+      bloc: bloc,
+      continuation: GoogleDriveReconnectContinuation.resumeSync,
+      isOwnerActive: () => mounted,
+    );
+    if (!mounted) return;
+    setState(() => _isReconnecting = false);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,6 +61,8 @@ class _VaultSyncDestination extends StatelessWidget {
                 localChecksum: null,
                 autoSyncEnabled: state.autoSyncEnabled,
                 syncError: state.syncError,
+                reconnectRequired: state.driveReconnectRequired,
+                isReconnecting: _isReconnecting,
                 recentActivity: _recentActivity(state),
                 isOffline: state.isOffline,
                 onConnect: () =>
@@ -57,8 +80,7 @@ class _VaultSyncDestination extends StatelessWidget {
                 onUnlink: () => context.read<VaultBloc>().add(
                   const UnlinkCurrentDatabaseFromDrive(),
                 ),
-                onReconnect: () =>
-                    context.read<VaultBloc>().add(const ConnectGoogleDrive()),
+                onReconnect: _isReconnecting ? null : _reconnectAndResume,
                 onRetryOffline: () => context.read<VaultBloc>().add(
                   const SyncCurrentDatabaseNow(),
                 ),
@@ -139,7 +161,9 @@ class _RemoteFilePickerScreen extends StatefulWidget {
 
 class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
   String? _selectedId;
+  String _query = '';
   List<DatabaseSyncMapping> _otherMappings = const [];
+  bool _isReconnecting = false;
 
   @override
   void initState() {
@@ -160,6 +184,41 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
 
   bool _isLinkedElsewhere(String remoteFileId) {
     return _otherMappings.any((mapping) => mapping.driveFileId == remoteFileId);
+  }
+
+  void _completeSelectedLink() {
+    final selectedId = _selectedId;
+    final state = context.read<VaultBloc>().state;
+    final valid =
+        selectedId != null &&
+        state.isDriveConnected &&
+        !state.isLoadingRemoteDriveFiles &&
+        state.remoteDriveFilesError == null &&
+        state.remoteDriveFiles.any((file) => file.id == selectedId);
+    if (!valid) {
+      if (_selectedId != null) {
+        setState(() => _selectedId = null);
+      }
+      return;
+    }
+    VaultOperationScope.of(
+      context,
+    ).complete(DriveLinkResult.existing(selectedId));
+  }
+
+  Future<void> _reconnectAndReload() async {
+    if (_isReconnecting) return;
+    setState(() => _isReconnecting = true);
+    final bloc = context.read<VaultBloc>();
+    await di.sl<GoogleDriveReconnectCoordinator>().reconnect(
+      owner: this,
+      bloc: bloc,
+      continuation: GoogleDriveReconnectContinuation.reloadRemoteFiles,
+      remoteFilesQuery: _query,
+      isOwnerActive: () => mounted,
+    );
+    if (!mounted) return;
+    setState(() => _isReconnecting = false);
   }
 
   @override
@@ -197,6 +256,7 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
               child: TextField(
+                enabled: !_isReconnecting,
                 decoration: InputDecoration(
                   hintText: 'Search .kdbx file',
                   prefixIcon: Padding(
@@ -208,17 +268,82 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
                     ),
                   ),
                 ),
-                onChanged: (value) => context.read<VaultBloc>().add(
-                  LoadDriveRemoteFiles(query: value),
-                ),
+                onChanged: (value) {
+                  _query = value;
+                  final bloc = context.read<VaultBloc>();
+                  final state = bloc.state;
+                  if (_isReconnecting ||
+                      state.remoteDriveFilesError != null ||
+                      !state.isDriveConnected) {
+                    return;
+                  }
+                  bloc.add(LoadDriveRemoteFiles(query: value));
+                },
               ),
             ),
             Expanded(
               child: BlocBuilder<VaultBloc, VaultState>(
                 buildWhen: (p, n) =>
                     p.remoteDriveFiles != n.remoteDriveFiles ||
-                    p.isLoadingRemoteDriveFiles != n.isLoadingRemoteDriveFiles,
+                    p.isLoadingRemoteDriveFiles !=
+                        n.isLoadingRemoteDriveFiles ||
+                    p.remoteDriveFilesError != n.remoteDriveFilesError ||
+                    p.remoteDriveFilesReconnectRequired !=
+                        n.remoteDriveFilesReconnectRequired,
                 builder: (context, state) {
+                  final syncError = state.remoteDriveFilesError;
+                  if (syncError != null) {
+                    final reconnectRequired =
+                        state.remoteDriveFilesReconnectRequired;
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              reconnectRequired
+                                  ? 'Google authorization expired'
+                                  : 'Unable to reconnect',
+                              textAlign: TextAlign.center,
+                              style: AppTextStyles.panelTitleLarge.copyWith(
+                                color: colors.attentionText,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              syncError,
+                              textAlign: TextAlign.center,
+                              style: AppTextStyles.body.copyWith(
+                                color: colors.attentionText,
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            Semantics(
+                              container: true,
+                              button: true,
+                              enabled: !_isReconnecting,
+                              label: reconnectRequired
+                                  ? 'Reconnect Google Drive'
+                                  : 'Retry Google Drive connection',
+                              child: ExcludeSemantics(
+                                child: KvPillButton(
+                                  label: _isReconnecting
+                                      ? 'Reconnecting...'
+                                      : reconnectRequired
+                                      ? 'Reconnect'
+                                      : 'Retry',
+                                  onPressed: _isReconnecting
+                                      ? null
+                                      : _reconnectAndReload,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
                   if (state.isLoadingRemoteDriveFiles) {
                     return const Center(child: CircularProgressIndicator());
                   }
@@ -296,13 +421,29 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
                   const SizedBox(width: 10),
                   Expanded(
                     flex: 2,
-                    child: KvPillButton(
-                      label: 'Link',
-                      onPressed: _selectedId == null
-                          ? null
-                          : () => VaultOperationScope.of(
-                              context,
-                            ).complete(DriveLinkResult.existing(_selectedId!)),
+                    child: BlocBuilder<VaultBloc, VaultState>(
+                      buildWhen: (previous, next) =>
+                          previous.isDriveConnected != next.isDriveConnected ||
+                          previous.isLoadingRemoteDriveFiles !=
+                              next.isLoadingRemoteDriveFiles ||
+                          previous.remoteDriveFilesError !=
+                              next.remoteDriveFilesError ||
+                          previous.remoteDriveFiles != next.remoteDriveFiles,
+                      builder: (context, state) {
+                        final canLink =
+                            !_isReconnecting &&
+                            _selectedId != null &&
+                            state.isDriveConnected &&
+                            !state.isLoadingRemoteDriveFiles &&
+                            state.remoteDriveFilesError == null &&
+                            state.remoteDriveFiles.any(
+                              (file) => file.id == _selectedId,
+                            );
+                        return KvPillButton(
+                          label: 'Link',
+                          onPressed: canLink ? _completeSelectedLink : null,
+                        );
+                      },
                     ),
                   ),
                 ],

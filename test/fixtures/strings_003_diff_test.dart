@@ -103,6 +103,10 @@ const _approvedSupersededLiterals = <String>{
   // key names (GOOGLE_WEB_CLIENT_ID / GOOGLE_IOS_CLIENT_ID).
   'Android Google Sign-In is not configured. Check GOOGLE_ANDROID_SERVER_CLIENT_ID.',
   'iOS Google Sign-In is not configured. Check GOOGLE_MOBILE_CLIENT_ID.',
+  // Approved post-spec reconnect UX: the Drive surface stays open and exposes
+  // an inline Reconnect CTA, so telling the user to open the surface again is
+  // stale. The frozen pre-spec fixture remains unchanged as evidence.
+  'Google Drive session expired or unavailable. Tap "Open from Google Drive" again and complete reconnection.',
 };
 
 void main() {
