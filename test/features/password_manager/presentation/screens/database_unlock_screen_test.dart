@@ -6,6 +6,8 @@
 // use `FakeUnlockDatabaseUseCase.hang = true` so the bloc reaches
 // `decrypting` (proving the submit dispatched with the right arguments)
 // without ever completing into `unlocked` and attempting that navigation.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -17,6 +19,13 @@ import 'package:password_manager/features/password_manager/domain/errors/databas
 import 'package:password_manager/features/password_manager/presentation/bloc/database_unlock/database_unlock_bloc.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/database_unlock/database_unlock_event.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/database_unlock/database_unlock_state.dart';
+import 'package:password_manager/features/password_manager/domain/models/apple_autofill_v2_models.dart';
+import 'package:password_manager/features/password_manager/domain/repositories/autofill_ports.dart';
+import 'package:password_manager/features/password_manager/domain/services/apple_autofill_v2_payload_mapper.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/android_autofill_save_coordinator.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
+import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
+import 'package:password_manager/injection_container.dart' as di;
 
 import 'database_selection_unlock_test_utils.dart';
 
@@ -54,6 +63,71 @@ void main() {
       biometricProtectionEnabled: false,
     ),
   };
+
+  // spec-016, from PR review: `hasPendingCapture()` claims the native token
+  // before its future completes, so from that moment this screen owns it. If the
+  // screen is gone by the time the answer arrives, nothing shows the notice and
+  // nothing runs dispose's abandon — the capture would then outlive the unlock
+  // the user walked away from and be offered at the next one, of a possibly
+  // different database.
+  group('Pending autofill capture', () {
+    testWidgets('a capture claimed after the screen is gone is abandoned', (
+      tester,
+    ) async {
+      final client = _CapturingAutofillClient();
+      final result = await pumpableUnlockScreen(
+        databasePath: path,
+        records: records,
+        securityProfiles: profiles,
+      );
+      di.sl.registerLazySingleton<AndroidAutofillSaveCoordinator>(
+        () => AndroidAutofillSaveCoordinator(
+          client: client,
+          mapper: const AppleAutofillV2PayloadMapper(),
+          vaultKdbxService: _UnusedVaultKdbxService(),
+          sessionSecretHolder: SessionSecretHolder(),
+        ),
+      );
+      addTearDown(() => di.sl.unregister<AndroidAutofillSaveCoordinator>());
+
+      await tester.pumpWidget(result.widget);
+      // The screen is mounted and waiting on the claim.
+      expect(client.resolved, isEmpty);
+
+      // It goes away before the answer arrives.
+      await tester.pumpWidget(const SizedBox.shrink());
+      client.tokenCompleter.complete('token-1');
+      await tester.pumpAndSettle();
+
+      expect(client.resolved, [
+        ('token-1', AndroidAutofillCaptureOutcome.cancelled),
+      ]);
+    });
+
+    testWidgets('nothing pending resolves nothing', (tester) async {
+      final client = _CapturingAutofillClient()..tokenCompleter.complete(null);
+      final result = await pumpableUnlockScreen(
+        databasePath: path,
+        records: records,
+        securityProfiles: profiles,
+      );
+      di.sl.registerLazySingleton<AndroidAutofillSaveCoordinator>(
+        () => AndroidAutofillSaveCoordinator(
+          client: client,
+          mapper: const AppleAutofillV2PayloadMapper(),
+          vaultKdbxService: _UnusedVaultKdbxService(),
+          sessionSecretHolder: SessionSecretHolder(),
+        ),
+      );
+      addTearDown(() => di.sl.unregister<AndroidAutofillSaveCoordinator>());
+
+      await tester.pumpWidget(result.widget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+
+      expect(client.resolved, isEmpty);
+    });
+  });
 
   group('Submit', () {
     testWidgets('dispatches the entered password to the unlock use case', (
@@ -335,4 +409,33 @@ void main() {
       },
     );
   });
+}
+
+class _CapturingAutofillClient implements AppleAutofillV2Client {
+  final tokenCompleter = Completer<String?>();
+  final List<(String, AndroidAutofillCaptureOutcome)> resolved = [];
+
+  @override
+  bool get isSupported => true;
+
+  @override
+  Future<String?> takePendingCaptureToken() => tokenCompleter.future;
+
+  @override
+  Future<AppleAutofillV2ClearPendingAssociationsResult> resolvePendingCapture({
+    required String token,
+    required AndroidAutofillCaptureOutcome outcome,
+  }) async {
+    resolved.add((token, outcome));
+    return const AppleAutofillV2ClearPendingAssociationsResult(clearedCount: 1);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// The unlock screen never writes; it only asks whether a capture is waiting.
+class _UnusedVaultKdbxService implements VaultKdbxService {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

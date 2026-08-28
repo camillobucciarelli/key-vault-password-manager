@@ -88,8 +88,18 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
     if (coordinator == null) {
       return;
     }
+    // `hasPendingCapture` claims the token before it returns, so from here on
+    // this screen owns it and must not simply walk away from it.
     final pending = await coordinator.hasPendingCapture();
-    if (!mounted || !pending) {
+    if (!pending) {
+      return;
+    }
+    if (!mounted) {
+      // The screen went away while we were asking. Nothing will show the notice
+      // and nothing will run dispose's abandon, so drop the capture here —
+      // otherwise it outlives the unlock the user abandoned and the next
+      // unlock, of a possibly different database, would be offered it.
+      unawaited(coordinator.abandonPendingCapture());
       return;
     }
     setState(() => _hasPendingCapture = true);
