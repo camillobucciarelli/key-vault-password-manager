@@ -62,7 +62,7 @@ dev_dependencies:
   # Do NOT raise to ^14 without checking `flutter pub get` still resolves:
   # analyzer 14 needs meta ^1.18.3, while flutter_test from the pinned Flutter
   # version (.fvmrc: 3.44.8) ships meta 1.18.0.
-  analyzer: ^13.0.0  # pinned: analyzer >=14 needs meta ^1.18.3, but the pinned Flutter SDK (fvm, 3.44.8) ships flutter_test with meta 1.18.0 — see PR #32. Revisit when the toolchain pin moves.
+  analyzer: ^14.1.0  # pinned: analyzer >=14 needs meta ^1.18.3, but the pinned Flutter SDK (fvm, 3.44.8) ships flutter_test with meta 1.18.0 — see PR #32. Revisit when the toolchain pin moves.
 
 flutter:
   uses-material-design: true
