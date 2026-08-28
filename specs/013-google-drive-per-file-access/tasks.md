@@ -1,13 +1,21 @@
 # 013 — Tasks
 
-Ordered tasks. Each names owner, files and verification. Phase 0 is a gate: no
-production task starts before it passes on every Gate 0 target.
+Ordered tasks. Each names owner, files and verification. Gate 0 runs as two
+checkpoints, because one of its criteria cannot be observed until Phase 1 exists.
+
+- **Gate 0-A** is Phase 0, criteria 1–10. Purely technical: it needs no branding,
+  no verified domain and no live site. It must pass on every Gate 0 target before
+  Phase 1 starts and before any production task starts.
+- **Gate 0-B** is criterion 11, the original symptom. It can only be observed once
+  Phase 1 has published the site, verified the domain and published the branding,
+  so it runs immediately after Phase 1. It is blocking, not optional and not a
+  nice-to-have: no Phase 2 or later task starts until it passes.
 
 Deferred and non-DoD items at the bottom are plain bullets on purpose. They are
 not checkboxes and must never become checkboxes, because the roadmap sync counts
 every checkbox line as scheduled work.
 
-## Phase 0 — Gate 0 feasibility spike
+## Phase 0 — Gate 0-A technical feasibility spike (criteria 1–10)
 
 - [ ] **T001 Prepare spike branch and throwaway accounts** — owner:
   `senior-flutter-dev`  
@@ -68,23 +76,17 @@ every checkbox line as scheduled work.
   Verify: scan performed against a release build, not a debug build, on all three
   Gate 0 targets.
 
-- [ ] **T008 Verify clean consent screen on an external account** — owner:
-  `senior-flutter-dev`  
-  Files: none.  
-  Acceptance: Gate 0 criterion 11 — with the site live and branding published, an
-  external non-owner account sees no "app isn't verified" warning.  
-  Verify: depends on Phase 1 being complete; observed on at least one Gate 0
-  target with a non-owner account.
-
-- [ ] **T009 File the sanitized feasibility report** — owner:
+- [ ] **T009 File the sanitized Gate 0-A feasibility report** — owner:
   `senior-flutter-dev`  
   Files: create `specs/013-google-drive-per-file-access/feasibility-report.md`.  
-  Acceptance: every Gate 0 criterion recorded per platform target as `pass` or
-  `fail`, with UTC date and OS/SDK version class; criterion 5 records
-  `folder_parent_accepted` or `root_fallback`; no `not-run` row exists. The file
-  contains no token, authorization code, client ID, client secret,
-  parameterized callback URL, `picked_file_ids` value, file ID, folder ID, email,
-  path or real vault bytes.  
+  Acceptance: Gate 0-A criteria 1 to 10 each recorded per platform target as
+  `pass` or `fail`, with UTC date and OS/SDK version class; criterion 5 records
+  `folder_parent_accepted` or `root_fallback`; no `not-run` row exists among
+  them. Criterion 11 is absent at this point because Gate 0-B has not run yet,
+  and its row is added by T008; that absence never counts as a pass and never
+  unblocks Phase 2. The file contains no token, authorization code, client ID,
+  client secret, parameterized callback URL, `picked_file_ids` value, file ID,
+  folder ID, email, path or real vault bytes.  
   Verify: manual review against the forbidden-value list in `spec.md`; the file
   must not exist before the spike actually ran.
 
@@ -122,6 +124,24 @@ Human-executed checklist. Every item is boolean evidence: done or not done.
   installed-app client with no secret in the runtime. No client ID or secret is
   committed to this repository.  
   Verify: boolean; secret scan of the repository stays clean.
+
+## Gate 0-B — external consent verification (criterion 11)
+
+Runs after Phase 1 and before Phase 2. Criterion 11 is deferred to here for one
+reason only: it cannot be observed until the site is live, the domain is verified
+and the branding is published, which is exactly what Phase 1 delivers. It keeps
+full Gate 0 force — blocking for Phase 2 and every later phase, with no `not-run`
+waiver.
+
+- [ ] **T008 Verify clean consent screen on an external account** — owner:
+  `senior-flutter-dev`  
+  Files: append the criterion 11 row to
+  `specs/013-google-drive-per-file-access/feasibility-report.md`.  
+  Acceptance: Gate 0 criterion 11 — with the site live and branding published, an
+  external non-owner account sees no "app isn't verified" warning. A `fail` here
+  blocks Phase 2 onwards exactly as a Gate 0-A failure does.  
+  Verify: requires T101 to T105 complete; observed on at least one Gate 0 target
+  with a non-owner account and recorded as a sanitized boolean row.
 
 ## Phase 2 — OAuth least privilege
 

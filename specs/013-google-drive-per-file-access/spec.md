@@ -197,8 +197,9 @@ happen first.
 
 ## Branding and public prerequisites
 
-These are prerequisites of the final Gate 0 item (a clean consent screen for an
-external account) and of the release.
+These are prerequisites of Gate 0-B (a clean consent screen for an external
+account) and of the release. Gate 0-B is therefore verified after they are in
+place, not before.
 
 | Item | Value |
 | --- | --- |
@@ -227,6 +228,20 @@ Gate 0 runs on a **separate branch** with code that is explicitly **not**
 production code. Its purpose is to prove the flow works before any production
 change is designed against it.
 
+Gate 0 is verified as two checkpoints, because criterion 11 depends on the
+branding prerequisites while criteria 1 to 10 do not:
+
+| Checkpoint | Criteria | Runs | Blocks |
+| --- | --- | --- | --- |
+| **Gate 0-A** | 1 to 10 | Before the branding prerequisites; needs no site, domain or branding | Everything after it, including the branding work and all production phases |
+| **Gate 0-B** | 11 | After the site is live, the domain is verified and the branding is published | Every production phase from the OAuth least-privilege work onwards |
+
+The split is one of ordering only. Every criterion stays mandatory and
+fail-closed, none is downgraded to a nice-to-have, and **no `not-run` waiver
+exists for any Gate 0 item in either checkpoint**. Criterion 11 not yet having
+been recorded means Gate 0-B has not run, which blocks the production phases; it
+never reads as a pass.
+
 Targets: a **physical Android device**, a **physical iPhone**, and **real
 macOS**. Windows and Linux GUI runs remain a mandatory pre-release gate; they are
 not a Gate 0 target only because the flow there reuses the existing desktop PKCE
@@ -235,7 +250,7 @@ path. **No `not-run` waiver exists for any Gate 0 item.**
 Environment: two dedicated Google accounts, empty vaults, a publicly known test
 password. Never a real account, never a real vault.
 
-### Acceptance criteria — all mandatory, fail-closed
+### Gate 0-A acceptance criteria — all mandatory, fail-closed
 
 1. The authorization request contains exactly `drive.file`, PKCE `S256`, a
    validated `state`, `prompt=consent` and `trigger_onepick=true`, and opens in
@@ -257,15 +272,23 @@ password. Never a real account, never a real vault.
    partially persisted token.
 10. A log scan of a **release** build finds no token, authorization code,
     callback URL, `picked_file_ids` value, file ID or email.
+
+### Gate 0-B acceptance criterion — mandatory, fail-closed
+
 11. On an external, non-owner account, with the site live and branding published,
     the consent screen shows **no** "app isn't verified" warning.
+
+This criterion is verified once the branding prerequisites are in place. A `fail`
+blocks the production phases exactly as a Gate 0-A failure does.
 
 ### Evidence
 
 Results are recorded in
 `specs/013-google-drive-per-file-access/feasibility-report.md`. **Create that
 file only when the spike actually runs** — its absence means Gate 0 has not been
-performed.
+performed. Gate 0-A files the report with criteria 1 to 10; Gate 0-B appends the
+criterion 11 row to the same report once it runs. A report carrying no criterion
+11 row is an incomplete Gate 0, not a passed one.
 
 Every value is boolean or sanitized. The report carries, per criterion and per
 platform target:
