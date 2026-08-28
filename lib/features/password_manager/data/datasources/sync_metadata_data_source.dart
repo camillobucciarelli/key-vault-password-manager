@@ -1,16 +1,139 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:equatable/equatable.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../../../core/utils/portable_path.dart';
 import '../../domain/models/database_sync_mapping.dart';
 
+/// spec-008 T404 — the durable record written **before** a conflict-resolution
+/// commit dispatches its upload.
+///
+/// It exists so a process that dies between the local atomic replace and the
+/// mapping finalize can be triaged on the next launch instead of leaving a
+/// vault in a state nobody can classify. Everything the triage asks is here:
+/// what was written locally, what was sent, what the send expected to replace,
+/// which remote file it was sent to, and where the pre-write backup went.
+///
+/// **Security boundary.** This is persisted unencrypted next to the sync
+/// mappings, so it carries checksums, an opaque remote file id and two
+/// filesystem paths — and deliberately **no plaintext value, no master
+/// password, no key-file bytes or path, and no credential of any kind**.
+/// Anything secret placed here would be secret on disk.
+///
+/// **There is no expected-old-token field, on purpose.** A concurrency token is
+/// only ever sent to a backend that declares a conditional write; the one
+/// storage backend this app has (Drive) does not, so an expected-old-token
+/// column would be null in every row ever written.
+class PendingMergeUpload extends Equatable {
+  const PendingMergeUpload({
+    required this.databasePath,
+    required this.remoteFileId,
+    required this.mergedChecksum,
+    required this.localCommittedChecksum,
+    this.expectedOldRemoteChecksum,
+    this.backupPath,
+    this.outcomeAmbiguous = false,
+  });
+
+  /// The local vault this record belongs to. Doubles as the store's key: at
+  /// most one dispatch can be in flight per database, because the whole commit
+  /// runs under that database's writer lock.
+  final String databasePath;
+
+  /// Provider-side id of the file the bytes were sent to. Not a URL and not an
+  /// account label.
+  final String remoteFileId;
+
+  /// Checksum of the bytes that were dispatched. Recovery compares the
+  /// refetched remote against this to answer "did my upload land?".
+  final String mergedChecksum;
+
+  /// Checksum of the bytes the atomic replace put on disk. Recovery compares
+  /// the CURRENT local file against this to answer "is the local side still
+  /// the one this record describes?" — a different question with a different
+  /// remedy, which is why it is a separate field even though the two are equal
+  /// by construction today (the same bytes are written and sent).
+  final String localCommittedChecksum;
+
+  /// What the dispatch expected the remote to hold *before* it landed. `null`
+  /// when the provider reported no checksum for the pre-write state.
+  final String? expectedOldRemoteChecksum;
+
+  /// The verified pre-write backup, when one was taken. `null` when there was
+  /// no existing target to back up.
+  final String? backupPath;
+
+  /// True when the dispatch's outcome could not be determined — the transport
+  /// failed after the request went out, or the read-back was not executable.
+  /// Such a record must not be retried blindly and must not be read as either
+  /// applied or failed.
+  final bool outcomeAmbiguous;
+
+  /// The one state transition this record has (T406).
+  PendingMergeUpload asAmbiguous() => PendingMergeUpload(
+    databasePath: databasePath,
+    remoteFileId: remoteFileId,
+    mergedChecksum: mergedChecksum,
+    localCommittedChecksum: localCommittedChecksum,
+    expectedOldRemoteChecksum: expectedOldRemoteChecksum,
+    backupPath: backupPath,
+    outcomeAmbiguous: true,
+  );
+
+  Map<String, dynamic> toMap() => {
+    'databasePath': databasePath,
+    'remoteFileId': remoteFileId,
+    'mergedChecksum': mergedChecksum,
+    'localCommittedChecksum': localCommittedChecksum,
+    'expectedOldRemoteChecksum': expectedOldRemoteChecksum,
+    'backupPath': backupPath,
+    'outcomeAmbiguous': outcomeAmbiguous,
+  };
+
+  factory PendingMergeUpload.fromMap(Map<String, dynamic> map) =>
+      PendingMergeUpload(
+        databasePath: map['databasePath'] as String,
+        remoteFileId: map['remoteFileId'] as String,
+        mergedChecksum: map['mergedChecksum'] as String,
+        localCommittedChecksum: map['localCommittedChecksum'] as String,
+        expectedOldRemoteChecksum: map['expectedOldRemoteChecksum'] as String?,
+        backupPath: map['backupPath'] as String?,
+        outcomeAmbiguous: map['outcomeAmbiguous'] as bool? ?? false,
+      );
+
+  @override
+  List<Object?> get props => [
+    databasePath,
+    remoteFileId,
+    mergedChecksum,
+    localCommittedChecksum,
+    expectedOldRemoteChecksum,
+    backupPath,
+    outcomeAmbiguous,
+  ];
+}
+
 abstract class SyncMetadataDataSource {
   Future<DatabaseSyncMapping?> getMapping(String databasePath);
   Future<void> upsertMapping(DatabaseSyncMapping mapping);
   Future<void> removeMapping(String databasePath);
+
+  /// The [PendingMergeUpload] recorded for [databasePath], if a dispatch was
+  /// started and never finalized.
+  Future<PendingMergeUpload?> getPendingUpload(String databasePath);
+
+  /// Writes [record], replacing any record for the same database. Called
+  /// before the upload request goes out, and again to mark the outcome
+  /// ambiguous.
+  Future<void> upsertPendingUpload(PendingMergeUpload record);
+
+  /// Drops the record for [databasePath]. Called only once the read-back has
+  /// proved the remote holds the dispatched bytes and the mapping is
+  /// finalized — never to make a stuck record go away.
+  Future<void> clearPendingUpload(String databasePath);
 
   /// Moves the mapping at [fromDatabasePath] to [toDatabasePath]. Returns a
   /// [DatabaseSyncMappingPathMove] token capturing both slots' prior state,
@@ -33,6 +156,7 @@ class SyncMetadataDataSourceImpl implements SyncMetadataDataSource {
 
   static const _syncSubdirectory = 'metadata';
   static const _syncFileName = 'sync_mappings.json';
+  static const _pendingUploadsFileName = 'pending_uploads.json';
 
   @override
   Future<DatabaseSyncMapping?> getMapping(String databasePath) async {
@@ -213,12 +337,104 @@ class SyncMetadataDataSourceImpl implements SyncMetadataDataSource {
     await file.writeAsString(encoded, flush: true);
   }
 
-  Future<File> _syncMappingsFile() async {
+  @override
+  Future<PendingMergeUpload?> getPendingUpload(String databasePath) async {
+    for (final record in await _allPendingUploads()) {
+      if (record.databasePath == databasePath) {
+        return record;
+      }
+    }
+    return null;
+  }
+
+  @override
+  Future<void> upsertPendingUpload(PendingMergeUpload record) async {
+    final existing = await _allPendingUploads();
+    await _savePendingUploads([
+      ...existing.where((item) => item.databasePath != record.databasePath),
+      record,
+    ]);
+  }
+
+  @override
+  Future<void> clearPendingUpload(String databasePath) async {
+    final existing = await _allPendingUploads();
+    if (!existing.any((item) => item.databasePath == databasePath)) {
+      return;
+    }
+    await _savePendingUploads(
+      existing.where((item) => item.databasePath != databasePath).toList(),
+    );
+  }
+
+  Future<List<PendingMergeUpload>> _allPendingUploads() async {
+    final file = await _metadataFile(_pendingUploadsFileName);
+    if (!await file.exists()) {
+      return const [];
+    }
+    final raw = await file.readAsString();
+    if (raw.trim().isEmpty) {
+      return const [];
+    }
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) {
+      return const [];
+    }
+    // Both paths are stored portably for the same reason `databasePath` is on
+    // a mapping: an iOS app container is relocated under the app's feet, and a
+    // record that outlives a relaunch is exactly the one that meets a new
+    // container UUID.
+    final documentsRoot = await PortablePath.documentsRoot();
+    return decoded
+        .whereType<Map>()
+        .map((item) {
+          final record = PendingMergeUpload.fromMap(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          );
+          final backupPath = record.backupPath;
+          return PendingMergeUpload(
+            databasePath: PortablePath.decode(
+              record.databasePath,
+              documentsRoot,
+            ),
+            remoteFileId: record.remoteFileId,
+            mergedChecksum: record.mergedChecksum,
+            localCommittedChecksum: record.localCommittedChecksum,
+            expectedOldRemoteChecksum: record.expectedOldRemoteChecksum,
+            backupPath: backupPath == null
+                ? null
+                : PortablePath.decode(backupPath, documentsRoot),
+            outcomeAmbiguous: record.outcomeAmbiguous,
+          );
+        })
+        .toList(growable: false);
+  }
+
+  Future<void> _savePendingUploads(List<PendingMergeUpload> records) async {
+    final resolvedRoot = PortablePath.resolveForComparison(
+      await PortablePath.documentsRoot(),
+    );
+    String? encodePath(String? path) => path == null
+        ? null
+        : PortablePath.encodeWithResolvedRoot(path, resolvedRoot);
+    final encoded = jsonEncode([
+      for (final record in records)
+        record.toMap()
+          ..['databasePath'] = encodePath(record.databasePath)
+          ..['backupPath'] = encodePath(record.backupPath),
+    ]);
+    final file = await _metadataFile(_pendingUploadsFileName);
+    await file.writeAsString(encoded, flush: true);
+  }
+
+  Future<File> _syncMappingsFile() => _metadataFile(_syncFileName);
+
+  Future<File> _metadataFile(String name) async {
     final root = await getApplicationDocumentsDirectory();
     final directory = Directory(p.join(root.path, _syncSubdirectory));
     if (!await directory.exists()) {
       await directory.create(recursive: true);
     }
-    return File(p.join(directory.path, _syncFileName));
+    return File(p.join(directory.path, name));
   }
 }

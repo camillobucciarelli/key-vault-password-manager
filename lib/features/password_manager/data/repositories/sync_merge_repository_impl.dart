@@ -369,13 +369,42 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
         credentials: session.credentials,
       );
 
-      // Steps 5-9.
-      await _safeWriter.write(
-        targetPath: session.canonicalPath,
-        bytes: candidateBytes,
-        backupExistingTarget: true,
-        operation: 'merge commit',
-      );
+      // Steps 5-9, reused as-is: verified collision-safe backup first, then the
+      // same-directory temp and the atomic replace.
+      //
+      // T403: mapped to a typed refusal like every other fallible step in this
+      // method. An uncaught `FileSystemException` here would cross the frozen
+      // port carrying a verbatim vault path, and a caller built on that port
+      // would crash instead of being refused. The classification is by
+      // exception type, which is as precise as the writer's surface allows: a
+      // name-collision exhaustion is reported as `atomicReplaceFailed` even
+      // when it happened while claiming the backup name, because the writer
+      // does not say which phase raised it. In both cases nothing was written
+      // and the target is untouched, which is what the codes' shared remedy
+      // rests on.
+      final SafeVaultFileWriteResult written;
+      try {
+        written = await _safeWriter.write(
+          targetPath: session.canonicalPath,
+          bytes: candidateBytes,
+          backupExistingTarget: true,
+          operation: 'merge commit',
+        );
+      } on SafeVaultBackupUnavailableException {
+        // FR-9's hard stop: the target could not be backed up, so it was never
+        // touched. The session is left intact — nothing was written, so a
+        // retry after the user fixes the folder permission costs no review
+        // work.
+        return MergeRejected(
+          MergeFailureCode.backupFailed,
+          localCommitCompleted: localWritten,
+        );
+      } on Object {
+        return MergeRejected(
+          MergeFailureCode.atomicReplaceFailed,
+          localCommitCompleted: localWritten,
+        );
+      }
       localWritten = true;
       session.everWrittenLocally = true;
       // The step-1/2 staleness precheck at the top of this method must judge
@@ -383,10 +412,37 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       // against `startReview`'s original snapshot: this round may go on to
       // find a genuinely new conflict below and return `MergeNeedsReview`
       // without finalizing, and the write already happened.
-      session.localChecksum = _checksumOf(candidateBytes);
+      final localCandidateChecksum = _checksumOf(candidateBytes);
+      session.localChecksum = localCandidateChecksum;
 
-      // Step 10 would persist a pendingUpload record here. T404's job, not
-      // built — see this method's doc comment.
+      // Step 10 — T404. Persisted BEFORE the request goes out, because the
+      // whole point is to survive a process that dies while the request is in
+      // flight. `mergedChecksum` and `localCommittedChecksum` are the same
+      // value here by construction (the bytes written are the bytes sent);
+      // they are separate fields because restart recovery asks two different
+      // questions of them.
+      final pending = PendingMergeUpload(
+        databasePath: session.canonicalPath,
+        remoteFileId: mapping.driveFileId,
+        mergedChecksum: localCandidateChecksum,
+        localCommittedChecksum: localCandidateChecksum,
+        expectedOldRemoteChecksum: expectedRemoteChecksum,
+        backupPath: written.backupPath,
+      );
+      try {
+        await _syncMetadata.upsertPendingUpload(pending);
+      } on Object {
+        // No record, no dispatch: uploading with no way to triage the outcome
+        // is the exact hole this step exists to close, so the cycle stops here
+        // instead. The merged local file and its backup are retained and the
+        // mapping is never marked synced — the same disposition as a spent
+        // retry budget, which is why it reports the same code.
+        _disposeSession(session);
+        return const MergeRejected(
+          MergeFailureCode.unresolvedConflict,
+          localCommitCompleted: true,
+        );
+      }
 
       // Step 11.
       final DriveRemoteFile updated;
@@ -396,8 +452,13 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
           bytes: candidateBytes,
         );
       } on Object {
-        // Drive declares no `conditionalWrite`, so there is no CAS-certain
-        // rejection to classify here — every failure is transport-ambiguous.
+        // T405/T406: Drive declares no `conditionalWrite`, so a CERTAIN
+        // rejection — the one outcome that would prove nothing was
+        // overwritten — cannot exist on this backend. Every failure after the
+        // request went out is transport-ambiguous: the write may well have
+        // landed. Recorded as such and left for recovery triage; never
+        // retried blindly, never marked synced, never marked failed.
+        await _markPendingAmbiguous(pending);
         _disposeSession(session);
         return const MergeRejected(
           MergeFailureCode.uploadOutcomeAmbiguous,
@@ -405,15 +466,19 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
         );
       }
 
-      // Steps 12/13. `updateFile` already issues its own `getFileMetadata`
+      // Steps 12/13. T405: what `updateFile` returned is an APPARENT success
+      // and nothing more — on a backend with no conditional write, the absence
+      // of a rejection is not evidence that nothing was overwritten. Only the
+      // read-back promotes it to confirmed, and the mapping is finalized
+      // nowhere else. `updateFile` already issues its own `getFileMetadata`
       // strictly after the write completes (a real second round trip, not a
       // cached echo of what was sent), so that response IS the mandatory
-      // read-back — no separate re-fetch is needed to make it genuine.
-      final localCandidateChecksum = _checksumOf(candidateBytes);
+      // read-back.
       final observedChecksum = updated.md5Checksum;
       if (observedChecksum == null) {
         // A non-executable read-back: nothing to verify against. Ambiguous,
         // never finalized, never retried blindly.
+        await _markPendingAmbiguous(pending);
         _disposeSession(session);
         return const MergeRejected(
           MergeFailureCode.uploadOutcomeAmbiguous,
@@ -427,6 +492,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
           remoteChecksum: observedChecksum,
           modifiedTime: updated.modifiedTime,
         );
+        await _clearPending(pending);
         _disposeSession(session);
         return MergeApplied(
           entryCount: entryCount,
@@ -442,6 +508,11 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       try {
         redownloaded = await _sync.downloadRemoteFile(mapping.driveFileId);
       } on Object {
+        // The write went out and the read-back showed divergence, so the
+        // outcome is exactly as unknown as the two paths above — mark it the
+        // same way. Without this the record keeps `outcomeAmbiguous: false`
+        // while the returned code says ambiguous, and the two disagree.
+        await _markPendingAmbiguous(pending);
         _disposeSession(session);
         return const MergeRejected(
           MergeFailureCode.uploadOutcomeAmbiguous,
@@ -463,6 +534,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
           remoteChecksum: _checksumOf(redownloaded),
           modifiedTime: updated.modifiedTime,
         );
+        await _clearPending(pending);
         _disposeSession(session);
         return MergeApplied(
           entryCount: entryCount,
@@ -484,6 +556,41 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       MergeFailureCode.unresolvedConflict,
       localCommitCompleted: true,
     );
+  }
+
+  /// Flips the pending record to ambiguous (T406) on the paths where the
+  /// upload's outcome cannot be known.
+  ///
+  /// A failure to persist the flip is swallowed on purpose: every caller is
+  /// already returning `uploadOutcomeAmbiguous`, and throwing here would
+  /// replace that answer with an unclassified error. The record then survives
+  /// in its pre-dispatch form, which recovery already treats as un-triaged
+  /// rather than as applied or failed -- strictly less information, never
+  /// wrong information.
+  Future<void> _markPendingAmbiguous(PendingMergeUpload pending) async {
+    try {
+      await _syncMetadata.upsertPendingUpload(pending.asAmbiguous());
+    } on Object {
+      // Deliberately ignored -- see above.
+    }
+  }
+
+  /// Drops the pending record (T404) once the read-back has proved the remote
+  /// holds the dispatched bytes and [_finalizeMapping] has run — the only
+  /// condition the data source's contract allows it under.
+  ///
+  /// A failure to persist the drop is swallowed for the same reason as in
+  /// [_markPendingAmbiguous]: the merge genuinely succeeded, and throwing here
+  /// would turn it into an unclassified error after the fact. The stale record
+  /// is self-correcting rather than wrong — recovery re-hashes the local file,
+  /// refetches, finds the remote already holds `mergedChecksum`, and converges
+  /// on the outcome that in fact occurred.
+  Future<void> _clearPending(PendingMergeUpload pending) async {
+    try {
+      await _syncMetadata.clearPendingUpload(pending.databasePath);
+    } on Object {
+      // Deliberately ignored -- see above.
+    }
   }
 
   Future<void> _finalizeMapping({

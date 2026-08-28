@@ -1304,7 +1304,7 @@ class KdbxMergeAdapter {
         // Value already correct; FR-4 preserves it with no decision. A
         // divergent key SPELLING is the one thing still undecided on this
         // row (T401a) — resolved deterministically, never "keep local".
-        _reconcileIdenticalKeySpelling(localEntry, field);
+        _reconcileKeySpelling(localEntry, field);
         return;
       case KdbxFieldClassification.fieldLocalOnly:
         // Already in the candidate; FR-4 preserves it with no decision.
@@ -1316,13 +1316,18 @@ class KdbxMergeAdapter {
         final choice = resolution.fieldChoiceFor(field);
         switch (choice) {
           case MergeChoice.local:
+            // The VALUE is already the candidate's; only the key spelling is
+            // still open, and it is decided by the same deterministic order
+            // as every other row — not by which side happened to be local.
+            _reconcileKeySpelling(localEntry, field);
             return;
           case MergeChoice.remote:
             _takeRemote(localEntry, remoteEntry, field);
             return;
           case MergeChoice.bothNotes:
+            _reconcileKeySpelling(localEntry, field);
             localEntry.setString(
-              KdbxKey(field.localKey ?? field.remoteKey!),
+              KdbxKey(_survivingKeySpelling(field)),
               PlainValue(
                 notesSegmentUnion(
                   localEntry.getString(KdbxKey(field.localKey!))?.getText() ??
@@ -1345,17 +1350,25 @@ class KdbxMergeAdapter {
 
   /// Copies the remote side of one field onto the candidate.
   ///
-  /// The **local** key spelling wins where both sides have one, because KDBX
-  /// matches keys case-insensitively and keeps the spelling already stored:
-  /// writing the remote spelling would resolve onto the same key anyway. Where
-  /// only the remote side has the field, its spelling is preserved verbatim
-  /// (FR-1).
+  /// The surviving key spelling is [_survivingKeySpelling]'s, NOT the local
+  /// one: "keep local" here was the perspective-dependent default FR-3
+  /// forbids. Two mirrored devices resolve the same conflict to the same
+  /// VALUE but from opposite sides — one runs this method, the other takes
+  /// the `MergeChoice.local` branch — so a local-preferring spelling left
+  /// them holding two different verbatim keys forever. Where only the remote
+  /// side has the field, its spelling is preserved verbatim (FR-1).
+  ///
+  /// [_reconcileKeySpelling] runs first because `Map[]=` keeps the EXISTING
+  /// key object on an equal key and [KdbxKey] compares case-insensitively:
+  /// writing under the winning spelling without renaming first would silently
+  /// retain the local one.
   void _takeRemote(
     KdbxEntry localEntry,
     KdbxEntry remoteEntry,
     KdbxFieldDiff field,
   ) {
-    final targetKey = KdbxKey(field.localKey ?? field.remoteKey!);
+    _reconcileKeySpelling(localEntry, field);
+    final targetKey = KdbxKey(_survivingKeySpelling(field));
     final sourceKey = KdbxKey(field.remoteKey!);
 
     switch (field.fieldKind) {
@@ -1377,38 +1390,49 @@ class KdbxMergeAdapter {
     }
   }
 
-  /// FR-4's "identical" row (T401a): both sides hold the same value under
-  /// different spellings of the same canonical key — e.g. local
-  /// `Custom_Totp`, remote `custom_totp`. Nothing else in this method decides
-  /// values, only the spelling the candidate ends up holding: FR-3's UTF-8
-  /// order applied to the two spellings themselves, never "keep local" (that
-  /// is the exact perspective-dependent default FR-3 forbids for values, and
-  /// there is no reason a key spelling should be exempt).
+  /// The verbatim key spelling a shared field keeps (T401a).
+  ///
+  /// One side only: that side's spelling, verbatim (FR-1). Both sides
+  /// spelling the same canonical key differently: FR-3's UTF-8 order applied
+  /// to the two spellings themselves — greater wins — never "keep local",
+  /// which is the exact perspective-dependent default FR-3 forbids for
+  /// values, and there is no reason a key spelling should be exempt.
+  ///
+  /// It is deliberately independent of which side won the VALUE: `bothNotes`
+  /// and the `identical` row have no winning side at all, so a
+  /// value-following rule is not even expressible there. (FR-3a's credential
+  /// block does follow its block winner — see [_applyCredentialBlocks] — but
+  /// that block always has one, and its members never reach this method.)
+  String _survivingKeySpelling(KdbxFieldDiff field) {
+    final localKey = field.localKey;
+    final remoteKey = field.remoteKey;
+    if (localKey == null) return remoteKey!;
+    if (remoteKey == null) return localKey;
+    return compareUtf8Bytes(remoteKey, localKey) > 0 ? remoteKey : localKey;
+  }
+
+  /// Renames the candidate's key to [_survivingKeySpelling] where the two
+  /// sides spell it differently. Nothing here decides values.
   ///
   /// [KdbxEntry.renameKey] stamps a wall clock through `Changeable.modify`
   /// like every other mutator here; [_stampDeterministicTimes] corrects it at
   /// the end of [applyMerge], so no special-casing is needed here.
-  void _reconcileIdenticalKeySpelling(
-    KdbxEntry localEntry,
-    KdbxFieldDiff field,
-  ) {
+  void _reconcileKeySpelling(KdbxEntry localEntry, KdbxFieldDiff field) {
     if (!field.keySpellingDiverges) return;
     final localKey = field.localKey!;
-    final remoteKey = field.remoteKey!;
-    if (compareUtf8Bytes(remoteKey, localKey) <= 0) {
-      return; // local's already wins
-    }
+    final survivingKey = _survivingKeySpelling(field);
+    if (survivingKey == localKey) return; // local's spelling already wins
 
     switch (field.fieldKind) {
       case KdbxMergeFieldKind.string:
-        localEntry.renameKey(KdbxKey(localKey), KdbxKey(remoteKey));
+        localEntry.renameKey(KdbxKey(localKey), KdbxKey(survivingKey));
       case KdbxMergeFieldKind.attachment:
         final binary = localEntry.getBinary(KdbxKey(localKey));
         if (binary == null) return;
         localEntry.removeBinary(KdbxKey(localKey));
         localEntry.createBinary(
           isProtected: binary.isProtected,
-          name: remoteKey,
+          name: survivingKey,
           bytes: binary.value,
         );
     }
