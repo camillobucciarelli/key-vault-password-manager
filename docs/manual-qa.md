@@ -75,9 +75,12 @@ non-secret cross-process marker; its physical-device rerun completed all four
 probe processes successfully.
 
 Windows and Linux T111 artifacts remain verified from PR #127, Actions run
-`32713786823`; macOS and iOS are also passed. T111 stays open because Android is
-the only platform without an artifact. Generated outputs remain ignored or
-attached to GitHub Actions; none is committed.
+`32713786823`; macOS and iOS are also passed. As of this date T111 was still
+open, Android being the only platform without an artifact; it closed the next
+day — see the Android row of
+`specs/008-per-field-conflict-resolution/feasibility-report.md` and S1-7 below.
+Generated outputs remain ignored or attached to GitHub Actions; none is
+committed.
 
 **Changed on 2026-08-24 by the T111 automation.** Two items left this list for
 good (S4-4 and S5-4): on Linux and Windows the GitHub-hosted runner *is* the
