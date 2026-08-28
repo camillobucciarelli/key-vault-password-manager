@@ -28,7 +28,7 @@ count, never rounded to the more flattering of the two.
 | --- | --- | --- | --- | --- | --- |
 | S1 | Android phone or emulator | 7 | 1 `passed`, 6 `not-run` | 2026-08-25 | S1-7 passed (T111 Android artifact, Android 16 / API 36 emulator, arm64, 8/8 cases). S1-1..S1-6 UI/manual items remain `not-run` |
 | S2 | iPhone or iPad (physical) | 6 | 1 `passed`, 5 `not-run` | 2026-08-24 | S2-1 automated keystore inspection passed on physical iPhone / iOS 26.6; S2-2 lifecycle and all UI items remain `not-run` — see evidence below |
-| S3 | macOS machine (also covers Chrome/Edge + native host) | 13 | 3 `passed`, 10 `not-run` | 2026-08-25 | S3-7 passed (v1 → v2 upgrade, Chrome 151); S3-10 passed (keyboard-only, Chrome 151, same session that found and fixed #132); S3-12 passed (file:// iframe reachability, same session). T111 macOS host artifact also passed, but is outside these 13 UI/manual items and qualifies macOS only |
+| S3 | macOS machine (also covers Chrome/Edge + native host) | 13 | 3 `passed`, 10 `not-run` | 2026-08-25 | S3-7 passed (v1 → v2 upgrade, Chrome 151); S3-10 passed (keyboard-only, Chrome 151, same session that found and fixed #132); S3-12 passed (file:// iframe reachability, same session); S3-13 stays `not-run`: partially executed 2026-08-25 under a documented harness substitution (real Chrome, real `en.wikipedia.org` + `github.com/login`) that injected the **top frame only** and skipped the dynamic `allFrames: true` registration — the frame-coverage dimension this row exists for is unmeasured, see S3-13 below. S3-6 was re-attempted for real on this machine on 2026-08-25 and stays `not-run`: blocked by this sandbox's own missing macOS Accessibility/Screen-Recording permissions, not by a product finding — see S3-6 below. T111 macOS host artifact also passed, but is outside these 13 UI/manual items and qualifies macOS only |
 | S4 | Windows machine | 3 | `not-run` | — | Shrunk by the `test-windows` and `t111-platform-artifact` CI jobs, see "Removed" |
 | S5 | Linux machine | 3 | `not-run` | — | Shrunk by the `t111-platform-artifact` CI job, see "Removed" |
 
@@ -725,6 +725,61 @@ mode found in the earlier smoke — the popup closing and losing the gesture —
 caught by mutation A2-M15, **not** by the automated suite, so a human still has
 to see the prompt.
 
+**Status: `not-run` — re-attempted for real on this machine, 2026-08-25, and
+blocked before either half could be observed.** This is a session/sandbox
+limitation, not a product finding: everything this session *could* actually
+observe behaved exactly as expected.
+
+The extension was loaded unpacked for real in real Chrome 151/macOS.
+`--load-extension` was refused outright by this machine's Chrome build
+(`--load-extension is not allowed in Google Chrome, ignoring.`, confirmed via
+`--enable-logging=stderr --v=1`; `defaults read
+/Library/Managed\ Preferences/com.google.Chrome.plist` shows this Mac is under
+Chrome Enterprise policy, with its own `ExtensionInstallForcelist` /
+`ExtensionInstallBlocklist`). Worked around with the CDP-native
+`Extensions.loadUnpacked` command, which Chrome 151 supports as the documented
+remote-debugging equivalent of `--load-extension` — not a change to extension
+behaviour.
+
+From there the popup was opened as a real page target
+(`chrome-extension://<id>/popup.html`) and the "Turn on" toggle was hit with a
+genuinely trusted click (CDP `Input.dispatchMouseEvent`, not `element.click()`).
+This reliably invoked `chrome.permissions.request()`: across several repeated
+runs the popup's UI stayed on its "Off" render rather than flipping to
+"denied" for 20+ seconds, exactly the behaviour expected of a promise that is
+genuinely waiting on a human to answer a live prompt, not a broken call. But
+the prompt itself never became observable or acceptable from this session:
+
+- The permission bubble is native browser UI (a Views bubble), not a page.
+  Exhaustive `Target`-discovery polling (every 150 ms for 6-20 s immediately
+  after the click, across several runs) never found an attachable target for
+  it — the only new targets were unrelated background/service-worker
+  wake-ups belonging to Chrome's own component extensions.
+- Accepting it therefore needs OS-level UI automation, or at least a
+  screenshot to locate it. Both are unavailable in this sandbox:
+  `osascript`/System Events fails immediately with `-25211 ("osascript is not
+  allowed assistive access")`, and `screencapture` fails with `"could not
+  create image from display"`. Both are macOS TCC-gated (Accessibility,
+  Screen Recording) and neither can be granted without a human interactively
+  clicking through a System Settings consent dialog — there is no scriptable
+  opt-in from inside the session.
+- `--headless=new` does not auto-resolve the prompt either — same pending
+  state.
+- There is no API back door for this extension's manifest shape: calling
+  `chrome.developerPrivate.updateExtensionConfiguration({hostAccess:
+  "ON_ALL_SITES"})` from the privileged `chrome://extensions` page context
+  returns success but is a genuine no-op (`chrome.permissions.getAll().origins`
+  stayed `[]` before and after) — this extension declares only
+  `optional_host_permissions`, not a withholdable `host_permissions`, and
+  Chrome's site-access toggle only manages the latter.
+
+Net: the grant half could not be completed here, and the revoke half has no
+granted state to revoke from without it, so neither half was re-verified this
+session. `specs/009-in-page-autofill-overlay/tasks.md` A046 row 22 is
+reconciled separately to reflect this (its own "still due" detail for the
+revoke half, not the summary line that briefly contradicted it, is what this
+session's evidence actually supports).
+
 **Steps**
 
 1. In `chrome://extensions`, remove all site access from the extension.
@@ -1025,6 +1080,83 @@ sites the user had opted into. It now runs in **every frame of every `http(s)`
 page** at `document_idle`. Nothing has measured that, and this row has **no
 automated coverage of any kind** — it is the one Slice C row with no safety net
 at all.
+
+**Status: `not-run`** — partially executed under a documented substitution on
+macOS / Chrome 151, 2026-08-25: **top frame only**. The `allFrames: true`
+dimension this row exists for was not exercised. The evidence gathered is
+recorded below in full because it is useful (strict-CSP behaviour, console
+silence, top-frame cost), but it does not close the row.
+
+**Substitution, stated plainly.** This session could not toggle the real
+popup's broad-permission switch on: blocked for the same reason documented in
+S3-6 (the native `chrome.permissions.request()` prompt cannot be accepted in
+this sandbox). Since this row is about the cost and CSP-behaviour of the
+*actually-injected runtime files*, not about the popup/permission UX, it was
+executed instead with the same throwaway-harness-extension technique
+`test/visual/capture_runner.mjs` already uses for A041: the unmodified
+production `overlay_security.js` and `content_overlay.js` (sha256-verified
+identical to the committed files at run time) plus the existing test-only
+`background_stub.js`, loaded via CDP `Extensions.loadUnpacked`.
+
+**What the harness does not reproduce, and why that matters here.** The harness
+manifest is not production's injection. Production registers the same two files
+at runtime through `scripting.registerContentScripts` with `allFrames: true`
+and `persistAcrossSessions: true` (`desktop/browser_extension/overlay_lifecycle.js`,
+`globalRegistration()`). The harness declares a *static* `content_scripts`
+entry with no `all_frames` key at all — the default is `false`, so the script
+ran in the **top frame only**, and the dynamic-registration path was never
+exercised. `world: "ISOLATED"` is the only production field the harness omits
+harmlessly: it is the default for content scripts, so the isolated-world and
+CSP findings below do carry. The per-frame cost of universal injection — the
+one thing this row was written to measure on a frame-rich page — was not
+measured.
+
+**Recorded observation — macOS, Chrome 151, 2026-08-25.**
+
+- Heavy page: `https://en.wikipedia.org/wiki/World_War_II` (16,973 DOM
+  nodes — heavy in nodes, but **not** frame-rich, and injected into the top
+  frame only; this is not the page the Steps below ask for). Each measurement was taken on a warm HTTP cache (one throwaway load
+  first, then the measured reload), so overlay-off and overlay-on are an
+  apples-to-apples comparison rather than cold-vs-warm.
+  - Overlay off: load 293 ms, DOMContentLoaded 279 ms, JS heap 9.37 MB.
+  - Overlay on (harness injected, hard reload): load 143 ms,
+    DOMContentLoaded 57 ms, JS heap 9.72 MB.
+  - No regression detectable above measurement noise, and the measurement is
+    **not conclusive**: overlay-on came out ~2x *faster* than overlay-off
+    (143 vs 293 ms load, 57 vs 279 ms DCL), i.e. the run-to-run variance is
+    larger than any effect being looked for. n=1 per condition, and no CPU,
+    rendering or frame-timing metric was collected at all. The JS-heap delta
+    (+0.35 MB) is consistent with one lightweight injected content script.
+    Zero console/log/exception events fired on this page with the overlay on.
+- Strict-CSP site: `https://github.com/login`. Header fetched directly
+  (`curl -sI`, outside the page so as not to be subject to the very CSP being
+  tested): `content-security-policy: default-src 'none'; ...;
+  script-src github.githubassets.com; style-src 'unsafe-inline'
+  github.githubassets.com; ...` — no inline scripts, no `unsafe-eval`,
+  explicit allow-list only. Zero console/log/exception events during load.
+  Focusing the page's real `#password` field mounted the overlay (two
+  `position: fixed` host `DIV`s), and piercing the closed shadow root via CDP
+  `DOM.getDocument({pierce: true})` (the same technique
+  `capture_runner.mjs`'s `collectTexts` helper uses) found the real overlay
+  text `"2 KeyVault suggestions"` and `"Open KeyVault to generate a
+  password."` — a screenshot confirmed the suggestion list rendered directly
+  under GitHub's own password field. No CSP violation of any kind was
+  logged, confirming the isolated world is unaffected by the page's CSP. The
+  two suggestions shown ("Personal login / example.com", "Work login /
+  login.example.com") are the harness's own synthetic fixture data (the same
+  `background_stub.js` A041 already uses) — no live app/vault was involved
+  in this session.
+- Ordinary sites with the overlay on: `https://en.wikipedia.org/` and
+  `https://news.ycombinator.com/` — zero console/log/exception events on
+  either. This also matches a static-source finding: `content_overlay.js`
+  and `overlay_security.js` contain zero `console.*` calls in the committed
+  source, so there is no logging surface to leak origin/entry/secret-shaped
+  data from in the first place.
+
+This **partially** executes A046 row 24 in
+`specs/009-in-page-autofill-overlay/tasks.md`. The residue that keeps both the
+row and this item open: a heavy, frame-rich page injected with
+`allFrames: true` via the production dynamic registration.
 
 **Steps**
 
