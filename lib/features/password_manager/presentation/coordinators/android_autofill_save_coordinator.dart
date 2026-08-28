@@ -79,6 +79,12 @@ class AndroidAutofillSaveCoordinator {
   /// and the vault may still be locked when that happens.
   String? _heldToken;
 
+  /// Whether a capture has already been claimed, answered without waiting.
+  ///
+  /// Claiming happens once at startup, so anything built afterwards — the
+  /// unlock prompt's wording included — can ask without a channel round-trip.
+  bool get hasClaimedCapture => _heldToken != null;
+
   /// Whether a capture is waiting for a vault that is not open yet.
   ///
   /// Claims the token from the native side on the first call so the unlock

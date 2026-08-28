@@ -10,6 +10,7 @@ import '../../../../../core/navigation/app_navigation.dart';
 import '../../../../../core/responsive/breakpoints.dart';
 import '../../../../../core/theme/app_icons.dart';
 import '../../../../../core/theme/app_motion.dart';
+import '../../../../../core/theme/app_radii.dart';
 import '../../../../../core/theme/app_text_styles.dart';
 import '../../../../../core/theme/app_theme.dart';
 import '../../../../../core/theme/keyvault_colors.dart';
@@ -184,65 +185,81 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
           }
         },
         builder: (context, state) {
-          switch (state.phase) {
-            case UnlockPhase.initializing:
-              return const _UnlockLoading();
-            case UnlockPhase.biometricGate:
-              return _BiometricGate(
-                onRetry: () => context.read<DatabaseUnlockBloc>().add(
-                  const RetryBiometricAuthentication(),
-                ),
-                onUseMasterPassword: () => context
-                    .read<DatabaseUnlockBloc>()
-                    .add(const RequestManualUnlockFallback()),
-                errorMessage: state.errorMessage,
-              );
-            case UnlockPhase.decrypting:
-              return _DecryptingView(basename: p.basename(state.databasePath));
-            case UnlockPhase.failure:
-              return _UnlockFailureView(
-                state: state,
-                onBack: _goToDatabaseSelection,
-              );
-            case UnlockPhase.unlocked:
-              return const _UnlockLoading();
-            case UnlockPhase.ready:
-              final hasPassword = _passwordCtrl.text.isNotEmpty;
-              final hasKeyFile =
-                  state.keyFilePath != null &&
-                  state.keyFilePath!.trim().isNotEmpty;
-              final canSubmit = hasPassword || hasKeyFile;
-              return _UnlockReadyForm(
-                state: state,
-                passwordCtrl: _passwordCtrl,
-                passwordVisible: _passwordVisible,
-                onPasswordChanged: () => setState(() {}),
-                onTogglePasswordVisible: () =>
-                    setState(() => _passwordVisible = !_passwordVisible),
-                onPickKeyFile: _pickKeyFile,
-                onClearKeyFile: () => context.read<DatabaseUnlockBloc>().add(
-                  const UpdateKeyFilePath(null),
-                ),
-                onFaceIdRetry: () => context.read<DatabaseUnlockBloc>().add(
-                  const RetryBiometricAuthentication(),
-                ),
-                pendingCaptureNotice: _hasPendingCapture,
-                onSubmit: canSubmit
-                    ? () {
-                        context.read<DatabaseUnlockBloc>().add(
-                          UnlockWithManualCredentials(
-                            password: _passwordCtrl.text,
-                            keyFilePath: state.keyFilePath,
-                          ),
-                        );
-                      }
-                    : null,
-                onBack: _goToDatabaseSelection,
-              );
-          }
+          // The notice sits outside the phase switch: with biometrics enabled the
+          // manual form is never shown, and that is precisely the case where the
+          // user is most likely to walk away without knowing what they lose.
+          return Column(
+            children: [
+              if (_hasPendingCapture &&
+                  state.phase != UnlockPhase.unlocked &&
+                  state.phase != UnlockPhase.decrypting)
+                const _PendingCaptureNotice(),
+              Expanded(child: _phaseView(context, state)),
+            ],
+          );
         },
       ),
     );
+  }
+
+  Widget _phaseView(BuildContext context, DatabaseUnlockState state) {
+    {
+      switch (state.phase) {
+        case UnlockPhase.initializing:
+          return const _UnlockLoading();
+        case UnlockPhase.biometricGate:
+          return _BiometricGate(
+            onRetry: () => context.read<DatabaseUnlockBloc>().add(
+              const RetryBiometricAuthentication(),
+            ),
+            onUseMasterPassword: () => context.read<DatabaseUnlockBloc>().add(
+              const RequestManualUnlockFallback(),
+            ),
+            errorMessage: state.errorMessage,
+          );
+        case UnlockPhase.decrypting:
+          return _DecryptingView(basename: p.basename(state.databasePath));
+        case UnlockPhase.failure:
+          return _UnlockFailureView(
+            state: state,
+            onBack: _goToDatabaseSelection,
+          );
+        case UnlockPhase.unlocked:
+          return const _UnlockLoading();
+        case UnlockPhase.ready:
+          final hasPassword = _passwordCtrl.text.isNotEmpty;
+          final hasKeyFile =
+              state.keyFilePath != null && state.keyFilePath!.trim().isNotEmpty;
+          final canSubmit = hasPassword || hasKeyFile;
+          return _UnlockReadyForm(
+            state: state,
+            passwordCtrl: _passwordCtrl,
+            passwordVisible: _passwordVisible,
+            onPasswordChanged: () => setState(() {}),
+            onTogglePasswordVisible: () =>
+                setState(() => _passwordVisible = !_passwordVisible),
+            onPickKeyFile: _pickKeyFile,
+            onClearKeyFile: () => context.read<DatabaseUnlockBloc>().add(
+              const UpdateKeyFilePath(null),
+            ),
+            onFaceIdRetry: () => context.read<DatabaseUnlockBloc>().add(
+              const RetryBiometricAuthentication(),
+            ),
+
+            onSubmit: canSubmit
+                ? () {
+                    context.read<DatabaseUnlockBloc>().add(
+                      UnlockWithManualCredentials(
+                        password: _passwordCtrl.text,
+                        keyFilePath: state.keyFilePath,
+                      ),
+                    );
+                  }
+                : null,
+            onBack: _goToDatabaseSelection,
+          );
+      }
+    }
   }
 
   Future<void> _goToDatabaseSelection() async {

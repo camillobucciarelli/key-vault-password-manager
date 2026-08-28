@@ -95,6 +95,8 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       databasePath: databasePath,
       biometricDataSource: sl(),
       databaseSessionCoordinator: sl(),
+      isAutofillCapturePending: () =>
+          sl<AndroidAutofillSaveCoordinator>().hasClaimedCapture,
     ),
   );
 

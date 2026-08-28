@@ -440,14 +440,16 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     final username = pending.capture.username.trim();
     final target = pending.capture.association ?? 'this app';
     try {
+      // Name the username in both cases: which account is being written is the
+      // thing the user needs to check before saying yes.
+      final account = username.isEmpty ? 'this account' : username;
       final decision = await _router.confirm(
         context: context,
         title: isUpdate ? 'Update this password?' : 'Save to your vault?',
         body: isUpdate
-            ? 'The password for "${pending.displayTitle}" will be replaced. '
-                  'The previous one stays in the entry history.'
-            : 'A new entry will be created for $target'
-                  '${username.isEmpty ? '' : ' ($username)'}.',
+            ? 'The password for $account in "${pending.displayTitle}" will be '
+                  'replaced. The previous one stays in the entry history.'
+            : 'A new entry will be created for $account on $target.',
         cancelLabel: 'Not now',
         confirmLabel: isUpdate ? 'Update' : 'Save',
       );

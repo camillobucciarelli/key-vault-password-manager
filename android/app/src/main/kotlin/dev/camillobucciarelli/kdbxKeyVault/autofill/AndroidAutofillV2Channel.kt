@@ -69,17 +69,20 @@ internal class AndroidAutofillV2Channel(context: Context) {
 
     fun setPendingCaptureToken(token: String?) {
         pendingCaptureToken = token?.trim()?.takeIf { it.isNotEmpty() }
+        Log.d(TAG, "pendingCaptureToken set=${pendingCaptureToken != null}")
     }
 
     private fun takePendingCaptureToken(): String? {
         val token = pendingCaptureToken
         pendingCaptureToken = null
+        Log.d(TAG, "takePendingCaptureToken -> ${token != null}")
         return token
     }
 
     private fun handleReadPendingCapture(arguments: Any?, result: MethodChannel.Result) {
         val token = parseToken(arguments)
         val capture = AndroidAutofillCaptureHolder.shared.readSecret(token)
+        Log.d(TAG, "readPendingCapture found=${capture != null} pending=${AndroidAutofillCaptureHolder.shared.size()}")
         if (capture == null) {
             // Expected: process death, expiry, or a second read of one token.
             result.error(CAPTURE_MISSING, "No pending capture for this token.", null)

@@ -16,7 +16,7 @@ work.
 
 ## Phase 0 — Device feasibility gate (blocking, evidence only)
 
-- [ ] **T001** [P] Prove inline suggestions on real IMEs — owner: `senior-tester`
+- [x] **T001** [P] Prove inline suggestions on real IMEs — owner: `senior-tester`
   Files: `specs/016-android-autofill-completion/device-evidence.md`.
   Acceptance: on an API 30+ physical device, a throwaway `FillResponse` with an
   inline presentation renders on Gboard and on one third-party IME; the
@@ -232,7 +232,7 @@ Blocked by T001 `pass` and by Phase 3 (shares the gate).
   Verify: Kotlin unit test — second read fails, expiry clears, `toString()`
   contains no secret.
 
-- [ ] **T503** [US3] Attach `SaveInfo` and handle the save request — owner:
+- [x] **T503** [US3] Attach `SaveInfo` and handle the save request — owner:
   `senior-android-dev`
   Files: `.../autofill/KeyVaultAutofillService.kt`, `.../MainActivity.kt`,
   `android/app/src/main/AndroidManifest.xml`.
@@ -600,6 +600,47 @@ release device's logcat.
 steps need the instrumented test and a second IME; T404's overflow could not be
 observed because Gboard offers nine slots and no test form matched more than
 nine entries.
+
+---
+
+## Implementation notes (slice 5 — what the save path looked like on hardware)
+
+Section C was run on the Pixel and found three things unit tests could not.
+
+**The confirmation appeared twice.** One capture, one read, one resolve — the
+dialog itself was shown twice. `_onConfirmAndroidAutofillCapture` cleared the
+pending save *after* the write, and the reload in between emits intermediate
+states; any one of them still carrying a pending save re-opened the confirmation
+the user had just answered. The pending save is now cleared before the write, on
+the confirm and the dismiss paths alike.
+
+**The unlock notice was invisible where it mattered most.** It lived inside the
+manual password form, and a user with biometrics enabled never sees that form.
+Worse, the system biometric prompt is a full-screen window: anything the app
+draws is behind it. So the notice moved above every unlock phase *and* the reason
+now goes into the prompt itself — "Authenticate to save the password you just
+submitted" — which is the only surface the user is actually looking at. The
+existing generic string is untouched (Constitution VI); this is a second one,
+chosen by `DatabaseUnlockBloc` from an injected `isAutofillCapturePending`
+callback, so the bloc still knows nothing about autofill.
+
+That wording needed the answer *before* the first prompt, which a channel
+round-trip could not deliver in time. Rather than delay every biometric unlock,
+`main.dart` claims a pending capture at startup, next to the deep-link
+coordinator, so the coordinator can answer synchronously from then on.
+
+**The dialog did not say whose password it was.** It named the site but not the
+account. Both wordings now name the username, which is the thing worth checking
+before saying yes.
+
+Traced on device end to end: capture stored with `usernameCaptured=true`, token
+claimed at startup, read once after unlock, resolved `saved`, and the second
+token request correctly answered `false` because Dart already held it.
+
+**The token is never logged.** An automated review caught a trace line printing
+it; it is the capability that reads the captured password back, so only its
+presence is traced now. The fill-path tracing as a whole is gated on
+`FLAG_DEBUGGABLE`.
 
 ---
 

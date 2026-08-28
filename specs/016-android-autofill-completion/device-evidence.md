@@ -25,15 +25,24 @@ and inline datasets, then the advertisement was read back from the live request.
 
 | IME | Version | Renders inline? | maxSuggestionCount | Style spec | Verdict |
 |-----|---------|-----------------|--------------------|------------|---------|
-| Gboard | *(record)* | yes | 9 | `androidx.autofill.inline.ui.version:v1`, min 89x126, max 630x126 | `pass` |
-| (third-party) | | | | | **not run — no second IME installed on D1** |
+| Gboard | 18.0.5.954559732-release-arm64-v8a | yes | 9 | `androidx.autofill.inline.ui.version:v1`, min 89x126, max 630x126 | `pass` |
+| SwiftKey | 9.13.14.5 | yes | 9 | `androidx.autofill.inline.ui.version:v1`, min 90x112, max 600x112 | `pass` |
+
+The two IMEs advertise different slot sizes (126 vs 112 tall), so this is two
+genuinely different renderers, not the same one twice.
 
 Traced line, verbatim:
 
 ```
+# Gboard
 D KeyVaultAutofill: fill: entries=468 targets=[AndroidAutofillServiceIdentifier(type=AndroidPackage, value=it.lene.lene)]
 strongMatches=0 usernameFields=1 passwordFields=1 inlineRequested=true maxSuggestionCount=9 specs=9
 styleV1=[androidx.autofill.inline.ui.version:v1] minSize=89x126 maxSize=630x126
+
+# SwiftKey
+D KeyVaultAutofill: fill: entries=468 targets=[AndroidAutofillServiceIdentifier(type=AndroidPackage, value=it.lene.lene)]
+strongMatches=0 usernameFields=1 passwordFields=1 inlineRequested=true maxSuggestionCount=9 specs=9
+styleV1=[androidx.autofill.inline.ui.version:v1] minSize=90x112 maxSize=600x112
 ```
 
 Framework side of the same request:
@@ -52,8 +61,8 @@ without opening the picker.
 `supportsInlineSuggestion=false`, so the strip appears on the username field and
 not on the password field. That is Gboard's behaviour, not ours.
 
-**Verdict**: `pass` on Gboard. **T001 is not closed**: it requires a second, real
-IME, which D1 does not have installed.
+**Verdict**: `pass`. Both a first-party and a third-party IME render our inline
+suggestions on a physical device.
 
 > `fail` means Phase 4 is not built and `androidx.autofill` is not added. Say so
 > here rather than leaving the phase silently open.
@@ -114,8 +123,8 @@ Remove the screen lock, attempt a fill, restore the lock afterwards.
 | Section | D1 | D2 | Notes |
 |---------|----|----|-------|
 | A — authentication gate | | | |
-| B — inline suggestions | | | |
-| C — save capture | | | |
+| B — inline suggestions | B1–B3 pass | | B4 not reproducible: Gboard offers 9 slots and no test form matched more than 9 entries. B5 needs the API 29 device. |
+| C — save capture | C1, C2, C4 pass | | Run against practicetestautomation.com. C3, C5 and C6 still to run. |
 | D — browsers | | | |
 | E — accessibility | | | |
 | F — redaction | | | |

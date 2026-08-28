@@ -935,9 +935,17 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       return;
     }
 
+    // The pending save is cleared here, before the write, not after it: the
+    // reload below emits intermediate states, and any one of them still holding
+    // a pending save re-opens the confirmation the user just answered.
     _safeEmit(
       emit,
-      state.copyWith(isSaving: true, clearError: true, clearInfo: true),
+      state.copyWith(
+        isSaving: true,
+        clearPendingAndroidAutofillSave: true,
+        clearError: true,
+        clearInfo: true,
+      ),
     );
     final result = await coordinator.confirm(
       pending: pending,
@@ -1003,15 +1011,16 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       return;
     }
 
+    // Cleared first, for the same reason as the confirm path.
+    _safeEmit(
+      emit,
+      state.copyWith(clearPendingAndroidAutofillSave: true, clearError: true),
+    );
     if (declined) {
       await coordinator.decline(pending);
     } else {
       await coordinator.cancel(pending);
     }
-    _safeEmit(
-      emit,
-      state.copyWith(clearPendingAndroidAutofillSave: true, clearError: true),
-    );
   }
 
   Future<void> _onRefreshAppleAutofillPendingAssociations(

@@ -12,6 +12,7 @@ import 'injection_container.dart' as di;
 import 'features/password_manager/presentation/bloc/database_selection/database_selection_bloc.dart';
 import 'features/password_manager/presentation/bloc/database_selection/database_selection_event.dart';
 import 'features/password_manager/presentation/screens/database_selection_screen.dart';
+import 'features/password_manager/presentation/coordinators/android_autofill_save_coordinator.dart';
 import 'features/password_manager/presentation/coordinators/otpauth_deep_link_coordinator.dart';
 
 Future<void> main() async {
@@ -23,6 +24,10 @@ Future<void> _bootstrapApp() async {
   _configureLogging();
   await di.init();
   await di.sl<OtpAuthDeepLinkCoordinator>().initialize();
+  // spec-016: claim a pending autofill save capture now, so the unlock screen
+  // and the biometric prompt can both say why they are asking without waiting
+  // on a channel round-trip. Inert wherever save capture is unsupported.
+  await di.sl<AndroidAutofillSaveCoordinator>().hasPendingCapture();
   runApp(const PasswordManagerApp());
 }
 

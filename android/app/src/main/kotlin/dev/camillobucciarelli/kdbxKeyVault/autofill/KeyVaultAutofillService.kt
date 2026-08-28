@@ -375,6 +375,10 @@ class KeyVaultAutofillService : AutofillService() {
         }
         val submitted = parsed?.let { SubmittedCredentialExtractor.extract(it.submittedFields) }
         if (parsed == null || submitted == null) {
+            trace {
+                "no save: parsed=${parsed != null} submitted=${submitted != null} " +
+                    "submittedFields=${parsed?.submittedFields?.size ?: 0}"
+            }
             callback.onSuccess()
             return
         }
@@ -384,6 +388,7 @@ class KeyVaultAutofillService : AutofillService() {
         val store = AndroidAutofillStore(applicationContext)
         if (store.isDeclinedSave(association, submitted.username)) {
             // The user already said no to this submission (FR-011).
+            trace { "no save: previously declined for association=$association" }
             callback.onSuccess()
             return
         }
@@ -404,6 +409,15 @@ class KeyVaultAutofillService : AutofillService() {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        // The token is never logged: it is the capability that reads the captured
+        // password back. Its presence is all a trace needs.
+        trace {
+            "save: captured association=$association " +
+                "usernameCaptured=${submitted.username.isNotEmpty()} " +
+                "usernameFields=${parsed.usernameFields.size} " +
+                "submittedFields=${parsed.submittedFields.size} " +
+                "pending=${AndroidAutofillCaptureHolder.shared.size()}"
+        }
         callback.onSuccess(pendingIntent.intentSender)
     }
 
