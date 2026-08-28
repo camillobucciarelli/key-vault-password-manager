@@ -223,6 +223,40 @@ void main() {
       ]);
     });
 
+    test('a held token is used without asking the native side twice', () async {
+      client.pendingToken = 'token-1';
+      client.capture = capture();
+
+      expect(await coordinator.hasPendingCapture(), isTrue);
+      client.pendingToken = null;
+
+      final pending = await coordinator.takePendingSave(entries: const []);
+
+      expect(pending?.kind, AndroidAutofillSaveKind.create);
+      expect(client.tokenReads, 1);
+    });
+
+    test('abandoning a held capture cancels it right away', () async {
+      client.pendingToken = 'token-1';
+      expect(await coordinator.hasPendingCapture(), isTrue);
+
+      await coordinator.abandonPendingCapture();
+
+      expect(client.resolved, [
+        ('token-1', AndroidAutofillCaptureOutcome.cancelled),
+      ]);
+
+      // Nothing is held any more, so a second abandon is a no-op.
+      await coordinator.abandonPendingCapture();
+      expect(client.resolved, hasLength(1));
+    });
+
+    test('nothing pending means nothing to abandon', () async {
+      expect(await coordinator.hasPendingCapture(), isFalse);
+      await coordinator.abandonPendingCapture();
+      expect(client.resolved, isEmpty);
+    });
+
     test('an unsupported platform is inert', () async {
       client.isSupported = false;
 
@@ -310,8 +344,13 @@ class _FakeClient implements AppleAutofillV2Client {
   Object? readError;
   final List<(String, AndroidAutofillCaptureOutcome)> resolved = [];
 
+  int tokenReads = 0;
+
   @override
-  Future<String?> takePendingCaptureToken() async => pendingToken;
+  Future<String?> takePendingCaptureToken() async {
+    tokenReads += 1;
+    return pendingToken;
+  }
 
   @override
   Future<AndroidAutofillCapture?> readPendingCapture(String token) async {

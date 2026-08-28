@@ -212,6 +212,7 @@ class _UnlockReadyForm extends StatelessWidget {
     required this.onSubmit,
     required this.onBack,
     required this.onFaceIdRetry,
+    this.pendingCaptureNotice = false,
   });
 
   final DatabaseUnlockState state;
@@ -231,6 +232,10 @@ class _UnlockReadyForm extends StatelessWidget {
   /// path the bootstrap flow already drives — instead of a new biometric
   /// entry point.
   final VoidCallback onFaceIdRetry;
+
+  /// spec-016 FR-010: an autofill save is waiting on this unlock. Say so, so
+  /// walking away is a choice and not a silent loss.
+  final bool pendingCaptureNotice;
 
   @override
   Widget build(BuildContext context) {
@@ -296,6 +301,28 @@ class _UnlockReadyForm extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: AppTextStyles.body.copyWith(
                       color: colors.textSecondary,
+                    ),
+                  ),
+                ],
+                if (pendingCaptureNotice) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: colors.attentionTint,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      'A password you just submitted in another app is waiting '
+                      'to be saved. Unlock to save it — leave this screen and '
+                      'it is discarded.',
+                      textAlign: TextAlign.center,
+                      style: AppTextStyles.body.copyWith(
+                        color: colors.attentionText,
+                      ),
                     ),
                   ),
                 ],

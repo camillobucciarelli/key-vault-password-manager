@@ -15,4 +15,10 @@
     <string name="autofill_auth_prompt_subtitle">KeyVault is about to fill a saved password into another app.</string>
     <string name="autofill_auth_required_error">Set a screen lock, PIN or biometric on this device to fill saved passwords.</string>
     <string name="autofill_auth_cancelled">Not filled. Authentication was not completed.</string>
+    <!-- spec-016 T702: picker accessibility labels and the two row strings that
+         used to be hard-coded in Kotlin. -->
+    <string name="autofill_picker_row_untitled">Untitled</string>
+    <string name="autofill_picker_row_possible_match">Possible match — not linked</string>
+    <string name="autofill_picker_row_content_description">Fill %1$s. %2$s</string>
+    <string name="autofill_picker_list_description">Saved credentials</string>
 </resources>

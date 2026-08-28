@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -17,6 +19,7 @@ import '../../../../../injection_container.dart' as di;
 import '../bloc/database_unlock/database_unlock_bloc.dart';
 import '../bloc/database_unlock/database_unlock_event.dart';
 import '../bloc/database_unlock/database_unlock_state.dart';
+import '../coordinators/android_autofill_save_coordinator.dart';
 import '../coordinators/database_session_coordinator.dart';
 import '../../domain/errors/database_access_failure.dart';
 import '../widgets/database/face_id_prompt_sheet.dart';
@@ -62,8 +65,43 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
   bool _passwordVisible = false;
   bool _biometricPromptHandled = false;
 
+  /// Captured in `initState`: teardown must not need the locator (golden tests
+  /// run in any order).
+  /// Null where autofill save capture is not wired in (same optional
+  /// integration `VaultBloc` already takes).
+  AndroidAutofillSaveCoordinator? _autofillSaveCoordinator;
+  bool _hasPendingCapture = false;
+  bool _unlocked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (di.sl.isRegistered<AndroidAutofillSaveCoordinator>()) {
+      _autofillSaveCoordinator = di.sl<AndroidAutofillSaveCoordinator>();
+    }
+    unawaited(_checkPendingCapture());
+  }
+
+  Future<void> _checkPendingCapture() async {
+    final coordinator = _autofillSaveCoordinator;
+    if (coordinator == null) {
+      return;
+    }
+    final pending = await coordinator.hasPendingCapture();
+    if (!mounted || !pending) {
+      return;
+    }
+    setState(() => _hasPendingCapture = true);
+  }
+
   @override
   void dispose() {
+    // Leaving the unlock screen without unlocking discards the capture now,
+    // instead of leaving the submitted password in the autofill service's
+    // memory until it expires.
+    if (_hasPendingCapture && !_unlocked) {
+      unawaited(_autofillSaveCoordinator?.abandonPendingCapture());
+    }
     _passwordCtrl.dispose();
     super.dispose();
   }
@@ -138,6 +176,7 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
             });
           }
           if (state.unlocked) {
+            _unlocked = true;
             AppNavigation.pushFadeReplacement(
               context,
               VaultScreen(databasePath: state.databasePath),
@@ -187,6 +226,7 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
                 onFaceIdRetry: () => context.read<DatabaseUnlockBloc>().add(
                   const RetryBiometricAuthentication(),
                 ),
+                pendingCaptureNotice: _hasPendingCapture,
                 onSubmit: canSubmit
                     ? () {
                         context.read<DatabaseUnlockBloc>().add(

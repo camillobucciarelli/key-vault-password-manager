@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- spec-016 T701 — dark half of the AppColors mirror. See values/colors.xml. -->
+    <color name="kv_picker_ground">#FF2E2B25</color>          <!-- AppColors.neutral900 -->
+    <color name="kv_picker_surface">#FF474238</color>         <!-- AppColors.neutral800 -->
+    <color name="kv_picker_text_primary">#FFF9F4ED</color>    <!-- AppColors.neutral100 -->
+    <color name="kv_picker_text_secondary">#FFC0B6A5</color>  <!-- AppColors.neutral400 -->
+    <color name="kv_picker_divider">#33F9F4ED</color>         <!-- AppColors.neutral100 at 20% -->
+    <color name="kv_picker_focus">#FFFFC6A5</color>           <!-- AppColors.accent300 -->
+    <color name="kv_picker_accent_tint">#FF643312</color>     <!-- AppColors.accent800 -->
+</resources>

@@ -1,3 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <autofill-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:summary="@string/autofill_service_summary" />
+    android:summary="@string/autofill_service_summary">
+
+    <!--
+        spec-016 FR-012: compatibility mode makes a browser, which draws its own
+        form widgets instead of real views, expose a fillable structure carrying
+        the page's webDomain.
+
+        Only these two packages are declared. Compatibility mode runs an
+        accessibility stream over every package listed, so the list stays as short
+        as the requirement.
+
+        maxLongVersionCode is the upper bound the platform requires. It is left
+        wide because no version of either browser is known to need excluding;
+        narrow it if T002 records one.
+    -->
+    <compatibility-package
+        android:name="com.android.chrome"
+        android:maxLongVersionCode="1000000000000" />
+    <compatibility-package
+        android:name="org.mozilla.firefox"
+        android:maxLongVersionCode="1000000000000" />
+</autofill-service>

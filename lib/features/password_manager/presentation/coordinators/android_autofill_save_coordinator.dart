@@ -74,6 +74,38 @@ class AndroidAutofillSaveCoordinator {
   final VaultKdbxService vaultKdbxService;
   final SessionSecretHolder sessionSecretHolder;
 
+  /// The token of a capture the app was launched for, once claimed from the
+  /// native side. Held here because the native side hands it over exactly once,
+  /// and the vault may still be locked when that happens.
+  String? _heldToken;
+
+  /// Whether a capture is waiting for a vault that is not open yet.
+  ///
+  /// Claims the token from the native side on the first call so the unlock
+  /// screen can say why it is asking, and keeps it for [takePendingSave].
+  Future<bool> hasPendingCapture() async {
+    if (!client.isSupported) {
+      return false;
+    }
+    if (_heldToken != null) {
+      return true;
+    }
+    _heldToken = await _claimToken();
+    return _heldToken != null;
+  }
+
+  /// The user walked away from the unlock screen. Drop the capture now instead
+  /// of leaving the submitted password in the service's memory until it
+  /// expires.
+  Future<void> abandonPendingCapture() async {
+    final token = _heldToken;
+    _heldToken = null;
+    if (token == null) {
+      return;
+    }
+    await _resolve(token, AndroidAutofillCaptureOutcome.cancelled);
+  }
+
   /// Picks up a capture the app was launched for, if there is one.
   ///
   /// Returns `null` when nothing is pending, when the capture is already gone
@@ -86,16 +118,9 @@ class AndroidAutofillSaveCoordinator {
       return null;
     }
 
-    final String? token;
-    try {
-      token = await client.takePendingCaptureToken();
-    } on UnsupportedError {
-      return null;
-    } catch (e, st) {
-      logWarning('Android autofill capture token read failed.', e, st);
-      return null;
-    }
-    if (token == null || token.trim().isEmpty) {
+    final token = _heldToken ?? await _claimToken();
+    _heldToken = null;
+    if (token == null) {
       return null;
     }
 
@@ -252,6 +277,20 @@ class AndroidAutofillSaveCoordinator {
       return '';
     }
     return domain.contains('://') ? domain : 'https://$domain';
+  }
+
+  /// The native side yields the token once; `null` means nothing is pending.
+  Future<String?> _claimToken() async {
+    final String? token;
+    try {
+      token = await client.takePendingCaptureToken();
+    } on UnsupportedError {
+      return null;
+    } catch (e, st) {
+      logWarning('Android autofill capture token read failed.', e, st);
+      return null;
+    }
+    return token == null || token.trim().isEmpty ? null : token;
   }
 
   Future<void> _resolve(

@@ -296,14 +296,14 @@ Blocked by T001 `pass` and by Phase 3 (shares the gate).
 
 Blocked by T002 `pass`. **Independent test**: quickstart.md section D.
 
-- [ ] **T601** [US4] Declare the compatibility packages — owner:
+- [x] **T601** [US4] Declare the compatibility packages — owner:
   `senior-android-dev`
   Files: `android/app/src/main/res/xml/keyvault_autofill_service.xml`.
   Acceptance: `com.android.chrome` and `org.mozilla.firefox` only, with the
   version bound recorded from T002 (FR-012).
   Verify: quickstart D steps 1–2 on both browsers.
 
-- [ ] **T602** [P] [US4] Lock the browser-matching rules with tests — owner:
+- [x] **T602** [P] [US4] Lock the browser-matching rules with tests — owner:
   `senior-android-dev`
   Files: `android/app/src/test/kotlin/.../autofill/AndroidAutofillNormalizerTest.kt`,
   `.../AndroidAutofillCredentialMatcherTest.kt`.
@@ -320,7 +320,7 @@ Blocked by T002 `pass`. **Independent test**: quickstart.md section D.
 
 ## Phase 7 — Picker accessibility and tokens (FR-014)
 
-- [ ] **T701** Mirror the design tokens into resources — owner:
+- [x] **T701** Mirror the design tokens into resources — owner:
   `senior-android-dev`
   Files: `android/app/src/main/res/values/colors.xml`,
   `res/values-night/colors.xml`, `res/values/dimens.xml`, `res/values/styles.xml`.
@@ -329,7 +329,7 @@ Blocked by T002 `pass`. **Independent test**: quickstart.md section D.
   Kotlin (Constitution III).
   Verify: T703 passes; grep finds no `setPadding(` with a literal in the picker.
 
-- [ ] **T702** Rebuild the picker layout — owner: `senior-android-dev`
+- [x] **T702** Rebuild the picker layout — owner: `senior-android-dev`
   Files: `.../autofill/AutofillPickerActivity.kt`,
   `android/app/src/main/res/layout/` (new files).
   Acceptance: `simple_list_item_1` and hard-coded pixel padding are gone; rows
@@ -339,7 +339,7 @@ Blocked by T002 `pass`. **Independent test**: quickstart.md section D.
   Verify: instrumented assertions on height, focus indication and content
   descriptions; quickstart E manually.
 
-- [ ] **T703** [P] Token-mirror drift test — owner: `senior-flutter-dev`
+- [x] **T703** [P] Token-mirror drift test — owner: `senior-flutter-dev`
   Files: `test/core/theme/android_autofill_token_mirror_test.dart` (new).
   Acceptance: parses the Android colour resources and asserts each mirrored
   value equals its `AppColors` source in both light and dark; a changed token
@@ -490,6 +490,59 @@ Plain bullets on purpose — these are not scheduled work.
   written and the capture expires on its own, but the message only appears when
   the vault is reachable. Worth resolving when the unlock screen grows a
   message surface.
+
+## Implementation notes (slice 3 — the locked-vault hole, Phase 6, Phase 7)
+
+**The capture no longer dies silently when the vault is locked.** A save capture
+arrives while the app may be at the unlock screen, and the vault screen is the
+only place that could pull it. Until now the token simply sat in the autofill
+service's memory until its TTL, and a user who backed out of unlocking was never
+told the password had not been saved.
+
+`AndroidAutofillSaveCoordinator` now claims the token as soon as anything asks
+(`hasPendingCapture`) and holds it in Dart. The unlock screen asks on mount and,
+when one is waiting, says so above the password field; leaving that screen
+without unlocking calls `abandonPendingCapture`, which resolves the token as
+`cancelled` so the submitted password leaves the service's memory immediately
+instead of at expiry. Unlocking still hands the capture to the vault screen
+exactly as before.
+
+The coordinator is optional on the unlock screen (`GetIt.isRegistered`), matching
+how `VaultBloc` already takes it, so the screen still builds in tests that
+register only what they need.
+
+**T601/T602 (browsers).** Compatibility mode is declared for `com.android.chrome`
+and `org.mozilla.firefox` only — it runs an accessibility stream in every package
+listed, so the list stays as short as FR-012 requires. `maxLongVersionCode` is
+left wide: no version of either browser is known to need excluding, and T002 can
+narrow it.
+
+T602 found a real FR-013 hole while locking the rules down: `normalizedHost`
+fell back to the text before the first `:`, so a browser sitting on `about:blank`
+produced the "domain" `about`, which a saved entry could then strong-match.
+`AndroidAutofillNormalizer` now rejects any non-http(s) scheme, while still
+reading `example.com:8080` as a host and a port. Correcting the normalizer was
+part of T602 by its own wording.
+
+**T701–T703 (picker).** The picker's colours and metrics now come from Android
+resources mirrored from `AppColors`, with a `values-night` half; no literal hex
+or dp is left in `AutofillPickerActivity`. The layout moved into
+`res/layout/autofill_picker_{activity,row}.xml`: rows are ≥ 44 dp with a 2 dp
+focus ring, the search field is labelled, and each row carries one TalkBack
+label instead of two loose text nodes. Every text/background pairing was checked
+to ≥ 4.5:1 in both themes while picking the tokens; T704 re-asserts it on device,
+where the real rendering can be measured.
+
+`test/core/theme/android_autofill_token_mirror_test.dart` (T703) is what keeps
+the mirror honest — it was confirmed to fail on a deliberately altered value
+before being left green.
+
+**Still open here.** T704 needs an instrumented run. Phase 4 is untouched: T102
+and the whole phase are gated on T001, which is device evidence that IMEs
+actually render inline suggestions, and the spec is explicit that the dependency
+should not be added for a capability the gate rejected.
+
+---
 
 ## Deferred, not scheduled
 

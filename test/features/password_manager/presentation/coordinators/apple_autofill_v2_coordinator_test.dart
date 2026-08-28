@@ -270,7 +270,8 @@ class _FakeAppleAutofillV2Client implements AppleAutofillV2Client {
   Future<String?> takePendingCaptureToken() async => null;
 
   @override
-  Future<AndroidAutofillCapture?> readPendingCapture(String token) async => null;
+  Future<AndroidAutofillCapture?> readPendingCapture(String token) async =>
+      null;
 
   @override
   Future<AppleAutofillV2ClearPendingAssociationsResult> resolvePendingCapture({

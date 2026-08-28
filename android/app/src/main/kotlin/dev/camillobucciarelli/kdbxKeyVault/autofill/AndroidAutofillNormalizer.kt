@@ -139,6 +139,12 @@ internal object AndroidAutofillNormalizer {
         if (value.isEmpty() || value.startsWith("androidapp:", ignoreCase = true)) {
             return null
         }
+        // spec-016 FR-013: a browser reports non-web pages too ("about:blank",
+        // "chrome://newtab"). Without this, the scheme itself became the host and
+        // an entry could strong-match a page that has no domain at all.
+        if (hasNonWebScheme(value)) {
+            return null
+        }
 
         val candidate = valueWithDefaultScheme(value)
         val uri = runCatching { URI(candidate) }.getOrNull()
@@ -202,6 +208,23 @@ internal object AndroidAutofillNormalizer {
 
     fun normalizedSearchValue(value: String): String {
         return value.trim().lowercase(Locale.ROOT)
+    }
+
+    // True for "about:blank" or "chrome://newtab"; false for "example.com:8080",
+    // where the colon introduces a port rather than a scheme.
+    private fun hasNonWebScheme(value: String): Boolean {
+        val colon = value.indexOf(':')
+        if (colon <= 0) {
+            return false
+        }
+        val scheme = value.substring(0, colon).lowercase(Locale.ROOT)
+        if (scheme == "http" || scheme == "https") {
+            return false
+        }
+        if (!Regex("^[a-z][a-z0-9+.\\-]*$").matches(scheme)) {
+            return false
+        }
+        return !value.getOrNull(colon + 1).let { it != null && it.isDigit() }
     }
 
     private fun valueWithDefaultScheme(value: String): String {
