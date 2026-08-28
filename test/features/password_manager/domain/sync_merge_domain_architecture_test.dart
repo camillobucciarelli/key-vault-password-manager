@@ -492,7 +492,7 @@ Set<String> _declaredTopLevelNames(String path) {
       case EnumDeclaration():
         names.add(declaration.namePart.typeName.lexeme);
       case ExtensionTypeDeclaration():
-        names.add(declaration.primaryConstructor.typeName.lexeme);
+        names.add(declaration.namePart.typeName.lexeme);
       case MixinDeclaration():
         names.add(declaration.name.lexeme);
       case GenericTypeAlias():
