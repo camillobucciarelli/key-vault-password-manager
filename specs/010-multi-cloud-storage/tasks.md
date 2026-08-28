@@ -18,6 +18,20 @@ in this file.
   landed safe-writer work; no 010 branch forks those invariants.  
   Verify: inspect diff/history; run current writer-routing and model suites.
 
+- [ ] **T001b Fix spec 013 sequencing** — owner: `senior-flutter-dev`  
+  Files: `specs/013-google-drive-per-file-access/{spec,tasks}.md`, this file.  
+  Acceptance: the landing order of 010 and 013 is decided and written down before
+  any 010 production change, because 013 is normative for the Google OAuth scope
+  and for how a remote file is selected, and it is a release blocker with no
+  implementation started. Record the decision in one line here. If 013 lands
+  first, T105, T404 and T603 rename and compare against the surface 013 shipped
+  (Picker), not the current in-app list; if 010 lands first, 013 rebases onto the
+  neutral models and re-runs the selection suites. Either way the second one to
+  land re-runs `remote_file_picker_test.dart` and `sync_status_test.dart`.
+  This task changes no 013 task and adds no scope change here.  
+  Verify: order recorded; the selection-surface tasks name which surface they
+  target; selection suites listed in the rebase step.
+
 - [ ] **T002 Characterize sync algorithm before edits** — owner:
   `senior-flutter-dev`  
   Files: `test/features/password_manager/data/services/database_sync_orchestrator_test.dart`,
@@ -36,13 +50,21 @@ in this file.
   dynamic provider-derived error detail.  
   Verify: targeted Google service tests green; no live account needed.
 
-- [ ] **T004 Add architecture guard** — owner: `senior-flutter-dev`  
+- [ ] **T004 Add architecture guard (green from the first commit)** — owner:
+  `senior-flutter-dev`  
   Files: new
   `test/features/password_manager/data/architecture/cloud_storage_provider_architecture_test.dart`.  
-  Acceptance: guard can assert orchestrator/domain Google freedom, one provider
-  port/implementation, no registry and no provider injection into presentation;
-  expected target assertions may initially fail until later tasks.  
-  Verify: baseline mode/current exceptions explicit, no broad false positives.
+  Acceptance: the guard lands **green against unmodified production code**. It
+  asserts today's baseline plus the explicit allowlist, so it fails only on drift.
+  Constitution IX forbids committing a red suite, so no assertion describing the
+  post-refactor target may be committed in a failing state: each target assertion
+  (orchestrator/domain Google freedom, one port and one implementation, no
+  registry, no provider injection into presentation) is written **disabled** here
+  and enabled by the task that makes it true — orchestrator freedom by T301, port
+  uniqueness and no-registry by T501, full legacy allowlist by T601b. Enabling an
+  assertion is part of that task's diff, never a separate commit.  
+  Verify: `flutter test <this file>` green on the untouched baseline; every
+  disabled assertion names the task ID that turns it on; no broad false positives.
 
 - [ ] **T005 Freeze complete legacy-identifier inventory** — owner:
   `senior-flutter-dev`  
@@ -52,8 +74,10 @@ in this file.
   golden suites. Inventory includes `DrivePickerData`, `LoadDriveRemoteFiles`,
   `linkedDriveFileName`, `remoteDriveFiles`, `getDrivePickerData` and
   `presentation/screens/vault/sync_status_test.dart`.  
-  Acceptance: search output is saved in task evidence; every result has a planned
-  migration or explicit justified allowlist entry.  
+  Acceptance: the search output is written to
+  `specs/010-multi-cloud-storage/manual-qa.md` under a `## Legacy identifier
+  inventory` heading (dated, no secrets); every result has a planned migration or
+  an explicit justified allowlist entry.  
   Verify: run all `plan.md` M6 legacy/source dependency searches before edits.
 
 ## Phase 1 — Generic models and mapping migration
@@ -61,9 +85,14 @@ in this file.
 - [ ] **T101 Add provider-neutral remote models** — owner:
   `senior-flutter-dev`  
   Files: new `domain/models/remote_file.dart`,
-  `domain/models/storage_account_summary.dart`; model tests.  
-  Acceptance: immutable/equatable remote file, account and picker data preserve
-  current fields with no Google SDK/type or credential.  
+  `domain/models/storage_account_summary.dart`,
+  `domain/models/remote_file_selection_data.dart`; model tests.  
+  Acceptance: immutable/equatable remote file, account and selection data preserve
+  current fields with no Google SDK/type or credential. `DrivePickerData` is
+  replaced by `RemoteFileSelectionData` — acceptance criterion 3 bans the old name
+  and this task owns the new one, so the replacement is named here and nowhere
+  else. If spec 013 has already deleted that surface (T001b), this model is
+  dropped instead of renamed and T404 records that.  
   Verify: model tests and `flutter analyze`.
 
 - [ ] **T102 Rename mapping/conflict vocabulary** — owner:
@@ -254,9 +283,9 @@ in this file.
 - [ ] **T601b Enforce legacy/source allowlist** — owner:
   `senior-flutter-dev`  
   Files: architecture test and all search results.  
-  Acceptance: `DriveRemoteFile`, `DriveAccountSummary`, `DrivePickerData`,
-  `LoadDriveRemoteFiles`, `linkedDriveFileName`, `remoteDriveFiles`,
-  `getDrivePickerData` and `linkDatabaseToDrive` have zero code references;
+  Acceptance: every identifier banned by acceptance criterion 3 in `spec.md` has
+  zero code references — that list is maintained in `spec.md` only, so this task
+  and `plan.md` M6 reference it instead of restating it and cannot drift from it.
   `driveFileId`/`driveFileName` remain only quoted v1 decoder keys and migration
   fixtures; orchestrator has no direct Google service/auth dependency. Remaining
   Google names are limited to intentional current product UI/action labels and
@@ -280,13 +309,25 @@ in this file.
   behavior is compared against whatever spec 013 defines when 013 has landed.  
   Verify: targeted presentation tests.
 
-- [ ] **T604 Full static/test gate** — owner: `senior-flutter-dev`  
+- [ ] **T604 Full static/test gate and scope guard** — owner:
+  `senior-flutter-dev`  
   Files: whole Dart workspace.  
-  Acceptance: formatted code, `flutter analyze` clean, full `flutter test` green.  
-  Verify: exact commands in `plan.md`.
+  Acceptance: formatted code, `flutter analyze` clean, full `flutter test` green.
+  Acceptance criterion 15 is also enforced here: the branch diff touches no native
+  platform directory and nothing outside Dart implementation, tests and this
+  spec's documentation.  
+  Verify: exact commands in `plan.md`, plus
+
+  ```bash
+  git diff --name-only origin/main... \
+    | grep -E '^(android|ios|macos|windows|linux|web|desktop)/' && exit 1 || true
+  ```
+
+  (zero matches required).
 
 - [ ] **T605 Manual Google smoke** — owner: `senior-flutter-dev`  
-  Files: release evidence only; no secrets recorded.  
+  Files: `specs/010-multi-cloud-storage/manual-qa.md` under a `## Five-platform
+  Google smoke` heading; no secrets recorded.  
   Acceptance: all ten manual steps in `spec.md` are independently recorded for
   Android, iOS, macOS, Windows and Linux. Each platform is
   `pass|fail|not-run`; `not-run` has approver/date/reason waiver. Mobile Google
@@ -298,22 +339,27 @@ in this file.
 
 ## Deferred — not part of immediate definition of done
 
-- [ ] **D001 Select and spike second provider** — deferred; requires separate
-  product decision and live-service evidence.
-- [ ] **D002 Implement second adapter** — deferred until D001.
-- [ ] **D003 Add provider resolver/registry** — deferred until two production
-  implementations require selection.
-- [ ] **D004 Add provider picker/safety-category UI** — deferred; requires product
-  copy, accessibility and golden scope. Category must use spec 010's pure
-  capability derivation, condition-first exact copy and no adapter override.
-- [ ] **D005 Add provider switch/migration** — deferred; must verify read-back
-  before dropping old mapping.
-- [ ] **D006 Implement capability evidence enforcement** — deferred; before any
-  future adapter/capability ships, add exact evidence schema/artifacts, live
-  counter-probes, single-file interrupted-write proof and structural test from
-  `spec.md`. Negative/missing/inconclusive evidence means absent; artifacts
-  contain no credentials, account/object IDs, paths, tokens, URLs or vault bytes;
-  present declarations use `VerifiedCapability`, never booleans.
+These are **not tasks**. They are deliberately written without checkboxes: a
+`- [ ]` line at column 0 is counted by `tool/sync_spec_project.sh` as an open
+task, which would make this spec permanently un-`Done` on Projects #2 even after
+the entire immediate slice lands. Each item below becomes a real task in a future
+spec, not here.
 
-Deferred boxes intentionally remain unchecked and do not block T605 or immediate
-spec completion.
+  - **D001 Select and spike second provider** — requires separate product
+    decision and live-service evidence.
+  - **D002 Implement second adapter** — after D001.
+  - **D003 Add provider resolver/registry** — after two production
+    implementations require selection.
+  - **D004 Add provider picker/safety-category UI** — requires product copy,
+    accessibility and golden scope. Category must use spec 010's pure capability
+    derivation, condition-first exact copy and no adapter override.
+  - **D005 Add provider switch/migration** — must verify read-back before
+    dropping old mapping.
+  - **D006 Implement capability evidence enforcement** — before any future
+    adapter/capability ships, add exact evidence schema/artifacts, live
+    counter-probes, single-file interrupted-write proof and structural test from
+    `spec.md`. Negative/missing/inconclusive evidence means absent; artifacts
+    contain no credentials, account/object IDs, paths, tokens, URLs or vault
+    bytes; present declarations use `VerifiedCapability`, never booleans.
+
+Nothing above blocks T605 or immediate spec completion.

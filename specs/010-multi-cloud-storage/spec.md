@@ -465,12 +465,17 @@ provider selection, OAuth or remote sequencing.
    domain model.
 2. Exactly one provider port and exactly one production implementation exist.
    No registry/factory/provider map exists.
-3. Domain and presentation import no Google SDK classes. Code has no
+3. Domain and presentation import no Google SDK classes. This is the single
+   canonical list of banned identifiers; `plan.md` and `tasks.md` reference it
+   rather than restating it. Code has no
    `DriveRemoteFile`, `DriveAccountSummary`, `DrivePickerData`,
    `LoadDriveRemoteFiles`, `linkedDriveFileName`, `remoteDriveFiles`,
    `getDrivePickerData` or `linkDatabaseToDrive` contract/state identifier.
    `driveFileId`/`driveFileName` remain only quoted v1 serialized keys in decoder
-   and migration fixtures.
+   and migration fixtures. Their neutral replacements are `RemoteFile`,
+   `StorageAccountSummary` and `RemoteFileSelectionData`; where spec 013 has
+   already removed the selection surface, `RemoteFileSelectionData` is deleted
+   rather than introduced.
 4. `DatabaseSyncRepository` remains the application-facing sync boundary.
 5. DI binds `CloudStorageProvider -> GoogleDriveStorageProvider` directly and
    injects that same instance into repository/orchestrator paths.
@@ -501,7 +506,8 @@ provider selection, OAuth or remote sequencing.
     changes nothing there on its own.
 14. `flutter analyze`, targeted suites and full `flutter test` pass.
 15. No native platform or file outside documentation/tests/Dart implementation
-    scope changes during eventual implementation.
+    scope changes during eventual implementation. Verified mechanically by the
+    branch-diff guard in T604, not by review alone.
 
 ## Test matrix
 
@@ -530,7 +536,8 @@ mobile `google_sign_in` authorization path. macOS/Windows/Linux use desktop brow
 OAuth PKCE plus secure persisted desktop credentials. One platform result never
 qualifies another.
 
-Each platform record is `pass`, `fail` or `not-run`. `not-run` requires an
+Each platform record is `pass`, `fail` or `not-run`, written to
+`specs/010-multi-cloud-storage/manual-qa.md`. `not-run` requires an
 approved waiver naming approver, date and concrete environment/release reason;
 blank or “covered on host” is invalid. Store no account, object, path or token.
 
@@ -720,9 +727,11 @@ single-file eligibility gate before release.
 
 ## Open questions
 
-No blocking architecture question remains for immediate slice. Exact Dart file
-grouping for safe error models may follow existing style during implementation,
-provided there is still one provider port and one Google adapter.
+No blocking architecture question remains for immediate slice. The file grouping
+question is closed: safe error models live in
+`domain/models/cloud_storage_error.dart` and the port in
+`domain/repositories/cloud_storage_provider.dart`, exactly as T201 specifies.
+There is one provider port and one Google adapter.
 
 Future questions, intentionally deferred: which second provider, which measured
 capabilities it has, and what provider-selection/migration UX it requires.
