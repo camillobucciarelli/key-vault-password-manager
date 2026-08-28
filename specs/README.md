@@ -38,6 +38,8 @@ specs/NNN-slug/spec.md|plan.md|tasks.md
 | 011 | [Master password session scope](011-master-password-session-scope/spec.md) | **Security fix** | 003, 006 |
 | 012 | [Home Assistant object storage](012-home-assistant-object-storage/spec.md) | **New storage provider** (draft) | 005, 010 |
 | 013 | [Google Drive per-file access and Picker](013-google-drive-per-file-access/spec.md) ([tasks](013-google-drive-per-file-access/tasks.md)) | **Security / release blocker** | 005; coordinates with 010, 006 |
+| 014 | [Managed storage hardening](014-managed-storage-hardening/spec.md) ([tasks](014-managed-storage-hardening/tasks.md)) | **Security** | 003; coordinates with 013, 010 |
+| 015 | [Create database credentials flow](015-create-database-credentials/spec.md) ([tasks](015-create-database-credentials/tasks.md)) | **UX / Security** | 014; coordinates with 003, 011 |
 
 Journey 03 (navigation models) resolved into spec 002; journey 14 (dark mode) is
 not a separate spec — the dark token mapping lands in 001 and every screen spec
@@ -68,6 +70,14 @@ carries dark acceptance criteria.
    priority over new-feature work: it removes an unbounded plaintext lifetime
    that violates constitution principle I and blocks the accurate privacy claim
    required for store submission.
+9. **014** hardens the app-managed local storage — desktop root off `~/Documents`,
+   opaque file names, encrypted metadata, restrictive permissions — and performs
+   no migration by design. It is independent of the cloud-sync sequence and only
+   coordinates with **013** over where the local copy of a Drive vault lives.
+10. **015** follows **014**, which is a hard prerequisite: the create-database
+    wizard's generated key file uses 014's opaque naming, and 015 must not
+    restate that rule. 015 also owns the unlock fallback matrix that becomes
+    necessary once a key-file-only vault can be created.
 
 ## Roadmap board
 
