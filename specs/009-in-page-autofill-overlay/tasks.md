@@ -613,6 +613,21 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
           persists nothing`, `A017: siteState is global — the same answer
           whatever tab is open`, and `A020: a permission revoked outside the
           popup durably disables the overlay`.
+          **Re-attempted, 2026-08-25, different machine, blocked before
+          either half could be re-observed** — see `S3-6` in
+          `docs/manual-qa.md` for the full account. That machine's Chrome
+          build refuses `--load-extension` outright (enterprise policy;
+          worked around with CDP `Extensions.loadUnpacked`), and — the actual
+          blocker — its native `chrome.permissions.request()` prompt is not a
+          CDP-visible target and cannot be accepted without macOS Accessibility
+          or Screen Recording access, neither of which is grantable
+          non-interactively in that sandbox. A real trusted click (CDP
+          `Input.dispatchMouseEvent`) on "Turn on" reliably invoked
+          `chrome.permissions.request()` (the popup stayed pending rather than
+          flipping to "denied"), so nothing here contradicts the grant-half
+          evidence above; it simply could not be re-confirmed or extended to
+          the revoke half this time. The revoke half therefore remains due, as
+          recorded immediately above and unchanged by this session.
       23. **An `http(s)` iframe inside a top document with no canonicalizable
           origin** (`file://`, `view-source:`, `data:`, the PDF viewer) must
           present the **unsupported** state. Slice C made this case *more*
@@ -648,8 +663,45 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
           had opted in; it now runs in every frame of every `http(s)` page at
           `document_idle`. Nothing has measured the cost of that on heavy pages,
           and nothing has checked a strict-CSP site for console violations or a
-          blocked isolated world. This row has **no** automated coverage and no
-          `docs/manual-qa.md` scenario yet.
+          blocked isolated world. This row has **no** automated coverage.
+
+          **Partially executed — not closed.** 2026-08-25, Chrome 151/macOS,
+          real network sites, one documented substitution: the popup's own
+          broad-permission toggle could not be driven for real on this machine
+          (same blocker as row 22's re-attempt above), so this used the same
+          throwaway-harness-extension technique
+          `test/visual/capture_runner.mjs` already uses for A041 — the
+          unmodified production `overlay_security.js` + `content_overlay.js`
+          (sha256-verified against the committed files) plus the existing
+          test-only `background_stub.js`. That harness declares a *static*
+          `content_scripts` entry with no `all_frames` key (default `false`),
+          so it injected the **top frame only** and never exercised
+          production's `scripting.registerContentScripts` registration with
+          `allFrames: true` / `persistAcrossSessions: true`
+          (`overlay_lifecycle.js`, `globalRegistration()`). The frame-coverage
+          cost this row was written to measure therefore remains unmeasured;
+          the CSP and console findings do carry, since `world: "ISOLATED"` is
+          the content-script default anyway. Heavy-in-nodes but not frame-rich
+          page `en.wikipedia.org/wiki/World_War_II` (16,973 DOM nodes),
+          warm-cache comparison: overlay off 293 ms load / 9.37 MB JS heap,
+          overlay on 143 ms load / 9.72 MB JS heap — no regression detectable
+          above measurement noise, and not conclusive: overlay-on measured ~2x
+          faster, so run-to-run variance exceeds the effect being sought; n=1
+          per condition, no CPU/rendering/frame metrics collected. Zero
+          console/log/exception events. Strict-CSP site
+          `github.com/login` (`content-security-policy: default-src 'none';
+          ...; script-src github.githubassets.com; ...`): zero CSP violations,
+          zero console/log/exception events, and focusing the page's real
+          `#password` field mounted the real overlay — piercing the closed
+          shadow root via CDP confirmed the live text `"2 KeyVault
+          suggestions"` and `"Open KeyVault to generate a password."`,
+          screenshot-verified rendered under GitHub's own field. The two
+          suggestions are the harness's synthetic fixture data, not real vault
+          data — no live app/vault was involved. Two ordinary sites
+          (`en.wikipedia.org`, `news.ycombinator.com`) logged nothing, matching
+          a static-source finding: `content_overlay.js` and
+          `overlay_security.js` contain zero `console.*` calls in the
+          committed source. This is `S3-13` in `docs/manual-qa.md`.
 
 **Slice A — development complete; the Slice-A-done gate remains OPEN on two
 manual rows (A040, A046).** This heading is deliberately not the bare phrase
@@ -677,11 +729,14 @@ Still open, and deliberately not closed here:
   fix on the device, and Chrome + NVDA on Windows. NVDA is a permanent declared
   debt: no Windows machine.
 - **A046** — set (c), i.e. the Edge subset and a manual vault A → B pass, plus
-  row 24 (the performance/CSP regression of universal injection — the one
-  Slice C change with no automated net under it). Rows 21, 22 (both halves)
-  and 23 are now executed. Rows 2, 3 and 4 are spent evidence, not debt: 2 and
-  4 are carried forward by rows 22 and 23 above, and 3 needs no replacement
-  because its security half is automated.
+  row 22's revoke half (re-attempted 2026-08-25 on a different machine, still
+  blocked — see that row's detail and `S3-6` in `docs/manual-qa.md`), plus
+  row 24's frame-coverage half: a heavy **frame-rich** page injected with
+  production's `allFrames: true` dynamic registration. Row 24's 2026-08-25 run
+  reached the top frame only, so it counts as partially executed, not closed.
+  Row 21, row 22's grant half, and row 23 are now executed. Rows 2, 3 and 4
+  are spent evidence, not debt: 2 and 4 are carried forward by rows 22 and 23
+  above, and 3 needs no replacement because its security half is automated.
 
 Both are manual-verification debt over code that is otherwise implemented and
 automatically pinned. Neither is a reason to reopen development, and neither may
