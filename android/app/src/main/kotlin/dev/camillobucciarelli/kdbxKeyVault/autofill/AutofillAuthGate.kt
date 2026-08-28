@@ -1,7 +1,9 @@
 package dev.camillobucciarelli.kdbxKeyVault.autofill
 
 import android.app.KeyguardManager
+import android.content.pm.ApplicationInfo
 import android.os.Build
+import android.util.Log
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
@@ -104,15 +106,45 @@ internal class AutofillAuthGate(
     }
 
     private fun hasAuthenticator(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            BiometricManager.from(activity).canAuthenticate(
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val status = BiometricManager.from(activity).canAuthenticate(
                 BiometricManager.Authenticators.BIOMETRIC_STRONG or
                     BiometricManager.Authenticators.DEVICE_CREDENTIAL,
-            ) == BiometricManager.BIOMETRIC_SUCCESS
-        } else {
-            // On API 29 the device credential is always the fallback, so a secure
-            // lock screen is exactly the precondition the prompt needs.
+            )
+            trace { "canAuthenticate=${statusName(status)}" }
+            return status == BiometricManager.BIOMETRIC_SUCCESS
+        }
+        // On API 29 the device credential is always the fallback, so a secure
+        // lock screen is exactly the precondition the prompt needs.
+        val isDeviceSecure =
             activity.getSystemService(KeyguardManager::class.java)?.isDeviceSecure == true
+        trace { "api29 isDeviceSecure=$isDeviceSecure" }
+        return isDeviceSecure
+    }
+
+    /**
+     * spec-016 T004 wants the returned constant recorded verbatim rather than
+     * paraphrased, so the name is resolved here instead of at reading time.
+     */
+    private fun statusName(status: Int): String {
+        val name = when (status) {
+            BiometricManager.BIOMETRIC_SUCCESS -> "BIOMETRIC_SUCCESS"
+            BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> "BIOMETRIC_ERROR_NO_HARDWARE"
+            BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> "BIOMETRIC_ERROR_HW_UNAVAILABLE"
+            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> "BIOMETRIC_ERROR_NONE_ENROLLED"
+            BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED ->
+                "BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED"
+            BiometricManager.BIOMETRIC_ERROR_UNSUPPORTED -> "BIOMETRIC_ERROR_UNSUPPORTED"
+            BiometricManager.BIOMETRIC_STATUS_UNKNOWN -> "BIOMETRIC_STATUS_UNKNOWN"
+            else -> "UNDOCUMENTED"
+        }
+        return "$name($status)"
+    }
+
+    /** Debug builds only, and carries no secret — a status constant and a flag. */
+    private inline fun trace(message: () -> String) {
+        if ((activity.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+            Log.d("KeyVaultAutofill", message())
         }
     }
 }

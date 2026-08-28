@@ -357,7 +357,7 @@ Blocked by T002 `pass`. **Independent test**: quickstart.md section D.
 
 ## Phase 8 — Verification gate
 
-- [ ] **T801** Local gate — owner: `senior-flutter-dev`
+- [x] **T801** Local gate — owner: `senior-flutter-dev`
   Files: none.
   Acceptance: `dart format --set-exit-if-changed lib test tool`,
   `flutter analyze`, full `flutter test`, and `cd android && ./gradlew :app:test`
@@ -641,6 +641,21 @@ token request correctly answered `false` because Dart already held it.
 it; it is the capability that reads the captured password back, so only its
 presence is traced now. The fill-path tracing as a whole is gated on
 `FLAG_DEBUGGABLE`.
+
+---
+
+## Where this stands (2026-08-28)
+
+Twenty-one of thirty-six tasks are done. The remaining fifteen are verification,
+not code, and `device-evidence.md` says for each one where it can be run and what
+blocks it — read that before starting a session rather than rediscovering it.
+
+The short version: six run on the Pixel today; two need an API 29 device, which
+is blocked on host memory rather than on anything here; one (T404) is not
+observable on either IME we have, because both advertise nine slots and no test
+vault has more than nine entries matching one site; and two need a `Context` the
+module cannot fake without Robolectric, which is its own decision and not a
+chore to fold into this spec.
 
 ---
 

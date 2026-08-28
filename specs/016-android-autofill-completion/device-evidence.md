@@ -148,3 +148,59 @@ Also checked: nothing under `files/autofill_v2` holds a plaintext password.
 - Sections A–F pass on API 29:
 - Sections A–F pass on API 33+:
 - Deviations, with device / OS / IME / browser:
+
+---
+
+## What remains, and where it can be done
+
+Written 2026-08-28 at the end of a device session, so the next one does not start
+by rediscovering this.
+
+### Doable on the Pixel (D1, API 37) — six tasks
+
+| Task | What to do | Quickstart |
+|---|---|---|
+| **T301–T304** | The authentication gate: pick an entry and expect a prompt; cancel it and expect nothing filled; authenticate and expect a fill; fill again inside the 30 s reuse window and expect no second prompt, then outside it and expect one. | A 1–4 |
+| **T004** | Remove the screen lock, attempt a fill, **restore the lock**. The `canAuthenticate` constant is now traced verbatim by `AutofillAuthGate` — read it from logcat rather than paraphrasing. | A 5 |
+| **T003** (half) | API 31+ with and without a fingerprint enrolled. | — |
+| **T002** | Three distinct domains on Chrome **and** Firefox, versions recorded, plus the check that no entry ever matches the browser's own package. Remember Chrome needs its own opt-in first. | D |
+| **T704** | TalkBack over the picker, a hardware keyboard through it, then both again in dark theme. | E |
+| **T802** | The redaction sweep, after a session exercising every flow. | F |
+
+### Needs an API 29 device — two tasks
+
+| Task | Why |
+|---|---|
+| **T003** (half) | The prompt on the old side of the API split, where `setDeviceCredentialAllowed` is the only equivalent of `setAllowedAuthenticators`. |
+| **T803** | Sections A–F on API 29 as well as API 33+. |
+| B5 | That an inline-less API still gets the unchanged dropdown-and-picker path (FR-004). The code makes this a no-op by construction, but the point of the task is to see it. |
+
+**The emulator is blocked on host memory, not on anything in this repo.** The
+API 29 arm64 image reported `Available Memory: 5109 MB, Required: 5120 MB` and
+fell back to software GL rendering, at which point a Flutter debug build on top of
+it is effectively frozen and shows as `offline` over adb. It needs roughly half a
+gigabyte more headroom than the machine had, and more than that to be usable.
+Raising the AVD's own memory makes it worse, not better — that raises the
+pressure the check is measuring.
+
+### Not observable on any device we have — one task
+
+**T404**, the "Search KeyVault" overflow slot. Both Gboard and SwiftKey advertise
+`maxSuggestionCount=9`, so it needs a site with more than nine matching entries in
+the vault. Either construct one, or accept that only an instrumented test can
+cover it and say so in the task.
+
+### Needs a `Context` the module cannot fake — two tasks
+
+**T201** and **T504**. The Android module has no Robolectric, which is why the
+testable rules in this spec were extracted into pure objects
+(`AutofillAuthSessionWindow`, `SubmittedCredentialExtractor`,
+`AndroidAutofillCaptureHolder`). These two are the remainder that genuinely needs
+a `Context`. Adding Robolectric is a real decision, not a chore — it belongs in
+its own change, not smuggled into this spec.
+
+### Ready to tick on evidence already gathered
+
+**T801**: `dart format` clean, `flutter analyze` clean, `flutter test` 1534
+passing, `./gradlew :app:test` green with 96 tests. Its acceptance also asks for
+that output in the PR body, and PR #171 carries it.
