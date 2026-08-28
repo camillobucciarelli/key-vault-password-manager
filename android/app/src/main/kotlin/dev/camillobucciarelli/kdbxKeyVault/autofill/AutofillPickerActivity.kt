@@ -158,7 +158,7 @@ class AutofillPickerActivity : FragmentActivity() {
             return
         }
 
-        val dataset = Dataset.Builder(presentation(metadata.title.ifEmpty { metadata.displayService }))
+        val dataset = Dataset.Builder(presentation(metadata))
             .apply {
                 val usernameValue = AutofillValue.forText(secret.username)
                 val passwordValue = AutofillValue.forText(secret.password)
@@ -180,10 +180,15 @@ class AutofillPickerActivity : FragmentActivity() {
         finish()
     }
 
-    private fun presentation(text: String): RemoteViews {
-        return RemoteViews(packageName, android.R.layout.simple_list_item_1).apply {
-            setTextViewText(android.R.id.text1, text.ifBlank { getString(R.string.autofill_dataset_selected) })
-        }
+    private fun presentation(metadata: AndroidAutofillCredentialMetadata): RemoteViews {
+        val title = metadata.title
+            .ifBlank { metadata.displayService }
+            .ifBlank { getString(R.string.autofill_dataset_selected) }
+        return datasetPresentation(
+            packageName = packageName,
+            title = title,
+            subtitle = metadata.username,
+        )
     }
 
     private fun finishCanceled() {

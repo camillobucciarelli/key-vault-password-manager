@@ -84,6 +84,9 @@ flutter {
 
 dependencies {
     implementation("androidx.biometric:biometric:1.1.0")
+    // spec-016 T102: InlineSuggestionUi, the only supported way to build the
+    // Slice an IME renders on its suggestion strip.
+    implementation("androidx.autofill:autofill:1.1.0")
     testImplementation("junit:junit:4.13.2")
 }
 

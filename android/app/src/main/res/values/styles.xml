@@ -25,5 +25,16 @@
         <item name="android:textColorSecondary">@color/kv_picker_text_secondary</item>
         <item name="android:textColorHint">@color/kv_picker_text_secondary</item>
         <item name="android:colorAccent">@color/kv_picker_focus</item>
+        <item name="android:fontFamily">@font/figtree_regular</item>
+    </style>
+    <!-- spec-016 T402: the per-entry auth activity has no layout. A transparent
+         window lets the biometric prompt appear over the app being filled. -->
+    <style name="AutofillAuthTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:fontFamily">@font/figtree_regular</item>
     </style>
 </resources>

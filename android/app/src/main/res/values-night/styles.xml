@@ -25,5 +25,6 @@
         <item name="android:textColorSecondary">@color/kv_picker_text_secondary</item>
         <item name="android:textColorHint">@color/kv_picker_text_secondary</item>
         <item name="android:colorAccent">@color/kv_picker_focus</item>
+        <item name="android:fontFamily">@font/figtree_regular</item>
     </style>
 </resources>

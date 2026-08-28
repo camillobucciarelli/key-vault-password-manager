@@ -35,6 +35,32 @@ internal object AndroidAutofillCredentialMatcher {
         )
     }
 
+    /**
+     * spec-016 T401: the first [limit] credentials worth offering for a request,
+     * strong matches first.
+     *
+     * The matching rules are unchanged — this only orders and truncates what
+     * [strongMatches] and [possibleMatches] already return, so an IME strip and
+     * the picker never disagree about what matches.
+     */
+    fun topMatches(
+        entries: List<AndroidAutofillCredentialMetadata>,
+        targets: List<AndroidAutofillServiceIdentifier>,
+        limit: Int,
+    ): List<AndroidAutofillCredentialMetadata> {
+        if (limit <= 0) {
+            return emptyList()
+        }
+        val strong = strongMatches(entries, targets)
+        if (strong.size >= limit) {
+            return strong.take(limit)
+        }
+        val strongIds = strong.mapTo(mutableSetOf()) { it.id }
+        val possible = possibleMatches(entries, targets, limit = limit)
+            .filterNot { it.id in strongIds }
+        return (strong + possible).take(limit)
+    }
+
     fun search(
         entries: List<AndroidAutofillCredentialMetadata>,
         query: String,

@@ -21,4 +21,7 @@
     <string name="autofill_picker_row_possible_match">Possible match — not linked</string>
     <string name="autofill_picker_row_content_description">Fill %1$s. %2$s</string>
     <string name="autofill_picker_list_description">Saved credentials</string>
+    <string name="autofill_dataset_subtitle_open_keyvault">Open KeyVault to choose</string>
+    <!-- spec-016 T404: the last inline slot when more entries match than fit. -->
+    <string name="autofill_inline_search_keyvault">Search KeyVault</string>
 </resources>

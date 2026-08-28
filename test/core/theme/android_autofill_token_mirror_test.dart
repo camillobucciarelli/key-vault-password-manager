@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/core/theme/app_colors.dart';
+import 'package:password_manager/core/theme/app_radii.dart';
+import 'package:password_manager/core/theme/app_text_styles.dart';
 
 /// spec-016 T703 (D7): the Android autofill picker cannot read the Flutter
 /// theme, so its colours are mirrored into Android resources by hand. This test
@@ -71,6 +73,48 @@ void main() {
       }
     });
 
+    // The dimens file names an AppTextStyles source for each size, so the same
+    // drift risk applies to the type scale as to the colours.
+    test('the picker type scale matches AppTextStyles', () {
+      final dimens = _readDimens('android/app/src/main/res/values/dimens.xml');
+
+      const mirror = <String, double>{
+        'kv_picker_title_text': 20, // AppTextStyles.panelTitleLarge
+        'kv_picker_body_text': 13.5, // AppTextStyles.body
+        'kv_picker_row_title_text': 15, // AppTextStyles.rowTitle
+        'kv_picker_row_subtitle_text': 12.5, // AppTextStyles.secondary
+        'kv_picker_field_text': 15, // AppTextStyles.fieldValue
+      };
+
+      expect(
+        dimens['kv_picker_title_text'],
+        AppTextStyles.panelTitleLarge.fontSize,
+      );
+      expect(dimens['kv_picker_body_text'], AppTextStyles.body.fontSize);
+      expect(
+        dimens['kv_picker_row_title_text'],
+        AppTextStyles.rowTitle.fontSize,
+      );
+      expect(
+        dimens['kv_picker_row_subtitle_text'],
+        AppTextStyles.secondary.fontSize,
+      );
+      expect(dimens['kv_picker_field_text'], AppTextStyles.fieldValue.fontSize);
+
+      // Every size the picker declares is one of the mirrored five: a new sp
+      // value with no Dart source is exactly the drift this guards against.
+      for (final entry in mirror.entries) {
+        expect(dimens[entry.key], entry.value, reason: entry.key);
+      }
+    });
+
+    test('the picker radii match AppRadii', () {
+      final dimens = _readDimens('android/app/src/main/res/values/dimens.xml');
+
+      expect(dimens['kv_picker_radius'], AppRadii.rowCompact);
+      expect(dimens['kv_picker_radius_field'], AppRadii.rowNested);
+    });
+
     test('every mirrored name exists in both themes', () {
       final light = _readColors('android/app/src/main/res/values/colors.xml');
       final dark = _readColors(
@@ -108,6 +152,20 @@ Map<String, String> _readColors(String path) {
   return {
     for (final match in pattern.allMatches(file.readAsStringSync()))
       match.group(1)!: _normalizeHex(match.group(2)!),
+  };
+}
+
+/// Values are `20dp` / `13.5sp`; the unit is dropped, the number is what mirrors.
+Map<String, double> _readDimens(String path) {
+  final file = File(path);
+  expect(file.existsSync(), isTrue, reason: '$path is missing.');
+
+  final pattern = RegExp(
+    r'<dimen\s+name="([^"]+)"\s*>\s*([0-9.]+)(?:dp|sp)\s*</dimen>',
+  );
+  return {
+    for (final match in pattern.allMatches(file.readAsStringSync()))
+      match.group(1)!: double.parse(match.group(2)!),
   };
 }
 

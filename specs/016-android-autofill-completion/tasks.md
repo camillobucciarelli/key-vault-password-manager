@@ -61,7 +61,7 @@ T004 `pass` before Phase 3 starts.
   both assemble.
   Verify: `cd android && ./gradlew :app:assembleDebug` succeeds.
 
-- [ ] **T102** Declare `androidx.autofill` — owner: `senior-android-dev`
+- [x] **T102** Declare `androidx.autofill` — owner: `senior-android-dev`
   Files: `android/app/build.gradle.kts`.
   Acceptance: as T101. Depends on T001 being `pass` (do not add the dependency
   for a capability the gate rejected).
@@ -173,7 +173,7 @@ authenticating. **Independent test**: quickstart.md section A.
 Blocked by T001 `pass` and by Phase 3 (shares the gate).
 **Independent test**: quickstart.md section B.
 
-- [ ] **T401** [US2] Rank the top N matches — owner: `senior-android-dev`
+- [x] **T401** [US2] Rank the top N matches — owner: `senior-android-dev`
   Files: `.../autofill/AndroidAutofillCredentialMatcher.kt`.
   Acceptance: a ranked top-N helper over the existing strong/possible matching;
   the matching rules themselves are unchanged.
@@ -541,6 +541,65 @@ before being left green.
 and the whole phase are gated on T001, which is device evidence that IMEs
 actually render inline suggestions, and the spec is explicit that the dependency
 should not be added for a capability the gate rejected.
+
+---
+
+## Implementation notes (slice 4 — inline suggestions, on-device findings)
+
+**The T001 gate was answered by building the thing, not by probing it.** The spec
+ordered the probe first so the `androidx.autofill` dependency would not be added
+for a capability the gate might reject. On the owner's instruction Phase 4 was
+built first, and the advertisement was then read back from a live request against
+the real implementation — stronger evidence than a throwaway `FillResponse`, and
+recorded that way in `device-evidence.md`. Gboard on API 37 advertises
+`maxSuggestionCount=9`, nine specs, inline UI v1, 89x126–630x126: `pass`. T001
+stays open only because it also requires a second real IME, which the test device
+does not have.
+
+What Phase 4 adds: `supportsInlineSuggestions="true"` on the service (without it
+the framework logs `not adding inline request` and never asks), `topMatches` as a
+pure ordering over the existing strong/possible rules so the strip and the picker
+cannot disagree (T401), a headless `AutofillAuthActivity` that authenticates one
+already-chosen entry and shows no list (T402), one inline dataset per ranked match
+carrying title and username only (T403), and a last-slot "Search KeyVault"
+overflow when more entries match than fit (T404). The picker dataset is still
+emitted in every response, so API 29 and inline-less IMEs are untouched (FR-004).
+
+A password never reaches a presentation: the secret is read inside
+`AutofillAuthActivity`, after authentication, in our own process — presentations
+are rendered in the *filled app's* process, which is exactly why (FR-015).
+
+**Three defects the device found that no test had.**
+
+1. The picker drew under the status bar. Android 15+ enforces edge-to-edge, and
+   the layout took no insets. Fixed with an outer frame that takes
+   `fitsSystemWindows` while the inner column keeps its own padding, plus
+   `windowSoftInputMode="adjustResize"` so the list shrinks for the keyboard
+   instead of sliding under it.
+2. Rows did not respond to taps. A focusable row makes a `ListView` swallow item
+   clicks; the 2dp focus ring moved to the list's selector, which keeps keyboard
+   navigation and gives clicks back.
+3. The picker and the system dropdown used platform defaults, not the product's
+   type. Caprasimo and Figtree are now mirrored into `res/font`, and the type
+   scale and radii into `dimens.xml` from `AppTextStyles`/`AppRadii`; the drift
+   test covers both alongside the colours. The dropdown row shares one RemoteViews
+   layout with the picker, so a suggestion and the list it opens look like the
+   same product.
+
+**Chrome needs its own opt-in.** Chrome does not delegate to an Android autofill
+service until the user enables it inside Chrome. Before that the framework opens
+no session at all, which is indistinguishable from a broken service. Recorded in
+the evidence file; it belongs in user-facing setup guidance.
+
+**Debug-only tracing** was added to the fill path (counts, ids, hosts — never a
+value). It is gated on `FLAG_DEBUGGABLE` rather than a log tag, and deliberately
+so: those lines name the hosts the user visits, which has no business in a
+release device's logcat.
+
+**Left open, honestly.** T402's cancel path and T403/T404's remaining quickstart
+steps need the instrumented test and a second IME; T404's overflow could not be
+observed because Gboard offers nine slots and no test form matched more than
+nine entries.
 
 ---
 

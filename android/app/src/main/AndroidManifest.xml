@@ -28,9 +28,15 @@
             </intent-filter>
         </activity>
         <activity
+            android:name=".autofill.AutofillAuthActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/AutofillAuthTheme" />
+        <activity
             android:name=".autofill.AutofillPickerActivity"
             android:exported="false"
             android:excludeFromRecents="true"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/AutofillPickerTheme" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
