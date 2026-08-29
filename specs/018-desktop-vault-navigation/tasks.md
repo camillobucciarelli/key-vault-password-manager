@@ -199,7 +199,26 @@ and no 390×844 golden has moved.
 - [x] T048 Run `fvm flutter analyze` and confirm it is clean (Constitution IX)
 - [x] T049 Run the full `fvm flutter test` and confirm the count is at or above the Phase 1 baseline with no failures
 - [x] T050 Run `fvm flutter test test/goldens --test-randomize-ordering-seed=$RANDOM` to confirm golden order-independence, per the repo's testing rule
-- [ ] T051 (deferred to manual QA) Walk `specs/018-desktop-vault-navigation/quickstart.md` manually on a resizable desktop window and record the result for the six reproduced defects
+- [x] T051 Walk `specs/018-desktop-vault-navigation/quickstart.md` manually on a resizable desktop window and record the result for the six reproduced defects
+
+**T051 result — walked 2026-08-29 on macOS.** All six reproduced defects hold:
+the confirmed action applies in the single-pane band, the width bands break at
+704 and 941, the selection and the editor keep the user's place, deleting the
+shown record returns the pane to its empty state, and resizing across the
+thresholds never shows two details. The walk also found two things this spec had
+not:
+
+- **A second back button** appeared after shrinking the window with a record
+  open. `allowsPop` was derived from the current width, but the presentation is
+  fixed when the surface opens, so after a resize the width said "pop" while the
+  pane was still mounted. Fixed in this spec — the panel now asks the tree
+  (`_VaultPaneScope`) instead of the window — with a regression test verified
+  failing beforehand.
+- **The vault's content never moved to the adopted navigation model.** That is
+  not a spec 018 defect: 018 fixed navigation and the shell reached the right
+  widths, while the folder column, the records list and the phone header still
+  render model 1c. It is recorded as 17 findings in
+  `specs/_design/CONFORMANCE_AUDIT.md` and is the whole of spec 019.
 
 ---
 
