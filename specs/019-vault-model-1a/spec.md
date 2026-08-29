@@ -158,26 +158,21 @@ nothing today beyond a wrong first impression — the destinations work.
 
 ---
 
-### User Story 5 - The user can choose the order (Priority: P3)
+### Note — the sort is not a separate story
 
-The count line carries the current sort, and tapping it offers the orders the
-vault already supports.
+An earlier draft carried the sort control as US5 at P3. DQ-8 removed that
+option: the phone header's button **is** the sort control, so the header cannot
+ship without it — it would ship a dead affordance — and the desktop count line
+carries the same setting. A control that both P1 surfaces must contain on the
+day they land is not a later increment. Its requirements are FR-009 and FR-009a,
+and its acceptance is folded into US1 and US2:
 
-**Why this priority**: Smallest of the five and the least costly to defer, but
-it is nearly free: the ordering is already built and the user simply cannot
-reach it.
-
-**Independent Test**: Change the sort and observe the list re-order.
-
-**Acceptance Scenarios**:
-
-1. **Given** a populated vault, **When** the user opens the sort control, **Then**
-   it offers exactly the orders the vault already implements — title ascending,
-   title descending, username ascending — and shows which one is active.
-2. **Given** a chosen sort, **When** the user changes folder or searches, **Then**
-   the chosen sort still applies.
-
----
+- **US1** — the count line shows the active order and offers the other two;
+  changing it re-orders the list, and the choice survives a folder change and a
+  search.
+- **US2** — the header's sort button opens the `Sort` sheet, which offers the
+  same three orders and marks the same active one; choosing applies and
+  dismisses.
 
 ### Edge Cases
 
@@ -270,6 +265,10 @@ reach it.
 - **FR-009**: The count line MUST carry a sort control reflecting
   `VaultState.sortBy` and MUST offer every order the vault already implements.
   No new ordering may be added.
+- **FR-009a**: The phone's sort sheet MUST offer the same three orders, labelled
+  `Title A→Z`, `Title Z→A` and `Username A→Z`, marking the active one; it MUST
+  dispatch the same event and persist the same way as the desktop control. The
+  two surfaces are one setting shown twice, never two settings.
 - **FR-010**: Every record row MUST show the letter avatar, title, subtitle and
   password-health dot it shows today, and MUST additionally offer a one-tap copy
   of the password.
@@ -283,12 +282,15 @@ reach it.
 #### The phone header
 
 - **FR-014**: The phone vault MUST open with a screen header carrying `Vault`,
-  the record count and the database name, and an add affordance.
-- **FR-014a**: The header's **filter** affordance is drawn by artboard `2b` but
-  its behaviour is undefined, and the same screen already reaches the folder
-  filter through the `Folders` chip. It MUST NOT be built as a second route to
-  the same place. It is deferred until the design says what it filters — see
-  *Open questions* — and the header ships without it.
+  the record count and the database name, a **sort** affordance and an add
+  affordance, in that order from the right.
+- **FR-014a**: The header's sort affordance MUST open a bottom sheet titled
+  `Sort` containing one radio group and nothing else. Choosing an order MUST
+  apply it immediately and dismiss the sheet (DQ-8).
+- **FR-014b**: That sheet MUST NOT contain a health filter, a folder filter or
+  an advanced search. The folder filter is the `Folders` chip; there is one
+  search and it already covers every field; and a health filter is a new
+  capability, forbidden by FR-020 and recorded as a separate proposal.
 - **FR-015**: Database-level actions displaced from the status card — sync now,
   lock, change database, recycle bin, duplicates — MUST each remain reachable in
   no more interactions than today, with byte-identical wording.
@@ -339,6 +341,14 @@ file is re-synced from the project.
   the header of the folder surface. The column rows and the chips carry no
   actions — they are filters. The dialog adds no column, so the width
   arithmetic of spec 018 is untouched.
+- **DQ-8 — the phone header's second button** (OQ-1, answered 2026-08-29,
+  recorded at `specs/_design/decisions-vault-header-sort.md`): it is the phone
+  **sort** control — the mobile equivalent of the desktop `128 items ·
+  Username ↑` row — not a folder filter and not an advanced search. Its sheet is
+  a single radio group over the three orders that exist in code, applying
+  immediately and dismissing. The glyph changes from `list-filter` to Lucide
+  `arrow-up-down`, and both artboards were corrected the same day. Carried by
+  FR-009a, FR-014, FR-014a and FR-014b.
 - **DQ-7 — nesting**: a collapsible tree in the column and the phone sheet with
   shared, persisted expansion state; first-level chips only on the phone;
   the management surface always fully expanded; counts inclusive of subfolders
@@ -359,19 +369,15 @@ silently dropped (Constitution VI):
   through `Move…`, and a second way to set a parent is the kind of duplicated
   affordance this whole spec exists to remove.
 
+**Filtering by password health is a separate proposal.** The data exists —
+`_evaluatePasswordStrength`, `lastPasswordChangedAt`, `VaultDuplicateService` —
+but a filter UI over it is a capability the vault does not have, so FR-020
+excludes it. It is recorded by the design source as a proposal to evaluate on
+its own and is not part of this spec.
+
 Still owed by the design source: the 704–940 artboard (folder column collapsed,
 switcher on the rail). Spec 018 already handles that band with the folder
 navigation the list provides, and this spec does not regress it.
-
-### Open questions
-
-- **OQ-1 — the phone header's filter button.** Artboard `2b` draws a filter icon
-  beside the add button. Nothing states what it filters, and the `Folders` chip
-  on the same screen already opens the folder filter. Two affordances for one
-  destination is the pattern this spec exists to remove, so the button is not
-  built until the design answers: does it filter something the chips do not
-  reach — health state, sort, records with attachments — or is it a leftover
-  from before the `Folders` chip existed? Carried by FR-014a.
 
 ## Success Criteria *(mandatory)*
 
@@ -409,8 +415,11 @@ navigation the list provides, and this spec does not regress it.
   so no asset work is required.
 - The KeyVault mark ships already (spec 007A); this spec consumes it and does
   not regenerate it.
-- The ordering behaviour is already correct in the vault; only its control is
-  missing, so no comparator changes.
+- The ordering behaviour is already correct in the vault; only its controls are
+  missing, so no comparator changes and no new sort key is introduced.
+- `arrow-up-down` is not yet vendored. It is fetched from the pinned Lucide
+  commit recorded in `assets/icons/lucide/UPSTREAM.md`, not hand-authored, and
+  its checksums are added to both tables there.
 - DQ-6/DQ-7 are settled and are not reopened by the plan.
 - The vault already supports every folder operation this spec rehomes; nothing
   in `Manage folders` is a new capability.

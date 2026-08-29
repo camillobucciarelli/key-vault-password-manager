@@ -175,6 +175,7 @@ Tap targets stay ≥ 44 px even when the glyph is 17 px: the icon button is a
 | `desktop` | `monitor` | Desktop browsers |
 | `sun` / `moon` | `sun` / `moon` | Theme selector |
 | — (new) | `lock` | Vault tab, vault slot of the rail |
+| — (new) | `arrow-up-down` | Vault sort (phone header) |
 | — (new) | `shield-check` | Health tab, strength strip |
 | — (new) | `circles-intersecting`* | Duplicates (\* two overlapping `circle`s, r 5, cx 9/15, cy 9/15) |
 | — (new) | `clock` | Auto-lock, password age |

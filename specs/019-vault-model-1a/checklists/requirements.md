@@ -33,8 +33,11 @@
 
 All 16 items pass. Re-validated 2026-08-29 after `/speckit-analyze`: the
 remediation added FR-002a, FR-014a and an *Open questions* section, and none of
-them reopened a checklist item — OQ-1 is a **deferred build**, not an
-unresolved requirement, because FR-014a states what ships in the meantime.
+them reopened a checklist item. Re-validated again the same day after the design
+source answered OQ-1: it became DQ-8, FR-014a/FR-014b now specify the sort sheet
+the button opens, and US5 was dissolved into US1 and US2 — a control both P1
+surfaces must contain on the day they land is not a later increment. No
+`[NEEDS CLARIFICATION]` marker and no open question remains.
 
 The two `[NEEDS CLARIFICATION]` markers this checklist opened were referred to
 the design source and answered on 2026-08-29 with four new artboards and a

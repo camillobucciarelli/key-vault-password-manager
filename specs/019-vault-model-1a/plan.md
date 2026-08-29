@@ -53,10 +53,10 @@ today; they must be computed once per state change, not once per row.
 presentation rules and single selection owner are consumed unchanged (FR-019).
 Every reused user-facing string stays byte-identical (FR-021, Constitution VI).
 
-**Scale/Scope**: two shell part files rewritten, one new part file, one new
-widget, one new router surface and presentation, one BLoC filter, one
-preference key. Roughly 15 test files touched or added, and a golden inventory
-of 11 new files with a predicted 10–18 re-recorded.
+**Scale/Scope**: two shell part files rewritten, two new part files, two new
+widgets, one new router surface and presentation, one BLoC filter, one
+preference key, one vendored glyph. Roughly 15 test files touched or added, and a golden inventory
+of 12 new files with a predicted 10–18 re-recorded.
 
 ## Constitution Check
 
@@ -178,6 +178,11 @@ diff is most negative.
 
 ### Phase E — chrome and the phone header
 
+DQ-8 folded the sort control into this work rather than leaving it as a later
+increment: the phone header's second button *is* the sort control, so the header
+cannot land without it, and the desktop count line carries the same setting. One
+setting, two surfaces, one event.
+
 Rail mark and glyphs, selected fill, the phone screen header, and the rehoming
 of the status card's actions per FR-015.
 
@@ -212,7 +217,8 @@ are asserted by widget test instead (named in the table).
 | `manage_folders_dialog_1024x768_dark.png` | same, dark — kept because the dialog is a surface no other golden shows | — |
 | `manage_folders_screen_390x844_light.png` | the same surface pushed | `vault_manage_folders_test.dart` |
 | `manage_folders_row_menu_390x844_light.png` | the one `•••` recipe: `Rename · Move… · Delete` | `vault_manage_folders_test.dart` |
-| `vault_1a_sort_menu_1024x768_light.png` | the sort control, active order marked | `vault_records_list_test.dart` |
+| `vault_1a_sort_menu_1024x768_light.png` | the desktop sort control, active order marked | `vault_records_list_test.dart` |
+| `vault_1a_phone_sort_sheet_390x844_light.png` | the phone `Sort` sheet: one radio group, three orders, the active one marked (DQ-8) | `vault_records_list_test.dart` |
 
 **Predicted re-records.** Stated in advance so the actual churn can be checked
 against it, as spec 018 did:
