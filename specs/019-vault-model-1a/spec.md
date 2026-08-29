@@ -211,6 +211,12 @@ reach it.
   name.
 - **FR-002**: The folder surface MUST offer `All items` as its first entry,
   carrying the vault's total record count, and it MUST be the default selection.
+- **FR-002a**: `All items` MUST be represented by the vault's **root group**,
+  never by an absent selection. With subtree filtering the root's subtree is the
+  whole vault, so the two readings coincide — but an absent selection does not:
+  `VaultBloc` returns early from record creation when there is no current group
+  (`vault_bloc.dart:389`), so representing `All items` as "nothing selected"
+  would make the add button do nothing, silently, in the default state.
 - **FR-003**: Every folder entry MUST carry the number of records it contains.
 - **FR-004**: The folder column MUST offer `Recycle bin` and `Duplicates` at its
   foot, each with its count, reaching the same surfaces they reach today.
@@ -223,10 +229,9 @@ reach it.
   row. Choosing a folder MUST filter, close the sheet, and become the active
   chip.
 - **FR-006**: Folder management MUST live in one surface, `Manage folders`,
-  which is the **same surface at every width** — the same tree, the same
-  `New folder`, the same per-row `Rename · Move… · Delete`. Only its container
-  differs: a centred dialog where the folder column is visible, a pushed screen
-  on the phone.
+  which is the **same surface at every width**; only its container differs — a
+  centred dialog where the folder column is visible, a pushed screen on the
+  phone. What that surface contains is FR-006a…FR-006e.
 - **FR-006a**: There MUST be exactly one entry point to `Manage folders` per
   width, and it MUST sit in the header of the folder surface — `Manage` in the
   folder column's header, `Manage` at the head of the phone `Folders` sheet. No
@@ -278,8 +283,12 @@ reach it.
 #### The phone header
 
 - **FR-014**: The phone vault MUST open with a screen header carrying `Vault`,
-  the record count and the database name, a filter affordance and an add
-  affordance.
+  the record count and the database name, and an add affordance.
+- **FR-014a**: The header's **filter** affordance is drawn by artboard `2b` but
+  its behaviour is undefined, and the same screen already reaches the folder
+  filter through the `Folders` chip. It MUST NOT be built as a second route to
+  the same place. It is deferred until the design says what it filters — see
+  *Open questions* — and the header ships without it.
 - **FR-015**: Database-level actions displaced from the status card — sync now,
   lock, change database, recycle bin, duplicates — MUST each remain reachable in
   no more interactions than today, with byte-identical wording.
@@ -353,6 +362,16 @@ silently dropped (Constitution VI):
 Still owed by the design source: the 704–940 artboard (folder column collapsed,
 switcher on the rail). Spec 018 already handles that band with the folder
 navigation the list provides, and this spec does not regress it.
+
+### Open questions
+
+- **OQ-1 — the phone header's filter button.** Artboard `2b` draws a filter icon
+  beside the add button. Nothing states what it filters, and the `Folders` chip
+  on the same screen already opens the folder filter. Two affordances for one
+  destination is the pattern this spec exists to remove, so the button is not
+  built until the design answers: does it filter something the chips do not
+  reach — health state, sort, records with attachments — or is it a leftover
+  from before the `Folders` chip existed? Carried by FR-014a.
 
 ## Success Criteria *(mandatory)*
 

@@ -9,8 +9,8 @@ agreeing.
 | Input | Meaning |
 | --- | --- |
 | `nodes` | the flattened `FolderNode` list from `data-model.md` |
-| `selectedId` | `null` renders `All items` as selected |
-| `onSelect(String? id)` | `null` = `All items`. Emitted by the **row**. |
+| `selectedId` | the selected group id; the root group id renders `All items` as selected |
+| `onSelect(String id)` | never null — `All items` reports the root group id (FR-002a). Emitted by the **row**. |
 | `onToggleExpanded(String id, bool expanded)` | emitted by the **chevron only** |
 | `mode` | `filter` or `manage` |
 | `onRowAction(String id, FolderAction action)` | `manage` only; `null` in `filter` |

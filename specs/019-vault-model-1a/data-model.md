@@ -8,7 +8,7 @@ schema are untouched. What follows is presentation state and derived values.
 | Field | Change | Why |
 | --- | --- | --- |
 | `visibleEntries` | **meaning changes**: now filtered by the selected folder subtree as well as by search, then sorted | R1 / FR-006h. Its only reader is the records list. |
-| `currentGroupId` | unchanged field, **promoted to the folder filter** — `null` means `All items` | FR-002. The field already exists and is already set by `OpenGroup`. |
+| `currentGroupId` | unchanged field, **promoted to the folder filter**. `All items` is the **root group id**, never `null` | FR-002a. `_onCreateVaultEntry` returns early on a null current group (`vault_bloc.dart:389`), so a null `All items` would make the add button a silent no-op in the default state. |
 | `expandedGroupIds` | unchanged in memory; now restored at unlock and written on change | FR-006g / R3 |
 | `sortBy` | unchanged | R2 — surfaced, not modified |
 
@@ -20,7 +20,9 @@ Never per row (Performance Goals).
   descendants** (FR-006i). Built by one post-order walk of `groups` over
   `allEntries` bucketed by `groupId`.
 - **`totalCount: int`** — `All items`; the length of `allEntries` excluding the
-  recycle bin, so `All items` and the folder counts agree.
+  recycle bin, so `All items` and the folder counts agree. It is also the root
+  group's own inclusive count, which is what makes FR-002a's two readings the
+  same number rather than two numbers that happen to match.
 - **`descendantIds(groupId): Set<String>`** — the subtree used by the filter.
   Derived from the same walk.
 
@@ -31,7 +33,7 @@ the two hygiene counts (FR-004); nothing new is needed for them.
 
 | Event | Payload | Handler behaviour |
 | --- | --- | --- |
-| `SelectVaultFolder` | `String? groupId` — `null` = `All items` | Sets `currentGroupId`, recomputes `visibleEntries`. Does **not** touch expansion (FR-006f). |
+| `SelectVaultFolder` | `String groupId` — the root group id for `All items` | Sets `currentGroupId`, recomputes `visibleEntries`. Never null (FR-002a). Does **not** touch expansion (FR-006f). |
 | `SetVaultFolderExpanded` | `String groupId`, `bool expanded` | Explicit form of today's toggle, so the tree's three hosts cannot disagree about what a chevron means. Persists. |
 
 `ToggleVaultGroupExpanded` stays for its existing callers until they are gone,

@@ -31,7 +31,10 @@
 
 ## Notes
 
-All 16 items pass.
+All 16 items pass. Re-validated 2026-08-29 after `/speckit-analyze`: the
+remediation added FR-002a, FR-014a and an *Open questions* section, and none of
+them reopened a checklist item — OQ-1 is a **deferred build**, not an
+unresolved requirement, because FR-014a states what ships in the meantime.
 
 The two `[NEEDS CLARIFICATION]` markers this checklist opened were referred to
 the design source and answered on 2026-08-29 with four new artboards and a
