@@ -1244,6 +1244,23 @@ class _VaultRail extends StatelessWidget {
   }
 }
 
+/// Marks the subtree as living inside [_VaultPaneHost].
+///
+/// The host draws the back affordance for whatever it hosts, so a pane must
+/// not draw a second one. Asking "am I in a pane?" structurally is the fix
+/// for deriving it from the window width: the presentation is chosen when the
+/// surface opens, so a resize made the width answer disagree with the tree
+/// that was actually mounted — and both back buttons appeared at once.
+class _VaultPaneScope extends InheritedWidget {
+  const _VaultPaneScope({required super.child});
+
+  static bool of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_VaultPaneScope>() != null;
+
+  @override
+  bool updateShouldNotify(_VaultPaneScope oldWidget) => false;
+}
+
 class _VaultPaneHost extends StatelessWidget {
   const _VaultPaneHost({required this.pane, required this.onBack});
 
@@ -1251,21 +1268,41 @@ class _VaultPaneHost extends StatelessWidget {
   final Future<bool> Function() onBack;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      Align(
-        alignment: Alignment.centerLeft,
-        child: IconButton(
-          key: const ValueKey('vault-pane-back'),
-          tooltip: 'Back',
-          onPressed: onBack,
-          icon: const KvIcon(glyph: AppGlyph.back),
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            // PIXEL_SPEC §2: icon buttons are 36 px circles on the surface
+            // ramp with a 17-19 px glyph, never a bare Material button.
+            child: SizedBox.square(
+              dimension: 36,
+              child: IconButton(
+                key: const ValueKey('vault-pane-back'),
+                tooltip: 'Back',
+                onPressed: onBack,
+                style: IconButton.styleFrom(
+                  backgroundColor: colors.surface,
+                  shape: const CircleBorder(),
+                  padding: EdgeInsets.zero,
+                ),
+                icon: KvIcon(
+                  glyph: AppGlyph.back,
+                  size: 19,
+                  color: colors.iconNeutral,
+                ),
+              ),
+            ),
+          ),
         ),
-      ),
-      Expanded(child: pane),
-    ],
-  );
+        Expanded(child: _VaultPaneScope(child: pane)),
+      ],
+    );
+  }
 }
 
 /// spec-005: thin wrapper giving the Health/Sync/Settings destination

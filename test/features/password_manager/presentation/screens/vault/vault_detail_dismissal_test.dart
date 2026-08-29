@@ -117,6 +117,28 @@ void main() {
     expect(find.text('Banca Sella'), findsWidgets);
   });
 
+  // ---- Resize keeps exactly one back affordance ---------------------------
+
+  testWidgets('shrinking the window with a record open leaves one back button', (
+    tester,
+  ) async {
+    await pumpAt(tester, 1024);
+    await openGmail(tester);
+    expect(find.byTooltip('Back'), findsOneWidget);
+
+    // The pane was chosen at 1024 and stays mounted; only the width changes.
+    tester.view.physicalSize = const Size(650, 900);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byTooltip('Back'),
+      findsOneWidget,
+      reason:
+          'the pane host owns the back affordance; the panel must not add a '
+          'second one just because the window is now narrow',
+    );
+  });
+
   // ---- T014: US1 origin parity -------------------------------------------
 
   // FR-011/G5.6: the action set must not depend on the layout. Origin parity

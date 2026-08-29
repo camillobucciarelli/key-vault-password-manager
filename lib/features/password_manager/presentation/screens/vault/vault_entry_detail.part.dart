@@ -47,14 +47,14 @@ class _EntryDetailsPage extends StatelessWidget {
       child: _EntryDetailPanel(
         entry: entry,
         onSelectedAction: onSelectedAction,
-        // spec-018: `true` unconditionally used to put a back chevron in the
-        // panel even when the router had hosted it as a pane — and the pane
-        // host already draws its own. Two back affordances stacked in one
-        // pane is the kind of small incoherence D8 is about. The pushed
-        // presentation still gets exactly one, so mobile is unchanged.
-        allowsPop: !VaultLayoutClass.fromWidth(
-          MediaQuery.sizeOf(context).width,
-        ).hasDetailPane,
+        // The pane host already draws the back affordance for whatever it
+        // hosts, so the panel must not draw a second one. Derived from the
+        // tree, not from the window width: the presentation is fixed when the
+        // surface opens, so shrinking the window below the pane threshold
+        // with a record open used to flip the width answer to `true` while
+        // the pane was still mounted — two back buttons, one of which popped
+        // an unrelated route.
+        allowsPop: !_VaultPaneScope.of(context),
       ),
     );
   }
