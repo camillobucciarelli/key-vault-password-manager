@@ -24,6 +24,8 @@ class VaultState extends Equatable {
     this.allEntries = const [],
     this.visibleEntries = const [],
     this.expandedGroupIds = const [],
+    this.folderCounts = const {},
+    this.folderDescendantIds = const {},
     this.recycleBinEntries = const [],
     this.isLoading = false,
     this.isSaving = false,
@@ -69,6 +71,22 @@ class VaultState extends Equatable {
   final List<VaultEntry> allEntries;
   final List<VaultEntry> visibleEntries;
   final List<String> expandedGroupIds;
+
+  /// spec-019 T007/T008 — records per folder, **inclusive of descendants**.
+  ///
+  /// Recomputed once per reload from `groups` and `allEntries`, never per row:
+  /// the folder column asks for a count on every rebuild of every row, and a
+  /// walk per row is a walk of the whole vault per row.
+  ///
+  /// Recycle-bin groups are absent from the map, so `All items` and the folder
+  /// counts add up to the same vault.
+  final Map<String, int> folderCounts;
+
+  /// spec-019 T007 — every descendant of a folder, from the same walk that
+  /// produced [folderCounts]. Read by the folder filter so that selecting a
+  /// folder shows its subtree (FR-006h).
+  final Map<String, Set<String>> folderDescendantIds;
+
   final List<VaultEntry> recycleBinEntries;
   final bool isLoading;
   final bool isSaving;
@@ -118,6 +136,23 @@ class VaultState extends Equatable {
 
   int get duplicateGroupCount => duplicateGroups.length;
 
+  /// spec-019 FR-002a — the number `All items` carries.
+  ///
+  /// This is the root folder's own inclusive count, not a second tally: the
+  /// row labelled `All items` IS the root group, so the two readings are the
+  /// same number by construction rather than by coincidence.
+  int get totalCount => folderCounts[rootGroupId] ?? 0;
+
+  /// spec-019 FR-006h — [groupId] and everything beneath it.
+  ///
+  /// Returns just [groupId] for a leaf, and for an unknown id — the filter
+  /// then matches only entries filed directly under it, which is the safe
+  /// answer while a reload is in flight.
+  Set<String> descendantIds(String groupId) => {
+    groupId,
+    ...?folderDescendantIds[groupId],
+  };
+
   VaultState copyWith({
     String? rootGroupId,
     String? currentGroupId,
@@ -126,6 +161,8 @@ class VaultState extends Equatable {
     List<VaultEntry>? allEntries,
     List<VaultEntry>? visibleEntries,
     List<String>? expandedGroupIds,
+    Map<String, int>? folderCounts,
+    Map<String, Set<String>>? folderDescendantIds,
     List<VaultEntry>? recycleBinEntries,
     bool? isLoading,
     bool? isSaving,
@@ -175,6 +212,8 @@ class VaultState extends Equatable {
       allEntries: allEntries ?? this.allEntries,
       visibleEntries: visibleEntries ?? this.visibleEntries,
       expandedGroupIds: expandedGroupIds ?? this.expandedGroupIds,
+      folderCounts: folderCounts ?? this.folderCounts,
+      folderDescendantIds: folderDescendantIds ?? this.folderDescendantIds,
       recycleBinEntries: recycleBinEntries ?? this.recycleBinEntries,
       isLoading: isLoading ?? this.isLoading,
       isSaving: isSaving ?? this.isSaving,
@@ -276,6 +315,8 @@ class VaultState extends Equatable {
     allEntries,
     visibleEntries,
     expandedGroupIds,
+    folderCounts,
+    folderDescendantIds,
     recycleBinEntries,
     isLoading,
     isSaving,
