@@ -53,6 +53,9 @@ class NavigationFixtureVaultKdbxService implements VaultKdbxService {
   /// asserted to compose rather than the second reverting the first (D4).
   final Map<String, VaultEntry> _updated = <String, VaultEntry>{};
 
+  /// Records created by `duplicateEntry`, appended to the vault by [entries].
+  final List<VaultEntry> _duplicates = <VaultEntry>[];
+
   static const gmail = VaultEntry(
     id: 'entry-gmail',
     groupId: rootId,
@@ -83,6 +86,8 @@ class NavigationFixtureVaultKdbxService implements VaultKdbxService {
 
   List<VaultEntry> get entries => <VaultEntry>[
     for (final entry in const [gmail, github, bank])
+      if (!_deleted.contains(entry.id)) _updated[entry.id] ?? entry,
+    for (final entry in _duplicates)
       if (!_deleted.contains(entry.id)) _updated[entry.id] ?? entry,
   ];
 
@@ -158,6 +163,32 @@ class NavigationFixtureVaultKdbxService implements VaultKdbxService {
   }) async {
     calls.add(RecordedVaultCall('delete', entryId));
     _deleted.add(entryId);
+  }
+
+  /// spec-019 C-04-05: the copy the real service makes inside the database,
+  /// modelled here as a sibling record so the list has something to show.
+  @override
+  Future<String> duplicateEntry({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+    required String titleSuffix,
+  }) async {
+    calls.add(RecordedVaultCall('duplicate', entryId));
+    final source = entries.firstWhere((entry) => entry.id == entryId);
+    final copy = VaultEntry(
+      id: '$entryId-copy',
+      groupId: source.groupId,
+      title: '${source.title}$titleSuffix',
+      username: source.username,
+      password: source.password,
+      url: source.url,
+      notes: source.notes,
+      customFields: source.customFields,
+    );
+    _duplicates.add(copy);
+    return copy.id;
   }
 
   @override

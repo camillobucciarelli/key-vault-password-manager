@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:convert' show utf8;
 import 'dart:io' show SocketException;
 
+import 'package:crypto/crypto.dart' show sha256;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:loggy/loggy.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:stream_transform/stream_transform.dart';
 
 import '../../../data/services/vault_csv_import_service.dart';
@@ -23,6 +26,13 @@ import '../../coordinators/session_secret_holder.dart';
 import 'vault_event.dart';
 import 'vault_state.dart';
 
+/// Appended to a duplicated record's title.
+///
+/// A suffix rather than a `Copy of ` prefix so the copy sorts next to its
+/// original in a title-ordered list, which is where the user is looking when
+/// they duplicate something.
+const kDuplicateTitleSuffix = ' copy';
+
 const _driveAuthorizationRequiredMessage =
     'Google authorization expired. Reconnect Google Drive to continue.';
 
@@ -38,6 +48,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     this.appleAutofillV2Coordinator = const NoopAppleAutofillV2Coordinator(),
     this.androidAutofillSaveCoordinator,
     this.vaultHealthService = const VaultHealthService(),
+    this.folderExpansionPreferences,
     this.now = DateTime.now,
   }) : super(VaultState.initial(databasePath: databasePath)) {
     on<InitializeVault>(_onInitializeVault);
@@ -53,12 +64,14 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<SetVaultSort>(_onSetVaultSort);
     on<LoadRecycleBinEntries>(_onLoadRecycleBinEntries);
     on<OpenGroup>(_onOpenGroup);
+    on<SelectVaultFolder>(_onSelectVaultFolder);
+    on<SetVaultFolderExpanded>(_onSetVaultFolderExpanded);
     on<OpenParentGroup>(_onOpenParentGroup);
-    on<ToggleVaultGroupExpanded>(_onToggleVaultGroupExpanded);
     on<CreateVaultEntry>(_onCreateVaultEntry);
     on<UpdateVaultEntry>(_onUpdateVaultEntry);
     on<DeleteVaultEntry>(_onDeleteVaultEntry);
     on<MoveVaultEntry>(_onMoveVaultEntry);
+    on<DuplicateVaultEntry>(_onDuplicateVaultEntry);
     on<CreateVaultGroup>(_onCreateVaultGroup);
     on<RenameVaultGroup>(_onRenameVaultGroup);
     on<DeleteVaultGroup>(_onDeleteVaultGroup);
@@ -132,6 +145,11 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   final AppleAutofillV2CoordinatorContract appleAutofillV2Coordinator;
   final VaultHealthService vaultHealthService;
 
+  /// spec-019 FR-006g — where the folder expansion set is remembered between
+  /// unlocks. Null in tests and in any host that has no preferences: expansion
+  /// then behaves exactly as it did before spec 019, in memory only.
+  final SharedPreferences? folderExpansionPreferences;
+
   /// Injected clock (spec-005 non-negotiable): the health report's "old"
   /// category must never call `DateTime.now()` directly, so tests can pass
   /// a fixed `now` and get a deterministic score.
@@ -173,6 +191,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       // below — never a silent empty-string fallback.
       _password = sessionSecretHolder.read();
       _keyFilePath = await getSelectedKeyFilePath();
+      _restoreExpandedGroupIds(emit);
       await _preloadDriveStateFromLocalMapping(emit);
       await _reload(emit);
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
@@ -264,6 +283,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           entries: state.allEntries,
           searchQuery: query,
           sortBy: state.sortBy,
+          folderIds: _folderFilterIds(
+            state.currentGroupId,
+            state.folderDescendantIds,
+          ),
         ),
       ),
     );
@@ -281,6 +304,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           entries: state.allEntries,
           searchQuery: '',
           sortBy: state.sortBy,
+          folderIds: _folderFilterIds(
+            state.currentGroupId,
+            state.folderDescendantIds,
+          ),
         ),
       ),
     );
@@ -295,6 +322,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           entries: state.allEntries,
           searchQuery: state.searchQuery,
           sortBy: event.sortBy,
+          folderIds: _folderFilterIds(
+            state.currentGroupId,
+            state.folderDescendantIds,
+          ),
         ),
       ),
     );
@@ -334,6 +365,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           entries: state.allEntries,
           searchQuery: state.searchQuery,
           sortBy: state.sortBy,
+          folderIds: _folderFilterIds(
+            event.groupId,
+            state.folderDescendantIds,
+          ),
         ),
         clearError: true,
       ),
@@ -365,14 +400,48 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           entries: state.allEntries,
           searchQuery: state.searchQuery,
           sortBy: state.sortBy,
+          folderIds: _folderFilterIds(
+            current.parentId,
+            state.folderDescendantIds,
+          ),
         ),
         clearError: true,
       ),
     );
   }
 
-  void _onToggleVaultGroupExpanded(
-    ToggleVaultGroupExpanded event,
+  /// spec-019 T009 — select a folder without navigating into it.
+  ///
+  /// Deliberately does not touch `expandedGroupIds`: in model 1a the chevron
+  /// and the row are two different controls, and clicking a folder's name must
+  /// not fold or unfold anything (FR-006f).
+  void _onSelectVaultFolder(SelectVaultFolder event, Emitter<VaultState> emit) {
+    final existingIds = state.groups.map((group) => group.id).toSet();
+    if (!existingIds.contains(event.groupId)) {
+      return;
+    }
+
+    _safeEmit(
+      emit,
+      state.copyWith(
+        currentGroupId: event.groupId,
+        visibleEntries: _computeVisibleEntries(
+          entries: state.allEntries,
+          searchQuery: state.searchQuery,
+          sortBy: state.sortBy,
+          folderIds: _folderFilterIds(
+            event.groupId,
+            state.folderDescendantIds,
+          ),
+        ),
+        clearError: true,
+      ),
+    );
+  }
+
+  /// spec-019 T012 — set one folder's expansion and remember it.
+  void _onSetVaultFolderExpanded(
+    SetVaultFolderExpanded event,
     Emitter<VaultState> emit,
   ) {
     final existingIds = state.groups.map((group) => group.id).toSet();
@@ -381,15 +450,58 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     }
 
     final expanded = state.expandedGroupIds.toSet();
-    if (!expanded.add(event.groupId)) {
-      expanded.remove(event.groupId);
+    final changed = event.expanded
+        ? expanded.add(event.groupId)
+        : expanded.remove(event.groupId);
+    if (!changed) {
+      return;
     }
 
-    _safeEmit(
-      emit,
-      state.copyWith(expandedGroupIds: expanded.toList()..sort()),
-    );
+    final ids = expanded.toList()..sort();
+    _safeEmit(emit, state.copyWith(expandedGroupIds: ids));
+    unawaited(_persistExpandedGroupIds(ids));
   }
+
+  /// The preferences key for this database.
+  ///
+  /// Hashed rather than the path itself: the key survives in plain text in the
+  /// preferences store, and a vault's location on disk says more about its
+  /// owner than a folder layout should. The hash is stable, which is all the
+  /// key needs to be.
+  String get _expandedGroupIdsKey =>
+      'vault.folders.expanded.'
+      '${sha256.convert(utf8.encode(state.databasePath))}';
+
+  Future<void> _persistExpandedGroupIds(List<String> ids) async {
+    final preferences = folderExpansionPreferences;
+    if (preferences == null) {
+      return;
+    }
+    try {
+      await preferences.setStringList(_expandedGroupIdsKey, ids);
+    } catch (e, st) {
+      // A folder that forgets it was open is not worth failing an unlock over.
+      logError('Failed to persist folder expansion.', e, st);
+    }
+  }
+
+  /// spec-019 FR-006g — restore the folder shape this database was left in.
+  ///
+  /// Runs before the first load so the reload's own normalisation sees the
+  /// restored set rather than an empty one.
+  void _restoreExpandedGroupIds(Emitter<VaultState> emit) {
+    final preferences = folderExpansionPreferences;
+    if (preferences == null) {
+      return;
+    }
+    final stored = preferences.getStringList(_expandedGroupIdsKey);
+    if (stored == null || stored.isEmpty) {
+      return;
+    }
+    _safeEmit(emit, state.copyWith(expandedGroupIds: List<String>.of(stored)));
+  }
+
+
 
   Future<void> _onCreateVaultEntry(
     CreateVaultEntry event,
@@ -473,6 +585,41 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         state.copyWith(
           isSaving: false,
           errorMessage: 'Unable to update entry.',
+        ),
+      );
+    }
+  }
+
+  /// spec-019 C-04-05 — `Duplicate`.
+  ///
+  /// The copy lands in the source's own group, so it appears in the list the
+  /// user is looking at, whatever folder that is.
+  Future<void> _onDuplicateVaultEntry(
+    DuplicateVaultEntry event,
+    Emitter<VaultState> emit,
+  ) async {
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
+    try {
+      await vaultKdbxService.duplicateEntry(
+        databasePath: state.databasePath,
+        password: _password,
+        keyFilePath: _keyFilePath,
+        entryId: event.entryId,
+        titleSuffix: kDuplicateTitleSuffix,
+      );
+      await _reload(
+        emit,
+        currentGroupId: state.currentGroupId,
+        keepLoadingFlag: false,
+      );
+      await _scheduleAutoSync(emit);
+    } catch (e, st) {
+      logError('Failed duplicating vault entry.', e, st);
+      _safeEmit(
+        emit,
+        state.copyWith(
+          isSaving: false,
+          errorMessage: 'Unable to duplicate record.',
         ),
       );
     }
@@ -865,6 +1012,13 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         previousExpanded: state.expandedGroupIds,
       );
 
+      // spec-019 T007: the one place `allEntries` and `groups` change is the
+      // one place the folder aggregates are recomputed.
+      final aggregates = _computeFolderAggregates(
+        groups: snapshot.groups,
+        allEntries: snapshot.allEntries,
+      );
+
       _safeEmit(
         emit,
         state.copyWith(
@@ -879,8 +1033,14 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
             entries: snapshot.allEntries,
             searchQuery: state.searchQuery,
             sortBy: state.sortBy,
+            folderIds: _folderFilterIds(
+              snapshot.currentGroupId,
+              aggregates.descendants,
+            ),
           ),
           expandedGroupIds: normalizedExpanded,
+          folderCounts: aggregates.counts,
+          folderDescendantIds: aggregates.descendants,
           clearSyncReloadPending: true,
           clearError: true,
           clearInfo: true,
@@ -1453,6 +1613,104 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       emit,
       state.copyWith(duplicateGroups: groups, isDuplicatesLoading: false),
     );
+  }
+
+  /// spec-019 FR-006h — [groupId] plus its whole subtree, or null when there
+  /// is no folder to filter by.
+  ///
+  /// Takes the descendants map explicitly: during a reload the new map is not
+  /// on `state` yet, and using the stale one would filter the fresh records
+  /// through the previous vault's shape.
+  Set<String>? _folderFilterIds(
+    String? groupId,
+    Map<String, Set<String>> descendants,
+  ) {
+    if (groupId == null) {
+      return null;
+    }
+    return <String>{groupId, ...?descendants[groupId]};
+  }
+
+  /// spec-019 T007 / FR-006i — one post-order walk producing both folder
+  /// aggregates.
+  ///
+  /// Counts are **inclusive of descendants**, which is the number the design's
+  /// folder column shows. Recycle-bin groups are excluded from both results, so
+  /// the root's count is the same vault `All items` claims to hold (FR-002a).
+  ///
+  /// Cost is O(groups + entries) once per reload. The alternative — asking a
+  /// folder for its count while building its row — is that same walk once per
+  /// row, which is why this is computed and stored rather than derived on
+  /// demand (plan Performance Goals).
+  ({Map<String, int> counts, Map<String, Set<String>> descendants})
+  _computeFolderAggregates({
+    required List<VaultGroup> groups,
+    required List<VaultEntry> allEntries,
+  }) {
+    final excluded = _recycleBinGroupIds(groups);
+    final live = groups
+        .where((group) => !excluded.contains(group.id))
+        .toList(growable: false);
+
+    final liveIds = live.map((group) => group.id).toSet();
+    final children = <String, List<String>>{};
+    for (final group in live) {
+      final parentId = group.parentId;
+      if (parentId != null && liveIds.contains(parentId)) {
+        (children[parentId] ??= <String>[]).add(group.id);
+      }
+    }
+
+    final direct = <String, int>{};
+    for (final entry in allEntries) {
+      if (excluded.contains(entry.groupId)) {
+        continue;
+      }
+      direct[entry.groupId] = (direct[entry.groupId] ?? 0) + 1;
+    }
+
+    final counts = <String, int>{};
+    final descendants = <String, Set<String>>{};
+
+    // Iterative post-order: a `.kdbx` group tree is user-authored and can be
+    // arbitrarily deep, and a recursive walk would put that depth on the
+    // stack. `visited` also makes a malformed cycle terminate instead of
+    // hanging the vault.
+    // A root here is anything with no live parent — the real root, and also
+    // any group orphaned by a parent that is gone or in the bin. Rooting the
+    // orphans too is what keeps their records inside a count somewhere.
+    final stack = <String>[
+      for (final group in live)
+        if (group.parentId == null || !liveIds.contains(group.parentId))
+          group.id,
+    ];
+    final expanded = <String>{};
+    while (stack.isNotEmpty) {
+      final id = stack.last;
+      if (expanded.add(id)) {
+        for (final child in children[id] ?? const <String>[]) {
+          if (!expanded.contains(child)) {
+            stack.add(child);
+          }
+        }
+        continue;
+      }
+      stack.removeLast();
+      if (counts.containsKey(id)) {
+        continue;
+      }
+      var total = direct[id] ?? 0;
+      final subtree = <String>{};
+      for (final child in children[id] ?? const <String>[]) {
+        total += counts[child] ?? 0;
+        subtree.add(child);
+        subtree.addAll(descendants[child] ?? const <String>{});
+      }
+      counts[id] = total;
+      descendants[id] = subtree;
+    }
+
+    return (counts: counts, descendants: descendants);
   }
 
   Set<String> _recycleBinGroupIds(List<VaultGroup> groups) {
@@ -2612,16 +2870,29 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     return super.close();
   }
 
+  /// spec-019 T010 — the records the list shows: the selected folder's
+  /// subtree, then the search, then the sort, in that order.
+  ///
+  /// [folderIds] is the selected folder **and every descendant** (FR-006h), or
+  /// null for no folder filter at all. It is passed in rather than read from
+  /// `state` because two callers change `currentGroupId` in the same
+  /// `copyWith` that sets this list, so `state` still holds the old folder
+  /// while this runs.
   List<VaultEntry> _computeVisibleEntries({
     required List<VaultEntry> entries,
     required String searchQuery,
     required VaultEntrySort sortBy,
+    required Set<String>? folderIds,
   }) {
     final normalizedQuery = _normalizeSearchText(searchQuery);
     final compactQuery = normalizedQuery.replaceAll(' ', '');
 
     var filtered = entries
         .where((entry) {
+          if (folderIds != null && !folderIds.contains(entry.groupId)) {
+            return false;
+          }
+
           if (normalizedQuery.isNotEmpty) {
             final inTitle = _matchesSearchValue(
               entry.title,

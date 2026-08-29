@@ -222,9 +222,10 @@ void main() {
   });
 
   Future<void> openNewItemEditor(WidgetTester tester) async {
-    await tester.tap(find.byTooltip('Folder actions'));
+    // spec-019 T045: one affordance, in the header, filing into the selected
+    // folder — not an action on a folder row inside the records list.
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Add record'));
+    await tester.tap(find.byTooltip('Add record'));
     await tester.pumpAndSettle();
   }
 

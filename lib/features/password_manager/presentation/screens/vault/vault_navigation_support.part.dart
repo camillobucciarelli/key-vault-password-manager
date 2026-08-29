@@ -157,78 +157,10 @@ Future<void> _openBrowserAutofillSettings(BuildContext context) async {
   ).push(MaterialPageRoute<void>(builder: (_) => const BrowserSetupScreen()));
 }
 
-class _DriveSetupProgressIndicator extends StatelessWidget {
-  const _DriveSetupProgressIndicator({
-    required this.connected,
-    required this.linked,
-  });
+// spec-019 FR-013: the Drive setup progress indicator belonged to the
+// status card and went with it. The Sync destination's `SyncStatusHero`
+// carries the same state, in the destination whose subject it is.
 
-  final bool connected;
-  final bool linked;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    Widget step({required int number, required bool done}) {
-      final activeColor = colorScheme.primary;
-      final idleColor = colorScheme.outline.withValues(
-        alpha: isDark ? 0.7 : 0.84,
-      );
-      final bg = done
-          ? activeColor.withValues(alpha: isDark ? 0.18 : 0.22)
-          : colorScheme.surfaceContainerHighest.withValues(
-              alpha: isDark ? 0.8 : 0.9,
-            );
-      final fg = done ? activeColor : idleColor;
-
-      return Container(
-        width: 18,
-        height: 18,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: bg,
-          shape: BoxShape.circle,
-          border: Border.all(color: fg.withValues(alpha: 0.7)),
-        ),
-        child: done
-            ? Icon(AppIcons.check, size: 11, color: fg)
-            : Text(
-                '$number',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: fg,
-                  fontWeight: FontWeight.w700,
-                  height: 1,
-                ),
-              ),
-      );
-    }
-
-    return Tooltip(
-      message: linked
-          ? 'Drive setup complete'
-          : connected
-          ? 'Link this database'
-          : 'Connect Google Drive',
-      ignorePointer: true,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          step(number: 1, done: connected),
-          Container(
-            width: 10,
-            height: 1,
-            margin: const EdgeInsets.symmetric(horizontal: 2),
-            color: (connected ? colorScheme.primary : colorScheme.outline)
-                .withValues(alpha: 0.45),
-          ),
-          step(number: 2, done: linked),
-        ],
-      ),
-    );
-  }
-}
 
 enum _ChildGroupAction { rename, move, delete }
 

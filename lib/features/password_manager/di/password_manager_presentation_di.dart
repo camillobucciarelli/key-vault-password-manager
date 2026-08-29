@@ -1,4 +1,5 @@
 import 'package:get_it/get_it.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/utils/clipboard_guard.dart';
 import '../presentation/bloc/database_selection/database_selection_bloc.dart';
@@ -112,6 +113,8 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       databaseSyncRepository: sl(),
       appleAutofillV2Coordinator: sl(),
       androidAutofillSaveCoordinator: sl(),
+      // spec-019 FR-006g: the folder expansion set outlives the session.
+      folderExpansionPreferences: sl<SharedPreferences>(),
     ),
   );
 }

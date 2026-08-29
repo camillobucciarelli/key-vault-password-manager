@@ -11,6 +11,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:password_manager/core/theme/app_theme.dart';
+import 'package:password_manager/core/utils/clipboard_guard.dart';
 import 'package:password_manager/core/theme/theme_cubit.dart';
 import 'package:password_manager/features/password_manager/data/datasources/biometric_data_source.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
@@ -94,6 +95,9 @@ Future<Widget> pumpableVaultShell({
   // same reason `entry_editor_generator_test_utils.dart` uses one: a real
   // `Random.secure()` draw would make anything that photographs the result
   // box flaky.
+  // spec-019 FR-010: the records list can copy a password now, and the copy
+  // goes through the same guard the detail uses.
+  di.sl.registerLazySingleton<ClipboardGuard>(() => ClipboardGuard());
   di.sl.registerLazySingleton<PasswordGeneratorService>(
     () => PasswordGeneratorService(random: math.Random(42)),
   );

@@ -25,6 +25,7 @@ String _label(VaultSurfacePresentation presentation) => switch (presentation) {
   VaultRoutePresentation() => 'route',
   VaultSheetPresentation() => 'sheet',
   VaultPanePresentation() => 'pane',
+  VaultDialogPresentation() => 'dialog',
 };
 
 Widget _noop(BuildContext context) => const SizedBox.shrink();
@@ -135,5 +136,71 @@ void main() {
         );
       }
     });
+    // ─────────────────────────────────────────────────────────────────────
+    // spec-019 T004 / FR-019 — contract S1.
+    //
+    // Spec 019 adds one surface (`ManageFoldersSurface`) and one presentation
+    // (`VaultDialogPresentation`). Adding a row to `presentationFor` must not
+    // move any row that was already there. The table below is a literal
+    // snapshot taken from the code at spec-019 HEAD, one string per surface
+    // holding its answer at each of the eight boundary widths in order:
+    //
+    //     599 600 703 704 940 941 994 995
+    //
+    // It is written out rather than derived so that a behaviour change shows
+    // up as a diff on a string, not as a change in the rule that produced it.
+    // If you are adding a surface and this fails, you changed an existing
+    // one's answer — that is FR-019's whole subject.
+    //
+    // Contract S2, which has no assertion here because it is a statement
+    // about another file: `test/core/responsive/vault_layout_class_test.dart`
+    // must stay green WITHOUT edits for the whole of spec 019. The width
+    // thresholds are spec 018's and spec 019 does not touch them; an edit to
+    // that file during this spec is a regression, not a test being updated.
+    group('spec-019 FR-019: pre-existing rows are frozen', () {
+      const boundaries = <double>[599, 600, 703, 704, 940, 941, 994, 995];
+      const frozen = <String, String>{
+        'EntrySurface': 'route route route pane pane pane pane pane',
+        'OtpScannerSurface': 'route route route pane pane pane pane pane',
+        'PasswordGeneratorSurface':
+            'sheet sheet sheet sheet sheet sheet sheet pane',
+        'GroupEditSurface': 'sheet sheet sheet pane pane pane pane pane',
+        'MoveTargetSurface': 'sheet sheet sheet pane pane pane pane pane',
+        'AttachmentsSurface': 'route route route pane pane pane pane pane',
+        'RecycleBinSurface': 'route route route pane pane pane pane pane',
+        'DuplicatesSurface': 'route route route pane pane pane pane pane',
+        'HealthCategorySurface': 'route route route pane pane pane pane pane',
+        'SyncLinkSurface': 'route route route pane pane pane pane pane',
+        'SyncConflictSurface': 'sheet sheet sheet pane pane pane pane pane',
+        'MergePreviewSurface': 'sheet sheet sheet pane pane pane pane pane',
+        'DatabaseSettingsSurface':
+            'route route route pane pane pane pane pane',
+        'KeyFileManagerSurface':
+            'sheet sheet sheet sheet sheet sheet sheet sheet',
+        'ConfirmationSurface':
+            'sheet sheet sheet sheet sheet sheet sheet sheet',
+      };
+
+      test('every surface that existed before spec 019 is still listed', () {
+        expect(frozen.keys.toSet(), surfaces.keys.toSet());
+      });
+
+      for (final entry in surfaces.entries) {
+        test('${entry.key} answers exactly as it did before spec 019', () {
+          final got = boundaries
+              .map((w) => _label(presentationFor(entry.value, w)))
+              .join(' ');
+          expect(
+            got,
+            frozen[entry.key],
+            reason:
+                '${entry.key} changed its presentation at one of '
+                '599/600/703/704/940/941/994/995. Spec 019 adds surfaces; '
+                'it does not move existing ones (FR-019).',
+          );
+        });
+      }
+    });
+
   });
 }

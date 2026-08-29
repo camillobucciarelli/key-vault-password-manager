@@ -44,7 +44,9 @@ enum AppGlyph {
   shieldCheck('shield-check'),
   duplicates('duplicates'),
   clock('clock'),
-  rowsDiff('rows-2');
+  rowsDiff('rows-2'),
+  // spec-019 DQ-8: the phone header's sort control.
+  sort('arrow-up-down');
 
   const AppGlyph(this.assetName);
 

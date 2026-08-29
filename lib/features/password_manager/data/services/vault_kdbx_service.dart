@@ -245,6 +245,73 @@ class VaultKdbxService {
     });
   }
 
+  /// spec-019 C-04-05 — copy a record, whole, beside itself.
+  ///
+  /// Deliberately not built on [createEntry]: that path takes the fields the
+  /// editor knows about, and a record is more than those. It carries protected
+  /// strings whose plaintext the caller has no reason to hold, custom fields
+  /// (which is where the TOTP secret lives), and file attachments that exist
+  /// only as bytes inside the database — nothing a caller could pass back in
+  /// through a list of file paths.
+  ///
+  /// So the copy is made here, where the source entry is already open: every
+  /// string with its protection flag intact, every binary, into the source's
+  /// own group. The plaintext of the password is never read, only re-set from
+  /// the value object.
+  ///
+  /// Returns the new entry's id.
+  Future<String> duplicateEntry({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+    required String titleSuffix,
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
+
+      final source = _findEntryById(
+        file.body.rootGroup.getAllEntries(),
+        entryId,
+      );
+      final group = source.parent;
+      if (group == null) {
+        throw Exception('Record has no group to be duplicated into.');
+      }
+
+      final copy = KdbxEntry.create(file, group);
+      for (final key in source.stringEntries) {
+        final value = key.value;
+        if (value == null) {
+          continue;
+        }
+        copy.setString(key.key, value);
+      }
+      final sourceTitle =
+          source.getString(KdbxKeyCommon.TITLE)?.getText() ?? '';
+      copy.setString(
+        KdbxKeyCommon.TITLE,
+        PlainValue('$sourceTitle$titleSuffix'),
+      );
+
+      for (final binary in source.binaryEntries) {
+        copy.createBinary(
+          isProtected: binary.value.isProtected,
+          name: binary.key.key,
+          bytes: binary.value.value,
+        );
+      }
+
+      group.addEntry(copy);
+      await _save(databasePath, file);
+      return copy.uuid.uuid;
+    });
+  }
+
   Future<void> updateEntry({
     required String databasePath,
     required String password,

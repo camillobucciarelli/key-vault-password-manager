@@ -30,13 +30,46 @@ class OpenParentGroup extends VaultEvent {
   const OpenParentGroup();
 }
 
-class ToggleVaultGroupExpanded extends VaultEvent {
-  const ToggleVaultGroupExpanded(this.groupId);
+/// spec-019 T009 / FR-002 — pick the folder the records list filters by.
+///
+/// Distinct from [OpenGroup], which is mobile's drill-down: that one also
+/// rewrites the expansion set so the opened folder's ancestors unfold. Model
+/// 1a's folder column selects without navigating, and selecting must never
+/// move a chevron (FR-006f).
+///
+/// [groupId] is never null: `All items` is the root group's id. A null current
+/// group makes `CreateVaultEntry` return early without a message, so an
+/// `All items` represented by null would leave the add button silently dead in
+/// the default state (FR-002a).
+class SelectVaultFolder extends VaultEvent {
+  const SelectVaultFolder(this.groupId);
 
   final String groupId;
 
   @override
   List<Object?> get props => [groupId];
+}
+
+// spec-019 T047: `ToggleVaultGroupExpanded` was removed once every caller had
+// moved to `SetVaultFolderExpanded`. A toggle and a setter for one piece of
+// state are two ways to do one thing, and the three hosts of the folder tree
+// are exactly the situation where they drift apart (`data-model.md`).
+
+
+/// spec-019 T012 / FR-006g — fold or unfold one folder, explicitly.
+///
+/// The explicit form exists because model 1a has three hosts for the same tree
+/// (the desktop column, the phone sheet, and `Manage folders`, which is always
+/// fully expanded). A toggle makes each host's chevron mean "whatever the
+/// others last did"; a set makes it mean what it says.
+class SetVaultFolderExpanded extends VaultEvent {
+  const SetVaultFolderExpanded(this.groupId, {required this.expanded});
+
+  final String groupId;
+  final bool expanded;
+
+  @override
+  List<Object?> get props => [groupId, expanded];
 }
 
 class RefreshVault extends VaultEvent {
@@ -157,6 +190,20 @@ class UpdateVaultEntry extends VaultEvent {
 
 class DeleteVaultEntry extends VaultEvent {
   const DeleteVaultEntry(this.entryId);
+
+  final String entryId;
+
+  @override
+  List<Object?> get props => [entryId];
+}
+
+/// spec-019 C-04-05 — copy a record beside itself, in its own folder.
+///
+/// Carries only the id: the copy is made inside the service, where the source
+/// record is open, so the plaintext of a password never travels through an
+/// event to make a duplicate of it (Constitution I).
+class DuplicateVaultEntry extends VaultEvent {
+  const DuplicateVaultEntry(this.entryId);
 
   final String entryId;
 

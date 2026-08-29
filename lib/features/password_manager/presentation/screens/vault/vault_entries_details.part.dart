@@ -6,201 +6,12 @@ part of '../vault_screen.dart';
 // folder/record list rows, the empty states, and the background lock
 // overlays — none of which are in spec-004's scope.
 
-class _FolderListItem extends StatelessWidget {
-  const _FolderListItem({
-    required this.group,
-    required this.isExpanded,
-    required this.isCurrent,
-    required this.isRoot,
-    required this.childGroupsCount,
-    required this.recordsCount,
-    required this.onOpen,
-    required this.onToggleExpand,
-    required this.onSelectedAction,
-  });
-
-  final VaultGroup group;
-  final bool isExpanded;
-  final bool isCurrent;
-  final bool isRoot;
-  final int childGroupsCount;
-  final int recordsCount;
-  final VoidCallback onOpen;
-  final VoidCallback onToggleExpand;
-  final ValueChanged<_FolderAction> onSelectedAction;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final itemAnimationDuration = MediaQuery.of(context).disableAnimations
-        ? Duration.zero
-        : _VaultUiTokens.itemTransitionDuration;
-    final hasChildren = childGroupsCount > 0;
-    final caretIcon = isExpanded ? AppIcons.chevronDown : AppIcons.chevronRight;
-
-    return _InteractiveItemSurface(
-      radius: _VaultUiTokens.recordItemRadius,
-      minHeight: _VaultUiTokens.recordItemHeight,
-      onTap: onOpen,
-      baseColor: isCurrent
-          ? colorScheme.primaryContainer.withValues(alpha: 0.62)
-          : colorScheme.surface.withValues(alpha: 0.74),
-      hoveredColor: isCurrent
-          ? colorScheme.primaryContainer.withValues(alpha: 0.72)
-          : colorScheme.surface.withValues(alpha: 0.85),
-      baseBorderColor: isCurrent
-          ? colorScheme.primary.withValues(alpha: 0.62)
-          : colorScheme.outlineVariant.withValues(alpha: 0.7),
-      hoveredBorderColor: colorScheme.primary.withValues(alpha: 0.42),
-      child: Padding(
-        padding: const EdgeInsets.only(left: 6, right: 6, top: 8, bottom: 8),
-        child: Row(
-          children: [
-            AnimatedContainer(
-              duration: itemAnimationDuration,
-              width: 4,
-              height: 28,
-              decoration: BoxDecoration(
-                color: isCurrent
-                    ? colorScheme.primary.withValues(alpha: 0.92)
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-            const SizedBox(width: 4),
-            Tooltip(
-              message: isExpanded ? 'Collapse folder' : 'Expand folder',
-              ignorePointer: true,
-              child: IconButton(
-                onPressed: hasChildren ? onToggleExpand : null,
-                icon: Icon(caretIcon, size: 16),
-              ),
-            ),
-            Container(
-              width: _VaultUiTokens.folderIconContainerSize,
-              height: _VaultUiTokens.folderIconContainerSize,
-              decoration: BoxDecoration(
-                color: colorScheme.tertiaryContainer.withValues(alpha: 0.54),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                isExpanded ? AppIcons.folderOpen : AppIcons.folder,
-                size: 18,
-                color: colorScheme.onTertiaryContainer,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          group.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleSmall
-                              ?.copyWith(
-                                fontWeight: FontWeight.w600,
-                                color: isCurrent
-                                    ? colorScheme.onPrimaryContainer
-                                    : null,
-                              ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    '$childGroupsCount folders • $recordsCount records',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: isCurrent
-                          ? colorScheme.onPrimaryContainer.withValues(
-                              alpha: 0.8,
-                            )
-                          : null,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (isRoot) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: colorScheme.primary.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: colorScheme.primary.withValues(alpha: 0.36),
-                  ),
-                ),
-                child: Text(
-                  'ROOT',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.2,
-                    color: colorScheme.primary,
-                  ),
-                ),
-              ),
-            ],
-            PopupMenuButton<_FolderAction>(
-              // Native `tooltip` param instead of an outer Tooltip wrapper:
-              // double-nesting Tooltip widgets around the same hit-test
-              // region triggers a Flutter framework ticker-reuse crash
-              // under widget-test pointer synthesis (observed while adding
-              // spec-004's entry-detail golden tests).
-              tooltip: 'Folder actions',
-              onSelected: onSelectedAction,
-              itemBuilder: (context) => [
-                const _RoundedPopupItem(
-                  value: _FolderAction.addRecord,
-                  child: _MenuItemContent(
-                    icon: AppIcons.cardAdd,
-                    label: 'Add record',
-                  ),
-                ),
-                const _RoundedPopupItem(
-                  value: _FolderAction.addSubfolder,
-                  child: _MenuItemContent(
-                    icon: AppIcons.folderAdd,
-                    label: 'Add subfolder',
-                  ),
-                ),
-                const PopupMenuDivider(),
-                const _RoundedPopupItem(
-                  value: _FolderAction.rename,
-                  child: _MenuItemContent(icon: AppIcons.edit, label: 'Rename'),
-                ),
-                if (!isRoot) ...[
-                  const _RoundedPopupItem(
-                    value: _FolderAction.move,
-                    child: _MenuItemContent(icon: AppIcons.move, label: 'Move'),
-                  ),
-                  const _RoundedPopupItem(
-                    value: _FolderAction.delete,
-                    child: _MenuItemContent(
-                      icon: AppIcons.delete,
-                      label: 'Delete',
-                      isDestructive: true,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+// spec-019 T026: `_FolderListItem` lived here — the folder row of the records
+// list, with its `Add record · Add subfolder · Rename · Move · Delete` menu.
+// Folders left the list for their own column, so the row left with them. Its
+// three surviving actions moved verbatim into `KvFolderTree`'s `manage` mode
+// (FR-006d); `Add record` became the list's add affordance (T045) and
+// `Add subfolder` was retired in favour of `New folder` + `Move…` (FR-006e).
 
 class _RecordListItem extends StatelessWidget {
   const _RecordListItem({
@@ -208,12 +19,24 @@ class _RecordListItem extends StatelessWidget {
     required this.onOpen,
     required this.onSelectedAction,
     this.isSelected = false,
+    this.folderSuffix,
   });
 
   final VaultEntry entry;
   final VoidCallback onOpen;
   final ValueChanged<_EntryAction> onSelectedAction;
   final bool isSelected;
+
+  /// spec-019 FR-006j — the folder this record actually lives in, when that is
+  /// not the folder the user selected. Null when it is.
+  final String? folderSuffix;
+
+  String _subtitle() {
+    final base = entry.username.isEmpty
+        ? (entry.url.isEmpty ? 'No username' : entry.url)
+        : entry.username;
+    return folderSuffix == null ? base : '$base · in $folderSuffix';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -265,9 +88,7 @@ class _RecordListItem extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      entry.username.isEmpty
-                          ? (entry.url.isEmpty ? 'No username' : entry.url)
-                          : entry.username,
+                      _subtitle(),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppTextStyles.secondary.copyWith(
@@ -287,7 +108,31 @@ class _RecordListItem extends StatelessWidget {
                     ? 'Password needs attention'
                     : 'Password healthy',
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 2),
+              // spec-019 T039 / FR-010, C-03-04: the password of the row you
+              // can see, in one interaction, without opening the record.
+              //
+              // Same path as the detail's own copy — the same `ClipboardGuard`
+              // (so the same 30 s clear applies) and the same confirmation
+              // string. Nothing here widens or lengthens the window in which
+              // the plaintext exists: the value is read at the moment of the
+              // copy, exactly as the detail reads it (Constitution I).
+              SizedBox(
+                width: 44,
+                height: 44,
+                child: IconButton(
+                  tooltip: 'Copy password',
+                  padding: EdgeInsets.zero,
+                  onPressed: entry.password.isEmpty
+                      ? null
+                      : () => _copyEntryPassword(context, entry),
+                  icon: KvIcon(
+                    glyph: AppGlyph.copy,
+                    size: 17,
+                    color: colors.iconNeutral,
+                  ),
+                ),
+              ),
               PopupMenuButton<_EntryAction>(
                 tooltip: 'Record actions',
                 onSelected: onSelectedAction,
@@ -305,6 +150,13 @@ class _RecordListItem extends StatelessWidget {
                     child: _MenuItemContent(
                       icon: AppIcons.attachment,
                       label: 'Attachments',
+                    ),
+                  ),
+                  _RoundedPopupItem(
+                    value: _EntryAction.duplicate,
+                    child: _MenuItemContent(
+                      icon: AppIcons.copy,
+                      label: 'Duplicate',
                     ),
                   ),
                   _RoundedPopupItem(
@@ -462,7 +314,9 @@ class _RecordsEmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            isSearchActive ? 'No records or folders found' : 'No records yet',
+            // spec-019: the list holds records only, and the folder menu it
+            // used to point at was deleted with the folder rows (C-03-03).
+            isSearchActive ? 'No records found' : 'No records yet',
             style: Theme.of(
               context,
             ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
@@ -471,7 +325,7 @@ class _RecordsEmptyState extends StatelessWidget {
           Text(
             isSearchActive
                 ? 'Try a different keyword or clear the search.'
-                : 'Use the folder menu to add records or subfolders.',
+                : 'Use the add button to create your first record.',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodySmall,
           ),
@@ -501,26 +355,60 @@ class _EntryDetailEmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
 
+    // spec-019 C-04-01: this state had no artboard and had drifted into its
+    // own shape — a bare 46 px glyph and a panel title. The design's empty
+    // states are a 74 px feature circle, a Caprasimo title and 13.5 body; the
+    // recycle bin's is the reference. The copy is unchanged.
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          KvIcon(glyph: AppGlyph.key, size: 46, color: colors.iconNeutral),
-          const SizedBox(height: 12),
-          Text(
-            'No item selected',
-            style: AppTextStyles.panelTitleLarge.copyWith(
-              color: colors.textPrimary,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 30),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 74,
+              height: 74,
+              decoration: BoxDecoration(
+                color: colors.surface,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: KvIcon(
+                glyph: AppGlyph.key,
+                size: 34,
+                color: colors.textSecondary,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Select a record from the list to view all details and copy fields.',
-            textAlign: TextAlign.center,
-            style: AppTextStyles.body.copyWith(color: colors.textSecondary),
-          ),
-        ],
+            const SizedBox(height: 16),
+            Text(
+              'No item selected',
+              textAlign: TextAlign.center,
+              style: AppTextStyles.screenTitle.copyWith(
+                fontSize: 24,
+                color: colors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Select a record from the list to view all details and copy fields.',
+              textAlign: TextAlign.center,
+              style: AppTextStyles.body.copyWith(color: colors.textSecondary),
+            ),
+          ],
+        ),
       ),
     );
   }
+}
+
+/// spec-019 FR-010 — the row's one-tap password copy.
+Future<void> _copyEntryPassword(BuildContext context, VaultEntry entry) async {
+  if (entry.password.isEmpty) {
+    return;
+  }
+  await di.sl<ClipboardGuard>().copy(entry.password);
+  if (!context.mounted) {
+    return;
+  }
+  _showCenteredCopyToast(context, 'Copied password.');
 }
