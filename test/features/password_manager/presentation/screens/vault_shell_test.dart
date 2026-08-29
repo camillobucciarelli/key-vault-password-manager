@@ -1,8 +1,17 @@
 // spec-002 T4/T5: vault shell width-breakpoint geometry.
 //
-// Verifies the exact arithmetic in FR-3 at every boundary named by the spec
-// (599/600/707/708/1023/1024): no overflow, and the expected pane keys are
-// present/absent per width.
+// Verifies the exact arithmetic at every boundary the specs name: no
+// overflow, and the expected pane keys present/absent per width.
+//
+// spec-018 T018 moved two of those boundaries. They are no longer bare
+// constants but derivations from the design's column widths (FR-002a):
+//
+//   detail pane : 72 + 330 + 300 + 2 dividers       = 704  (was a bare 708,
+//                 the same arithmetic with the pre-correction rail of 76)
+//   folder pane : 72 + 236 + 330 + 300 + 3 dividers = 941  (was Breakpoints
+//                 .tablet, i.e. 1024, which is not where the columns fit)
+//
+// The 600 boundary is unchanged and still swaps the tab bar for the rail.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/presentation/navigation/vault_shell_router.dart';
@@ -42,9 +51,9 @@ void main() {
     });
   });
 
-  group('single-pane / three-pane boundary (708)', () {
-    testWidgets('707 renders one content pane only', (tester) async {
-      await pumpAtWidth(tester, 707);
+  group('single-pane / detail-pane boundary (704, spec-018 FR-002d)', () {
+    testWidgets('703 renders one content pane only', (tester) async {
+      await pumpAtWidth(tester, 703);
 
       expect(tester.takeException(), isNull);
       expect(find.byKey(const ValueKey('vault-single-pane')), findsOneWidget);
@@ -52,21 +61,34 @@ void main() {
       expect(find.byKey(const ValueKey('vault-detail-pane')), findsNothing);
     });
 
-    testWidgets('708 renders list + detail panes', (tester) async {
-      await pumpAtWidth(tester, 708);
+    testWidgets('704 renders list + detail panes', (tester) async {
+      await pumpAtWidth(tester, 704);
 
       expect(tester.takeException(), isNull);
       expect(find.byKey(const ValueKey('vault-single-pane')), findsNothing);
       expect(find.byKey(const ValueKey('vault-list-pane')), findsOneWidget);
       expect(find.byKey(const ValueKey('vault-detail-pane')), findsOneWidget);
-      // Below 1024 the folder column must not reserve space (FR-3).
+      // Below 941 the folder column must not reserve space.
       expect(find.byKey(const ValueKey('vault-folder-pane')), findsNothing);
+    });
+
+    // The band the previous code got wrong: it handed out a detail pane from
+    // 600 up, in widths where the design's columns do not fit.
+    testWidgets('the 600-703 band shows the rail but no detail pane', (
+      tester,
+    ) async {
+      await pumpAtWidth(tester, 650);
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const ValueKey('vault-rail')), findsOneWidget);
+      expect(find.byKey(const ValueKey('vault-single-pane')), findsOneWidget);
+      expect(find.byKey(const ValueKey('vault-detail-pane')), findsNothing);
     });
   });
 
-  group('folder-column boundary (1024)', () {
-    testWidgets('1023 has no folder column', (tester) async {
-      await pumpAtWidth(tester, 1023);
+  group('folder-column boundary (941, spec-018 FR-002d)', () {
+    testWidgets('940 has no folder column', (tester) async {
+      await pumpAtWidth(tester, 940);
 
       expect(tester.takeException(), isNull);
       expect(find.byKey(const ValueKey('vault-folder-pane')), findsNothing);
@@ -74,7 +96,16 @@ void main() {
       expect(find.byKey(const ValueKey('vault-detail-pane')), findsOneWidget);
     });
 
-    testWidgets('1024 shows the folder column', (tester) async {
+    testWidgets('941 shows the folder column', (tester) async {
+      await pumpAtWidth(tester, 941);
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const ValueKey('vault-folder-pane')), findsOneWidget);
+      expect(find.byKey(const ValueKey('vault-list-pane')), findsOneWidget);
+      expect(find.byKey(const ValueKey('vault-detail-pane')), findsOneWidget);
+    });
+
+    testWidgets('1024 still shows the folder column', (tester) async {
       await pumpAtWidth(tester, 1024);
 
       expect(tester.takeException(), isNull);

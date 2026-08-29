@@ -27,9 +27,16 @@ class _EntryDetailsPage extends StatelessWidget {
     });
 
     if (entry == null) {
+      // spec-018 FR-007/FR-008 (D6): this used to call `Navigator.pop`, which
+      // is only correct when the surface is a pushed route. Under the pane
+      // presentation no route was pushed, so `canPop` referred to an
+      // unrelated route: the pane was either left in place showing nothing,
+      // or something else was popped. Completing the operation is
+      // presentation-neutral — and `VaultShellRouter._finish` cancels child
+      // sessions, so anything stacked on this detail goes with it.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (context.mounted && Navigator.canPop(context)) {
-          Navigator.pop(context);
+        if (context.mounted) {
+          VaultOperationScope.of(context).complete(const VaultDone());
         }
       });
       return const SizedBox.shrink();
@@ -40,7 +47,14 @@ class _EntryDetailsPage extends StatelessWidget {
       child: _EntryDetailPanel(
         entry: entry,
         onSelectedAction: onSelectedAction,
-        allowsPop: true,
+        // spec-018: `true` unconditionally used to put a back chevron in the
+        // panel even when the router had hosted it as a pane — and the pane
+        // host already draws its own. Two back affordances stacked in one
+        // pane is the kind of small incoherence D8 is about. The pushed
+        // presentation still gets exactly one, so mobile is unchanged.
+        allowsPop: !VaultLayoutClass.fromWidth(
+          MediaQuery.sizeOf(context).width,
+        ).hasDetailPane,
       ),
     );
   }

@@ -247,6 +247,9 @@ class _EntryDialogState extends State<_EntryDialog> {
   Future<void> _openGenerator(BuildContext context, bool isWide) async {
     if (isWide) {
       setState(() => _showTabletGenerator = true);
+      // FR-002e: tell the shell to drop the folder column — that is what
+      // makes room for this one. The records list is never what collapses.
+      VaultShellRouterScope.of(context).generatorColumnOpen.value = true;
       return;
     }
     final result = await _showPasswordGeneratorSheet(
@@ -267,7 +270,15 @@ class _EntryDialogState extends State<_EntryDialog> {
   Widget build(BuildContext context) {
     VaultOperationScope.maybeOf(context)?.registerDiscardGuard(_confirmDiscard);
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    final isWide = MediaQuery.sizeOf(context).width >= Breakpoints.tablet;
+    // spec-018 FR-002e: the generator becomes a column from the derived 995,
+    // not from `Breakpoints.tablet`. The editor used its own threshold here —
+    // a third component deciding layout from a fourth number, which is the
+    // defect FR-002a removes. `isWide` still drives the form's own two-column
+    // styling; only the generator's presentation moved to the shared rule.
+    final windowWidth = MediaQuery.sizeOf(context).width;
+    final isWide = windowWidth >= Breakpoints.tablet;
+    final generatorFitsAsColumn =
+        windowWidth >= VaultLayoutWidths.generatorColumn;
     final isEditing = widget.initial != null;
 
     final form = _EntryEditorForm(
@@ -294,7 +305,7 @@ class _EntryDialogState extends State<_EntryDialog> {
         _markDirty('title');
         if (_titleError != null) setState(() => _titleError = null);
       },
-      onOpenGenerator: () => _openGenerator(context, isWide),
+      onOpenGenerator: () => _openGenerator(context, generatorFitsAsColumn),
       onRevealCustomFields: () => setState(() => _showCustomFields = true),
       onRevealAttachments: () => setState(() => _showAttachments = true),
       onRevealOtp: () => setState(() => _showOtp = true),
@@ -334,7 +345,16 @@ class _EntryDialogState extends State<_EntryDialog> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _EditorHeader(
-          title: isEditing ? 'Edit item' : 'New item',
+          // spec-018 FR-009a: on a wide window the editor occupies the same
+          // pane as the record's detail, so a generic 'Edit item' left the
+          // user with no indication of WHICH record they were editing (D7).
+          // The record's own title carries that identity. 'Edit item' remains
+          // the fallback for an untitled record, and 'New item' is unchanged.
+          title: isEditing
+              ? (widget.initial!.title.trim().isEmpty
+                    ? 'Edit item'
+                    : widget.initial!.title.trim())
+              : 'New item',
           // Save stays tappable even with an empty title so the tap
           // surfaces the "Title is required." validation error (golden
           // #8, "Editor — constraint errors") instead of silently doing
@@ -353,7 +373,7 @@ class _EntryDialogState extends State<_EntryDialog> {
     );
 
     Widget content = body;
-    if (isWide && _showTabletGenerator) {
+    if (generatorFitsAsColumn && _showTabletGenerator) {
       // ponytail / disclosed gap: the mock's tablet "editor + generator"
       // frame assumes ~950px of width (rail + dimmed list + editor +
       // a 290px generator column). The vault shell's existing list+detail
@@ -395,6 +415,9 @@ class _EntryDialogState extends State<_EntryDialog> {
                       _passwordController.text = password;
                       _dirtyFields.add('password');
                       _showTabletGenerator = false;
+                      VaultShellRouterScope.of(
+                        context,
+                      ).generatorColumnOpen.value = false;
                     }),
                   ),
                 ),

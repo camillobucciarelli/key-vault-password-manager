@@ -32,7 +32,7 @@ const exactGoldenInventory = <String>[
   'editor_new_item_390x844_light.png',
   'editor_new_item_1024x768_light.png',
   'editor_generator_sheet_390x844_light.png',
-  'editor_generator_sheet_1024x768_light.png',
+  'editor_generator_column_1024x768_light.png',
   'editor_errors_390x844_light.png',
   'editor_qr_scanner_390x844.png',
   'editor_camera_denied_390x844_light.png',
@@ -273,7 +273,7 @@ void main() {
     await unmount(tester);
   });
 
-  testWidgets('editor_generator_sheet_1024x768_light.png', (tester) async {
+  testWidgets('editor_generator_column_1024x768_light.png', (tester) async {
     await setSize(tester, const Size(1024, 768));
     await tester.pumpWidget(await pumpableEntryScreen());
     await tester.pumpAndSettle();
@@ -285,7 +285,7 @@ void main() {
     expect(tester.takeException(), isNull);
     await expectLater(
       find.byType(MaterialApp),
-      matchesGoldenFile('editor_generator_sheet_1024x768_light.png'),
+      matchesGoldenFile('editor_generator_column_1024x768_light.png'),
     );
     await unmount(tester);
   });

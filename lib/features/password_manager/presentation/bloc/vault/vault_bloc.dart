@@ -70,6 +70,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<DeleteVaultEntryPermanently>(_onDeleteVaultEntryPermanently);
     on<DeleteVaultGroupPermanently>(_onDeleteVaultGroupPermanently);
     on<EmptyRecycleBin>(_onEmptyRecycleBin);
+    on<ReportVaultActionAbandoned>(_onReportVaultActionAbandoned);
     on<ClearVaultError>(_onClearVaultError);
     on<AddVaultAttachment>(_onAddVaultAttachment);
     on<RemoveVaultAttachment>(_onRemoveVaultAttachment);
@@ -1190,6 +1191,18 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         ),
       );
     }
+  }
+
+  void _onReportVaultActionAbandoned(
+    ReportVaultActionAbandoned event,
+    Emitter<VaultState> emit,
+  ) {
+    _safeEmit(
+      emit,
+      state.copyWith(
+        errorMessage: 'That record is no longer available. Nothing changed.',
+      ),
+    );
   }
 
   void _onClearVaultError(ClearVaultError event, Emitter<VaultState> emit) {

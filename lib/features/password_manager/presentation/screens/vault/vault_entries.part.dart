@@ -1,17 +1,22 @@
 part of '../vault_screen.dart';
 
-/// Shared entry-detail-opening step: pushes an `EntrySurface<VaultDone>`
-/// wrapping `_EntryDetailsPage`. Factored out of `_EntriesCardState._openEntry`
-/// so other destinations (e.g. the health-category filtered list) can open
-/// the same detail surface without duplicating `_openEntry`'s full
-/// action-menu wiring. `onSelectedAction` is given the pushed surface's own
-/// context (see the comment in `_openEntry`) and may be omitted for callers
-/// that don't offer the edit/move/delete menu.
+/// spec-018 FR-010/FR-001a: the ONE way a record detail is opened, from every
+/// origin — the records list, the health-category list, duplicates, search.
+///
+/// It opens an `EntrySurface`, so the shell router decides the presentation
+/// (pushed screen when narrow, the persistent detail pane when wide) and owns
+/// dismissal and nesting. Callers do not choose, and do not supply their own
+/// action wiring: the actions are attached here so two origins cannot offer
+/// different menus for the same record, which is exactly what D9 was.
+///
+/// The action callback receives the hosted surface's own (descendant)
+/// context, never the caller's: the caller's context can be deactivated by
+/// the time an action is picked from a menu inside the surface, which made
+/// every dialog opened from here (Delete, Attachments, Move) throw "Looking
+/// up a deactivated widget's ancestor" once the entries list rebuilt.
 Future<void> _openEntryDetailsSurface(
   BuildContext context, {
   required String entryId,
-  ValueChanged<_EntryAction> Function(BuildContext surfaceContext)?
-  onSelectedAction,
 }) {
   final bloc = context.read<VaultBloc>();
   return VaultShellRouterScope.of(context).open<VaultDone>(
@@ -21,7 +26,15 @@ Future<void> _openEntryDetailsSurface(
         value: bloc,
         child: _EntryDetailsPage(
           entryId: entryId,
-          onSelectedAction: onSelectedAction?.call(surfaceContext),
+          onSelectedAction: (action) => unawaited(
+            _EntriesCardState._handleEntryActionOn(
+              surfaceContext,
+              bloc,
+              entryId,
+              action,
+              bloc.state.groups,
+            ),
+          ),
         ),
       ),
     ),
@@ -36,6 +49,8 @@ class _EntriesCard extends StatefulWidget {
     required this.currentGroupId,
     required this.expandedGroupIds,
     required this.searchQuery,
+    required this.selectedEntryId,
+    required this.onSelectEntry,
   });
 
   final List<VaultEntry> entries;
@@ -45,12 +60,17 @@ class _EntriesCard extends StatefulWidget {
   final List<String> expandedGroupIds;
   final String searchQuery;
 
+  /// spec-018 FR-001a/FR-003: selection is shell-owned. This card renders no
+  /// detail of its own and keeps no selection state — it marks the row the
+  /// shell says is selected and reports activations back.
+  final String? selectedEntryId;
+  final ValueChanged<String> onSelectEntry;
+
   @override
   State<_EntriesCard> createState() => _EntriesCardState();
 }
 
 class _EntriesCardState extends State<_EntriesCard> {
-  String? _selectedEntryId;
   late final ScrollController _entriesScrollController;
   late final TextEditingController _searchController;
   // Groups manually collapsed by the user while a search is active.
@@ -71,19 +91,6 @@ class _EntriesCardState extends State<_EntriesCard> {
     super.dispose();
   }
 
-  VaultEntry? get _selectedEntry {
-    if (_selectedEntryId == null) {
-      return null;
-    }
-
-    for (final entry in widget.entries) {
-      if (entry.id == _selectedEntryId) {
-        return entry;
-      }
-    }
-    return null;
-  }
-
   @override
   void didUpdateWidget(covariant _EntriesCard oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -96,24 +103,9 @@ class _EntriesCardState extends State<_EntriesCard> {
     if (widget.searchQuery != oldWidget.searchQuery) {
       _searchCollapsed.clear();
     }
-
-    if (widget.entries.isEmpty) {
-      if (_selectedEntryId != null) {
-        _selectedEntryId = null;
-      }
-      return;
-    }
-
-    if (_selectedEntryId == null) {
-      return;
-    }
-
-    final stillExists = widget.entries.any(
-      (entry) => entry.id == _selectedEntryId,
-    );
-    if (!stillExists) {
-      _selectedEntryId = null;
-    }
+    // spec-018: the "selection no longer exists" cleanup that used to live
+    // here moved to the shell, which is now the single owner (FR-003). A
+    // second copy here is what let the highlight and the detail disagree.
   }
 
   void _toggleGroup(BuildContext context, String groupId, bool isSearchActive) {
@@ -209,88 +201,122 @@ class _EntriesCardState extends State<_EntriesCard> {
     }
   }
 
-  Future<void> _handleEntryAction(
-    BuildContext context,
-    VaultEntry entry,
+  /// spec-018 FR-005/FR-006 (D4, D5) — the record-action contract, C5.
+  ///
+  /// Two bugs lived in the previous shape and both are structural:
+  ///
+  ///  * It took a `VaultEntry` **value**, captured when the surface opened.
+  ///    An edit therefore wrote fields as they were before any earlier edit
+  ///    landed, so a second save silently reverted the first (D4). It now
+  ///    takes an **id** and resolves the entry at confirmation time.
+  ///  * It guarded on `_EntriesCardState.mounted` and dispatched through
+  ///    `this.context`. When the action ran from a pushed surface and the
+  ///    list rebuilt underneath, the guard was false: the user confirmed and
+  ///    the event was never sent, with no error (D5). The bloc is now
+  ///    captured *before* the first await — it outlives every surface — and
+  ///    liveness is judged on the surface's own context.
+  static Future<void> _handleEntryActionOn(
+    BuildContext surfaceContext,
+    VaultBloc bloc,
+    String entryId,
     _EntryAction action,
+    List<VaultGroup> groups,
   ) async {
-    switch (action) {
-      case _EntryAction.edit:
-        final payload = await _showEntryDialog(context, initial: entry);
-        if (payload != null && mounted) {
-          this.context.read<VaultBloc>().add(
-            UpdateVaultEntry(
-              entryId: entry.id,
-              title: payload.title,
-              username: payload.username,
-              password: payload.password,
-              url: payload.url,
-              notes: payload.notes,
-              customFields: payload.customFields,
-            ),
-          );
-        }
-        break;
-      case _EntryAction.move:
-        final target = await _showMoveTargetDialog(context, widget.groups);
-        if (target != null && mounted) {
-          this.context.read<VaultBloc>().add(
-            MoveVaultEntry(entryId: entry.id, targetGroupId: target.groupId),
-          );
-        }
-        break;
-      case _EntryAction.attachments:
-        await _showAttachmentsDialog(context, entry);
-        break;
-      case _EntryAction.delete:
-        final confirmed = await _showDeleteConfirm(
-          context,
-          label: 'Move this record to recycle bin?',
-        );
-        if (confirmed && mounted) {
-          this.context.read<VaultBloc>().add(DeleteVaultEntry(entry.id));
-        }
-        break;
+    // `bloc` is passed in, already resolved, rather than read from
+    // `surfaceContext`: the surface context is the ancestor of the
+    // `BlocProvider.value` that hosts the detail, so a `read` here finds
+    // nothing. Passing it also satisfies G5.2 by construction — the handle
+    // is captured before any await and outlives every surface in the stack.
+    VaultEntry? currentEntry() {
+      for (final entry in bloc.state.allEntries) {
+        if (entry.id == entryId) return entry;
+      }
+      return null;
     }
-  }
 
-  Future<void> _openEntry(
-    BuildContext context,
-    VaultEntry entry, {
-    required bool showInlineDetail,
-  }) async {
-    if (showInlineDetail) {
-      setState(() {
-        _selectedEntryId = entry.id;
-      });
+    final entry = currentEntry();
+    if (entry == null) {
+      // G5.7: the record went away before the action started.
+      bloc.add(const ReportVaultActionAbandoned());
       return;
     }
 
-    final bloc = context.read<VaultBloc>();
-    await _openEntryDetailsSurface(
-      context,
-      entryId: entry.id,
-      onSelectedAction: (surfaceContext) => (action) async {
-        final currentEntry = bloc.state.allEntries.firstWhere(
-          (e) => e.id == entry.id,
-          orElse: () => entry,
+    switch (action) {
+      case _EntryAction.edit:
+        final payload = await _showEntryDialog(surfaceContext, initial: entry);
+        if (payload == null) {
+          return;
+        }
+        if (currentEntry() == null) {
+          bloc.add(const ReportVaultActionAbandoned());
+          return;
+        }
+        bloc.add(
+          UpdateVaultEntry(
+            entryId: entryId,
+            title: payload.title,
+            username: payload.username,
+            password: payload.password,
+            url: payload.url,
+            notes: payload.notes,
+            customFields: payload.customFields,
+          ),
         );
-        // Use the hosted surface's own (descendant) context, not the
-        // entries-list context captured when this route was opened: the
-        // outer context can be deactivated by the time an action is picked
-        // from a menu inside the pushed page, which made every dialog
-        // opened from here (Delete, Attachments, Move) throw "Looking up a
-        // deactivated widget's ancestor" at every width once the entries
-        // list rebuilt underneath.
-        await _handleEntryAction(surfaceContext, currentEntry, action);
-      },
-    );
+      case _EntryAction.move:
+        final target = await _showMoveTargetDialog(surfaceContext, groups);
+        if (target == null) {
+          return;
+        }
+        if (currentEntry() == null) {
+          bloc.add(const ReportVaultActionAbandoned());
+          return;
+        }
+        bloc.add(
+          MoveVaultEntry(entryId: entryId, targetGroupId: target.groupId),
+        );
+      case _EntryAction.attachments:
+        // Re-read: the attachment list may have changed since the surface
+        // opened, and showing a stale one would act on stale attachments.
+        final fresh = currentEntry();
+        if (fresh == null) {
+          bloc.add(const ReportVaultActionAbandoned());
+          return;
+        }
+        await _showAttachmentsDialog(surfaceContext, fresh);
+      case _EntryAction.delete:
+        final confirmed = await _showDeleteConfirm(
+          surfaceContext,
+          label: 'Move this record to recycle bin?',
+        );
+        if (!confirmed) {
+          return;
+        }
+        if (currentEntry() == null) {
+          bloc.add(const ReportVaultActionAbandoned());
+          return;
+        }
+        bloc.add(DeleteVaultEntry(entryId));
+    }
   }
 
-  Widget _buildEntriesList(
-    BuildContext context, {
-    required bool showInlineDetail,
-  }) {
+  Future<void> _handleEntryAction(
+    BuildContext context,
+    String entryId,
+    _EntryAction action,
+  ) => _handleEntryActionOn(
+    context,
+    context.read<VaultBloc>(),
+    entryId,
+    action,
+    widget.groups,
+  );
+
+  /// spec-018 FR-001a: activating a row reports the id upward. The card no
+  /// longer decides how — or whether — a detail is shown; that is the
+  /// shell's single decision, so push and pane cannot diverge (D1, D9).
+  void _openEntry(VaultEntry entry) => widget.onSelectEntry(entry.id);
+
+  Widget _buildEntriesList(BuildContext context) {
     final normalizedQuery = _normalizeSearchText(widget.searchQuery);
     final compactQuery = normalizedQuery.replaceAll(' ', '');
     final isSearchActive = normalizedQuery.isNotEmpty;
@@ -424,7 +450,7 @@ class _EntriesCardState extends State<_EntriesCard> {
       }
 
       for (final entry in records) {
-        final isSelected = showInlineDetail && _selectedEntryId == entry.id;
+        final isSelected = widget.selectedEntryId == entry.id;
         treeItems.add(
           _EntryTreeNode.entry(
             entry: entry,
@@ -447,9 +473,12 @@ class _EntriesCardState extends State<_EntriesCard> {
 
     if (treeItems.isEmpty && widget.entries.isNotEmpty) {
       for (final entry in widget.entries) {
-        final isSelected = showInlineDetail && _selectedEntryId == entry.id;
         treeItems.add(
-          _EntryTreeNode.entry(entry: entry, depth: 0, isSelected: isSelected),
+          _EntryTreeNode.entry(
+            entry: entry,
+            depth: 0,
+            isSelected: widget.selectedEntryId == entry.id,
+          ),
         );
       }
     }
@@ -530,13 +559,9 @@ class _EntriesCardState extends State<_EntriesCard> {
               child: _RecordListItem(
                 entry: entry,
                 isSelected: isSelected,
-                onOpen: () => _openEntry(
-                  context,
-                  entry,
-                  showInlineDetail: showInlineDetail,
-                ),
+                onOpen: () => _openEntry(entry),
                 onSelectedAction: (action) {
-                  _handleEntryAction(context, entry, action);
+                  _handleEntryAction(context, entry.id, action);
                 },
               ),
             );
@@ -556,8 +581,6 @@ class _EntriesCardState extends State<_EntriesCard> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
     final content = Padding(
       padding: const EdgeInsets.all(_VaultUiTokens.cardPadding),
       child: Column(
@@ -594,55 +617,12 @@ class _EntriesCardState extends State<_EntriesCard> {
             },
           ),
           const SizedBox(height: 10),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final showInlineDetail =
-                    constraints.maxWidth >= Breakpoints.mobile;
-                if (!showInlineDetail) {
-                  return _buildEntriesList(context, showInlineDetail: false);
-                }
-
-                final selected = _selectedEntry;
-                return Row(
-                  children: [
-                    SizedBox(
-                      width: math.max(260, constraints.maxWidth * 0.42),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          border: Border(
-                            right: BorderSide(
-                              color: colorScheme.outlineVariant.withValues(
-                                alpha: 0.58,
-                              ),
-                            ),
-                          ),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.only(right: 10),
-                          child: _buildEntriesList(
-                            context,
-                            showInlineDetail: true,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: selected == null
-                          ? const _EntryDetailEmptyState()
-                          : _EntryDetailPanel(
-                              entry: selected,
-                              onSelectedAction: (action) {
-                                _handleEntryAction(context, selected, action);
-                              },
-                            ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
+          // spec-018 D1/FR-001a: this used to branch on the card's OWN
+          // constraints and render a second, router-unaware detail beside
+          // the list. That second mechanism is why selection, dismissal and
+          // nesting drifted apart on wide windows. The card now renders the
+          // list and nothing else; the shell owns the detail.
+          Expanded(child: _buildEntriesList(context)),
         ],
       ),
     );

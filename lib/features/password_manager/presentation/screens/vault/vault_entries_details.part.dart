@@ -220,91 +220,105 @@ class _RecordListItem extends StatelessWidget {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
     final isPasswordWarning = _isPasswordUpdateOverdue(entry, DateTime.now());
 
-    return _InteractiveItemSurface(
-      radius: AppRadii.row,
-      minHeight: 62,
-      onTap: onOpen,
-      baseColor: isSelected ? AppColors.accent200 : colors.surface,
-      hoveredColor: isSelected ? AppColors.accent200 : colors.surface,
-      baseBorderColor: isSelected ? AppColors.accent400 : Colors.transparent,
-      hoveredBorderColor: colors.selectionBorder.withValues(alpha: 0.5),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            KvLetterAvatar(letter: entry.title, size: 38, selected: isSelected),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    entry.title.isEmpty ? '(Untitled)' : entry.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.rowTitle.copyWith(
-                      color: isSelected
-                          ? AppColors.accent900
-                          : colors.textPrimary,
+    // spec-018 FR-004/FR-016: the accent-200 fill and accent-400 border below
+    // already carried the design's selected treatment — the defect was that
+    // `isSelected` was only ever true inside the records card's own inline
+    // split, so in the real three-column layout no row was ever marked (D3).
+    // Colour alone is not a signal (Constitution V), so the selected state is
+    // also published to semantics: a screen reader announces the row as
+    // selected, and it is what the a11y test asserts rather than a pixel.
+    return Semantics(
+      selected: isSelected,
+      child: _InteractiveItemSurface(
+        radius: AppRadii.row,
+        minHeight: 62,
+        onTap: onOpen,
+        baseColor: isSelected ? AppColors.accent200 : colors.surface,
+        hoveredColor: isSelected ? AppColors.accent200 : colors.surface,
+        baseBorderColor: isSelected ? AppColors.accent400 : Colors.transparent,
+        hoveredBorderColor: colors.selectionBorder.withValues(alpha: 0.5),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              KvLetterAvatar(
+                letter: entry.title,
+                size: 38,
+                selected: isSelected,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      entry.title.isEmpty ? '(Untitled)' : entry.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.rowTitle.copyWith(
+                        color: isSelected
+                            ? AppColors.accent900
+                            : colors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      entry.username.isEmpty
+                          ? (entry.url.isEmpty ? 'No username' : entry.url)
+                          : entry.username,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.secondary.copyWith(
+                        color: isSelected
+                            ? AppColors.accent900
+                            : colors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              KvHealthDot(
+                state: isPasswordWarning
+                    ? KvHealthState.warning
+                    : KvHealthState.good,
+                semanticsLabel: isPasswordWarning
+                    ? 'Password needs attention'
+                    : 'Password healthy',
+              ),
+              const SizedBox(width: 6),
+              PopupMenuButton<_EntryAction>(
+                tooltip: 'Record actions',
+                onSelected: onSelectedAction,
+                itemBuilder: (context) => const [
+                  _RoundedPopupItem(
+                    value: _EntryAction.edit,
+                    child: _MenuItemContent(icon: AppIcons.edit, label: 'Edit'),
+                  ),
+                  _RoundedPopupItem(
+                    value: _EntryAction.move,
+                    child: _MenuItemContent(icon: AppIcons.move, label: 'Move'),
+                  ),
+                  _RoundedPopupItem(
+                    value: _EntryAction.attachments,
+                    child: _MenuItemContent(
+                      icon: AppIcons.attachment,
+                      label: 'Attachments',
                     ),
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    entry.username.isEmpty
-                        ? (entry.url.isEmpty ? 'No username' : entry.url)
-                        : entry.username,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.secondary.copyWith(
-                      color: isSelected
-                          ? AppColors.accent900
-                          : colors.textSecondary,
+                  _RoundedPopupItem(
+                    value: _EntryAction.delete,
+                    child: _MenuItemContent(
+                      icon: AppIcons.delete,
+                      label: 'Delete',
+                      isDestructive: true,
                     ),
                   ),
                 ],
               ),
-            ),
-            KvHealthDot(
-              state: isPasswordWarning
-                  ? KvHealthState.warning
-                  : KvHealthState.good,
-              semanticsLabel: isPasswordWarning
-                  ? 'Password needs attention'
-                  : 'Password healthy',
-            ),
-            const SizedBox(width: 6),
-            PopupMenuButton<_EntryAction>(
-              tooltip: 'Record actions',
-              onSelected: onSelectedAction,
-              itemBuilder: (context) => const [
-                _RoundedPopupItem(
-                  value: _EntryAction.edit,
-                  child: _MenuItemContent(icon: AppIcons.edit, label: 'Edit'),
-                ),
-                _RoundedPopupItem(
-                  value: _EntryAction.move,
-                  child: _MenuItemContent(icon: AppIcons.move, label: 'Move'),
-                ),
-                _RoundedPopupItem(
-                  value: _EntryAction.attachments,
-                  child: _MenuItemContent(
-                    icon: AppIcons.attachment,
-                    label: 'Attachments',
-                  ),
-                ),
-                _RoundedPopupItem(
-                  value: _EntryAction.delete,
-                  child: _MenuItemContent(
-                    icon: AppIcons.delete,
-                    label: 'Delete',
-                    isDestructive: true,
-                  ),
-                ),
-              ],
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

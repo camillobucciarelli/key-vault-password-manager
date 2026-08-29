@@ -53,37 +53,28 @@ class VaultScreen extends StatelessWidget {
   }
 }
 
+/// Padding metrics for the vault pane. spec-018 T047: this used to also
+/// publish `isMobile` / `isCompact` / `isTablet` — three more width
+/// comparisons, against a fourth threshold, that **nothing read**. They are
+/// deleted rather than kept in step, because a spare notion of "is this wide?"
+/// lying around is how the shell, the list and the router drifted apart in
+/// the first place (D2). Layout decisions come from `VaultLayoutClass`; this
+/// type now only carries padding.
 class _VaultLayoutSpec {
   const _VaultLayoutSpec({
-    required this.isMobile,
-    required this.isCompact,
-    required this.isTablet,
     required this.horizontalPadding,
     required this.contentTopPadding,
   });
 
-  final bool isMobile;
-  final bool isCompact;
-  final bool isTablet;
   final double horizontalPadding;
   final double contentTopPadding;
 
   static _VaultLayoutSpec fromWidth(double width) {
-    final isMobile = width < Breakpoints.mobile;
-    final isCompact = width < _VaultLayoutBreakpoints.tabletMax;
-    final isTablet =
-        width >= Breakpoints.mobile &&
-        width < _VaultLayoutBreakpoints.tabletMax;
-    final horizontalPadding = width < _VaultLayoutBreakpoints.compactPhone
-        ? 12.0
-        : 16.0;
-
     return _VaultLayoutSpec(
-      isMobile: isMobile,
-      isCompact: isCompact,
-      isTablet: isTablet,
-      horizontalPadding: horizontalPadding,
-      contentTopPadding: isCompact ? 8 : 12,
+      horizontalPadding: width < _VaultLayoutBreakpoints.compactPhone
+          ? 12.0
+          : 16.0,
+      contentTopPadding: width < _VaultLayoutBreakpoints.tabletMax ? 8 : 12,
     );
   }
 }
@@ -114,6 +105,15 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   late final OtpAuthDeepLinkCoordinator _otpAuthCoordinator;
   VaultDestination _selectedDestination = VaultDestination.vault;
   Widget? _activePane;
+  // spec-018 FR-003: the ONE owner of "which record is being looked at".
+  // Previously `_EntriesCardState` kept a private copy for its own inline
+  // split while the router published a pane from a different rule, so the
+  // highlighted row and the visible detail could disagree (D3, D8). An id
+  // only — never a `VaultEntry`, never a secret (Constitution I).
+  String? _selectedEntryId;
+  // True while a detail session is live, so selecting the same row twice is
+  // a no-op instead of stacking a second session.
+  bool _hasDetailSession = false;
   DateTime? _backgroundedAt;
   bool _isBackground = false;
   bool _isLocked = false;
@@ -160,6 +160,9 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
         }
       },
     );
+    // FR-002e: the folder column yields to the generator column, so the shell
+    // must rebuild when the editor opens or closes it.
+    _router.generatorColumnOpen.addListener(_onGeneratorColumnChanged);
     WidgetsBinding.instance.addObserver(this);
     _otpAuthCoordinator = di.sl<OtpAuthDeepLinkCoordinator>();
     _otpAuthSubscription = _otpAuthCoordinator.events.listen(
@@ -171,9 +174,16 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     });
   }
 
+  void _onGeneratorColumnChanged() {
+    if (mounted && !_isDisposing) {
+      setState(() {});
+    }
+  }
+
   @override
   void dispose() {
     _isDisposing = true;
+    _router.generatorColumnOpen.removeListener(_onGeneratorColumnChanged);
     _router.dispose();
     _inactivityTimer?.cancel();
     _otpAuthSubscription?.cancel();
@@ -189,7 +199,91 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     if (!await _router.cancelForDestinationChange() || !mounted) {
       return;
     }
-    setState(() => _selectedDestination = destination);
+    setState(() {
+      _selectedDestination = destination;
+      // spec-018 FR-003: leaving the Vault destination ends the detail
+      // session, so the selection must go with it.
+      _selectedEntryId = null;
+      _hasDetailSession = false;
+    });
+  }
+
+  /// spec-018 FR-001a: the records list reports a selection; the shell
+  /// decides how it is presented. One entry point, so push and pane can
+  /// never diverge again.
+  Future<void> _selectEntry(BuildContext context, String entryId) async {
+    if (_selectedEntryId == entryId && _hasDetailSession) {
+      return;
+    }
+    // Close whatever detail (and anything stacked on it) is open before
+    // opening the next one, so two records can never be shown at once
+    // (FR-001). This also runs the editor's discard guard, so switching rows
+    // mid-edit asks before throwing the edit away rather than silently
+    // dropping it — the same protection a destination change already had.
+    if (_hasDetailSession && !await _router.cancelForDestinationChange()) {
+      return;
+    }
+    // Both guards are needed: `mounted`/`_isDisposing` for this State, and
+    // `context.mounted` for the caller's context, which is the one handed to
+    // the router below and belongs to the vault pane, not to this State.
+    if (!mounted || _isDisposing || !context.mounted) {
+      return;
+    }
+    setState(() {
+      _selectedEntryId = entryId;
+      _hasDetailSession = true;
+    });
+    await _openEntryDetailsSurface(context, entryId: entryId);
+    // The session ended — by back, escape, completion, or the record being
+    // deleted. FR-003/G4.4: whatever ended it clears the selection, so the
+    // highlight can never outlive the detail it points at.
+    if (!mounted || _isDisposing || _selectedEntryId != entryId) {
+      return;
+    }
+    setState(() {
+      _selectedEntryId = null;
+      _hasDetailSession = false;
+    });
+  }
+
+  /// spec-018 FR-002a/FR-002e: the layout class for this frame.
+  ///
+  /// It is the window width's class, with one adjustment: while the editor is
+  /// showing its generator as a column, the folder column is dropped to make
+  /// room. Below `VaultLayoutWidths.foldersAndGenerator` (1232) the two
+  /// cannot coexist — at the 1024 design baseline they never do — and the
+  /// design's rule is explicit that the folder column is what yields, never
+  /// the records list, which is the screen's navigation spine.
+  VaultLayoutClass _effectiveLayout(BuildContext context) {
+    final layout = VaultLayoutClass.fromWidth(MediaQuery.sizeOf(context).width);
+    if (layout == VaultLayoutClass.wideWithFolders &&
+        _router.generatorColumnOpen.value &&
+        MediaQuery.sizeOf(context).width <
+            VaultLayoutWidths.foldersAndGenerator) {
+      return VaultLayoutClass.wide;
+    }
+    return layout;
+  }
+
+  /// FR-014: a selection that has left the visible list is not a selection.
+  ///
+  /// Deletion does not come through here — a deleted record ends its own
+  /// session from inside the detail (FR-007), which resolves the await in
+  /// [_selectEntry]. This covers the case the detail cannot see: the record
+  /// still exists but a search or folder change filtered it out of the list.
+  void _dropSelectionIfNotVisible(Set<String> visibleEntryIds) {
+    final selected = _selectedEntryId;
+    if (selected == null || visibleEntryIds.contains(selected)) {
+      return;
+    }
+    // Called from a build; cancelling a session mutates the router and can
+    // publish a new pane, so defer it out of the build phase.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _isDisposing || _selectedEntryId != selected) {
+        return;
+      }
+      unawaited(_router.cancelForDestinationChange());
+    });
   }
 
   void _markOtpAuthVaultAvailableIfReady(VaultState state) {
@@ -705,8 +799,15 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                                   // 009 / B005: browser-generated pending
                                   // secret awaiting the app's confirm/save.
                                   const _PendingGenerationBanner(),
-                                  const Expanded(
-                                    child: _VaultEntriesCardSection(),
+                                  Expanded(
+                                    child: _VaultEntriesCardSection(
+                                      selectedEntryId: _selectedEntryId,
+                                      onSelectEntry: (entryId) => unawaited(
+                                        _selectEntry(context, entryId),
+                                      ),
+                                      onVisibleEntriesChanged:
+                                          _dropSelectionIfNotVisible,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -714,6 +815,10 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
 
                             return _VaultNavigationLayout(
                               width: constraints.maxWidth,
+                              // spec-018 FR-002a: one classification, from
+                              // the window width, computed here and passed
+                              // down. No descendant re-derives it.
+                              layout: _effectiveLayout(context),
                               selectedDestination: _selectedDestination,
                               activePane: _activePane,
                               vaultPane: vaultPane,
@@ -814,13 +919,26 @@ class _VaultSyncStatusStrip extends StatelessWidget {
 }
 
 class _VaultEntriesCardSection extends StatelessWidget {
-  const _VaultEntriesCardSection();
+  const _VaultEntriesCardSection({
+    required this.selectedEntryId,
+    required this.onSelectEntry,
+    required this.onVisibleEntriesChanged,
+  });
+
+  /// spec-018 FR-003: shell-owned, passed in. The card holds no selection
+  /// state of its own.
+  final String? selectedEntryId;
+  final ValueChanged<String> onSelectEntry;
+  final ValueChanged<Set<String>> onVisibleEntriesChanged;
 
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<VaultBloc, VaultState>(
       buildWhen: _entriesCardBuildWhen,
       builder: (context, state) {
+        onVisibleEntriesChanged(
+          state.visibleEntries.map((entry) => entry.id).toSet(),
+        );
         return _EntriesCard(
           entries: state.visibleEntries,
           groups: state.groups,
@@ -828,6 +946,8 @@ class _VaultEntriesCardSection extends StatelessWidget {
           currentGroupId: state.currentGroupId,
           expandedGroupIds: state.expandedGroupIds,
           searchQuery: state.searchQuery,
+          selectedEntryId: selectedEntryId,
+          onSelectEntry: onSelectEntry,
         );
       },
     );
@@ -858,12 +978,17 @@ class _VaultNavigationLayout extends StatelessWidget {
     required this.selectedDestination,
     required this.activePane,
     required this.vaultPane,
+    required this.layout,
     required this.onSelectDestination,
     required this.onBackFromPane,
     required this.onCloseDatabase,
   });
 
   final double width;
+
+  /// spec-018 FR-002a: computed once by the shell from the window width and
+  /// passed in. Nothing below this widget re-measures to pick a layout.
+  final VaultLayoutClass layout;
   final VaultDestination selectedDestination;
   final Widget? activePane;
   final Widget vaultPane;
@@ -873,7 +998,7 @@ class _VaultNavigationLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (width < Breakpoints.mobile) {
+    if (layout.hasTabBar) {
       return Column(
         children: [
           Expanded(
@@ -892,9 +1017,10 @@ class _VaultNavigationLayout extends StatelessWidget {
       );
     }
 
-    final railWidth = selectedDestination == VaultDestination.vault
-        ? 76.0
-        : 72.0;
+    // spec-018 FR-002b: one rail width. The vault variant's `76` was drift
+    // in a single artboard, corrected to the design's stated 72 — see the
+    // spec's design-decisions section.
+    const railWidth = VaultColumns.rail;
     return Row(
       children: [
         SizedBox(
@@ -937,7 +1063,11 @@ class _VaultNavigationLayout extends StatelessWidget {
         child: _destinationBody(),
       );
     }
-    if (width < 708) {
+    // spec-018 FR-002d: below the derived pane threshold the rail is shown
+    // but the detail still pushes, because the design's own columns do not
+    // fit. This replaced a bare `708`, which was this same arithmetic done
+    // with the pre-correction rail width of 76.
+    if (!layout.hasDetailPane) {
       return KeyedSubtree(
         key: const ValueKey('vault-single-pane'),
         child: activePane == null
@@ -946,26 +1076,25 @@ class _VaultNavigationLayout extends StatelessWidget {
       );
     }
 
-    final available = width - railWidth - 1;
-    final withFolders = width >= Breakpoints.tablet;
-    final afterFolders = available - (withFolders ? 237 : 0);
-    final listWidth = (afterFolders - 301).clamp(330.0, 352.0);
     return Row(
       children: [
-        if (withFolders) ...[
+        if (layout.hasFolderPane) ...[
           const SizedBox(
             key: ValueKey('vault-folder-pane'),
-            width: 236,
+            width: VaultColumns.folders,
             child: _VaultFolderPane(),
           ),
           const _VaultVerticalDivider(),
         ],
         SizedBox(
           key: const ValueKey('vault-list-pane'),
-          width: listWidth,
+          width: VaultColumns.list,
           child: vaultPane,
         ),
         const _VaultVerticalDivider(),
+        // FR-002c: the detail pane is persistent — always present, showing
+        // the empty state when nothing is selected, never a pane that only
+        // materialises once a surface opens.
         Expanded(
           key: const ValueKey('vault-detail-pane'),
           child: activePane == null
