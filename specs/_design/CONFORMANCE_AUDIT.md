@@ -116,12 +116,16 @@ as `128 items` above the list.
 matches the *04-06* artboard, which DQ-1 ruled is the editor's working context,
 not the shell.)
 
-### C-03-06 · No sort control
+### C-03-06 · The sort control is missing — the sort itself is not
 
 **Design**: `Username ↑` at the right of the count row; the catalogue lists
 `Ordinamento (title ↑↓, username)` as an existing journey-03 state.
-**Implemented**: no sort UI and no sort state — `lib/` contains no
-`SortOption`/`sortOrder` at all.
+**Implemented**: the sort is fully built and **orphaned**. `VaultEntrySort`
+(`titleAsc`, `titleDesc`, `usernameAsc`), `VaultState.sortBy` defaulting to
+`usernameAsc` — which is exactly what the artboard draws — the `SetVaultSort`
+event and the comparator in `VaultBloc` all exist. Nothing in `lib/` dispatches
+`SetVaultSort`, so the user can never leave the default. This is a missing
+control, not missing behaviour.
 
 ### Tablet / desktop (1024 × 768)
 
