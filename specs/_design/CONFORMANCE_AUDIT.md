@@ -295,7 +295,8 @@ same affordance exists twice.
 **Resolved** — the product decision was taken on 2026-08-29: `Duplicate` is
 offered from the record row's menu and from the detail's overflow. It is a new
 capability, so it is recorded here rather than folded silently into spec 019's
-"no new capability" boundary (FR-020). Tests are owed.
+"no new capability" boundary (FR-020). Covered by
+`vault_duplicate_entry_test.dart` and `vault_entry_detail_actions_test.dart`.
 
 The copy is made inside `VaultKdbxService.duplicateEntry`, not through
 `CreateVaultEntry`: a record carries protected strings, custom fields (where

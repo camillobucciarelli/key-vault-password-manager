@@ -143,6 +143,46 @@ class FakeVaultKdbxService implements VaultKdbxService {
     return created.id;
   }
 
+  /// spec-019 C-04-05: records the duplicate the bloc asked for, and grows the
+  /// vault by one so the reload after it has something to show.
+  final List<({String entryId, String titleSuffix})> duplicated =
+      <({String entryId, String titleSuffix})>[];
+
+  @override
+  Future<String> duplicateEntry({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+    required String titleSuffix,
+  }) async {
+    // Recorded only once the record is found, so the list means "duplicates
+    // the service actually made", like the real one.
+    final source = snapshot.allEntries.firstWhere(
+      (entry) => entry.id == entryId,
+    );
+    duplicated.add((entryId: entryId, titleSuffix: titleSuffix));
+    final copy = VaultEntry(
+      id: '$entryId-copy',
+      groupId: source.groupId,
+      title: '${source.title}$titleSuffix',
+      username: source.username,
+      password: source.password,
+      url: source.url,
+      notes: source.notes,
+      customFields: source.customFields,
+    );
+    final all = [...snapshot.allEntries, copy];
+    snapshot = VaultSnapshot(
+      rootGroupId: snapshot.rootGroupId,
+      currentGroupId: snapshot.currentGroupId,
+      groups: snapshot.groups,
+      entries: all,
+      allEntries: all,
+    );
+    return copy.id;
+  }
+
   @override
   dynamic noSuchMethod(Invocation invocation) =>
       super.noSuchMethod(invocation);
