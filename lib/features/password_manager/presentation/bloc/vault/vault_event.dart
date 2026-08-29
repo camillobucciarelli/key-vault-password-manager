@@ -311,6 +311,14 @@ class ImportVaultEntriesFromCsv extends VaultEvent {
   List<Object?> get props => [filePath, avoidDuplicates];
 }
 
+/// spec-018 FR-006/G5.4: a confirmed record action that cannot be applied
+/// because the record disappeared while the dialog was open. The user
+/// confirmed something, so they are told something — an action must never
+/// end with neither a change nor a message.
+class ReportVaultActionAbandoned extends VaultEvent {
+  const ReportVaultActionAbandoned();
+}
+
 class ClearVaultError extends VaultEvent {
   const ClearVaultError();
 }

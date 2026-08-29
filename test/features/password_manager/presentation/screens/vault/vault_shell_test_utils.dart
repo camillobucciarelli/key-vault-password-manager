@@ -6,6 +6,8 @@
 // kdbx I/O, or the full production DI graph. Callers MUST call
 // `resetVaultShellTestDi()` in `tearDown` to avoid leaking registrations
 // between tests.
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:password_manager/core/theme/app_theme.dart';
@@ -20,6 +22,7 @@ import 'package:password_manager/features/password_manager/domain/models/databas
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_snapshot.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
+import 'package:password_manager/features/password_manager/domain/services/password_generator_service.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_bloc.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/google_drive_reconnect_coordinator.dart';
@@ -86,6 +89,13 @@ Future<Widget> pumpableVaultShell({
   );
   di.sl.registerLazySingleton<DatabaseSyncRepository>(
     () => resolvedSyncRepository,
+  );
+  // The editor's generator column resolves this directly. Fixed seed for the
+  // same reason `entry_editor_generator_test_utils.dart` uses one: a real
+  // `Random.secure()` draw would make anything that photographs the result
+  // box flaky.
+  di.sl.registerLazySingleton<PasswordGeneratorService>(
+    () => PasswordGeneratorService(random: math.Random(42)),
   );
   di.sl.registerLazySingleton<GoogleDriveReconnectCoordinator>(
     () => GoogleDriveReconnectCoordinator(

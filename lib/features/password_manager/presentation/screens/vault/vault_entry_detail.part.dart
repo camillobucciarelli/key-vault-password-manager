@@ -27,9 +27,16 @@ class _EntryDetailsPage extends StatelessWidget {
     });
 
     if (entry == null) {
+      // spec-018 FR-007/FR-008 (D6): this used to call `Navigator.pop`, which
+      // is only correct when the surface is a pushed route. Under the pane
+      // presentation no route was pushed, so `canPop` referred to an
+      // unrelated route: the pane was either left in place showing nothing,
+      // or something else was popped. Completing the operation is
+      // presentation-neutral — and `VaultShellRouter._finish` cancels child
+      // sessions, so anything stacked on this detail goes with it.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (context.mounted && Navigator.canPop(context)) {
-          Navigator.pop(context);
+        if (context.mounted) {
+          VaultOperationScope.of(context).complete(const VaultDone());
         }
       });
       return const SizedBox.shrink();
@@ -40,7 +47,14 @@ class _EntryDetailsPage extends StatelessWidget {
       child: _EntryDetailPanel(
         entry: entry,
         onSelectedAction: onSelectedAction,
-        allowsPop: true,
+        // The pane host already draws the back affordance for whatever it
+        // hosts, so the panel must not draw a second one. Derived from the
+        // tree, not from the window width: the presentation is fixed when the
+        // surface opens, so shrinking the window below the pane threshold
+        // with a record open used to flip the width answer to `true` while
+        // the pane was still mounted — two back buttons, one of which popped
+        // an unrelated route.
+        allowsPop: !_VaultPaneScope.of(context),
       ),
     );
   }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 
+import '../../../../core/responsive/breakpoints.dart';
 import '../../domain/models/sync_conflict.dart';
 import '../../domain/models/vault_custom_field.dart';
 
@@ -333,11 +334,22 @@ final class VaultPanePresentation extends VaultSurfacePresentation {
   const VaultPanePresentation();
 }
 
+/// spec-018 FR-002a: the presentation of a surface is decided by the single
+/// width authority [VaultLayoutClass], not by a literal compared against the
+/// window width. `width` is the **window** width supplied by the shell; no
+/// caller may substitute its own `BoxConstraints`.
+///
+/// This changed behaviour in the 600–703 band (FR-002d): a pane needs
+/// `VaultLayoutWidths.detailPane` (704) of room, so between the mobile break
+/// and 704 the icon rail replaces the tab bar but the detail still *pushes*.
+/// Previously anything at or above 600 became a pane, in a band where the
+/// design's own columns do not fit.
 VaultSurfacePresentation presentationFor<R extends VaultRouteResult>(
   VaultSurface<R> surface,
   double width,
 ) {
-  final mobile = width < 600;
+  final layout = VaultLayoutClass.fromWidth(width);
+  final mobile = !layout.hasDetailPane;
   return switch (surface) {
     EntrySurface() ||
     OtpScannerSurface() ||
@@ -348,7 +360,13 @@ VaultSurfacePresentation presentationFor<R extends VaultRouteResult>(
     SyncLinkSurface() ||
     DatabaseSettingsSurface() =>
       mobile ? const VaultRoutePresentation() : const VaultPanePresentation(),
-    PasswordGeneratorSurface() ||
+    // spec-018 FR-002e: the generator is the one surface whose presentation
+    // needs a width beyond the layout class. It becomes a 290 px column only
+    // where that column fits; below 995 the sheet is a declared fallback.
+    PasswordGeneratorSurface() =>
+      width >= VaultLayoutWidths.generatorColumn
+          ? const VaultPanePresentation()
+          : const VaultSheetPresentation(),
     GroupEditSurface() ||
     MoveTargetSurface() ||
     SyncConflictSurface() ||
@@ -384,6 +402,12 @@ final class VaultShellRouter {
   final VaultModalHost? _routeHost;
   final VaultModalHost? _sheetHost;
   final Map<VaultOperationId, _VaultOperationSession> _sessions = {};
+
+  /// spec-018 FR-002e: true while the editor is showing its generator as a
+  /// column rather than a sheet. The shell listens so it can drop the folder
+  /// column, which is what makes room for it — the design's rule is that the
+  /// generator collapses the FOLDERS, never the records list.
+  final ValueNotifier<bool> generatorColumnOpen = ValueNotifier<bool>(false);
   final Set<VaultOperationId> _issuedIds = {};
   int _nextId = 0;
   int _nextSequence = 0;
@@ -525,6 +549,7 @@ final class VaultShellRouter {
     }
     _disposed = true;
     _cancelAll();
+    generatorColumnOpen.dispose();
   }
 
   VaultOperationId _newId() {

@@ -39,10 +39,18 @@ active colour `accent-800` (dark `accent-300`), inactive `neutral-600` (dark
 
 | Column | Width |
 | --- | --- |
-| Icon rail | 72 (76 in the vault variant) |
+| Icon rail | 72 |
 | Folder column | 236 |
-| List column | 330–352 (400 in the two-pane conflict view) |
+| List column | 330 (400 in the two-pane conflict view) |
 | Detail pane | remaining, min 300; padding 26–30 |
+| Generator column | 290, divider on its left |
+
+The rail and list are single values. The `76` and `352` that appear in one
+artboard each are drift, corrected here rather than promoted to variants
+(spec 018, DQ-3). Derived thresholds: detail pane from 704, folder column from
+941, generator column from 995, folders and generator together only from 1232 —
+so at the 1024 baseline an open generator collapses the folder column, never
+the records list (DQ-2).
 
 Rail: mark 38 at top, then 36 px icon buttons with 14 gap, settings pinned to the
 bottom. Columns separated by a 1 px `--color-divider` line, never a shadow.
