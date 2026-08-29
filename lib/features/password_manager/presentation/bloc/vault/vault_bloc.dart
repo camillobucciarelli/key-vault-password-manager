@@ -26,6 +26,13 @@ import '../../coordinators/session_secret_holder.dart';
 import 'vault_event.dart';
 import 'vault_state.dart';
 
+/// Appended to a duplicated record's title.
+///
+/// A suffix rather than a `Copy of ` prefix so the copy sorts next to its
+/// original in a title-ordered list, which is where the user is looking when
+/// they duplicate something.
+const kDuplicateTitleSuffix = ' copy';
+
 const _driveAuthorizationRequiredMessage =
     'Google authorization expired. Reconnect Google Drive to continue.';
 
@@ -64,6 +71,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<UpdateVaultEntry>(_onUpdateVaultEntry);
     on<DeleteVaultEntry>(_onDeleteVaultEntry);
     on<MoveVaultEntry>(_onMoveVaultEntry);
+    on<DuplicateVaultEntry>(_onDuplicateVaultEntry);
     on<CreateVaultGroup>(_onCreateVaultGroup);
     on<RenameVaultGroup>(_onRenameVaultGroup);
     on<DeleteVaultGroup>(_onDeleteVaultGroup);
@@ -577,6 +585,41 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         state.copyWith(
           isSaving: false,
           errorMessage: 'Unable to update entry.',
+        ),
+      );
+    }
+  }
+
+  /// spec-019 C-04-05 — `Duplicate`.
+  ///
+  /// The copy lands in the source's own group, so it appears in the list the
+  /// user is looking at, whatever folder that is.
+  Future<void> _onDuplicateVaultEntry(
+    DuplicateVaultEntry event,
+    Emitter<VaultState> emit,
+  ) async {
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
+    try {
+      await vaultKdbxService.duplicateEntry(
+        databasePath: state.databasePath,
+        password: _password,
+        keyFilePath: _keyFilePath,
+        entryId: event.entryId,
+        titleSuffix: kDuplicateTitleSuffix,
+      );
+      await _reload(
+        emit,
+        currentGroupId: state.currentGroupId,
+        keepLoadingFlag: false,
+      );
+      await _scheduleAutoSync(emit);
+    } catch (e, st) {
+      logError('Failed duplicating vault entry.', e, st);
+      _safeEmit(
+        emit,
+        state.copyWith(
+          isSaving: false,
+          errorMessage: 'Unable to duplicate record.',
         ),
       );
     }

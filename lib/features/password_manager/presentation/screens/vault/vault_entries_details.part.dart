@@ -153,6 +153,13 @@ class _RecordListItem extends StatelessWidget {
                     ),
                   ),
                   _RoundedPopupItem(
+                    value: _EntryAction.duplicate,
+                    child: _MenuItemContent(
+                      icon: AppIcons.copy,
+                      label: 'Duplicate',
+                    ),
+                  ),
+                  _RoundedPopupItem(
                     value: _EntryAction.delete,
                     child: _MenuItemContent(
                       icon: AppIcons.delete,

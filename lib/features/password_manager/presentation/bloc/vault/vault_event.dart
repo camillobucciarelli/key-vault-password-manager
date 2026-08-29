@@ -197,6 +197,20 @@ class DeleteVaultEntry extends VaultEvent {
   List<Object?> get props => [entryId];
 }
 
+/// spec-019 C-04-05 — copy a record beside itself, in its own folder.
+///
+/// Carries only the id: the copy is made inside the service, where the source
+/// record is open, so the plaintext of a password never travels through an
+/// event to make a duplicate of it (Constitution I).
+class DuplicateVaultEntry extends VaultEvent {
+  const DuplicateVaultEntry(this.entryId);
+
+  final String entryId;
+
+  @override
+  List<Object?> get props => [entryId];
+}
+
 class MoveVaultEntry extends VaultEvent {
   const MoveVaultEntry({required this.entryId, required this.targetGroupId});
 

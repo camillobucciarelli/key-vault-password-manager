@@ -260,7 +260,20 @@ the header overflow carries object management only.
 (`vault_entry_detail.part.dart:527`) *and* reachable from the body row, so the
 same affordance exists twice.
 
-### C-04-05 · No `Duplicate` record action — **deliberately deferred**
+### C-04-05 · No `Duplicate` record action — **implemented on request**
+
+**Resolved** — the product decision was taken on 2026-08-29: `Duplicate` is
+offered from the record row's menu and from the detail's overflow. It is a new
+capability, so it is recorded here rather than folded silently into spec 019's
+"no new capability" boundary (FR-020). Tests are owed.
+
+The copy is made inside `VaultKdbxService.duplicateEntry`, not through
+`CreateVaultEntry`: a record carries protected strings, custom fields (where
+the TOTP secret lives) and attachment bytes that exist only inside the
+database, and none of those can travel back in through the editor's field
+list. Original text of the finding follows.
+
+
 
 The normative overflow inventory is `Move / Delete / Duplicate`. Duplicating a
 record does not exist anywhere in the app: no `_EntryAction`, no `VaultEvent`,

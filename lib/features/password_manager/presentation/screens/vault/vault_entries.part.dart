@@ -199,6 +199,11 @@ class _EntriesCardState extends State<_EntriesCard> {
           return;
         }
         await _showAttachmentsDialog(surfaceContext, fresh);
+      case _EntryAction.duplicate:
+        // No confirmation: duplicating creates, it never destroys, and the
+        // result is visible in the list the user is already looking at
+        // (Constitution VII asks first only before losing something).
+        bloc.add(DuplicateVaultEntry(entryId));
       case _EntryAction.delete:
         final confirmed = await _showDeleteConfirm(
           surfaceContext,
@@ -373,7 +378,10 @@ class _EntriesCardState extends State<_EntriesCard> {
   }
 }
 
-enum _EntryAction { edit, move, attachments, delete }
+// spec-019 C-04-05: `duplicate` joins the record actions. The design's
+// normative overflow inventory for the detail is `Move / Delete / Duplicate`;
+// the list row offers the same set it always did, plus this.
+enum _EntryAction { edit, move, attachments, duplicate, delete }
 
 
 
