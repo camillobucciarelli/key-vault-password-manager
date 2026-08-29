@@ -3,7 +3,7 @@
 **Status**: Draft · **Kind**: Feature / Credentials
 **Created**: 2026-08-29
 **Depends on**: 004 (entry editor), 006 (security & autofill extension), 008 (per-field conflict resolution — merge of the new fields)
-**Coordinates with**: 016 (Android autofill; passkeys were declared out of scope there), 005 (CSV/import export surfaces must not leak the new secret), 017 (password history must not record passkey material), 019 (vault navigation model 1a — the entry detail surface the passkey section lands on), 020–022 (pixel passes; a new entry-detail section must be added in the restyled tokens, not ahead of them)
+**Coordinates with**: 016 (Android autofill; passkeys were declared out of scope there), 005 (CSV import must not be able to inject passkey fields; attachment and backup export must not leak them), 017 (password history must not record passkey material), 019 (vault navigation model 1a — the entry detail surface the passkey section lands on), 020–022 (pixel passes; a new entry-detail section must be added in the restyled tokens, not ahead of them)
 
 **Input**: User description: "Gestione delle passkey (WebAuthn/FIDO2) nel vault KDBX: storage interoperabile con KeePassXC nei campi custom protetti, visualizzazione e gestione delle passkey nell'entry editor, registrazione e autenticazione tramite l'estensione Apple AutoFill (iOS/macOS), con Android Credential Manager e browser desktop come fasi successive."
 
@@ -22,7 +22,7 @@ credentials, in three independently shippable slices:
 
 1. **Hold them** — read, display, protect, sync and delete passkeys that already
    exist in the vault (typically created by KeePassXC on the desktop), without
-   ever exposing the private key to the UI, the logs, the CSV export or the
+   ever exposing the private key to the UI, the logs, an export or the
    plaintext caches.
 2. **Use them** — sign in with a stored passkey on iOS and macOS through the
    existing AutoFill credential provider extension.
@@ -73,8 +73,8 @@ cleanly in KeePassXC.
 1. **Given** a vault entry carrying a passkey created by KeePassXC, **When** the
    user opens the entry, **Then** the entry shows a passkey section naming the
    relying party and the passkey username, and shows no private key value.
-2. **Given** that entry, **When** the user attempts any copy, reveal, CSV export
-   or share action available on the entry, **Then** no action yields the private
+2. **Given** that entry, **When** the user attempts any copy, reveal, export or
+   share action available on the entry, **Then** no action yields the private
    key or the credential seed.
 3. **Given** that entry, **When** the user deletes the passkey and saves,
    **Then** the passkey fields are removed, all other fields are unchanged, and
@@ -200,9 +200,11 @@ correct site and account, and that signing in with it afterwards succeeds.
 - **FR-005**: The system MUST NOT display, copy to the clipboard, reveal, or
   otherwise render the passkey private key or credential seed in any user
   interface.
-- **FR-006**: The system MUST NOT include passkey secret material in CSV export,
-  logs, diagnostic strings, error messages, crash reports, plaintext caches, or
-  any message sent over the desktop browser bridge.
+- **FR-006**: The system MUST NOT include passkey secret material in logs,
+  diagnostic strings, error messages, crash reports, plaintext caches, attachment
+  or backup exports, or any message sent over the desktop browser bridge. (The
+  app has no CSV export today — CSV is import-only; see `research.md` R3 for the
+  surfaces that actually exist.)
 - **FR-007**: The system MUST NOT record passkey secret material in password
   history.
 - **FR-008**: Where a conflict-resolution or merge-preview surface lists changed

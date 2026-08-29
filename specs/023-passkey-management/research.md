@@ -1,0 +1,203 @@
+# 023 — Research
+
+**Status**: Draft · **Created**: 2026-08-29
+**Purpose**: resolve the technical unknowns behind `spec.md` so the spec can be
+sharpened and `plan.md` written. Every claim about this repository is cited to a
+file; every claim about an external format or platform is cited to its source.
+Nothing here is a decision — decisions land in `spec.md` and `plan.md`.
+
+## R1 — Storage format: the KeePassXC layout is the interoperability target
+
+A passkey in a `.kdbx` is an ordinary entry carrying a set of custom string
+fields named `KPEX_PASSKEY_*`. KeePassXC introduced them and KeePassDX adopted
+the same nomenclature, verbatim: *"The custom fields used follow the KeePassXC
+nomenclature with names beginning with `KPEX_PASSKEY_`"*
+([KeePassDX wiki](https://github.com/Kunzisoft/KeePassDX/wiki/Passkeys)).
+
+Field set in circulation:
+
+| Field | Contents |
+|-------|----------|
+| `KPEX_PASSKEY_RELYING_PARTY` | RP id, e.g. `github.com` |
+| `KPEX_PASSKEY_CREDENTIAL_ID` | credential id, base64url |
+| `KPEX_PASSKEY_USER_HANDLE` | user handle, base64url |
+| `KPEX_PASSKEY_USERNAME` | username captured at registration |
+| `KPEX_PASSKEY_PRIVATE_KEY_PEM` | PKCS#8 private key, PEM — **the secret** |
+| `KPEX_PASSKEY_GENERATED_USER_ID` | generated user id |
+| `KPEX_PASSKEY_FLAG_BE` / `KPEX_PASSKEY_FLAG_BS` | backup eligibility / backup state, `1`/`0` |
+
+Two properties matter for the plan:
+
+- **The algorithm is not a separate field** — it is carried in the PKCS#8 OID.
+  ES256 (P-256), EdDSA (Ed25519) and RS256 (RSA-2048) all appear in the wild, so
+  a reader must not assume P-256 even if the writer only ever mints ES256.
+- **KeePassDX adds fields of its own** (`AndroidApp`, `AndroidApp Signature`,
+  and `_1` suffixed repeats) and KeePassXC has since added `KPEX_PASSKEY_PRF`.
+  This is a live, growing namespace. It is the concrete justification for
+  FR-003: preserve unrecognised `KPEX_PASSKEY_*` fields byte-for-byte instead of
+  normalising the entry to a fixed field list.
+
+**Open item for the spec**: the exact protection flag KeePassXC sets on
+`KPEX_PASSKEY_PRIVATE_KEY_PEM`, the tag it applies to a passkey entry (if any),
+and whether it writes the fields on a new entry or an existing one, must be
+confirmed against a real KeePassXC-created vault before `plan.md` fixes the
+reader/writer contract. Reading it off the source or a sample file is a task,
+not a guess.
+
+## R2 — The repository cannot store a protected custom field today
+
+`VaultKdbxService` writes every custom field unprotected:
+
+```dart
+entry.setString(KdbxKey(normalizedKey), PlainValue(field.value));
+```
+— `lib/features/password_manager/data/services/vault_kdbx_service.dart:1126`
+
+Only the password field is protected (`ProtectedValue.fromString`, lines 236,
+275, 385, 945). `VaultCustomField`
+(`lib/features/password_manager/domain/models/vault_custom_field.dart`) is a bare
+`{key, value}` pair with no protection concept, though it already redacts its
+value in `props`/`toString`.
+
+So the smallest correct enabling change is: a protection flag on
+`VaultCustomField`, honoured by the write path, and a read path that keeps
+protected fields out of the ordinary custom-field list. `kdbx: ^2.5.0` needs no
+change — `setString` accepts a `ProtectedValue` for any `KdbxKey`.
+
+## R3 — Where secrets could leak, corrected against the code
+
+`spec.md` FR-006 names "CSV export". **There is no CSV export in this app** —
+`vault_csv_import_service.dart` is import-only, and the only export paths are
+attachment export (`vault_bloc.dart:1451`) and whole-database backup export
+(`database_selection_screen.dart:174`), the latter being the encrypted `.kdbx`
+itself. FR-006 should be restated against the surfaces that actually exist:
+
+| Surface | Risk | Where |
+|---|---|---|
+| Entry detail / editor custom-field list | renders and copies every custom field | `presentation/screens/vault/vault_entries_details.part.dart` and the editor |
+| Merge preview / per-field conflict UI (spec 008) | lists changed field values | `domain/models/merge_field_display.dart`, `data/services/kdbx_merge_adapter.dart` |
+| Password history (spec 017) | records field values over time | spec 017 surfaces |
+| CSV **import** | could inject a `KPEX_PASSKEY_*` field set | `vault_csv_import_service.dart` |
+| Desktop browser bridge | publishes entry metadata to the extension | `desktop_browser_autofill_cache.dart`, `..._reveal_bridge_service.dart` |
+| Apple autofill metadata cache | `AutofillCredentialMetadata` is deliberately secret-free | `ios/CredentialProviderExtension/SharedAutofillStore.swift:63` |
+| Duplicate detection | compares field sets | `vault_duplicate_service.dart` |
+
+`RedactedValue` in `VaultEntry.props`/`toString` already covers the logging leg;
+the display, copy, merge-preview and bridge legs do not exist yet for a
+protected field, because no protected custom field exists yet (R2).
+
+## R4 — Apple platforms: the ground is already prepared
+
+Verified in this repository:
+
+- **Deployment targets clear the bar.** iOS 18.0
+  (`ios/Runner.xcodeproj/project.pbxproj`) and macOS 14.0
+  (`macos/Runner.xcodeproj/project.pbxproj`). Passkey support in a credential
+  provider needs iOS 17 / macOS 14, so no minimum-version bump is required and
+  no availability fallback path is needed.
+- **The extension already receives passkey requests.** Both controllers
+  implement the iOS 17 overload
+  `prepareCredentialList(for:requestParameters: ASPasskeyCredentialRequestParameters)`
+  (`ios/CredentialProviderExtension/CredentialProviderViewController.swift:38`,
+  `macos/.../MacCredentialProviderViewController.swift:37`) — today they route it
+  to the password list.
+- **The extension declares only passwords.**
+  `ASCredentialProviderExtensionCapabilities` contains `ProvidesPasswords` alone
+  (`ios/CredentialProviderExtension/Info.plist`); a passkey slice adds the
+  passkey capability key and the registration entry point.
+- **Entitlements need nothing new.**
+  `com.apple.developer.authentication-services.autofill-credential-provider`,
+  the App Group `group.dev.camillobucciarelli.kdbxKeyVault` and the shared
+  keychain group are already granted
+  (`ios/CredentialProviderExtension/CredentialProviderExtension.entitlements`).
+- **Non-password requests are currently rejected on purpose.** The generic
+  `provideCredentialWithoutUserInteraction(for: any ASCredentialRequest)` fails
+  anything that is not an `ASPasswordCredentialRequest`, and the password path
+  itself returns `.userInteractionRequired` with the stated reason that the
+  extension *"has no reliable recent vault/user-presence context in this
+  callback"*. That refusal is a deliberate milestone decision, not an oversight —
+  it is exactly the ground on which FR-015 must be decided.
+
+**Consequence for the plan**: the signature must be produced inside the
+extension process, in Swift/CryptoKit. The Flutter app is not running when the
+system asks, so no Dart signing path can serve an Apple request. Dart-side
+crypto is only needed for key generation if registration is routed through the
+app, and for any non-Apple slice.
+
+## R5 — The encrypted shared cache already holds secrets of this class
+
+`SharedAutofillStore` keeps two artefacts in the App Group container:
+
+- `AutofillCredentialMetadata` — routing/display only, *"intentionally excludes
+  passwords"* (`SharedAutofillStore.swift:63`).
+- `autofill_cache_v2.sealed.json` — `AES.GCM.256` sealed
+  (`SharedAutofillStore.swift:538,546,720`), holding `AutofillCredentialSecret`.
+  The symmetric key lives in the shared keychain as a generic password with
+  `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` (`:1046`), i.e. readable only on
+  this device while it is unlocked, and never in a backup.
+
+This is decisive for FR-022: **passwords already live outside a vault session in
+exactly this envelope**. A passkey private key is the same class of secret under
+the same protection, so option A of the FR-022 question is not a new concession —
+it is the pattern the app already ships. What *is* new is that a passkey secret
+is long-lived and non-rotatable by the user in the way a password is, which is an
+argument for a shorter cache lifetime, not for a different mechanism.
+
+## R6 — Recommendations on the three open questions
+
+These are recommendations for the clarification phase, not decisions.
+
+**FR-015 (user presence per assertion)** — recommend **A: biometrics or device
+passcode on every assertion**. The WebAuthn user-presence/user-verification
+contract is per-assertion, the extension already refuses to act without an
+explicit interactive selection, and reusing the password path's recent-unlock
+window would weaken a guarantee relying parties are entitled to assume. The cost
+is one confirmation the user already expects from every other passkey provider.
+
+**FR-022 (key availability when the app is not running)** — recommend **A, the
+sealed cache**, on the evidence in R5, with two conditions worth writing into the
+spec: passkey secrets sit in the same sealed envelope as passwords and never in
+the plaintext metadata cache; and the entry's presence in the cache is revocable
+from the app (locking or removing the database wipes it), so the user has a way
+back to "not on this device".
+
+**Android in or out (deferred scope)** — recommend **out**. A provider must
+implement `CredentialProviderService` from the Jetpack Credential Manager, a
+different integration from the `AutofillService` completed in spec 016, which
+excluded passkeys explicitly (`specs/016-android-autofill-completion/spec.md:291`).
+It also has a floor problem this repo must handle: `minSdk = 29`
+(`android/app/build.gradle.kts:36`) while a Credential Manager *provider* needs
+API 34, so the feature is unavailable on a large part of the supported range and
+needs its own graceful-absence story. That is a spec, not a user story.
+
+## R7 — Notes for the deferred specs
+
+- **Android**: KeePassDX ships as a Credential Manager passkey provider using
+  this same field layout, so the format work in 023 is directly reusable and the
+  Android spec is integration-only.
+- **Desktop browsers**: serving a passkey to a page means intercepting
+  `navigator.credentials.create/get` from a content script in the page's own
+  world and proxying to the native host. The extension currently holds only
+  `activeTab`, `nativeMessaging`, `scripting`, `storage` and *optional* host
+  permissions (`desktop/browser_extension/manifest.json`), so this is a
+  permissions change users must re-approve, on top of the per-site compatibility
+  risk of replacing a browser API.
+
+## R8 — Open items before `plan.md`
+
+1. Confirm the KeePassXC field contract against a real vault: protection flag,
+   entry tag, base64url variant, PEM formatting (R1).
+2. Decide the three clarification questions (R6).
+3. Choose the conformance relying parties for SC-004 (three independent sites).
+4. Decide whether registration key generation happens in the extension
+   (CryptoKit) or in the app, which determines whether a Dart ECDSA/CBOR
+   dependency is needed at all in this spec.
+5. Name the manual QA harness for the Apple flows, following the precedent of
+   the spec 008 and spec 011 harnesses, since neither slice can run in
+   `flutter test`.
+
+## Sources
+
+- [KeePassDX — Passkeys wiki](https://github.com/Kunzisoft/KeePassDX/wiki/Passkeys)
+- [KeePassXC PR #8825 — Add basic support for WebAuthn (Passkeys)](https://github.com/keepassxreboot/keepassxc/pull/8825)
+- [KeePassXC PR #10874 — Passkeys: fix incorrect username fill](https://github.com/keepassxreboot/keepassxc/pull/10874)
