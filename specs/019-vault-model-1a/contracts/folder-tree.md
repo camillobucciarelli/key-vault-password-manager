@@ -21,6 +21,14 @@ agreeing.
 - **G2** — In `manage` mode every row carries the same `•••` with exactly
   `Rename`, `Move…`, `Delete`, in that order, and the tree ignores
   `isExpanded`: it renders fully expanded (FR-006b).
+  **Amended during implementation (T019).** The vault's own root group is a row
+  in `manage` mode, because renaming it was an action the records list used to
+  offer and dropping it would have cost the user something (US3). The root has
+  no parent to move to and deleting it would delete the vault, so its row
+  carries `Rename` alone — expressed as `KvFolderNode.canReparent`, false for
+  the root and true for every other row. Offering an action that cannot
+  succeed is worse than not offering it; G2 holds unchanged for every folder
+  the user actually created.
 - **G3** — A chevron is rendered only when `hasChildren`, and activating it
   calls `onToggleExpanded` and **never** `onSelect` (FR-006f).
 - **G4** — Activating a row calls `onSelect` and **never** `onToggleExpanded`.

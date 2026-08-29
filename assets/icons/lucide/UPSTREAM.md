@@ -17,6 +17,7 @@ Renamed upstream sources: `triangle-alert.svg` is delivered as
 ## Upstream source SHA-256
 
 ```text
+d15411438095bac7cab0cf91f18cadfbde2ca752284c06b4b3642c4695b1774e  arrow-up-down.svg
 7f33acc9a77a61659531044525fc008edebe215bf4dcf1c789c8674ad3277db0  check.svg
 66ea878e72ed3488bb3b464c39dfdccee8d1f78e560dccea40e5e12da0e87e87  chevron-down.svg
 83b0681aa38bf55e9d52a1e4b4cced624abe1fe7678ecafda133a574f1161d93  chevron-left.svg
@@ -67,6 +68,7 @@ by the design handoff. They have no upstream source file.
 
 ```text
 30d76897ce11ec48867dac600e508b5669f5483fce3fa0af498b814dba3b5c2a  alert-triangle.svg
+43954a86ccc88c1228ac9623b42f23ef5ebeb3063dbd84c3c74834a2ab44946c  arrow-up-down.svg
 535709c50cacc6e53abef2494f3eea64b4827bb0cf1296ceff1dc88da75ba6a7  check.svg
 d25609c25b73cf4888da17f36b3945c10a2e27ad639d43cfa81afbb7ae612ba8  chevron-down.svg
 45ab38a8729b7f87d7e5b727f0efe4c90ba51b62195298e0d2c32a4bf42f6b4d  chevron-left.svg

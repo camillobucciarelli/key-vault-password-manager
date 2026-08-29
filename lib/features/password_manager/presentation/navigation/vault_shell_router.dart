@@ -318,6 +318,17 @@ final class ConfirmationSurface<R extends VaultRouteResult>
   const ConfirmationSurface({required super.builder});
 }
 
+/// spec-019 T017 / DQ-6 — the single folder-management surface.
+///
+/// One recipe at every width: the same tree, the same `New folder`, the same
+/// per-row `•••`. Only the container changes — a centred dialog where the
+/// folder column lives, a pushed screen on the phone
+/// (`decisions-folder-management.md`).
+final class ManageFoldersSurface<R extends VaultRouteResult>
+    extends VaultSurface<R> {
+  const ManageFoldersSurface({required super.builder});
+}
+
 sealed class VaultSurfacePresentation {
   const VaultSurfacePresentation();
 }
@@ -332,6 +343,16 @@ final class VaultSheetPresentation extends VaultSurfacePresentation {
 
 final class VaultPanePresentation extends VaultSurfacePresentation {
   const VaultPanePresentation();
+}
+
+/// spec-019 T017 — a centred dialog over the vault.
+///
+/// Distinct from a pane: a pane is a column of the layout and changes the
+/// width arithmetic, and `Manage folders` must not (contract S2). Distinct
+/// from a sheet: `KvBottomSheet` stays bottom-anchored however narrow its
+/// content, which reads as a phone surface on a 1024 px window (research R4).
+final class VaultDialogPresentation extends VaultSurfacePresentation {
+  const VaultDialogPresentation();
 }
 
 /// spec-018 FR-002a: the presentation of a surface is decided by the single
@@ -374,6 +395,10 @@ VaultSurfacePresentation presentationFor<R extends VaultRouteResult>(
       mobile ? const VaultSheetPresentation() : const VaultPanePresentation(),
     KeyFileManagerSurface() ||
     ConfirmationSurface() => const VaultSheetPresentation(),
+    // spec-019: no new threshold — `hasDetailPane` is the same 704 every
+    // other surface already turns on (contract `vault-surfaces.md`).
+    ManageFoldersSurface() =>
+      mobile ? const VaultRoutePresentation() : const VaultDialogPresentation(),
   };
 }
 
@@ -392,15 +417,18 @@ final class VaultShellRouter {
     VaultOperationIdFactory? operationIdFactory,
     VaultModalHost? routeHost,
     VaultModalHost? sheetHost,
+    VaultModalHost? dialogHost,
   }) : _onPaneChanged = onPaneChanged,
        _operationIdFactory = operationIdFactory,
        _routeHost = routeHost,
-       _sheetHost = sheetHost;
+       _sheetHost = sheetHost,
+       _dialogHost = dialogHost;
 
   final VaultPaneChanged? _onPaneChanged;
   final VaultOperationIdFactory? _operationIdFactory;
   final VaultModalHost? _routeHost;
   final VaultModalHost? _sheetHost;
+  final VaultModalHost? _dialogHost;
   final Map<VaultOperationId, _VaultOperationSession> _sessions = {};
 
   /// spec-018 FR-002e: true while the editor is showing its generator as a
@@ -450,6 +478,8 @@ final class VaultShellRouter {
         unawaited(_hostSheet(context, session));
       case VaultPanePresentation():
         _hostPane(session);
+      case VaultDialogPresentation():
+        unawaited(_hostDialog(context, session));
     }
 
     return session.future;
@@ -627,6 +657,25 @@ final class VaultShellRouter {
     }
   }
 
+  /// spec-019 T018 / contract S3 — the dialog is hosted here, beside the route
+  /// and sheet hosts, so `ManageFoldersSurface` gets the same session,
+  /// cancellation and result handling as everything else. A bare `showDialog`
+  /// would get none of it.
+  Future<void> _hostDialog(
+    BuildContext context,
+    _VaultOperationSession session,
+  ) async {
+    try {
+      await (_dialogHost ?? _defaultDialogHost)(
+        context,
+        (_) => _buildScoped(session),
+        (dismiss) => session.dismissHost = dismiss,
+      );
+    } finally {
+      cancel(session.id);
+    }
+  }
+
   void _hostPane(_VaultOperationSession session) {
     session.hostedWidget = KeyedSubtree(
       key: session.paneKey,
@@ -708,6 +757,47 @@ final class VaultShellRouter {
         return VaultShellRouterScope(
           router: this,
           child: SafeArea(child: builder(modalContext)),
+        );
+      },
+    );
+  }
+
+  Future<void> _defaultDialogHost(
+    BuildContext context,
+    WidgetBuilder builder,
+    void Function(VoidCallback dismiss) mounted,
+  ) async {
+    BuildContext? dialogContext;
+    mounted(() {
+      // See the matching comment in _defaultRouteHost: skip Navigator
+      // manipulation during whole-router teardown.
+      if (_disposed) {
+        return;
+      }
+      final current = dialogContext;
+      if (current != null &&
+          current.mounted &&
+          Navigator.of(current).canPop()) {
+        Navigator.of(current).pop();
+      }
+    });
+    await showDialog<void>(
+      context: context,
+      useRootNavigator: true,
+      barrierColor: Colors.black.withValues(alpha: 0.3),
+      builder: (modalContext) {
+        dialogContext = modalContext;
+        // Same rationale as the route and sheet hosts: the root Navigator's
+        // Overlay is outside `VaultShellRouterScope`'s ancestor chain.
+        return VaultShellRouterScope(
+          router: this,
+          child: Dialog(
+            clipBehavior: Clip.antiAlias,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520, maxHeight: 620),
+              child: builder(modalContext),
+            ),
+          ),
         );
       },
     );
