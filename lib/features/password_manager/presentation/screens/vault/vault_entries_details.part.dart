@@ -314,7 +314,9 @@ class _RecordsEmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            isSearchActive ? 'No records or folders found' : 'No records yet',
+            // spec-019: the list holds records only, and the folder menu it
+            // used to point at was deleted with the folder rows (C-03-03).
+            isSearchActive ? 'No records found' : 'No records yet',
             style: Theme.of(
               context,
             ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
@@ -323,7 +325,7 @@ class _RecordsEmptyState extends StatelessWidget {
           Text(
             isSearchActive
                 ? 'Try a different keyword or clear the search.'
-                : 'Use the folder menu to add records or subfolders.',
+                : 'Use the add button to create your first record.',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodySmall,
           ),
@@ -353,25 +355,47 @@ class _EntryDetailEmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
 
+    // spec-019 C-04-01: this state had no artboard and had drifted into its
+    // own shape — a bare 46 px glyph and a panel title. The design's empty
+    // states are a 74 px feature circle, a Caprasimo title and 13.5 body; the
+    // recycle bin's is the reference. The copy is unchanged.
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          KvIcon(glyph: AppGlyph.key, size: 46, color: colors.iconNeutral),
-          const SizedBox(height: 12),
-          Text(
-            'No item selected',
-            style: AppTextStyles.panelTitleLarge.copyWith(
-              color: colors.textPrimary,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 30),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 74,
+              height: 74,
+              decoration: BoxDecoration(
+                color: colors.surface,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: KvIcon(
+                glyph: AppGlyph.key,
+                size: 34,
+                color: colors.textSecondary,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Select a record from the list to view all details and copy fields.',
-            textAlign: TextAlign.center,
-            style: AppTextStyles.body.copyWith(color: colors.textSecondary),
-          ),
-        ],
+            const SizedBox(height: 16),
+            Text(
+              'No item selected',
+              textAlign: TextAlign.center,
+              style: AppTextStyles.screenTitle.copyWith(
+                fontSize: 24,
+                color: colors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Select a record from the list to view all details and copy fields.',
+              textAlign: TextAlign.center,
+              style: AppTextStyles.body.copyWith(color: colors.textSecondary),
+            ),
+          ],
+        ),
       ),
     );
   }

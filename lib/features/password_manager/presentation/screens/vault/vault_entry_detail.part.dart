@@ -183,6 +183,9 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
         ? null
         : TotpUtils.fromOtpAuthUri(entry.otpUri!, _nowUtc);
     final strength = evaluatePasswordStrength(entry.password);
+    // C-04-03: the action's label is the HOST, not the whole URL — a record
+    // pointing at a long path would otherwise put it in a button.
+    final entryHost = _entryHost(entry.url);
     final reusedByCount = entry.password.isEmpty
         ? 0
         : context.read<VaultBloc>().state.allEntries.where((other) {
@@ -405,7 +408,10 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                 changedAgoLabel: changedAgo,
               ),
             const SizedBox(height: 10),
-            if (isWide)
+            // spec-019 C-04-03 — the normative action row is
+            // `Copy password` · `Copy username` · `Open <host>`, the last
+            // omitted when the record has no URL (DQ-5).
+            if (isWide) ...[
               Row(
                 children: [
                   Expanded(
@@ -434,8 +440,19 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                     ),
                   ],
                 ],
-              )
-            else
+              ),
+              // `Open <host>` gets its own row rather than a third of the
+              // first: a host is as long as the user's URL, and three pills
+              // sharing a 330 px column wrapped "mail.google.com" mid-word.
+              if (entryHost != null) ...[
+                const SizedBox(height: 8),
+                _CopyPill(
+                  label: 'Open $entryHost',
+                  primary: false,
+                  onTap: () => _openEntryUrl(context, entry.url),
+                ),
+              ],
+            ] else ...[
               KvPillButton(
                 label: 'Copy password',
                 icon: null,
@@ -446,6 +463,15 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                         message: 'Copied password.',
                       ),
               ),
+              if (entryHost != null) ...[
+                const SizedBox(height: 8),
+                KvPillButton(
+                  label: 'Open $entryHost',
+                  icon: null,
+                  onPressed: () => _openEntryUrl(context, entry.url),
+                ),
+              ],
+            ],
             if (isWide) ...[
               const SizedBox(height: 16),
               const _MetadataGridLabel(),
@@ -523,6 +549,18 @@ class _DetailHeader extends StatelessWidget {
                   value: _EntryAction.move,
                   child: _MenuItemContent(icon: AppIcons.move, label: 'Move'),
                 ),
+                // spec-019 C-04-04 is NOT fixed here, deliberately.
+                //
+                // The finding is real — `Attachments` is both this menu item
+                // and a chip in the body — but removing it costs more than it
+                // buys today. The body chip renders only when the record
+                // already HAS an attachment, so this menu item is the only way
+                // to add the first one; and spec 018's mobile characterisation
+                // pins the item at every width (FR-011), a guarantee that must
+                // be re-negotiated in the open rather than silently broken.
+                //
+                // Closing it properly means making the section permanent with
+                // its count, which is a journey-04 change. Left to spec 020.
                 _RoundedPopupItem(
                   value: _EntryAction.attachments,
                   child: _MenuItemContent(
@@ -643,6 +681,9 @@ class _CopyPill extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Text(
             label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
             style: primary
                 ? TextStyle(
                     fontFamily: AppTextStyles.headingFamily,
@@ -919,4 +960,55 @@ PasswordGeneratorOptions _optionsFromPassword(String password) {
     includeDigits: anySet ? hasDigit : true,
     includeSymbols: anySet ? hasSymbol : true,
   );
+}
+
+/// spec-019 C-04-03 — the host of [url], or null when there is nothing
+/// openable.
+///
+/// A bare `example.com` parses as a URI with an empty host and a path, which
+/// is the common shape in a vault: users type the domain, not the scheme. So
+/// an authority-less value is retried with `https://` before giving up.
+String? _entryHost(String url) {
+  final trimmed = url.trim();
+  if (trimmed.isEmpty) {
+    return null;
+  }
+  final parsed = Uri.tryParse(trimmed);
+  if (parsed == null) {
+    return null;
+  }
+  if (parsed.hasAuthority && parsed.host.isNotEmpty) {
+    return parsed.host;
+  }
+  final assumed = Uri.tryParse('https://$trimmed');
+  if (assumed != null && assumed.host.isNotEmpty) {
+    return assumed.host;
+  }
+  return null;
+}
+
+/// Opens [url] in the browser, assuming `https` when the record omits the
+/// scheme. Failure is reported rather than swallowed — the same shape the
+/// Settings destination already uses for external links.
+Future<void> _openEntryUrl(BuildContext context, String url) async {
+  final trimmed = url.trim();
+  final parsed = Uri.tryParse(trimmed);
+  final target = (parsed != null && parsed.hasScheme)
+      ? trimmed
+      : 'https://$trimmed';
+
+  var opened = false;
+  try {
+    opened = await launchUrl(
+      Uri.parse(target),
+      mode: LaunchMode.externalApplication,
+    );
+  } catch (_) {
+    opened = false;
+  }
+  if (!opened && context.mounted) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Unable to open $target')));
+  }
 }

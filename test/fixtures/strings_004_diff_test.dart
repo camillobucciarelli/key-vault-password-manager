@@ -68,6 +68,13 @@ const _approvedSupersededLiterals = <String>{
   // it searches ("Search 42 items"). It also no longer searches folders, since
   // folders are not in the list.
   'Search records and folders',
+  // The empty state pointed at affordances that no longer exist. "the folder
+  // menu" was the folder row's ••• , deleted with the folder rows; the copy
+  // now points at the add button. And a search that finds nothing finds no
+  // records — it was never going to find a folder, because the list holds
+  // none.
+  'Use the folder menu to add records or subfolders.',
+  'No records or folders found',
   // FR-7: the tablet metadata grid uses the spec's own literal labels
   // ("Created", "Updated", "Last password change") instead of the old
   // Record-info dialog's ("Last modified", "Password changed").

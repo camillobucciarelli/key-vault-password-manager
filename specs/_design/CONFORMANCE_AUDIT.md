@@ -232,6 +232,12 @@ field rows, strength strip, TOTP row and reveal countdown all exist as designed
 
 ### C-04-01 · Empty state copy is undesigned *[visual]*
 
+**Resolved** — the detail's empty state now uses the design's empty-state
+recipe: a 74 px feature circle, a Caprasimo title and 13.5 body, matching the
+recycle bin's. The copy itself is unchanged.
+
+
+
 `No item selected` / `Select a record from the list to view all details and copy
 fields.` (`vault_entries_details.part.dart:511`) has no artboard. The design's
 empty states elsewhere use a feature circle + Caprasimo title + 13.5 body.
@@ -247,12 +253,36 @@ column that scrolls.
 
 ### C-04-03 · The action row is missing `Open <host>`
 
+**Resolved** — `Open <host>` is offered when the record has a URL and omitted
+when it does not, with the host as the label rather than the whole URL. It
+takes its own row beneath the two copy actions: three pills sharing a 330 px
+column wrapped `mail.google.com` mid-word. A record that stores a bare domain
+(the common case — users type `github.com`, not the scheme) is opened as
+`https://`, and a failure to open is reported rather than swallowed.
+
+
+
 **Normative inventory**: `Copy password` (primary) · `Copy username` ·
 `Open <host>`, the last omitted when the record has no URL.
 **Implemented**: `Copy password` and `Copy username` only
 (`vault_entry_detail.part.dart:413`).
 
 ### C-04-04 · `Attachments` is in the overflow menu as well as a section
+
+**Still open — attempted and reverted, deliberately.** Removing the menu item
+was tried and backed out for two reasons, both found by the tests:
+
+1. The body chip renders only when the record **already has** an attachment, so
+   the menu item is currently the only way to add the first one. Removing it
+   creates a dead end. Closing the finding properly means making the section
+   permanent with its count — a journey-04 change, not a deletion.
+2. Spec 018's mobile characterisation pins the item at every width (FR-011).
+   That guarantee can be re-negotiated, but in the open and in the spec that
+   owns it, not silently.
+
+Left to spec 020, with the shape of the fix now known.
+
+
 
 **Normative**: attachments are a section with a count and a `Manage` action;
 the header overflow carries object management only.
