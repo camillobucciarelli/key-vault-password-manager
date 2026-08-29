@@ -159,15 +159,21 @@ At every width the vault pane is `strip card + entries card`. The design's
 tablet list column is `search · count · sort · rows` with the database identity
 living in the folder column instead.
 
-### C-03-13 · Rail destination glyphs
+### C-03-13 · Rail and tab bar destination glyphs
 
-**Design** (rail and tab bar, both artboards): Vault = padlock.
-**Implemented**: `VaultDestination.vault → AppGlyph.folder`
-(`vault_shell.part.dart:891`). Sync is drawn as two arrows in the artboards and
-`ICONS.md` maps `sync → refresh-cw`; the code uses `AppGlyph.cloud`.
-*Open question for the designer*: the artboards draw the Settings tab with a
-sun-like glyph while `ICONS.md` maps `settings → settings` (gear). The code
-follows `ICONS.md`; treating the artboard as drift needs confirmation.
+Resolved by the design source on 2026-08-29 (DQ-4 below): `ICONS.md` is
+normative for glyph identity.
+
+- **Vault**: must be `lock`. Implemented as `AppGlyph.folder`
+  (`vault_shell.part.dart:891`). `folder` stays mapped to Groups — the folders
+  are the groups, not the vault, so there is no collision.
+- **Sync**: must be `refresh-cw`. Implemented as `AppGlyph.cloud`.
+- **Settings**: `settings` (gear). The code is already right; the sun drawn in
+  the `03` artboards is an error, not a variant — `sun` is already the theme
+  selector, so using it for Settings collides inside one set.
+
+The vendored assets are the real Lucide paths at stroke 2.75
+(`assets/icons/lucide/`), so nothing is owed on the asset side.
 
 ### C-03-14 · Selected rail destination has no fill
 
@@ -189,13 +195,37 @@ field rows, strength strip, TOTP row and reveal countdown all exist as designed
 fields.` (`vault_entries_details.part.dart:511`) has no artboard. The design's
 empty states elsewhere use a feature circle + Caprasimo title + 13.5 body.
 
-### C-04-02 · Bottom action row *[visual]*
+### C-04-02 · Action row position — **closed, code is right**
 
-The 03 artboard ends the detail with `Copy password · Move · Attachments · 1`;
-the 04-06 artboard puts `Copy password / Copy username / Open <host>` at the
-top. The code follows 04-06. Per DQ-1 the 03 artboard is normative for the
-*shell*, 04-06 for the *detail internals*, so this is likely fine — worth one
-line of confirmation from the designer.
+Confirmed by the design source (DQ-5): the actions belong at the top, per the
+04-06 artboard. The bottom row in `03`'s 1a panel is a single exception that
+`03` already contradicts itself on — its own 1c model puts the same three
+actions at the top — it mixes registers (a credential action beside object
+management and a counter), and `margin-top:auto` does not survive a persistent
+column that scrolls.
+
+### C-04-03 · The action row is missing `Open <host>`
+
+**Normative inventory**: `Copy password` (primary) · `Copy username` ·
+`Open <host>`, the last omitted when the record has no URL.
+**Implemented**: `Copy password` and `Copy username` only
+(`vault_entry_detail.part.dart:413`).
+
+### C-04-04 · `Attachments` is in the overflow menu as well as a section
+
+**Normative**: attachments are a section with a count and a `Manage` action;
+the header overflow carries object management only.
+**Implemented**: `_EntryAction.attachments` is a menu item
+(`vault_entry_detail.part.dart:527`) *and* reachable from the body row, so the
+same affordance exists twice.
+
+### C-04-05 · No `Duplicate` record action — **deliberately deferred**
+
+The normative overflow inventory is `Move / Delete / Duplicate`. Duplicating a
+record does not exist anywhere in the app: no `_EntryAction`, no `VaultEvent`,
+no service call. Adding it is a **new feature**, which the catalogue's own
+assumption forbids ("Zero funzionalità nuove inventate"). Recorded here and not
+implemented; it needs a product decision, not a conformance fix.
 
 ---
 
@@ -219,3 +249,43 @@ desktop) close them.
 | **022** | Pixel pass on journeys 10–12 and dark mode | ditto |
 
 Spec 019 depends on spec 018's `VaultLayoutClass`, so it stacks on that branch.
+
+---
+
+## Design decisions taken during this audit
+
+Answered by the design source on 2026-08-29. Normative from here on.
+
+- **DQ-4 — glyph identity**: DQ-1's split applies by *axis*, not by file. The
+  artboards are normative for **layout and geometry**; the written documents are
+  normative for **glyph identity and mapping**. So `ICONS.md` wins on which
+  glyph a slot uses. Consequences in C-03-13. The artboards themselves are owed
+  three corrections (below).
+- **DQ-5 — detail action row**: top, per 04-06. Full normative inventory for
+  the detail panel: header with avatar + title + `Edit`; action row
+  `Copy password` / `Copy username` / `Open <host>`; fields; `Attachments` as a
+  section with its count; `Move` / `Delete` / `Duplicate` in the header's
+  `more-vertical` overflow.
+
+### Owed in the design project *(not this repo's work)*
+
+Carried forward from spec 018's list, plus what DQ-4 adds:
+
+- `03`: rail `76 → 72`; Settings glyph sun → `settings` in the tab bar (line 81)
+  and the rail (line 94); Vault glyph redrawn from the real Lucide `lock`.
+- `04-06`: list `352 → 330` in both artboards; remove `opacity:.5` from the list
+  in "Editor con generatore aperto".
+- Add a drawn artboard for the 704–940 folder-collapsed band.
+- The hand-drawn glyph paths across the artboards (`lock`, `refresh-cw`,
+  `shield-check`) are approximations, not Lucide. Under "do not mix sets" a
+  redrawn padlock is effectively a third set. The real Lucide path at stroke
+  2.75 is normative and the artboards follow it, not the other way round. The
+  repo's vendored assets are already correct.
+
+### Applied in this repo on 2026-08-29
+
+- `ICONS.md` (both copies): added `— (new) | lock | Vault tab, vault slot of
+  the rail`.
+- `PIXEL_SPEC.md` (both copies): "Tablet columns" rewritten to the single
+  values `72` / `330`, with the generator column and the derived thresholds —
+  the correction spec 018 owed.
