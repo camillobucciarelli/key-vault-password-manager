@@ -168,8 +168,25 @@ class _EntryDialogState extends State<_EntryDialog> {
     _showOtp = _otpUriController.text.isNotEmpty;
   }
 
+  /// Captured in `didChangeDependencies` rather than read in `dispose`: by
+  /// teardown the scope may already be gone, and the repo's golden convention
+  /// forbids resolving a dependency during disposal for exactly that reason.
+  ValueNotifier<bool>? _generatorColumnOpen;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _generatorColumnOpen = VaultShellRouterScope.of(context).generatorColumnOpen;
+  }
+
   @override
   void dispose() {
+    // The flag says "the editor is showing its generator column". Only `Use`
+    // used to clear it, so cancelling or saving with the column open left the
+    // shell demoting `wideWithFolders` to `wide` for the rest of the session —
+    // the folder column vanished until another full open-and-Use cycle. Every
+    // way out of the editor is a way out of the generator column.
+    _generatorColumnOpen?.value = false;
     _titleController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
@@ -249,7 +266,7 @@ class _EntryDialogState extends State<_EntryDialog> {
       setState(() => _showTabletGenerator = true);
       // FR-002e: tell the shell to drop the folder column — that is what
       // makes room for this one. The records list is never what collapses.
-      VaultShellRouterScope.of(context).generatorColumnOpen.value = true;
+      _generatorColumnOpen?.value = true;
       return;
     }
     final result = await _showPasswordGeneratorSheet(
@@ -415,9 +432,7 @@ class _EntryDialogState extends State<_EntryDialog> {
                       _passwordController.text = password;
                       _dirtyFields.add('password');
                       _showTabletGenerator = false;
-                      VaultShellRouterScope.of(
-                        context,
-                      ).generatorColumnOpen.value = false;
+                      _generatorColumnOpen?.value = false;
                     }),
                   ),
                 ),

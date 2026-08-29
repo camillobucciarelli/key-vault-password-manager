@@ -175,9 +175,18 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   }
 
   void _onGeneratorColumnChanged() {
-    if (mounted && !_isDisposing) {
-      setState(() {});
+    if (!mounted || _isDisposing) {
+      return;
     }
+    // Deferred rather than immediate: the editor clears this flag from its own
+    // `dispose`, which runs while the element tree is locked, and a synchronous
+    // `setState` there throws. The flag only selects a layout — never the
+    // outcome of a pending write — so a frame's delay costs nothing.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_isDisposing) {
+        setState(() {});
+      }
+    });
   }
 
   @override

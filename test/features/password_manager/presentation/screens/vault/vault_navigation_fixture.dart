@@ -15,6 +15,15 @@ import 'package:password_manager/features/password_manager/domain/models/vault_e
 import 'package:password_manager/features/password_manager/domain/models/vault_group.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_snapshot.dart';
 
+/// The passwords below are fixture data and are written to look like it.
+///
+/// They were high-entropy invented strings until GitGuardian's
+/// "Username Password" detector flagged the `CB77219` pair on PR #175 — a
+/// correct detection of a fake credential. They keep the length (16) and the
+/// four character classes the strength strip needs to read `Strong`, so no
+/// golden moves; what changed is that they no longer read as a credential in a
+/// repository where a real one would matter.
+
 /// One recorded mutating call against the vault.
 class RecordedVaultCall {
   const RecordedVaultCall(this.kind, this.entryId, [this.fields = const {}]);

@@ -226,6 +226,45 @@ void main() {
     expect(opacities, isEmpty, reason: 'the list stays fully legible');
   });
 
+  // ---- The generator column must not strand the folder column ------------
+  //
+  // Reported by the PR reviewer on #175. `generatorColumnOpen` was set when the
+  // editor opened its generator column and cleared only by `Use`, so cancelling
+  // or saving with the column open left the shell demoting `wideWithFolders` to
+  // `wide` for the rest of the vault session.
+
+  testWidgets('cancelling the editor with the generator open restores the '
+      'folder column', (tester) async {
+    await pumpAt(tester, 1024);
+    expect(
+      find.byKey(const ValueKey('vault-folder-pane')),
+      findsOneWidget,
+      reason: '1024 >= 941, so the folder column is part of the strip',
+    );
+
+    await openGmail(tester);
+    await tester.tap(inDetail(find.byTooltip('Edit')));
+    await tester.pumpAndSettle();
+    await tester.tap(inDetail(find.byTooltip('Generate secure password')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('vault-folder-pane')),
+      findsNothing,
+      reason: 'FR-002e — the generator column collapses the folder column',
+    );
+
+    await tester.tap(inDetail(find.text('Cancel')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('vault-folder-pane')),
+      findsOneWidget,
+      reason: 'every way out of the editor is a way out of the generator '
+          'column — not only Use',
+    );
+  });
+
   // ---- T035: US3, the generator column vs sheet --------------------------
 
   testWidgets('at 1024 the generator opens as a column, not stacked on the '
