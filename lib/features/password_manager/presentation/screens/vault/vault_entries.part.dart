@@ -543,6 +543,7 @@ class _RecordsCountLine extends StatelessWidget {
           _VaultHeaderIconButton(
             tooltip: 'Add record',
             glyph: AppGlyph.add,
+            filled: true,
             onPressed: onAddRecord,
           ),
           const SizedBox(width: 4),

@@ -1471,6 +1471,7 @@ class _VaultListHeader extends StatelessWidget {
             _VaultHeaderIconButton(
               tooltip: 'Add record',
               glyph: AppGlyph.add,
+              filled: true,
               onPressed: onAddRecord,
             ),
           ],
@@ -1485,11 +1486,18 @@ class _VaultHeaderIconButton extends StatelessWidget {
     required this.tooltip,
     required this.glyph,
     required this.onPressed,
+    this.filled = false,
   });
 
   final String tooltip;
   final AppGlyph glyph;
   final VoidCallback onPressed;
+
+  /// spec-019 C-03-01: the add affordance is an `accent-300` filled button,
+  /// not a bare glyph — it is the header's one primary action and the design
+  /// gives it the only fill in the row. The 44 px target is the button's, not
+  /// the fill's: the visible circle is 36 (PIXEL_SPEC §2).
+  final bool filled;
 
   @override
   Widget build(BuildContext context) {
@@ -1501,7 +1509,18 @@ class _VaultHeaderIconButton extends StatelessWidget {
         tooltip: tooltip,
         onPressed: onPressed,
         padding: EdgeInsets.zero,
-        icon: KvIcon(glyph: glyph, size: 19, color: colors.textPrimary),
+        style: filled
+            ? IconButton.styleFrom(
+                backgroundColor: AppColors.accent300,
+                fixedSize: const Size.square(36),
+                shape: const CircleBorder(),
+              )
+            : null,
+        icon: KvIcon(
+          glyph: glyph,
+          size: 19,
+          color: filled ? AppColors.accent900 : colors.textPrimary,
+        ),
       ),
     );
   }
