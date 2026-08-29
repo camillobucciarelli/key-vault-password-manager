@@ -27,9 +27,10 @@ void main() {
       await tester.pumpAndSettle();
 
       // Root folder's "Add record" -> new-item editor -> generator sheet.
-      await tester.tap(find.byTooltip('Folder actions'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Add record'));
+      // spec-019 T045: `Add record` is the vault's own add affordance now,
+      // filing into the selected folder, instead of an action on a folder row
+      // in the records list (FR-002a).
+      await tester.tap(find.byTooltip('Add record'));
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('Generate secure password'));
       await tester.pumpAndSettle();
@@ -194,9 +195,10 @@ void main() {
       await tester.pumpAndSettle();
 
       final routesBefore = _routeCount(tester);
-      await tester.tap(find.byTooltip('Folder actions'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Add record'));
+      // spec-019 T045: `Add record` is the vault's own add affordance now,
+      // filing into the selected folder, instead of an action on a folder row
+      // in the records list (FR-002a).
+      await tester.tap(find.byTooltip('Add record'));
       await tester.pumpAndSettle();
 
       expect(

@@ -106,27 +106,7 @@ List<Widget> _adaptiveDialogActions(
       .toList(growable: false);
 }
 
-String _syncStatusLabel(DatabaseSyncStatus status) {
-  return switch (status) {
-    DatabaseSyncStatus.idle => 'Idle',
-    DatabaseSyncStatus.syncing => 'Syncing',
-    DatabaseSyncStatus.success => 'Synced',
-    DatabaseSyncStatus.error => 'Error',
-    DatabaseSyncStatus.conflict => 'Conflict',
-    DatabaseSyncStatus.disconnected => 'Disconnected',
-  };
-}
 
-Color _syncStatusColor(DatabaseSyncStatus status, ColorScheme colorScheme) {
-  return switch (status) {
-    DatabaseSyncStatus.idle => colorScheme.outline,
-    DatabaseSyncStatus.syncing => colorScheme.primary,
-    DatabaseSyncStatus.success => AppColors.success,
-    DatabaseSyncStatus.error => colorScheme.error,
-    DatabaseSyncStatus.conflict => AppColors.warning,
-    DatabaseSyncStatus.disconnected => colorScheme.outline,
-  };
-}
 
 void _showSyncSnackBar(
   BuildContext context,

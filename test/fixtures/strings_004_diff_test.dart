@@ -25,6 +25,10 @@ const _sectionToCurrentFiles = <String, List<String>>{
     // vault_lock_overlay.part.dart — "Unlock vault" (the biometric
     // `authenticate(reason:)` string) now lives there.
     'lib/features/password_manager/presentation/screens/vault/vault_lock_overlay.part.dart',
+    // spec-019 T026: the folder row left the records list for the folder
+    // column and `Manage folders`, so the strings it carried now live in the
+    // shared tree widget. Moved, not dropped.
+    'lib/core/widgets/kv_folder_tree.dart',
   ],
   'vault_dialog_password.part.dart': [
     // spec-005: moved presentation/utils -> domain/utils (pure logic, no
@@ -44,6 +48,26 @@ const _sectionToCurrentFiles = <String, List<String>>{
 /// reviewed and justified here — see spec-004's spec.md FR-1/FR-2/FR-3/
 /// FR-5/FR-6 for the corresponding mock/requirement.
 const _approvedSupersededLiterals = <String>{
+  // ── spec-019, journey 03 to navigation model 1a ────────────────────────
+  // The records list stopped rendering the folder tree (FR-007, C-03-03), so
+  // the folder row's own chrome went with it. Each of these described a
+  // folder row inside the list, and there is no longer such a thing:
+  //
+  //   * the chevron tooltips are now per-folder in the column
+  //     ("Expand Work" / "Collapse Work"), because a tree of folders needs to
+  //     say WHICH folder it is offering to unfold;
+  //   * the `ROOT` badge marked the root folder among the list's rows; the
+  //     column's first row is `All items` and needs no badge to say so;
+  //   * " folders • " was part of the folder row's subtitle, and management
+  //     rows carry no subtitle at all (FR-006b).
+  'Expand folder',
+  'Collapse folder',
+  'ROOT',
+  ' folders • ',
+  // FR-008 / C-03-05: the search field's placeholder carries the count of what
+  // it searches ("Search 42 items"). It also no longer searches folders, since
+  // folders are not in the list.
+  'Search records and folders',
   // FR-7: the tablet metadata grid uses the spec's own literal labels
   // ("Created", "Updated", "Last password change") instead of the old
   // Record-info dialog's ("Last modified", "Password changed").

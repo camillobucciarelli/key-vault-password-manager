@@ -53,14 +53,31 @@ void main() {
   /// Selected-marked widgets **inside the records list only**. Scoping
   /// matters: the navigation rail marks its current destination selected too,
   /// and that is not a record row.
+  ///
+  /// spec-019: the folder chip row moved into this pane below 941, and the
+  /// active chip announces its selected state as it must (Constitution V) —
+  /// so it is excluded here for the same reason the rail always was. This is
+  /// a widening of the existing scope rule, not a change to any assertion:
+  /// every expectation below still reads "exactly one **record row**".
   Iterable<Semantics> selectedRowSemantics(WidgetTester tester) => tester
       .widgetList<Semantics>(
         find.descendant(
           of: find.byKey(const ValueKey('vault-list-pane')),
           matching: find.byType(Semantics),
+          matchRoot: false,
         ),
       )
-      .where((widget) => widget.properties.selected ?? false);
+      .where((widget) => widget.properties.selected ?? false)
+      .where(
+        (widget) => !tester
+            .elementList(
+              find.descendant(
+                of: find.byKey(const ValueKey('vault-folder-chips')),
+                matching: find.byWidget(widget),
+              ),
+            )
+            .isNotEmpty,
+      );
 
   // ---- T012: one detail, one highlighted row -----------------------------
 

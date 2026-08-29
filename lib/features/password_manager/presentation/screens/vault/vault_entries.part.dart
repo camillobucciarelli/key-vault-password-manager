@@ -43,22 +43,38 @@ Future<void> _openEntryDetailsSurface(
 
 class _EntriesCard extends StatefulWidget {
   const _EntriesCard({
+    required this.showSortControl,
+    required this.onAddRecord,
     required this.entries,
     required this.groups,
-    required this.rootGroupId,
     required this.currentGroupId,
-    required this.expandedGroupIds,
     required this.searchQuery,
+    required this.sortBy,
     required this.selectedEntryId,
     required this.onSelectEntry,
+    this.subfolderIds = const {},
   });
+
+  /// FR-009 vs FR-009a: the inline sort control belongs to the width that has
+  /// a folder column. Narrower than that, the header's sort affordance opens
+  /// the `Sort` sheet instead, and rendering both would be two controls for
+  /// one setting.
+  final bool showSortControl;
+  final VoidCallback onAddRecord;
 
   final List<VaultEntry> entries;
   final List<VaultGroup> groups;
-  final String? rootGroupId;
+
+  /// The selected folder. The card does not filter by it — the BLoC already
+  /// did (FR-006h) — it only needs it to say which records are on loan from a
+  /// subfolder (FR-006j).
   final String? currentGroupId;
-  final List<String> expandedGroupIds;
   final String searchQuery;
+  final VaultEntrySort sortBy;
+
+  /// The descendants of the selected folder, empty when it is a leaf. Non-empty
+  /// is what makes the count line say `· incl. subfolders` (FR-006i).
+  final Set<String> subfolderIds;
 
   /// spec-018 FR-001a/FR-003: selection is shell-owned. This card renders no
   /// detail of its own and keeps no selection state — it marks the row the
@@ -73,10 +89,6 @@ class _EntriesCard extends StatefulWidget {
 class _EntriesCardState extends State<_EntriesCard> {
   late final ScrollController _entriesScrollController;
   late final TextEditingController _searchController;
-  // Groups manually collapsed by the user while a search is active.
-  // Cleared whenever the search query changes.
-  final _searchCollapsed = <String>{};
-
   @override
   void initState() {
     super.initState();
@@ -100,105 +112,9 @@ class _EntriesCardState extends State<_EntriesCard> {
         selection: TextSelection.collapsed(offset: widget.searchQuery.length),
       );
     }
-    if (widget.searchQuery != oldWidget.searchQuery) {
-      _searchCollapsed.clear();
-    }
     // spec-018: the "selection no longer exists" cleanup that used to live
     // here moved to the shell, which is now the single owner (FR-003). A
     // second copy here is what let the highlight and the detail disagree.
-  }
-
-  void _toggleGroup(BuildContext context, String groupId, bool isSearchActive) {
-    if (isSearchActive) {
-      setState(() {
-        if (_searchCollapsed.contains(groupId)) {
-          _searchCollapsed.remove(groupId);
-        } else {
-          _searchCollapsed.add(groupId);
-        }
-      });
-    } else {
-      context.read<VaultBloc>().add(ToggleVaultGroupExpanded(groupId));
-    }
-  }
-
-  Future<void> _handleCreateEntry(
-    BuildContext context, {
-    String? targetGroupId,
-  }) async {
-    final payload = await _showEntryDialog(context);
-    if (payload != null && mounted) {
-      final bloc = this.context.read<VaultBloc>();
-      if (targetGroupId != null) {
-        bloc.add(OpenGroup(targetGroupId));
-      }
-      bloc.add(
-        CreateVaultEntry(
-          title: payload.title,
-          username: payload.username,
-          password: payload.password,
-          url: payload.url,
-          notes: payload.notes,
-          customFields: payload.customFields,
-          attachmentPaths: payload.attachmentPaths,
-        ),
-      );
-    }
-  }
-
-  Future<void> _handleCreateFolder(
-    BuildContext context, {
-    String? targetGroupId,
-  }) async {
-    final name = await _showGroupDialog(context);
-    if (name == null || name.name.trim().isEmpty || !mounted) {
-      return;
-    }
-
-    final bloc = this.context.read<VaultBloc>();
-    if (targetGroupId != null) {
-      bloc.add(OpenGroup(targetGroupId));
-    }
-    bloc.add(CreateVaultGroup(name.name.trim()));
-  }
-
-  Future<void> _handleFolderAction(
-    BuildContext context, {
-    required VaultGroup group,
-    required _FolderAction action,
-  }) async {
-    switch (action) {
-      case _FolderAction.addRecord:
-        await _handleCreateEntry(context, targetGroupId: group.id);
-        break;
-      case _FolderAction.addSubfolder:
-        await _handleCreateFolder(context, targetGroupId: group.id);
-        break;
-      case _FolderAction.rename:
-        await _handleChildGroupAction(
-          context,
-          group: group,
-          action: _ChildGroupAction.rename,
-          allGroups: widget.groups,
-        );
-        break;
-      case _FolderAction.move:
-        await _handleChildGroupAction(
-          context,
-          group: group,
-          action: _ChildGroupAction.move,
-          allGroups: widget.groups,
-        );
-        break;
-      case _FolderAction.delete:
-        await _handleChildGroupAction(
-          context,
-          group: group,
-          action: _ChildGroupAction.delete,
-          allGroups: widget.groups,
-        );
-        break;
-    }
   }
 
   /// spec-018 FR-005/FR-006 (D4, D5) — the record-action contract, C5.
@@ -316,174 +232,16 @@ class _EntriesCardState extends State<_EntriesCard> {
   /// shell's single decision, so push and pane cannot diverge (D1, D9).
   void _openEntry(VaultEntry entry) => widget.onSelectEntry(entry.id);
 
+  /// spec-019 T026 / FR-007 — the records list renders records.
+  ///
+  /// It used to render the group tree too: folder rows, a grouping walk, an
+  /// auto-expanding search and per-folder action menus, all inside the card
+  /// that is supposed to be a list of records (C-03-03). Folders now have
+  /// their own column; `state.visibleEntries` arrives already filtered by the
+  /// selected subtree, already searched and already sorted, and this method
+  /// lays it out.
   Widget _buildEntriesList(BuildContext context) {
-    final normalizedQuery = _normalizeSearchText(widget.searchQuery);
-    final compactQuery = normalizedQuery.replaceAll(' ', '');
-    final isSearchActive = normalizedQuery.isNotEmpty;
-
-    final groups = widget.groups
-        .where((group) => !group.isRecycleBin)
-        .toList(growable: false);
-    final byId = {for (final group in groups) group.id: group};
-    final byParent = <String?, List<VaultGroup>>{};
-    for (final group in groups) {
-      byParent.putIfAbsent(group.parentId, () => <VaultGroup>[]).add(group);
-    }
-    for (final children in byParent.values) {
-      children.sort(
-        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-      );
-    }
-
-    final entriesByGroup = <String, List<VaultEntry>>{};
-    for (final entry in widget.entries) {
-      entriesByGroup
-          .putIfAbsent(entry.groupId, () => <VaultEntry>[])
-          .add(entry);
-    }
-
-    final autoExpanded = <String>{};
-    bool groupMatchesQuery(VaultGroup group) {
-      return isSearchActive &&
-          _matchesSearchValue(group.name, normalizedQuery, compactQuery);
-    }
-
-    if (isSearchActive) {
-      for (final group in groups) {
-        if (!groupMatchesQuery(group)) {
-          continue;
-        }
-
-        autoExpanded.add(group.id);
-        var cursorId = group.parentId;
-        while (cursorId != null) {
-          autoExpanded.add(cursorId);
-          final parent = byId[cursorId];
-          cursorId = parent?.parentId;
-        }
-      }
-
-      for (final entry in widget.entries) {
-        var cursorId = entry.groupId;
-        while (true) {
-          final cursor = byId[cursorId];
-          if (cursor == null) {
-            break;
-          }
-          autoExpanded.add(cursor.id);
-          final parentId = cursor.parentId;
-          if (parentId == null) {
-            break;
-          }
-          cursorId = parentId;
-        }
-      }
-    }
-
-    final visibleGroupMemo = <String, bool>{};
-    bool groupHasVisibleContent(String groupId) {
-      final cached = visibleGroupMemo[groupId];
-      if (cached != null) {
-        return cached;
-      }
-
-      final hasEntries =
-          (entriesByGroup[groupId] ?? const <VaultEntry>[]).isNotEmpty;
-      if (hasEntries) {
-        visibleGroupMemo[groupId] = true;
-        return true;
-      }
-
-      final group = byId[groupId];
-      if (group != null && groupMatchesQuery(group)) {
-        visibleGroupMemo[groupId] = true;
-        return true;
-      }
-
-      final children = byParent[groupId] ?? const <VaultGroup>[];
-      for (final child in children) {
-        if (groupHasVisibleContent(child.id)) {
-          visibleGroupMemo[groupId] = true;
-          return true;
-        }
-      }
-
-      visibleGroupMemo[groupId] = false;
-      return false;
-    }
-
-    final rootId = widget.rootGroupId;
-    final treeItems = <_EntryTreeNode>[];
-    final manualExpanded = widget.expandedGroupIds.toSet();
-
-    void appendGroup(VaultGroup group, int depth) {
-      if (isSearchActive && !groupHasVisibleContent(group.id)) {
-        return;
-      }
-
-      final isExpanded =
-          (manualExpanded.contains(group.id) ||
-              autoExpanded.contains(group.id)) &&
-          !_searchCollapsed.contains(group.id);
-      final isCurrent = widget.currentGroupId == group.id;
-      final children = byParent[group.id] ?? const <VaultGroup>[];
-      final records = entriesByGroup[group.id] ?? const <VaultEntry>[];
-
-      treeItems.add(
-        _EntryTreeNode.group(
-          group: group,
-          depth: depth,
-          isExpanded: isExpanded,
-          isCurrent: isCurrent,
-          isRoot: group.id == rootId,
-          childGroupsCount: children.length,
-          recordsCount: records.length,
-        ),
-      );
-
-      if (!isExpanded) {
-        return;
-      }
-
-      for (final child in children) {
-        appendGroup(child, depth + 1);
-      }
-
-      for (final entry in records) {
-        final isSelected = widget.selectedEntryId == entry.id;
-        treeItems.add(
-          _EntryTreeNode.entry(
-            entry: entry,
-            depth: depth + 1,
-            isSelected: isSelected,
-          ),
-        );
-      }
-    }
-
-    final rootGroup = rootId == null ? null : byId[rootId];
-    if (rootGroup != null) {
-      appendGroup(rootGroup, 0);
-    } else {
-      final fallbackRootChildren = byParent[null] ?? const <VaultGroup>[];
-      for (final group in fallbackRootChildren) {
-        appendGroup(group, 0);
-      }
-    }
-
-    if (treeItems.isEmpty && widget.entries.isNotEmpty) {
-      for (final entry in widget.entries) {
-        treeItems.add(
-          _EntryTreeNode.entry(
-            entry: entry,
-            depth: 0,
-            isSelected: widget.selectedEntryId == entry.id,
-          ),
-        );
-      }
-    }
-
-    if (treeItems.isEmpty) {
+    if (widget.entries.isEmpty) {
       final emptyState = _RecordsEmptyState(
         searchQuery: widget.searchQuery,
         onClearSearch: widget.searchQuery.isNotEmpty
@@ -509,62 +267,32 @@ class _EntriesCardState extends State<_EntriesCard> {
       );
     }
 
+    final groupNames = <String, String>{
+      for (final group in widget.groups) group.id: group.name,
+    };
+
     final bottomInset = MediaQuery.viewPaddingOf(context).bottom + 12;
     final list = ListView.separated(
       controller: _entriesScrollController,
       padding: EdgeInsets.only(bottom: bottomInset),
       physics: const AlwaysScrollableScrollPhysics(),
-      itemCount: treeItems.length,
+      itemCount: widget.entries.length,
       separatorBuilder: (_, _) =>
           const SizedBox(height: _VaultUiTokens.recordListSpacing),
       itemBuilder: (context, index) {
-        final node = treeItems[index];
-        return node.when(
-          group:
-              (
-                group,
-                depth,
-                isExpanded,
-                isCurrent,
-                isRoot,
-                childGroupsCount,
-                recordsCount,
-              ) {
-                return Padding(
-                  padding: EdgeInsets.only(left: depth * 14.0),
-                  child: _FolderListItem(
-                    group: group,
-                    isExpanded: isExpanded,
-                    isCurrent: isCurrent,
-                    isRoot: isRoot,
-                    childGroupsCount: childGroupsCount,
-                    recordsCount: recordsCount,
-                    onOpen: () =>
-                        _toggleGroup(context, group.id, isSearchActive),
-                    onToggleExpand: () =>
-                        _toggleGroup(context, group.id, isSearchActive),
-                    onSelectedAction: (action) async {
-                      await _handleFolderAction(
-                        context,
-                        group: group,
-                        action: action,
-                      );
-                    },
-                  ),
-                );
-              },
-          entry: (entry, depth, isSelected) {
-            return Padding(
-              padding: EdgeInsets.only(left: depth * 14.0),
-              child: _RecordListItem(
-                entry: entry,
-                isSelected: isSelected,
-                onOpen: () => _openEntry(entry),
-                onSelectedAction: (action) {
-                  _handleEntryAction(context, entry.id, action);
-                },
-              ),
-            );
+        final entry = widget.entries[index];
+        return _RecordListItem(
+          entry: entry,
+          isSelected: widget.selectedEntryId == entry.id,
+          // FR-006j: a record shown because it lives *below* the selected
+          // folder says where it actually lives. Without this the subtree
+          // filter silently mixes two folders' records into one list.
+          folderSuffix: widget.subfolderIds.contains(entry.groupId)
+              ? groupNames[entry.groupId]
+              : null,
+          onOpen: () => _openEntry(entry),
+          onSelectedAction: (action) {
+            _handleEntryAction(context, entry.id, action);
           },
         );
       },
@@ -591,7 +319,8 @@ class _EntriesCardState extends State<_EntriesCard> {
               final searchField = TextFormField(
                 controller: _searchController,
                 decoration: InputDecoration(
-                  labelText: 'Search records and folders',
+                  // FR-008 / C-03-05: the field says how much it is searching.
+                  labelText: 'Search ${widget.entries.length} items',
                   prefixIcon: const Icon(AppIcons.search),
                   suffixIcon: widget.searchQuery.isNotEmpty
                       ? Tooltip(
@@ -617,6 +346,14 @@ class _EntriesCardState extends State<_EntriesCard> {
             },
           ),
           const SizedBox(height: 10),
+          _RecordsCountLine(
+            count: widget.entries.length,
+            inclusiveOfSubfolders: widget.subfolderIds.isNotEmpty,
+            sortBy: widget.sortBy,
+            showSortControl: widget.showSortControl,
+            onAddRecord: widget.onAddRecord,
+          ),
+          const SizedBox(height: 8),
           // spec-018 D1/FR-001a: this used to branch on the card's OWN
           // constraints and render a second, router-unaware detail beside
           // the list. That second mechanism is why selection, dismissal and
@@ -636,153 +373,11 @@ class _EntriesCardState extends State<_EntriesCard> {
   }
 }
 
-class _EntryTreeNode {
-  const _EntryTreeNode._({
-    required this.group,
-    required this.entry,
-    required this.depth,
-    required this.isExpanded,
-    required this.isCurrent,
-    required this.isRoot,
-    required this.childGroupsCount,
-    required this.recordsCount,
-    required this.isSelected,
-  });
-
-  factory _EntryTreeNode.group({
-    required VaultGroup group,
-    required int depth,
-    required bool isExpanded,
-    required bool isCurrent,
-    required bool isRoot,
-    required int childGroupsCount,
-    required int recordsCount,
-  }) {
-    return _EntryTreeNode._(
-      group: group,
-      entry: null,
-      depth: depth,
-      isExpanded: isExpanded,
-      isCurrent: isCurrent,
-      isRoot: isRoot,
-      childGroupsCount: childGroupsCount,
-      recordsCount: recordsCount,
-      isSelected: false,
-    );
-  }
-
-  factory _EntryTreeNode.entry({
-    required VaultEntry entry,
-    required int depth,
-    required bool isSelected,
-  }) {
-    return _EntryTreeNode._(
-      group: null,
-      entry: entry,
-      depth: depth,
-      isExpanded: false,
-      isCurrent: false,
-      isRoot: false,
-      childGroupsCount: 0,
-      recordsCount: 0,
-      isSelected: isSelected,
-    );
-  }
-
-  final VaultGroup? group;
-  final VaultEntry? entry;
-  final int depth;
-  final bool isExpanded;
-  final bool isCurrent;
-  final bool isRoot;
-  final int childGroupsCount;
-  final int recordsCount;
-  final bool isSelected;
-
-  T when<T>({
-    required T Function(
-      VaultGroup group,
-      int depth,
-      bool isExpanded,
-      bool isCurrent,
-      bool isRoot,
-      int childGroupsCount,
-      int recordsCount,
-    )
-    group,
-    required T Function(VaultEntry entry, int depth, bool isSelected) entry,
-  }) {
-    final resolvedGroup = this.group;
-    if (resolvedGroup != null) {
-      return group(
-        resolvedGroup,
-        depth,
-        isExpanded,
-        isCurrent,
-        isRoot,
-        childGroupsCount,
-        recordsCount,
-      );
-    }
-
-    return entry(this.entry!, depth, isSelected);
-  }
-}
-
 enum _EntryAction { edit, move, attachments, delete }
 
-enum _FolderAction { addRecord, addSubfolder, rename, move, delete }
 
-bool _matchesSearchValue(
-  String value,
-  String normalizedQuery,
-  String compactQuery,
-) {
-  final normalizedValue = _normalizeSearchText(value);
-  if (normalizedValue.contains(normalizedQuery)) {
-    return true;
-  }
 
-  if (compactQuery.isEmpty) {
-    return false;
-  }
 
-  final compactValue = normalizedValue.replaceAll(' ', '');
-  return compactValue.contains(compactQuery);
-}
-
-String _normalizeSearchText(String value) {
-  final lowered = value.toLowerCase();
-  final folded = _foldAccents(lowered);
-  final normalized = folded
-      .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
-      .trim()
-      .replaceAll(RegExp(r'\s+'), ' ');
-  return normalized;
-}
-
-String _foldAccents(String value) {
-  return value
-      .replaceAll(RegExp(r'[àáâãäåāăą]'), 'a')
-      .replaceAll(RegExp(r'[çćĉċč]'), 'c')
-      .replaceAll(RegExp(r'[ďđ]'), 'd')
-      .replaceAll(RegExp(r'[èéêëēĕėęě]'), 'e')
-      .replaceAll(RegExp(r'[ĝğġģ]'), 'g')
-      .replaceAll(RegExp(r'[ĥħ]'), 'h')
-      .replaceAll(RegExp(r'[ìíîïĩīĭįı]'), 'i')
-      .replaceAll(RegExp(r'[ĵ]'), 'j')
-      .replaceAll(RegExp(r'[ķ]'), 'k')
-      .replaceAll(RegExp(r'[ĺļľŀł]'), 'l')
-      .replaceAll(RegExp(r'[ñńņňŉŋ]'), 'n')
-      .replaceAll(RegExp(r'[òóôõöøōŏő]'), 'o')
-      .replaceAll(RegExp(r'[ŕŗř]'), 'r')
-      .replaceAll(RegExp(r'[śŝşš]'), 's')
-      .replaceAll(RegExp(r'[ţťŧ]'), 't')
-      .replaceAll(RegExp(r'[ùúûüũūŭůűų]'), 'u')
-      .replaceAll(RegExp(r'[ŵ]'), 'w')
-      .replaceAll(RegExp(r'[ýÿŷ]'), 'y')
-      .replaceAll(RegExp(r'[źżž]'), 'z');
-}
 
 OverlayEntry? _activeCopyToastEntry;
 Timer? _activeCopyToastTimer;
@@ -904,4 +499,119 @@ void _hideCenteredCopyToast() {
   _activeCopyToastTimer = null;
   _activeCopyToastEntry?.remove();
   _activeCopyToastEntry = null;
+}
+
+/// spec-019 T027/T028 — the line between the search field and the list:
+/// how many records are shown, and in what order.
+///
+/// The order was already in the state and already applied
+/// (`VaultState.sortBy`, `SetVaultSort`); what was missing was any way to
+/// change it. This adds the control, not the ordering (research R2).
+class _RecordsCountLine extends StatelessWidget {
+  const _RecordsCountLine({
+    required this.count,
+    required this.inclusiveOfSubfolders,
+    required this.sortBy,
+    required this.showSortControl,
+    required this.onAddRecord,
+  });
+
+  final int count;
+  final bool inclusiveOfSubfolders;
+  final VaultEntrySort sortBy;
+  final bool showSortControl;
+  final VoidCallback onAddRecord;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    final label = inclusiveOfSubfolders
+        ? '$count items · incl. subfolders'
+        : '$count items';
+
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.meta.copyWith(color: colors.textSecondary),
+          ),
+        ),
+        if (showSortControl) ...[
+          _VaultHeaderIconButton(
+            tooltip: 'Add record',
+            glyph: AppGlyph.add,
+            onPressed: onAddRecord,
+          ),
+          const SizedBox(width: 4),
+        ],
+        if (showSortControl)
+        PopupMenuButton<VaultEntrySort>(
+          tooltip: 'Sort records',
+          initialValue: sortBy,
+          onSelected: (value) =>
+              context.read<VaultBloc>().add(SetVaultSort(value)),
+          itemBuilder: (context) => [
+            for (final option in VaultEntrySort.values)
+              CheckedPopupMenuItem<VaultEntrySort>(
+                value: option,
+                checked: option == sortBy,
+                child: Text(vaultSortLabel(option)),
+              ),
+          ],
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              KvIcon(
+                glyph: AppGlyph.sort,
+                size: 15,
+                color: colors.textSecondary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                vaultSortLabel(sortBy),
+                style: AppTextStyles.meta.copyWith(color: colors.textSecondary),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The three orders the vault has always had (research R2). Spec 019 surfaces
+/// them; it adds none and renames none.
+String vaultSortLabel(VaultEntrySort sort) => switch (sort) {
+  VaultEntrySort.titleAsc => 'Title A→Z',
+  VaultEntrySort.titleDesc => 'Title Z→A',
+  VaultEntrySort.usernameAsc => 'Username A→Z',
+};
+
+/// spec-019 T045 / FR-002a — create a record in the folder that is selected.
+///
+/// This absorbs the `Add record` action that used to hang off a folder row in
+/// the list. It needs no `OpenGroup` first: `CreateVaultEntry` files into
+/// `state.currentGroupId`, and that is never null — with `All items` selected
+/// it is the root group, which is exactly why FR-002a insists on the root id
+/// rather than a null (`vault_bloc.dart` `_onCreateVaultEntry`).
+Future<void> _createRecordInCurrentFolder(BuildContext context) async {
+  final bloc = context.read<VaultBloc>();
+  final payload = await _showEntryDialog(context);
+  if (payload == null) {
+    return;
+  }
+  bloc.add(
+    CreateVaultEntry(
+      title: payload.title,
+      username: payload.username,
+      password: payload.password,
+      url: payload.url,
+      notes: payload.notes,
+      customFields: payload.customFields,
+      attachmentPaths: payload.attachmentPaths,
+    ),
+  );
 }
