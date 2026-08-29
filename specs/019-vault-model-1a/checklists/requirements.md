@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,15 +31,14 @@
 
 ## Notes
 
-Two `[NEEDS CLARIFICATION]` markers remain, both on the same underlying gap:
-model 1a's artboards draw folders as a **filter** and never draw folder
-management or nesting. The app has both. Neither can be answered from the design
-source, and guessing would either strand an existing capability (Constitution VI)
-or invent UI the artboards do not sanction.
+All 16 items pass.
 
-- FR-006 — which surface owns folder create / rename / move / delete.
-- Edge case "Nested folders" — whether the folder surface shows the whole tree
-  or one level at a time.
+The two `[NEEDS CLARIFICATION]` markers this checklist opened were referred to
+the design source and answered on 2026-08-29 with four new artboards and a
+written decision record (`specs/_design/decisions-folder-management.md`). They
+are now DQ-6 (folder management) and DQ-7 (nesting) in the spec's
+*Design decisions* section, and are carried by FR-005, FR-005a, FR-006 and
+FR-006a…FR-006k.
 
 Named-entity note: `VaultEntrySort` and `VaultState.sortBy` are named in FR-009
 and in the Key Entities. This is deliberate and not an implementation leak: the

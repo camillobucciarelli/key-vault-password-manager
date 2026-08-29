@@ -118,8 +118,9 @@ reach each one after it.
 **Acceptance Scenarios**:
 
 1. **Given** the reworked vault, **When** the user wants to create, rename, move
-   or delete a folder, **Then** there is exactly one place to do it and it is
-   discoverable from the folder surface itself.
+   or delete a folder, **Then** `Manage folders` is the one place to do it,
+   reached from `Manage` in the header of the folder surface — a dialog on the
+   desktop, a pushed screen on the phone, the same surface either way.
 2. **Given** the reworked vault, **When** the user wants the recycle bin or the
    duplicates view, **Then** both are reachable in one interaction from the
    vault screen at every width.
@@ -184,10 +185,9 @@ reach it.
   state, and the folder column still shows `All items` with a zero count.
 - **No folders**: the chip row and the folder column have `All items` only; the
   chip row does not occupy space it cannot use.
-- **Nested folders**: the vault supports folders inside folders; a flat chip row
-  and a flat column must still make every folder reachable
-  [NEEDS CLARIFICATION: does the folder surface show the full tree, or only the
-  children of the current folder with a way to descend?].
+- **Nested folders**: resolved by DQ-6 — the folder column and the phone
+  `Folders` sheet show the same collapsible tree; the chip row shows the first
+  level only. Selecting a node filters that node **and its descendants**.
 - **Very long folder name / very large counts**: rows truncate rather than wrap
   or overflow.
 - **400+ records**: the list scrolls without the header, search or count line
@@ -215,12 +215,46 @@ reach it.
 - **FR-004**: The folder column MUST offer `Recycle bin` and `Duplicates` at its
   foot, each with its count, reaching the same surfaces they reach today.
 - **FR-005**: On the phone, folders MUST be presented as a single row of filter
-  chips beneath the search field, `All` first.
-- **FR-006**: Folder management — create, rename, move, delete — MUST remain
-  available with unchanged wording and confirmations
-  [NEEDS CLARIFICATION: model 1a draws no folder management at all; which
-  surface owns it — an overflow on each folder entry, an action in the folder
-  column's header, or the Settings destination?].
+  chips beneath the search field: a `Folders` chip first, then `All`, then the
+  **first-level** folders only. Deeper folders are reached through the `Folders`
+  sheet, never by lengthening the chip row.
+- **FR-005a**: The `Folders` chip MUST open a sheet showing the same tree as the
+  desktop folder column, with the same expansion state and the same selected
+  row. Choosing a folder MUST filter, close the sheet, and become the active
+  chip.
+- **FR-006**: Folder management MUST live in one surface, `Manage folders`,
+  which is the **same surface at every width** — the same tree, the same
+  `New folder`, the same per-row `Rename · Move… · Delete`. Only its container
+  differs: a centred dialog where the folder column is visible, a pushed screen
+  on the phone.
+- **FR-006a**: There MUST be exactly one entry point to `Manage folders` per
+  width, and it MUST sit in the header of the folder surface — `Manage` in the
+  folder column's header, `Manage` at the head of the phone `Folders` sheet. No
+  additional menu is added to the phone header.
+- **FR-006b**: `Manage folders` MUST show the tree fully expanded, without
+  subtitles: position is carried by indentation.
+- **FR-006c**: The rows of the folder column and the chips MUST carry **no
+  actions at all**. They are filters.
+- **FR-006d**: The confirmations and user-facing strings of `Rename`, `Move…`
+  and `Delete` MUST be taken verbatim from the code as it stands today
+  (Constitution VI).
+- **FR-006e**: A folder's parent MUST be changed only through `Move…`.
+
+#### The folder tree
+
+- **FR-006f**: A chevron MUST appear only on nodes that have children, and it
+  MUST be a separate target from the row: expanding or collapsing MUST NOT
+  change the filter.
+- **FR-006g**: The expansion state MUST be shared by the folder column and the
+  phone sheet, and persisted per database.
+- **FR-006h**: Selecting a folder MUST filter that folder **and its
+  descendants**.
+- **FR-006i**: Folder counts MUST be inclusive of subfolders, and the list MUST
+  say so (`<n> items · incl. subfolders`).
+- **FR-006j**: A record shown because it lives in a subfolder of the selected
+  folder MUST name that subfolder in its subtitle (`· in <folder>`).
+- **FR-006k**: The selected row MUST use one style everywhere — the desktop
+  column's — and the `•••` menu MUST use one recipe everywhere.
 
 #### The records list
 
@@ -283,10 +317,51 @@ reach it.
 - **Sort choice**: the existing `VaultEntrySort`, surfaced rather than
   introduced.
 
+## Design decisions *(resolved)*
+
+Both questions this spec opened were referred to the design source and answered
+on 2026-08-29, with four new artboards (`2a` desktop, `2b`–`2d` phone) in
+`03 Vault - modelli di navigazione.dc.html` and a written record now mirrored at
+`specs/_design/decisions-folder-management.md`. The repo's copy of the artboard
+file is re-synced from the project.
+
+- **DQ-6 — folder management**: one surface, `Manage folders`, identical at
+  every width; only the container changes. One entry point per width, always in
+  the header of the folder surface. The column rows and the chips carry no
+  actions — they are filters. The dialog adds no column, so the width
+  arithmetic of spec 018 is untouched.
+- **DQ-7 — nesting**: a collapsible tree in the column and the phone sheet with
+  shared, persisted expansion state; first-level chips only on the phone;
+  the management surface always fully expanded; counts inclusive of subfolders
+  and declared as such; the parent changed only through `Move…`.
+
+### Behaviour this spec deliberately changes
+
+The design's folder menu is `Rename · Move… · Delete`. Today's tree rows offer
+two more, which lose their current home. Both are recorded here rather than
+silently dropped (Constitution VI):
+
+- **`Add record`** — the design's add affordance already creates into the folder
+  the user is in ("Saved into Devs — the folder you were in", journey 05), which
+  is what the row action did. It moves to the header's add button; no capability
+  is lost.
+- **`Add subfolder`** — becomes `New folder` followed by `Move…`, one interaction
+  more than today. Accepted because DQ-6 states the parent is changed only
+  through `Move…`, and a second way to set a parent is the kind of duplicated
+  affordance this whole spec exists to remove.
+
+Still owed by the design source: the 704–940 artboard (folder column collapsed,
+switcher on the rail). Spec 018 already handles that band with the folder
+navigation the list provides, and this spec does not regress it.
+
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
+- **SC-000**: Folder management is reachable from exactly one place at each
+  width, and the tree, the `New folder` action, the `•••` recipe and the
+  selected-row style are the same on the desktop dialog and the phone screen —
+  verified by comparing the two surfaces item for item.
 - **SC-001**: Every one of the 17 audit findings in scope
   (`C-SH-03`, `C-03-01` … `C-03-14`) is closed or explicitly re-recorded as
   deferred with a reason.
@@ -317,6 +392,9 @@ reach it.
   not regenerate it.
 - The ordering behaviour is already correct in the vault; only its control is
   missing, so no comparator changes.
+- DQ-6/DQ-7 are settled and are not reopened by the plan.
+- The vault already supports every folder operation this spec rehomes; nothing
+  in `Manage folders` is a new capability.
 - The entry detail panel is out of scope; `C-04-01`, `C-04-03` and `C-04-04`
   stay open in the audit for a later spec.
 - `C-04-05` (`Duplicate` a record) is a new feature and is not built here.
