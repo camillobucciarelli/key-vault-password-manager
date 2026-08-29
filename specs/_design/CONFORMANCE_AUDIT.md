@@ -329,9 +329,13 @@ desktop) close them.
 | Spec | Scope | Why separate |
 | --- | --- | --- |
 | **019** | Journey 03 to model 1a + shell chrome (C-SH-01…03, C-03-01…14) | One structural change: the vault shell. Carries the visible defect. |
-| **020** | Pixel pass on journeys 01–02 and 04–06 | Needs the visual pass first |
-| **021** | Pixel pass on journeys 07–09 | ditto |
-| **022** | Pixel pass on journeys 10–12 and dark mode | ditto |
+| **020** | Pixel pass on journeys 01–02 and 04–06, **plus C-04-04** | Drafted at `specs/020-journey-01-06-pixel-pass/`. C-04-04 is specifiable today; the rest needs the visual pass |
+| **021** | Pixel pass on journeys 07–09 | Drafted at `specs/021-journey-07-09-pixel-pass/`, blocked on screenshots |
+| **022** | Pixel pass on journeys 10–12 and dark mode | Drafted at `specs/022-journey-10-12-dark-mode/`, blocked on screenshots |
+
+All three drafts carry **no `tasks.md`** on purpose: a spec without one shows as
+`Todo` on the board with its body as the explanation, which is the honest state
+for work whose scope is not yet knowable.
 
 Spec 019 depends on spec 018's `VaultLayoutClass`, so it stacks on that branch.
 
