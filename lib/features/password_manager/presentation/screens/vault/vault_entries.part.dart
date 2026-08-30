@@ -347,7 +347,24 @@ class _EntriesCardState extends State<_EntriesCard> {
                 },
               );
 
-              return searchField;
+              if (!widget.showSortControl) return searchField;
+
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(child: searchField),
+                  const SizedBox(width: 8),
+                  _VaultHeaderIconButton(
+                    tooltip: 'Add record',
+                    glyph: AppGlyph.add,
+                    filled: true,
+                    // Beside the search field the standard 36 circle read too
+                    // heavy; 32 sits optically centred on the field's height.
+                    fillSize: 32,
+                    onPressed: widget.onAddRecord,
+                  ),
+                ],
+              );
             },
           ),
           const SizedBox(height: 10),
@@ -356,7 +373,6 @@ class _EntriesCardState extends State<_EntriesCard> {
             inclusiveOfSubfolders: widget.subfolderIds.isNotEmpty,
             sortBy: widget.sortBy,
             showSortControl: widget.showSortControl,
-            onAddRecord: widget.onAddRecord,
           ),
           const SizedBox(height: 8),
           // spec-018 D1/FR-001a: this used to branch on the card's OWN
@@ -521,14 +537,12 @@ class _RecordsCountLine extends StatelessWidget {
     required this.inclusiveOfSubfolders,
     required this.sortBy,
     required this.showSortControl,
-    required this.onAddRecord,
   });
 
   final int count;
   final bool inclusiveOfSubfolders;
   final VaultEntrySort sortBy;
   final bool showSortControl;
-  final VoidCallback onAddRecord;
 
   @override
   Widget build(BuildContext context) {
@@ -547,15 +561,6 @@ class _RecordsCountLine extends StatelessWidget {
             style: AppTextStyles.meta.copyWith(color: colors.textSecondary),
           ),
         ),
-        if (showSortControl) ...[
-          _VaultHeaderIconButton(
-            tooltip: 'Add record',
-            glyph: AppGlyph.add,
-            filled: true,
-            onPressed: onAddRecord,
-          ),
-          const SizedBox(width: 4),
-        ],
         if (showSortControl)
         PopupMenuButton<VaultEntrySort>(
           tooltip: 'Sort records',

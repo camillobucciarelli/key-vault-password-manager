@@ -222,12 +222,17 @@ class MoveVaultEntry extends VaultEvent {
 }
 
 class CreateVaultGroup extends VaultEvent {
-  const CreateVaultGroup(this.name);
+  const CreateVaultGroup(this.name, {this.parentGroupId});
 
   final String name;
 
+  /// Where to create the folder. Null falls back to the selected folder —
+  /// the pre-2026-08-30 behaviour, still what the column header path wants.
+  /// The Manage tree's per-row `New folder` passes the row explicitly.
+  final String? parentGroupId;
+
   @override
-  List<Object?> get props => [name];
+  List<Object?> get props => [name, parentGroupId];
 }
 
 class RenameVaultGroup extends VaultEvent {

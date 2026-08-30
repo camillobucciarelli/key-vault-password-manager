@@ -5,6 +5,7 @@ import '../theme/app_glyph.dart';
 import '../theme/app_radii.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/keyvault_colors.dart';
+import 'kv_context_menu.dart';
 import 'kv_icon.dart';
 
 /// spec-019 T014 — the folder tree, in one widget, for all three of its hosts.
@@ -18,22 +19,18 @@ import 'kv_icon.dart';
 /// The widget renders [nodes] and reports. It does not fetch, does not know
 /// about the BLoC, and does not decide what selection means for the records
 /// list (contract `folder-tree.md`, Non-goals).
-enum KvFolderTreeMode {
-  /// The desktop column and the phone sheet: pick a folder to filter by.
-  /// Rows carry no actions at all (G1 / FR-006c).
-  filter,
+///
+/// Rows carry the `•••` action menu exactly when [KvFolderTree.onRowAction]
+/// is provided — the tree IS the management surface now (2026-08-30, Manage
+/// dialog retired); a host that passes no callback gets a pure filter tree.
 
-  /// `Manage folders`: every row carries the `•••`, and the tree ignores each
-  /// node's `isExpanded` and renders fully expanded — you cannot rearrange
-  /// what you cannot see (G2 / FR-006b).
-  manage,
-}
-
-/// The row actions offered in [KvFolderTreeMode.manage].
+/// The row actions offered by the `•••` menu.
 ///
 /// Order is part of the contract (G2) and the labels are the ones the vault
-/// already uses (Constitution VI).
-enum KvFolderAction { rename, move, delete }
+/// already uses (Constitution VI). `newFolder` creates a child of the row's
+/// folder — it moved here from the Manage header (2026-08-30 walk), so the
+/// action names its parent instead of inheriting a hidden "current" one.
+enum KvFolderAction { newFolder, rename, move, delete }
 
 /// One row of the tree: a folder flattened out of the group graph.
 @immutable
@@ -59,8 +56,8 @@ class KvFolderNode {
 
   final bool hasChildren;
 
-  /// Ignored in [KvFolderTreeMode.manage] (G2). The caller flattens only the
-  /// rows it wants visible; this flag is what the chevron points at.
+  /// The caller flattens only the rows it wants visible; this flag is what
+  /// the chevron points at.
   final bool isExpanded;
 
   /// False for the vault's root group, which has no parent to move to and
@@ -77,13 +74,8 @@ class KvFolderTree extends StatelessWidget {
     required this.selectedId,
     required this.onSelect,
     required this.onToggleExpanded,
-    this.mode = KvFolderTreeMode.filter,
     this.onRowAction,
-  }) : assert(
-         mode == KvFolderTreeMode.manage || onRowAction == null,
-         'onRowAction belongs to manage mode; filter rows carry no actions '
-         '(G1)',
-       );
+  });
 
   final List<KvFolderNode> nodes;
 
@@ -96,8 +88,8 @@ class KvFolderTree extends StatelessWidget {
   /// Called by the chevron only, never by the row (G3).
   final void Function(String id, bool expanded) onToggleExpanded;
 
-  final KvFolderTreeMode mode;
-
+  /// When non-null every row carries the `•••` action menu; when null the
+  /// tree is a pure filter (G1).
   final void Function(String id, KvFolderAction action)? onRowAction;
 
   /// One level of indentation per depth (G5). Wide enough that the chevron of
@@ -119,10 +111,8 @@ class KvFolderTree extends StatelessWidget {
           _KvFolderRow(
             node: node,
             isSelected: node.id == selectedId,
-            mode: mode,
             onSelect: () => onSelect(node.id),
-            onToggleExpanded: () =>
-                onToggleExpanded(node.id, !node.isExpanded),
+            onToggleExpanded: () => onToggleExpanded(node.id, !node.isExpanded),
             onAction: onRowAction == null
                 ? null
                 : (action) => onRowAction!(node.id, action),
@@ -136,7 +126,6 @@ class _KvFolderRow extends StatelessWidget {
   const _KvFolderRow({
     required this.node,
     required this.isSelected,
-    required this.mode,
     required this.onSelect,
     required this.onToggleExpanded,
     required this.onAction,
@@ -144,7 +133,6 @@ class _KvFolderRow extends StatelessWidget {
 
   final KvFolderNode node;
   final bool isSelected;
-  final KvFolderTreeMode mode;
   final VoidCallback onSelect;
   final VoidCallback onToggleExpanded;
   final ValueChanged<KvFolderAction>? onAction;
@@ -152,10 +140,7 @@ class _KvFolderRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    // G2: management shows the whole tree, so a chevron there would offer to
-    // collapse something the mode has already decided stays open.
-    final isManaging = mode == KvFolderTreeMode.manage;
-    final showsChevron = node.hasChildren && !isManaging;
+    final showsChevron = node.hasChildren;
 
     final label = Text(
       node.name,
@@ -171,11 +156,7 @@ class _KvFolderRow extends StatelessWidget {
 
     final row = Container(
       constraints: const BoxConstraints(minHeight: KvFolderTree.minTarget),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: isSelected ? AppColors.accent200 : Colors.transparent,
-        borderRadius: BorderRadius.circular(AppRadii.rowCompact),
-      ),
+      padding: const EdgeInsets.fromLTRB(0, 6, 10, 6),
       child: Row(
         children: [
           KvIcon(
@@ -196,6 +177,31 @@ class _KvFolderRow extends StatelessWidget {
       ),
     );
 
+    // 2026-08-30: the chevron moved INSIDE the decorated row — hover and
+    // selection paint one shape around everything the row owns, chevron and
+    // `•••` included. Both buttons still win their own taps over the row's
+    // InkWell, so the targets stay distinct even though the fill is one.
+    final chevron = SizedBox(
+      width: KvFolderTree.minTarget,
+      height: KvFolderTree.minTarget,
+      child: showsChevron
+          ? IconButton(
+              onPressed: onToggleExpanded,
+              padding: EdgeInsets.zero,
+              tooltip: node.isExpanded
+                  ? 'Collapse ${node.name}'
+                  : 'Expand ${node.name}',
+              icon: KvIcon(
+                glyph: node.isExpanded
+                    ? AppGlyph.chevronDown
+                    : AppGlyph.chevronRight,
+                size: 16,
+                color: colors.textTertiary,
+              ),
+            )
+          : null,
+    );
+
     return Padding(
       padding: EdgeInsets.only(
         left: node.depth * KvFolderTree.indentPerDepth,
@@ -203,79 +209,86 @@ class _KvFolderRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // The chevron sits beside the row, never over it: two targets that
-          // overlap are one target that sometimes does the wrong thing (R5).
-          SizedBox(
-            width: KvFolderTree.minTarget,
-            height: KvFolderTree.minTarget,
-            child: showsChevron
-                ? IconButton(
-                    onPressed: onToggleExpanded,
-                    padding: EdgeInsets.zero,
-                    tooltip: node.isExpanded
-                        ? 'Collapse ${node.name}'
-                        : 'Expand ${node.name}',
-                    icon: KvIcon(
-                      glyph: node.isExpanded
-                          ? AppGlyph.chevronDown
-                          : AppGlyph.chevronRight,
-                      size: 16,
-                      color: colors.textTertiary,
-                    ),
-                  )
-                : null,
-          ),
+          // G6, tightened 2026-08-30: the selection fill spans the whole
+          // interactive row — chevron and `•••` included — not just the label
+          // span, so nothing looks detached from the row it acts on.
           Expanded(
-            child: Semantics(
-              // G8: the selection is announced, not only painted. Colour alone
-              // is not a signal (Constitution V).
-              selected: isSelected,
-              button: true,
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: onSelect,
-                  borderRadius: BorderRadius.circular(AppRadii.rowCompact),
-                  child: row,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: isSelected ? AppColors.accent200 : Colors.transparent,
+                // Same radius as the theme's IconButtons: the chevron and `•••`
+                // hover inside this row, and two radii in one row read as a
+                // mistake.
+                borderRadius: BorderRadius.circular(AppRadii.iconSquare),
+              ),
+              // The InkWell spans the whole decorated row — `•••` included —
+              // so hover and press read as one row, not just the label span.
+              // The menu button sits inside it and wins its own taps.
+              child: Semantics(
+                // G8: the selection is announced, not only painted.
+                // Colour alone is not a signal (Constitution V).
+                selected: isSelected,
+                button: true,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: onSelect,
+                    // When a dialog opened from this row closes, focus falls
+                    // back here and the theme's focusColor (accent-400) would
+                    // stay painted until the next click — a row that reads as
+                    // stuck. Keyboard focus stays visible on the row's own
+                    // buttons, which carry the theme's focus border.
+                    focusColor: Colors.transparent,
+                    borderRadius: BorderRadius.circular(AppRadii.iconSquare),
+                    child: Row(
+                      children: [
+                        chevron,
+                        Expanded(child: row),
+                        if (onAction != null)
+                          SizedBox(
+                            width: KvFolderTree.minTarget,
+                            height: KvFolderTree.minTarget,
+                            child: KvContextMenu(
+                              tooltip: 'Folder actions',
+                              icon: KvIcon(
+                                glyph: AppGlyph.more,
+                                size: 17,
+                                color: colors.iconNeutral,
+                              ),
+                              items: [
+                                KvContextMenuItem(
+                                  label: 'New folder',
+                                  onSelected: () =>
+                                      onAction!(KvFolderAction.newFolder),
+                                ),
+                                KvContextMenuItem(
+                                  label: 'Rename',
+                                  onSelected: () =>
+                                      onAction!(KvFolderAction.rename),
+                                ),
+                                if (node.canReparent) ...[
+                                  KvContextMenuItem(
+                                    label: 'Move',
+                                    onSelected: () =>
+                                        onAction!(KvFolderAction.move),
+                                  ),
+                                  KvContextMenuItem(
+                                    label: 'Delete',
+                                    destructive: true,
+                                    onSelected: () =>
+                                        onAction!(KvFolderAction.delete),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
-          if (isManaging && onAction != null)
-            SizedBox(
-              width: KvFolderTree.minTarget,
-              height: KvFolderTree.minTarget,
-              child: PopupMenuButton<KvFolderAction>(
-                tooltip: 'Folder actions',
-                onSelected: onAction,
-                icon: KvIcon(
-                  glyph: AppGlyph.more,
-                  size: 17,
-                  color: colors.iconNeutral,
-                ),
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: KvFolderAction.rename,
-                    child: Text('Rename'),
-                  ),
-                  if (node.canReparent) ...[
-                    const PopupMenuItem(
-                      value: KvFolderAction.move,
-                      child: Text('Move'),
-                    ),
-                    PopupMenuItem(
-                      value: KvFolderAction.delete,
-                      child: Text(
-                        'Delete',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
         ],
       ),
     );

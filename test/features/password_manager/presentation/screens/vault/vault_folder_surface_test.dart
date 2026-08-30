@@ -42,11 +42,13 @@ void main() {
       );
     });
 
-    testWidgets('All items is the first row and carries the vault total', (
+    // 2026-08-30: the first row shows the root group's real name, not a
+    // synthetic `All items` label. The fixture's root is named 'root'.
+    testWidgets('the root is the first row and carries the vault total', (
       tester,
     ) async {
       await pumpAt(tester, 1024);
-      expect(find.text('All items'), findsOneWidget);
+      expect(find.text('root'), findsOneWidget);
       // Three records in the fixture, one of them inside Devs.
       expect(
         find.descendant(
@@ -96,7 +98,9 @@ void main() {
       expect(find.text('Duplicates'), findsOneWidget);
     });
 
-    testWidgets('no folder row in the column carries an action (FR-006c)', (
+    // 2026-08-30: `Manage folders` retired — the tree carries its own row
+    // actions (see vault_folder_actions_test.dart for the recipe).
+    testWidgets('every folder row in the column carries its actions', (
       tester,
     ) async {
       await pumpAt(tester, 1024);
@@ -105,7 +109,7 @@ void main() {
           of: find.byType(KvFolderTree),
           matching: find.byTooltip('Folder actions'),
         ),
-        findsNothing,
+        findsWidgets,
       );
     });
   });
@@ -160,8 +164,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(KvFolderTree), findsOneWidget);
-      expect(find.text('All items'), findsOneWidget);
-      expect(find.text('Manage'), findsOneWidget);
+      expect(find.text('root'), findsOneWidget);
     });
 
     testWidgets('choosing a folder filters and closes the sheet', (
@@ -192,9 +195,6 @@ void main() {
       // The fixture is one level deep, so this asserts the wiring rather than
       // a deep tree: both hosts build their nodes from `expandedGroupIds`.
       await pumpAt(tester, 1024);
-      final columnTree = tester.widget<KvFolderTree>(find.byType(KvFolderTree));
-      expect(columnTree.mode, KvFolderTreeMode.filter);
-
       await tester.tap(find.text('Devs').first);
       await tester.pumpAndSettle();
       expect(

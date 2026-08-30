@@ -26,6 +26,12 @@ class VaultColumns {
   /// Records list column, fixed.
   static const double list = 330;
 
+  /// On wide windows the folder and list columns grow with the surplus
+  /// (15% / 30% of it) up to these caps; the rest goes to the detail pane.
+  /// Below the caps' reach the normative widths above still hold exactly.
+  static const double foldersMax = 340;
+  static const double listMax = 520;
+
   /// The detail pane and the editor flex, but never below this.
   static const double detailMin = 300;
 

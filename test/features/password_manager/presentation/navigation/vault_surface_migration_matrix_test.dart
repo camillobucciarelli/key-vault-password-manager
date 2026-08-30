@@ -73,6 +73,9 @@ Matcher _presentationMatcher(String kind) => switch (kind) {
   'route' => isA<VaultRoutePresentation>(),
   'sheet' => isA<VaultSheetPresentation>(),
   'pane' => isA<VaultPanePresentation>(),
+  // Amended 2026-08-30: group edit and move target are bare dialogs on wide
+  // layouts (vault_navigation_contract.md §presentations).
+  'dialog' => isA<VaultDialogPresentation>(),
   _ => throw ArgumentError('Unknown presentation kind: $kind'),
 };
 

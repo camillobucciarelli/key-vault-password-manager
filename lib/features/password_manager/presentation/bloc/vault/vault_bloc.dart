@@ -688,7 +688,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     CreateVaultGroup event,
     Emitter<VaultState> emit,
   ) async {
-    final parentGroupId = state.currentGroupId;
+    final parentGroupId = event.parentGroupId ?? state.currentGroupId;
     if (parentGroupId == null) {
       return;
     }

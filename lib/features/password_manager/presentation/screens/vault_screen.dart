@@ -99,4 +99,3 @@ part 'vault/vault_backups.part.dart';
 part 'vault/vault_shared.part.dart';
 part 'vault/vault_duplicates.part.dart';
 part 'vault/vault_folders.part.dart';
-part 'vault/vault_manage_folders.part.dart';

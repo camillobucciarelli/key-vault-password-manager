@@ -34,6 +34,16 @@ void main() {
       expect(presentationFor(surface, railWidth), isA<VaultPanePresentation>());
     }
 
+    void expectSheetThenBareDialog(VaultSurface<VaultDone> surface) {
+      expect(
+        presentationFor(surface, mobileWidth),
+        isA<VaultSheetPresentation>(),
+      );
+      final wide = presentationFor(surface, railWidth);
+      expect(wide, isA<VaultDialogPresentation>());
+      expect((wide as VaultDialogPresentation).bare, isTrue);
+    }
+
     void expectAlwaysSheet(VaultSurface<VaultDone> surface) {
       expect(
         presentationFor(surface, mobileWidth),
@@ -69,11 +79,13 @@ void main() {
     test('Password generator: sheet / pane', () {
       expectSheetThenPane(PasswordGeneratorSurface<VaultDone>(builder: _noop));
     });
-    test('Group create/rename: sheet / pane', () {
-      expectSheetThenPane(GroupEditSurface<VaultDone>(builder: _noop));
+    // Amended 2026-08-30: on wide these are bare dialogs, not panes — see
+    // vault_navigation_contract.md §presentations.
+    test('Group create/rename: sheet / dialog', () {
+      expectSheetThenBareDialog(GroupEditSurface<VaultDone>(builder: _noop));
     });
-    test('Move target: sheet / pane', () {
-      expectSheetThenPane(MoveTargetSurface<VaultDone>(builder: _noop));
+    test('Move target: sheet / dialog', () {
+      expectSheetThenBareDialog(MoveTargetSurface<VaultDone>(builder: _noop));
     });
     test('Sync conflict: sheet / pane', () {
       expectSheetThenPane(SyncConflictSurface<VaultDone>(builder: _noop));

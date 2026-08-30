@@ -19,8 +19,12 @@ agreeing.
 
 - **G1** — In `filter` mode no row carries any action affordance (FR-006c).
 - **G2** — In `manage` mode every row carries the same `•••` with exactly
-  `Rename`, `Move…`, `Delete`, in that order, and the tree ignores
-  `isExpanded`: it renders fully expanded (FR-006b).
+  `New folder`, `Rename`, `Move…`, `Delete`, in that order, and the tree
+  ignores `isExpanded`: it renders fully expanded (FR-006b).
+  **Amended 2026-08-30 (manual walk).** `New folder` moved from the Manage
+  header into the row menu, first: as a header button it created inside
+  whatever folder happened to be selected — an invisible dependency — while a
+  row action names its parent. Every row offers it, the root included.
   **Amended during implementation (T019).** The vault's own root group is a row
   in `manage` mode, because renaming it was an action the records list used to
   offer and dropping it would have cost the user something (US3). The root has

@@ -63,8 +63,11 @@ void main() {
     // Overridden below 995 by its own rule; the table's "wide" value is what
     // holds from 995 up, which covers every probed width >= 995.
     'PasswordGeneratorSurface': (narrow: 'sheet', wide: 'pane'),
-    'GroupEditSurface': (narrow: 'sheet', wide: 'pane'),
-    'MoveTargetSurface': (narrow: 'sheet', wide: 'pane'),
+    // Amended 2026-08-30 with the Manage dialog walk: pane-hosting rendered
+    // these behind an open dialog. On wide they are bare dialogs now; the
+    // contract table was amended in the same change.
+    'GroupEditSurface': (narrow: 'sheet', wide: 'dialog'),
+    'MoveTargetSurface': (narrow: 'sheet', wide: 'dialog'),
     'AttachmentsSurface': (narrow: 'route', wide: 'pane'),
     'RecycleBinSurface': (narrow: 'route', wide: 'pane'),
     'DuplicatesSurface': (narrow: 'route', wide: 'pane'),
@@ -139,8 +142,9 @@ void main() {
     // ─────────────────────────────────────────────────────────────────────
     // spec-019 T004 / FR-019 — contract S1.
     //
-    // Spec 019 adds one surface (`ManageFoldersSurface`) and one presentation
-    // (`VaultDialogPresentation`). Adding a row to `presentationFor` must not
+    // Spec 019 adds one presentation (`VaultDialogPresentation`); its
+    // `ManageFoldersSurface` was later retired (2026-08-30) in favour of row
+    // actions on the tree itself. Adding a row to `presentationFor` must not
     // move any row that was already there. The table below is a literal
     // snapshot taken from the code at spec-019 HEAD, one string per surface
     // holding its answer at each of the eight boundary widths in order:
@@ -164,8 +168,8 @@ void main() {
         'OtpScannerSurface': 'route route route pane pane pane pane pane',
         'PasswordGeneratorSurface':
             'sheet sheet sheet sheet sheet sheet sheet pane',
-        'GroupEditSurface': 'sheet sheet sheet pane pane pane pane pane',
-        'MoveTargetSurface': 'sheet sheet sheet pane pane pane pane pane',
+        'GroupEditSurface': 'sheet sheet sheet dialog dialog dialog dialog dialog',
+        'MoveTargetSurface': 'sheet sheet sheet dialog dialog dialog dialog dialog',
         'AttachmentsSurface': 'route route route pane pane pane pane pane',
         'RecycleBinSurface': 'route route route pane pane pane pane pane',
         'DuplicatesSurface': 'route route route pane pane pane pane pane',

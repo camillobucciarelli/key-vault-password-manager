@@ -77,15 +77,15 @@ void main() {
       });
     }
 
-    // spec-019: folder management left the records list for its own surface.
-    // The path is now `Folders` -> `Manage` -> `New folder` instead of a row's
-    // `Add subfolder` (FR-006a, FR-006e); what this test asserts — that the
-    // create callback completes without leaving a dialog behind — is unchanged.
+    // spec-019, amended 2026-08-30: `Manage folders` retired — the path is
+    // now `Folders` -> row `•••` -> `New folder`, the sheet closing before
+    // the dialog opens; what this test asserts — that the create callback
+    // completes without leaving a dialog behind — is unchanged.
     testWidgets('folder create callback completes from sheet', (tester) async {
       await pumpVault(tester, 390);
       await tester.tap(find.text('Folders'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Manage'));
+      await tester.tap(find.byTooltip('Folder actions').first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('New folder'));
       await tester.pumpAndSettle();
@@ -97,13 +97,11 @@ void main() {
       expect(find.widgetWithText(AlertDialog, 'Create folder'), findsNothing);
     });
 
-    // spec-019: same relocation — `Manage` in the folder column's header,
-    // then the row's `•••`. The three row actions kept their exact labels
-    // (FR-006d, Constitution VI).
+    // spec-019, amended 2026-08-30: the row's `•••` lives on the column's
+    // own tree. The three row actions kept their exact labels (FR-006d,
+    // Constitution VI).
     testWidgets('folder rename callback completes from pane', (tester) async {
       await pumpVault(tester, 1024);
-      await tester.tap(find.text('Manage'));
-      await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('Folder actions').first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Rename'));

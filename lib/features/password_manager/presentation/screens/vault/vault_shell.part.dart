@@ -1124,23 +1124,40 @@ class _VaultNavigationLayout extends StatelessWidget {
       );
     }
 
-    return Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // The normative widths are minimums, not fixed sizes: on a wide
+        // window the surplus is split between the columns (capped) instead
+        // of all landing in the detail pane while titles truncate.
+        final base =
+            (layout.hasFolderPane
+                ? VaultColumns.folders + VaultColumns.divider
+                : 0) +
+            VaultColumns.list +
+            VaultColumns.detailMin +
+            VaultColumns.divider;
+        final extra = (constraints.maxWidth - base).clamp(0.0, double.infinity);
+        final folderWidth = (VaultColumns.folders + extra * 0.15).clamp(
+          VaultColumns.folders,
+          VaultColumns.foldersMax,
+        );
+        final listWidth = (VaultColumns.list + extra * 0.30).clamp(
+          VaultColumns.list,
+          VaultColumns.listMax,
+        );
+        return Row(
       children: [
         if (layout.hasFolderPane) ...[
           SizedBox(
             key: const ValueKey('vault-folder-pane'),
-            width: VaultColumns.folders,
-            child: _VaultFolderColumn(
-              onOpenRecycleBin: onOpenRecycleBin,
-              onOpenDuplicates: onOpenDuplicates,
-              onChangeDatabase: onChangeDatabase,
-            ),
+            width: folderWidth,
+            child: const _VaultFolderColumn(),
           ),
           const _VaultVerticalDivider(),
         ],
         SizedBox(
           key: const ValueKey('vault-list-pane'),
-          width: VaultColumns.list,
+          width: listWidth,
           child: vaultPane,
         ),
         const _VaultVerticalDivider(),
@@ -1154,6 +1171,8 @@ class _VaultNavigationLayout extends StatelessWidget {
               : _VaultPaneHost(pane: activePane!, onBack: onBackFromPane),
         ),
       ],
+        );
+      },
     );
   }
 }
@@ -1295,15 +1314,13 @@ class _VaultRail extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Column(
             children: [
-              Container(
+              // The mark carries its own colour; a filled tile behind it
+              // fought the ring (orange on orange), so the rail shows the
+              // mark alone at the size the tile used to occupy.
+              const SizedBox(
                 width: 38,
                 height: 38,
-                decoration: BoxDecoration(
-                  color: colors.actionFill,
-                  borderRadius: BorderRadius.circular(13),
-                ),
-                alignment: Alignment.center,
-                child: const _VaultAppMark(size: 21),
+                child: Center(child: _VaultAppMark(size: 30)),
               ),
               const SizedBox(height: 20),
               button(VaultDestination.vault),
@@ -1487,11 +1504,15 @@ class _VaultHeaderIconButton extends StatelessWidget {
     required this.glyph,
     required this.onPressed,
     this.filled = false,
+    this.fillSize = 36,
   });
 
   final String tooltip;
   final AppGlyph glyph;
   final VoidCallback onPressed;
+
+  /// Diameter of the visible filled circle; the 44 px target is unchanged.
+  final double fillSize;
 
   /// spec-019 C-03-01: the add affordance is an `accent-300` filled button,
   /// not a bare glyph — it is the header's one primary action and the design
@@ -1512,7 +1533,7 @@ class _VaultHeaderIconButton extends StatelessWidget {
         style: filled
             ? IconButton.styleFrom(
                 backgroundColor: AppColors.accent300,
-                fixedSize: const Size.square(36),
+                fixedSize: Size.square(fillSize),
                 shape: const CircleBorder(),
               )
             : null,
@@ -1618,19 +1639,19 @@ bool _databaseActionsBuildWhen(VaultState previous, VaultState current) {
 class _VaultAppMark extends StatelessWidget {
   const _VaultAppMark({required this.size});
 
-  static const String assetPath =
-      'assets/logo/app_icon_family/keyvault-mark-monochrome.svg';
+  /// The full-colour mark (verbatim copy of the design master
+  /// `specs/_design/keyvault-mark-foreground.svg`), rendered untinted so the
+  /// rail shows the app's actual identity, not a silhouette.
+  static const String assetPath = 'assets/logo/keyvault-mark-color.svg';
 
   final double size;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
     return SvgPicture.asset(
       assetPath,
       width: size,
       height: size,
-      colorFilter: ColorFilter.mode(colors.actionText, BlendMode.srcIn),
       semanticsLabel: 'KeyVault',
     );
   }
