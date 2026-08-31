@@ -30,7 +30,10 @@ class TotpRow extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
           decoration: BoxDecoration(
-            color: colors.positiveTint,
+            // 2026-08-31: same surface as every other field row — the green
+            // tint made this field look like a different kind of thing. The
+            // countdown badge keeps the positive palette as the live signal.
+            color: colors.surface,
             borderRadius: BorderRadius.circular(22),
           ),
           child: Row(
@@ -61,14 +64,14 @@ class TotpRow extends StatelessWidget {
                     Text(
                       'One-time code',
                       style: AppTextStyles.labelUpper.copyWith(
-                        color: colors.positiveText,
+                        color: colors.textSecondary,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       data.code,
                       style: AppTextStyles.otpCode.copyWith(
-                        color: colors.positiveText,
+                        color: colors.textPrimary,
                       ),
                     ),
                   ],
@@ -83,14 +86,14 @@ class TotpRow extends StatelessWidget {
                     tooltip: 'Copy',
                     onPressed: onCopy,
                     style: IconButton.styleFrom(
-                      backgroundColor: colors.positiveFill,
+                      backgroundColor: colors.surfaceNested,
                       shape: const CircleBorder(),
                       padding: EdgeInsets.zero,
                     ),
                     icon: KvIcon(
                       glyph: AppGlyph.copy,
                       size: 17,
-                      color: colors.positiveText,
+                      color: colors.iconNeutral,
                     ),
                   ),
                 ),

@@ -43,6 +43,9 @@ class StrengthStrip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
           color: colors.positiveTint,
+          // 2026-08-31: the tint alone melted into the ground — a border in
+          // the palette's fill shade keeps the box legible.
+          border: Border.all(color: colors.positiveFill),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
@@ -91,6 +94,8 @@ class StrengthStrip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: colors.attentionTint,
+        // Same rule as the normal strip: bordered in the fill shade.
+        border: Border.all(color: colors.actionFill),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Column(

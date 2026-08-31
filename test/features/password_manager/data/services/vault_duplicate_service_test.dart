@@ -15,6 +15,7 @@ void main() {
     String id = 'id',
     String url = 'https://github.com',
     String username = 'alice',
+    String password = 'pw',
     String notes = '',
     String? otpUri,
     List<VaultCustomField> customFields = const [],
@@ -31,7 +32,7 @@ void main() {
       groupId: 'g1',
       title: 'Title',
       username: username,
-      password: 'pw',
+      password: password,
       url: url,
       notes: notes,
       customFields: allCustomFields,
@@ -52,8 +53,8 @@ void main() {
     test('returns empty when all entries have unique url+username', () {
       final entries = [
         entry(id: '1', url: 'https://github.com', username: 'alice'),
-        entry(id: '2', url: 'https://github.com', username: 'bob'),
-        entry(id: '3', url: 'https://gitlab.com', username: 'alice'),
+        entry(id: '2', url: 'https://github.com', username: 'bob', password: 'pw2'),
+        entry(id: '3', url: 'https://gitlab.com', username: 'alice', password: 'pw3'),
       ];
       expect(service.findDuplicates(entries), isEmpty);
     });
@@ -61,7 +62,7 @@ void main() {
     test('detects two entries with same url and username as one group', () {
       final entries = [
         entry(id: '1', url: 'https://github.com', username: 'alice'),
-        entry(id: '2', url: 'https://github.com', username: 'alice'),
+        entry(id: '2', url: 'https://github.com', username: 'alice', password: 'pw2'),
       ];
       final groups = service.findDuplicates(entries);
       expect(groups, hasLength(1));
@@ -71,7 +72,7 @@ void main() {
     test('normalizes scheme — https and http treated the same', () {
       final entries = [
         entry(id: '1', url: 'https://github.com', username: 'alice'),
-        entry(id: '2', url: 'http://github.com', username: 'alice'),
+        entry(id: '2', url: 'http://github.com', username: 'alice', password: 'pw2'),
       ];
       final groups = service.findDuplicates(entries);
       expect(groups, hasLength(1));
@@ -80,7 +81,7 @@ void main() {
     test('normalizes www prefix', () {
       final entries = [
         entry(id: '1', url: 'https://www.github.com', username: 'alice'),
-        entry(id: '2', url: 'https://github.com', username: 'alice'),
+        entry(id: '2', url: 'https://github.com', username: 'alice', password: 'pw2'),
       ];
       final groups = service.findDuplicates(entries);
       expect(groups, hasLength(1));
@@ -89,7 +90,7 @@ void main() {
     test('strips trailing slash', () {
       final entries = [
         entry(id: '1', url: 'https://github.com/', username: 'alice'),
-        entry(id: '2', url: 'https://github.com', username: 'alice'),
+        entry(id: '2', url: 'https://github.com', username: 'alice', password: 'pw2'),
       ];
       final groups = service.findDuplicates(entries);
       expect(groups, hasLength(1));
@@ -102,7 +103,7 @@ void main() {
           url: 'https://github.com?tab=repos#section',
           username: 'alice',
         ),
-        entry(id: '2', url: 'https://github.com', username: 'alice'),
+        entry(id: '2', url: 'https://github.com', username: 'alice', password: 'pw2'),
       ];
       final groups = service.findDuplicates(entries);
       expect(groups, hasLength(1));
@@ -111,7 +112,7 @@ void main() {
     test('normalizes username case and whitespace', () {
       final entries = [
         entry(id: '1', url: 'https://github.com', username: 'Alice'),
-        entry(id: '2', url: 'https://github.com', username: '  alice  '),
+        entry(id: '2', url: 'https://github.com', username: '  alice  ', password: 'pw2'),
       ];
       final groups = service.findDuplicates(entries);
       expect(groups, hasLength(1));
@@ -120,7 +121,7 @@ void main() {
     test('excludes entries with empty URL', () {
       final entries = [
         entry(id: '1', url: '', username: 'alice'),
-        entry(id: '2', url: '   ', username: 'alice'),
+        entry(id: '2', url: '   ', username: 'alice', password: 'pw2'),
       ];
       expect(service.findDuplicates(entries), isEmpty);
     });
@@ -150,12 +151,72 @@ void main() {
     test('exposes sharedUrl as normalized host+path', () {
       final entries = [
         entry(id: '1', url: 'https://www.GitHub.com/login', username: 'alice'),
-        entry(id: '2', url: 'https://www.github.com/login', username: 'alice'),
+        entry(
+          id: '2',
+          url: 'https://www.github.com/login',
+          username: 'alice',
+          password: 'pw2',
+        ),
       ];
       final groups = service.findDuplicates(entries);
       expect(groups.first.sharedUrl, 'github.com/login');
     });
   });
+
+    test('same username + password across different URLs is one group', () {
+      final entries = [
+        entry(id: '1', url: 'https://github.com', username: 'alice'),
+        entry(id: '2', url: 'https://gitlab.com', username: 'alice'),
+      ];
+      final groups = service.findDuplicates(entries);
+      expect(groups, hasLength(1));
+      expect(groups.first.sharedUrl, isNull);
+      expect(groups.first.sharedUsername, 'alice');
+      expect(groups.first.urls, ['github.com', 'gitlab.com']);
+    });
+
+    test('credentials group collects extra-URL custom fields into urls', () {
+      final entries = [
+        entry(
+          id: '1',
+          url: 'https://github.com',
+          customFields: [
+            const VaultCustomField(key: 'KP2A_URL_1', value: 'https://a.com'),
+          ],
+        ),
+        entry(id: '2', url: 'https://gitlab.com'),
+      ];
+      final groups = service.findDuplicates(entries);
+      expect(groups.first.urls, ['github.com', 'a.com', 'gitlab.com']);
+    });
+
+    test('same password but different username is not a duplicate', () {
+      final entries = [
+        entry(id: '1', url: 'https://a.com', username: 'alice'),
+        entry(id: '2', url: 'https://b.com', username: 'bob'),
+      ];
+      expect(service.findDuplicates(entries), isEmpty);
+    });
+
+    test('empty username or password never forms a credentials group', () {
+      final entries = [
+        entry(id: '1', url: 'https://a.com', username: '', password: 'x'),
+        entry(id: '2', url: 'https://b.com', username: '', password: 'x'),
+        entry(id: '3', url: 'https://c.com', username: 'bob', password: ''),
+        entry(id: '4', url: 'https://d.com', username: 'bob', password: ''),
+      ];
+      expect(service.findDuplicates(entries), isEmpty);
+    });
+
+    test('credentials group wins over site group for the same entries', () {
+      final entries = [
+        entry(id: '1', url: 'https://github.com', username: 'alice'),
+        entry(id: '2', url: 'https://github.com', username: 'alice'),
+      ];
+      final groups = service.findDuplicates(entries);
+      expect(groups, hasLength(1));
+      expect(groups.first.sharedUrl, isNull);
+    });
 
   // ── previewMerge ──────────────────────────────────────────────────────────
 
@@ -247,6 +308,34 @@ void main() {
       final secondary = entry(id: 's', notes: '');
       final preview = service.previewMerge(primary, secondary);
       expect(preview.hasAnythingToCopy, isFalse);
+    });
+
+    test('lists secondary URLs missing from primary', () {
+      final primary = entry(id: 'p', url: 'https://github.com');
+      final secondary = entry(
+        id: 's',
+        url: 'https://gitlab.com',
+        customFields: [
+          const VaultCustomField(key: 'KP2A_URL_1', value: 'https://a.com'),
+          // Already on primary (normalized) — must not be listed.
+          const VaultCustomField(key: 'KP2A_URL_2', value: 'http://github.com/'),
+        ],
+      );
+      final preview = service.previewMerge(primary, secondary);
+      expect(preview.urlsToCopy, ['https://gitlab.com', 'https://a.com']);
+      expect(preview.hasAnythingToCopy, isTrue);
+    });
+
+    test('URL custom fields are excluded from customFieldKeysToCopy', () {
+      final primary = entry(id: 'p');
+      final secondary = entry(
+        id: 's',
+        customFields: [
+          const VaultCustomField(key: 'KP2A_URL_1', value: 'https://a.com'),
+        ],
+      );
+      final preview = service.previewMerge(primary, secondary);
+      expect(preview.customFieldKeysToCopy, isEmpty);
     });
   });
 }

@@ -3,6 +3,12 @@
 # body uses {placeholder} for interpolated values; "-" means no single static body string
 # (multi-field form content). Row count MUST be exactly 19.
 #
+# 2026-08-30 supersession (Manage-dialog walk, vault_navigation_contract.md
+# §presentations amended in the same change):
+# - Rows 04, 06: rail presentation pane -> dialog. Pane-hosting rendered the
+#   folder create/rename and move-target pickers behind the spec-019 Manage
+#   dialog and replaced the record detail with a floating card.
+#
 # spec-005 supersessions (documented, not accidental drops — see
 # vault_surface_migration_matrix_test.dart for the matching surface-type
 # update):
@@ -12,26 +18,38 @@
 #   this picker screen for the "pick existing" path only.
 # - Row 11: FR-5 requires the merge preview as a **bottom sheet** (spec.md
 #   screen 11 "Form: bottom sheet"), not spec-002's provisional
-#   route/pane guess. New surface `MergePreviewSurface` (sheet/pane, like
-#   `SyncConflictSurface`); title/action restyled to the mock's literal
-#   "What the merge does" / "Merge and move duplicate".
+#   route/pane guess. New surface `MergePreviewSurface`; title/action
+#   restyled to the mock's literal "What the merge does" / "Merge and move
+#   duplicate". Amended 2026-08-31 (user-directed): rows 10, 11 and 15 are
+#   full-screen pushed routes at every width — the dialog-plus-sheet stack
+#   on wide layouts was hard to read.
 # - Row 09: title restyled to the mock's literal "Both versions changed"
 #   (07-09 mock, screen 8); presentation/surface/action unchanged.
+#
+# 2026-08-30 supersession (hygiene destinations):
+# - Rows 10, 15: rail presentation pane -> dialog. Recycle bin and
+#   duplicates are visits, not columns of the working layout, so on wide
+#   they open as modal dialogs instead of displacing the record detail.
 01|_showPasswordGeneratorDialog|Generate secure password|-|Generate|GeneratedPasswordResult?|sheet|pane
 02|_showEntryDialog|Add record|-|Create|EntryEditResult?|route|pane
 03|_scanOtpUriFromQr|Scan OTP QR|-|Cancel|OtpScanResult?|route|pane
-04|_showGroupDialog|Create folder|-|Create|GroupEditResult?|sheet|pane
+04|_showGroupDialog|Create folder|-|Create|GroupEditResult?|sheet|dialog
 05|_showDeleteConfirm|Confirm delete|{label}|Delete|ConfirmDecision?|sheet|sheet
-06|_showMoveTargetDialog|Move to folder|-|Move|MoveTargetResult?|sheet|pane
+06|_showMoveTargetDialog|Move to folder|-|Move|MoveTargetResult?|sheet|dialog
 07|_showAttachmentsDialog|Attachments|-|Close|VaultDone?|route|pane
 08|_pickExistingDriveFile|Link to a Drive file|-|Link|DriveLinkResult?|route|pane
 09|_showSyncConflictDialog|Both versions changed|This device and "{driveFileName}" on Drive were both edited since the last sync.|Use remote|SyncConflictRouteResult?|sheet|pane
-10|_showDuplicatesDialog|Manage duplicates|-|Close|VaultDone?|route|pane
-11|_showMergePreviewSheet|What the merge does|-|Merge and move duplicate|ConfirmDecision?|sheet|pane
+10|_showDuplicatesDialog|Manage duplicates|-|Close|VaultDone?|route|route
+11|_showMergePreviewSheet|What the merge does|-|Merge and move duplicate|ConfirmDecision?|route|route
 12|_showRecordMetadataDialog|Record info|-|Close|VaultDone?|route|pane
-13|_showDatabaseSettings|Database settings|-|Save changes|DatabaseSettingsResult?|route|pane
+# 2026-08-31 supersession (user-directed Settings reorg): row 13's combined
+# "Database settings" dialog is retired. Every capability it carried is an
+# inline Settings row (biometrics, inactivity, master password, key file) and
+# its one unique action became the Settings 'Rename database' row. Row 14's
+# security-confirm sheet lives on in ChangeMasterPasswordScreen.
+#13|_showDatabaseSettings|Database settings|-|Save changes|DatabaseSettingsResult?|route|pane
 14|_showDatabaseSettings.securityConfirm|Confirm security changes|You are about to update: {securityChanges}. Use the new credentials to unlock this vault after saving.|Confirm and apply|ConfirmDecision?|sheet|sheet
-15|_showRecycleBinDialog|Recycle bin|-|-|VaultDone?|route|pane
+15|_showRecycleBinDialog|Recycle bin|-|-|VaultDone?|route|route
 16|_startCsvImportFlow|Import CSV|-|Import|CsvImportResult?|route|pane
 17|_handleOtpAuthEvent|Add OTP account?|An OTP account for {otpAuth.title} was received. Review it before saving to this vault.|Review|ConfirmDecision?|sheet|sheet
 18|_closeCurrentDatabaseAndSelectAnother|Close database|Close this database and return to file selection? Saved credentials for the current database will be removed.|Close database|ConfirmDecision?|sheet|sheet

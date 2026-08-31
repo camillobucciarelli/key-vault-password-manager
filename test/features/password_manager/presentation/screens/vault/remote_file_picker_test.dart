@@ -159,18 +159,17 @@ void main() {
       await tester.tap(find.text('Pick an existing .kdbx'));
       await tester.pumpAndSettle();
 
-      // Default selection is the first row (Alpha, id a1).
+      // Nothing is pre-selected — Link is contextual to a selected row and
+      // must not exist yet (2026-08-31 redesign: no default selection).
       expect(
         tester
             .widgetList<RemoteFileRow>(find.byType(RemoteFileRow))
-            .where((r) => r.selected)
-            .single
-            .file
-            .id,
-        'a1',
+            .where((r) => r.selected),
+        isEmpty,
       );
+      expect(find.byTooltip('Link this file'), findsNothing);
 
-      // User selects Beta instead.
+      // User selects Beta — its row now carries the contextual Link button.
       await tester.tap(find.text('Beta.kdbx'));
       await tester.pumpAndSettle();
       expect(
@@ -182,6 +181,7 @@ void main() {
             .id,
         'b1',
       );
+      expect(find.byTooltip('Link this file'), findsOneWidget);
 
       // User types a query that filters Beta out of the results.
       await tester.enterText(find.byType(TextField), 'Alpha');
@@ -191,19 +191,10 @@ void main() {
       expect(find.text('Beta.kdbx'), findsNothing);
       final rows = tester.widgetList<RemoteFileRow>(find.byType(RemoteFileRow));
       expect(rows, hasLength(1));
-      // The fix re-selects the first (only) visible file rather than
-      // leaving a phantom selection pointing at the now-invisible 'b1'.
-      expect(rows.single.file.id, 'a1');
-      expect(rows.single.selected, isTrue);
-
-      // "Link" is enabled and, if tapped, can only ever complete with a
-      // file id that is actually visible in the current list.
-      expect(
-        tester
-            .widget<ElevatedButton>(find.widgetWithText(ElevatedButton, 'Link'))
-            .onPressed,
-        isNotNull,
-      );
+      // The stale selection is dropped, nothing looks chosen, and the
+      // contextual Link button is gone with it.
+      expect(rows.single.selected, isFalse);
+      expect(find.byTooltip('Link this file'), findsNothing);
     },
   );
 
@@ -231,7 +222,9 @@ void main() {
       await tester.tap(find.text('Pick an existing .kdbx'));
       await tester.pumpAndSettle();
 
-      // Default selection is the first row (Alpha, id a1).
+      // Select Alpha so there is a live selection to go stale.
+      await tester.tap(find.text('Alpha.kdbx'));
+      await tester.pumpAndSettle();
       expect(
         tester
             .widgetList<RemoteFileRow>(find.byType(RemoteFileRow))
@@ -251,14 +244,9 @@ void main() {
       expect(find.byType(RemoteFileRow), findsNothing);
 
       // The stale 'a1' selection must be cleared even though the isEmpty
-      // branch returns before reaching the old post-check location —
-      // "Link" must be disabled, not still wired to an invisible file.
-      expect(
-        tester
-            .widget<ElevatedButton>(find.widgetWithText(ElevatedButton, 'Link'))
-            .onPressed,
-        isNull,
-      );
+      // branch returns before reaching the old post-check location — no
+      // contextual Link button may survive pointing at an invisible file.
+      expect(find.byTooltip('Link this file'), findsNothing);
     },
   );
 
@@ -362,12 +350,9 @@ void main() {
           .onPressed,
       isNull,
     );
-    expect(
-      tester
-          .widget<ElevatedButton>(find.widgetWithText(ElevatedButton, 'Link'))
-          .onPressed,
-      isNull,
-    );
+    // The contextual Link button only exists on a selected row — during an
+    // auth error the list (and any selection) is gone with it.
+    expect(find.byTooltip('Link this file'), findsNothing);
 
     // Unrelated BLoC traffic must not complete this auth gesture or re-enable
     // another OAuth launch while the first operation is pending.
@@ -414,14 +399,9 @@ void main() {
         ),
         findsOneWidget,
       );
-      final link = tester.widget<ElevatedButton>(
-        find.widgetWithText(ElevatedButton, 'Link'),
-      );
-      expect(link.onPressed, isNull);
-      await tester.tap(
-        find.widgetWithText(ElevatedButton, 'Link'),
-        warnIfMissed: false,
-      );
+      // No contextual Link button exists while the auth error is showing —
+      // nothing can close the picker but Back or a successful reconnect.
+      expect(find.byTooltip('Link this file'), findsNothing);
       expect(find.text('Link to a Drive file'), findsOneWidget);
 
       await tester.tap(find.bySemanticsLabel('Reconnect Google Drive'));

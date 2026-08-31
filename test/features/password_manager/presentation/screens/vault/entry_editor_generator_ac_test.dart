@@ -69,7 +69,9 @@ void main() {
     });
   });
 
-  group('AC8: tablet metadata grid has exactly 3 rows', () {
+  // Amended 2026-08-30: the grid moved into the `Record info` dialog opened
+  // from the record's `•••`, at every width.
+  group('AC8: the Record info dialog has exactly 3 rows', () {
     testWidgets('Created / Updated / last password change, no more no less', (
       tester,
     ) async {
@@ -78,6 +80,11 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('GitHub').first);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Record actions').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Record info'));
       await tester.pumpAndSettle();
 
       final grid = find.byKey(const ValueKey('entry-detail-metadata-grid'));
@@ -132,7 +139,7 @@ void main() {
 
         await tester.tap(find.text('GitHub').first);
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Copy password'));
+        await tester.tap(find.byTooltip('Copy').first);
         await tester.pump();
 
         expect(

@@ -16,7 +16,6 @@ class _VaultUiTokens {
   static const double recordListSpacing = 8;
   static const Duration itemTransitionDuration = Duration(milliseconds: 190);
   static const Duration buttonTransitionDuration = Duration(milliseconds: 220);
-  static const Duration backgroundLockTimeout = Duration(seconds: 30);
 }
 
 class VaultScreen extends StatelessWidget {
@@ -432,6 +431,11 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     }
   }
 
+  /// Background lock backstop when `Lock on inactivity` is unset: `Never`
+  /// disables the foreground timer, not the guarantee that a backgrounded
+  /// vault eventually locks.
+  static const _kUnsetBackgroundLockCeiling = Duration(minutes: 15);
+
   void _onAppResumed() {
     if (!mounted) return;
 
@@ -441,7 +445,17 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     final elapsed = backgroundedAt != null
         ? DateTime.now().difference(backgroundedAt)
         : Duration.zero;
-    final shouldLock = elapsed >= _VaultUiTokens.backgroundLockTimeout;
+    // 2026-08-31: the FOREGROUND inactivity timer runs only when configured
+    // (the old fixed 30 s background rule locked vaults whose setting says
+    // `Never`). For the background an unset timeout still keeps a
+    // conservative ceiling (PR #180 review): a password manager left in the
+    // background must not stay unlocked forever, so `Never` governs the
+    // foreground timer while a long backstop covers the background.
+    final timeoutSeconds = _inactivityTimeoutSeconds;
+    final backgroundCeiling = timeoutSeconds != null
+        ? Duration(seconds: timeoutSeconds)
+        : _kUnsetBackgroundLockCeiling;
+    final shouldLock = elapsed >= backgroundCeiling;
 
     setState(() {
       _isBackground = false;
@@ -792,41 +806,37 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                                   // records list, at every width. Its actions
                                   // did not go away — they moved to the header
                                   // below and to the folder column (FR-015).
-                                  if (!_effectiveLayout(context)
-                                      .hasFolderPane) ...[
-                                    _VaultListHeader(
-                                      onAddRecord: () =>
-                                          _createRecordInCurrentFolder(context),
-                                      onOpenSort: () =>
-                                          _showSortSheet(context),
-                                      onOpenRecycleBin: () {
-                                        unawaited(
-                                          _showRecycleBinDialog(context),
-                                        );
-                                      },
-                                      onOpenDuplicates: () {
-                                        unawaited(
-                                          _showDuplicatesDialog(context),
-                                        );
-                                      },
-                                      onChangeDatabase: () =>
-                                          _closeCurrentDatabaseAndSelectAnother(
-                                            context,
+                                  if (!_effectiveLayout(
+                                    context,
+                                  ).hasFolderPane) ...[
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: _VaultNameHeader(
+                                            titleStyle:
+                                                AppTextStyles.screenTitle,
                                           ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        KvCircleIconButton(
+                                          glyph: AppGlyph.delete,
+                                          tooltip: 'Recycle bin',
+                                          size: 32,
+                                          onPressed: () => unawaited(
+                                            _showRecycleBinDialog(context),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        KvCircleIconButton(
+                                          glyph: AppGlyph.duplicates,
+                                          tooltip: 'Manage duplicates',
+                                          size: 32,
+                                          onPressed: () => unawaited(
+                                            _showDuplicatesDialog(context),
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    const SizedBox(
-                                      height: _VaultUiTokens.panelGap,
-                                    ),
-                                    // spec-019 FR-005 + plan Risks: the chip
-                                    // row stands in wherever the folder column
-                                    // does not fit — the phone, and the
-                                    // 704-940 band whose artboard the design
-                                    // still owes. That band had no folder
-                                    // affordance at all once the list stopped
-                                    // carrying folders, which would have
-                                    // stranded every folder between 704 and
-                                    // 940.
-                                    const _VaultFolderChipRow(),
                                     const SizedBox(
                                       height: _VaultUiTokens.panelGap,
                                     ),
@@ -861,6 +871,9 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                               activePane: _activePane,
                               vaultPane: vaultPane,
                               onSelectDestination: _selectDestination,
+                              settingsNeedsAttention:
+                                  _inactivityTimeoutSeconds == null,
+                              onSecuritySettingsChanged: _loadInactivityTimeout,
                               onBackFromPane: _router.requestCancelCurrentPane,
                               onCloseDatabase: () =>
                                   _closeCurrentDatabaseAndSelectAnother(
@@ -921,6 +934,7 @@ bool _syncStatusStripBuildWhen(VaultState previous, VaultState current) {
       previous.linkedDriveFileName != current.linkedDriveFileName ||
       previous.syncStatus != current.syncStatus ||
       previous.lastSyncAt != current.lastSyncAt ||
+      previous.lastSyncedLocalChecksum != current.lastSyncedLocalChecksum ||
       previous.autoSyncEnabled != current.autoSyncEnabled ||
       previous.isSyncing != current.isSyncing ||
       previous.isOffline != current.isOffline ||
@@ -929,6 +943,8 @@ bool _syncStatusStripBuildWhen(VaultState previous, VaultState current) {
 
 bool _entriesCardBuildWhen(VaultState previous, VaultState current) {
   return previous.visibleEntries != current.visibleEntries ||
+      previous.folderCounts != current.folderCounts ||
+      previous.rootGroupId != current.rootGroupId ||
       previous.groups != current.groups ||
       previous.currentGroupId != current.currentGroupId ||
       previous.folderDescendantIds != current.folderDescendantIds ||
@@ -980,6 +996,11 @@ class _VaultEntriesCardSection extends StatelessWidget {
           entries: state.visibleEntries,
           groups: state.groups,
           currentGroupId: currentGroupId,
+          rootGroupId: state.rootGroupId,
+          folderCounts: state.folderCounts,
+          // 2026-08-31: without the folder column the list IS the file
+          // system — subfolders and records together, tap to descend.
+          folderBrowser: !layout.hasFolderPane,
           searchQuery: state.searchQuery,
           sortBy: state.sortBy,
           subfolderIds: subfolderIds,
@@ -1026,7 +1047,17 @@ class _VaultNavigationLayout extends StatelessWidget {
     required this.onOpenRecycleBin,
     required this.onOpenDuplicates,
     required this.onChangeDatabase,
+    required this.settingsNeedsAttention,
+    required this.onSecuritySettingsChanged,
   });
+
+  /// True while auto-lock is not configured for the open database — the
+  /// Settings destination then carries an attention badge.
+  final bool settingsNeedsAttention;
+
+  /// Called after the security settings change, so the shell reloads the
+  /// auto-lock timeout (and the badge) without reopening the vault.
+  final VoidCallback onSecuritySettingsChanged;
 
   final VoidCallback onOpenRecycleBin;
   final VoidCallback onOpenDuplicates;
@@ -1060,6 +1091,7 @@ class _VaultNavigationLayout extends StatelessWidget {
           _VaultTabBar(
             selected: selectedDestination,
             onSelected: onSelectDestination,
+            settingsNeedsAttention: settingsNeedsAttention,
           ),
         ],
       );
@@ -1070,6 +1102,9 @@ class _VaultNavigationLayout extends StatelessWidget {
     // spec's design-decisions section.
     const railWidth = VaultColumns.rail;
     return Row(
+      // A destination shorter than the window (Health) would otherwise be
+      // vertically centered by the Row's default cross-axis alignment.
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SizedBox(
           key: const ValueKey('vault-rail'),
@@ -1077,6 +1112,7 @@ class _VaultNavigationLayout extends StatelessWidget {
           child: _VaultRail(
             selected: selectedDestination,
             onSelected: onSelectDestination,
+            settingsNeedsAttention: settingsNeedsAttention,
           ),
         ),
         const _VaultVerticalDivider(),
@@ -1100,15 +1136,28 @@ class _VaultNavigationLayout extends StatelessWidget {
     // stopgap ("Settings" didn't have its own screen yet). Backups & import
     // is now reached from a row inside the real Settings destination.
     VaultDestination.settings => _VaultDestinationScaffold(
-      child: _VaultSettingsDestination(onCloseDatabase: onCloseDatabase),
+      child: _VaultSettingsDestination(
+        onCloseDatabase: onCloseDatabase,
+        onSecurityChanged: onSecuritySettingsChanged,
+      ),
     ),
   };
 
   Widget _railBody(BuildContext context, double railWidth) {
     if (selectedDestination != VaultDestination.vault) {
+      // A pane surface opened from a non-vault destination (Health category
+      // list, entry detail from it) pushes over the destination body, as on
+      // mobile — before this the pane opened invisibly and the tap read as
+      // dead.
       return KeyedSubtree(
         key: ValueKey('vault-${selectedDestination.name}-root'),
-        child: _destinationBody(),
+        child: activePane == null
+            ? _destinationBody()
+            : _VaultPaneHost(
+                pane: activePane!,
+                onBack: onBackFromPane,
+                requiresBack: true,
+              ),
       );
     }
     // spec-018 FR-002d: below the derived pane threshold the rail is shown
@@ -1124,36 +1173,55 @@ class _VaultNavigationLayout extends StatelessWidget {
       );
     }
 
-    return Row(
-      children: [
-        if (layout.hasFolderPane) ...[
-          SizedBox(
-            key: const ValueKey('vault-folder-pane'),
-            width: VaultColumns.folders,
-            child: _VaultFolderColumn(
-              onOpenRecycleBin: onOpenRecycleBin,
-              onOpenDuplicates: onOpenDuplicates,
-              onChangeDatabase: onChangeDatabase,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // The normative widths are minimums, not fixed sizes: on a wide
+        // window the surplus is split between the columns (capped) instead
+        // of all landing in the detail pane while titles truncate.
+        final base =
+            (layout.hasFolderPane
+                ? VaultColumns.folders + VaultColumns.divider
+                : 0) +
+            VaultColumns.list +
+            VaultColumns.detailMin +
+            VaultColumns.divider;
+        final extra = (constraints.maxWidth - base).clamp(0.0, double.infinity);
+        final folderWidth = (VaultColumns.folders + extra * 0.15).clamp(
+          VaultColumns.folders,
+          VaultColumns.foldersMax,
+        );
+        final listWidth = (VaultColumns.list + extra * 0.30).clamp(
+          VaultColumns.list,
+          VaultColumns.listMax,
+        );
+        return Row(
+          children: [
+            if (layout.hasFolderPane) ...[
+              SizedBox(
+                key: const ValueKey('vault-folder-pane'),
+                width: folderWidth,
+                child: const _VaultFolderColumn(),
+              ),
+              const _VaultVerticalDivider(),
+            ],
+            SizedBox(
+              key: const ValueKey('vault-list-pane'),
+              width: listWidth,
+              child: vaultPane,
             ),
-          ),
-          const _VaultVerticalDivider(),
-        ],
-        SizedBox(
-          key: const ValueKey('vault-list-pane'),
-          width: VaultColumns.list,
-          child: vaultPane,
-        ),
-        const _VaultVerticalDivider(),
-        // FR-002c: the detail pane is persistent — always present, showing
-        // the empty state when nothing is selected, never a pane that only
-        // materialises once a surface opens.
-        Expanded(
-          key: const ValueKey('vault-detail-pane'),
-          child: activePane == null
-              ? const _EntryDetailEmptyState()
-              : _VaultPaneHost(pane: activePane!, onBack: onBackFromPane),
-        ),
-      ],
+            const _VaultVerticalDivider(),
+            // FR-002c: the detail pane is persistent — always present, showing
+            // the empty state when nothing is selected, never a pane that only
+            // materialises once a surface opens.
+            Expanded(
+              key: const ValueKey('vault-detail-pane'),
+              child: activePane == null
+                  ? const _EntryDetailEmptyState()
+                  : _VaultPaneHost(pane: activePane!, onBack: onBackFromPane),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -1171,10 +1239,17 @@ class _VaultVerticalDivider extends StatelessWidget {
 }
 
 class _VaultTabBar extends StatelessWidget {
-  const _VaultTabBar({required this.selected, required this.onSelected});
+  const _VaultTabBar({
+    required this.selected,
+    required this.onSelected,
+    this.settingsNeedsAttention = false,
+  });
 
   final VaultDestination selected;
   final ValueChanged<VaultDestination> onSelected;
+
+  /// Auto-lock unset: the Settings tab carries an attention dot.
+  final bool settingsNeedsAttention;
 
   @override
   Widget build(BuildContext context) {
@@ -1201,26 +1276,31 @@ class _VaultTabBar extends StatelessWidget {
                         children: [
                           // FR-018: same treatment as the rail — one selected
                           // recipe for the chrome, whichever shape it takes.
-                          DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: destination == selected
-                                  ? AppColors.accent200
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(
-                                AppRadii.iconSquare,
-                              ),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 2,
-                              ),
-                              child: KvIcon(
-                                glyph: destination.glyph,
-                                size: 23,
+                          _AttentionBadge(
+                            visible:
+                                settingsNeedsAttention &&
+                                destination == VaultDestination.settings,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
                                 color: destination == selected
-                                    ? AppColors.accent800
-                                    : colors.textSecondary,
+                                    ? AppColors.accent200
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(
+                                  AppRadii.iconSquare,
+                                ),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 2,
+                                ),
+                                child: KvIcon(
+                                  glyph: destination.glyph,
+                                  size: 23,
+                                  color: destination == selected
+                                      ? AppColors.accent800
+                                      : colors.textSecondary,
+                                ),
                               ),
                             ),
                           ),
@@ -1247,40 +1327,91 @@ class _VaultTabBar extends StatelessWidget {
   }
 }
 
+/// A small attention dot pinned to the top-right of [child] — the badge the
+/// Settings destination carries while auto-lock is unset.
+class _AttentionBadge extends StatelessWidget {
+  const _AttentionBadge({required this.visible, required this.child});
+
+  final bool visible;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!visible) return child;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        child,
+        Positioned(
+          top: -1,
+          right: -1,
+          // The dot is decorative here — the Settings screen's disclaimer
+          // carries the message for assistive tech; naming the dot would
+          // merge into the destination's own label and rename it.
+          child: ExcludeSemantics(
+            child: Container(
+              width: 9,
+              height: 9,
+              decoration: const BoxDecoration(
+                color: AppColors.accent500,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _VaultRail extends StatelessWidget {
-  const _VaultRail({required this.selected, required this.onSelected});
+  const _VaultRail({
+    required this.selected,
+    required this.onSelected,
+    this.settingsNeedsAttention = false,
+  });
 
   final VaultDestination selected;
   final ValueChanged<VaultDestination> onSelected;
+
+  /// Auto-lock unset: the Settings tile carries an attention dot.
+  final bool settingsNeedsAttention;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
     Widget button(VaultDestination destination) {
       final isSelected = destination == selected;
+      final showsBadge =
+          settingsNeedsAttention && destination == VaultDestination.settings;
       return Semantics(
         selected: isSelected,
         button: true,
         label: destination.label,
         child: SizedBox.square(
           dimension: 36,
-          child: DecoratedBox(
-            // spec-019 FR-018 / C-03-14: the selected destination is a filled
-            // tile, not a recoloured glyph. The `Semantics(selected:)` above
-            // stays exactly as it was — the fill is in addition to it, never
-            // instead of it (Constitution V).
-            decoration: BoxDecoration(
-              color: isSelected ? AppColors.accent200 : Colors.transparent,
-              borderRadius: BorderRadius.circular(AppRadii.iconSquare),
-            ),
-            child: IconButton(
-              tooltip: destination.label,
-              padding: EdgeInsets.zero,
-              onPressed: () => onSelected(destination),
-              icon: KvIcon(
-                glyph: destination.glyph,
-                size: 22,
-                color: isSelected ? AppColors.accent800 : colors.textSecondary,
+          child: _AttentionBadge(
+            visible: showsBadge,
+            child: DecoratedBox(
+              // spec-019 FR-018 / C-03-14: the selected destination is a filled
+              // tile, not a recoloured glyph. The `Semantics(selected:)` above
+              // stays exactly as it was — the fill is in addition to it, never
+              // instead of it (Constitution V).
+              decoration: BoxDecoration(
+                color: isSelected ? AppColors.accent200 : Colors.transparent,
+                borderRadius: BorderRadius.circular(AppRadii.iconSquare),
+              ),
+              child: IconButton(
+                tooltip: destination.label,
+                padding: EdgeInsets.zero,
+                onPressed: () => onSelected(destination),
+                icon: KvIcon(
+                  glyph: destination.glyph,
+                  size: 22,
+                  color: isSelected
+                      ? AppColors.accent800
+                      : colors.textSecondary,
+                ),
               ),
             ),
           ),
@@ -1295,15 +1426,13 @@ class _VaultRail extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Column(
             children: [
-              Container(
+              // The mark carries its own colour; a filled tile behind it
+              // fought the ring (orange on orange), so the rail shows the
+              // mark alone at the size the tile used to occupy.
+              const SizedBox(
                 width: 38,
                 height: 38,
-                decoration: BoxDecoration(
-                  color: colors.actionFill,
-                  borderRadius: BorderRadius.circular(13),
-                ),
-                alignment: Alignment.center,
-                child: const _VaultAppMark(size: 21),
+                child: Center(child: _VaultAppMark(size: 30)),
               ),
               const SizedBox(height: 20),
               button(VaultDestination.vault),
@@ -1321,63 +1450,70 @@ class _VaultRail extends StatelessWidget {
   }
 }
 
-/// Marks the subtree as living inside [_VaultPaneHost].
+/// Marks the subtree as living inside [_VaultPaneHost] and hands it the
+/// host's back action.
 ///
-/// The host draws the back affordance for whatever it hosts, so a pane must
-/// not draw a second one. Asking "am I in a pane?" structurally is the fix
-/// for deriving it from the window width: the presentation is chosen when the
-/// surface opens, so a resize made the width answer disagree with the tree
-/// that was actually mounted — and both back buttons appeared at once.
+/// 2026-08-31: the host no longer draws its own back row above the pane —
+/// that stacked a second header over panes that already carry their own
+/// affordance (the detail's header, the editor's Cancel, every dialog-shaped
+/// pane's actions). The pane that wants a back button draws it inline and
+/// calls [onBackOf]. Asking "am I in a pane?" structurally remains the fix
+/// for deriving it from the window width: the presentation is chosen when
+/// the surface opens, so a resize made the width answer disagree with the
+/// tree that was actually mounted — and both back buttons appeared at once.
 class _VaultPaneScope extends InheritedWidget {
-  const _VaultPaneScope({required super.child});
+  const _VaultPaneScope({
+    required this.onBack,
+    this.requiresBack = false,
+    required super.child,
+  });
+
+  final Future<bool> Function() onBack;
+
+  /// True when the pane is pushed over a body with no list beside it (a
+  /// non-vault destination) — the pane content must then draw its own back
+  /// even at widths where the vault's detail column would not.
+  final bool requiresBack;
 
   static bool of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<_VaultPaneScope>() != null;
 
+  static Future<bool> Function()? onBackOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_VaultPaneScope>()?.onBack;
+
+  static bool requiresBackOf(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<_VaultPaneScope>()
+          ?.requiresBack ??
+      false;
+
   @override
-  bool updateShouldNotify(_VaultPaneScope oldWidget) => false;
+  bool updateShouldNotify(_VaultPaneScope oldWidget) =>
+      requiresBack != oldWidget.requiresBack;
 }
 
 class _VaultPaneHost extends StatelessWidget {
-  const _VaultPaneHost({required this.pane, required this.onBack});
+  const _VaultPaneHost({
+    required this.pane,
+    required this.onBack,
+    this.requiresBack = false,
+  });
 
   final Widget pane;
   final Future<bool> Function() onBack;
+  final bool requiresBack;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            // PIXEL_SPEC §2: icon buttons are 36 px circles on the surface
-            // ramp with a 17-19 px glyph, never a bare Material button.
-            child: SizedBox.square(
-              dimension: 36,
-              child: IconButton(
-                key: const ValueKey('vault-pane-back'),
-                tooltip: 'Back',
-                onPressed: onBack,
-                style: IconButton.styleFrom(
-                  backgroundColor: colors.surface,
-                  shape: const CircleBorder(),
-                  padding: EdgeInsets.zero,
-                ),
-                icon: KvIcon(
-                  glyph: AppGlyph.back,
-                  size: 19,
-                  color: colors.iconNeutral,
-                ),
-              ),
-            ),
-          ),
-        ),
-        Expanded(child: _VaultPaneScope(child: pane)),
-      ],
+    // SizedBox.expand: the pane row centers non-stretched children, and a
+    // scroll-view pane shrink-wraps — without tight constraints the detail
+    // floated vertically centered instead of starting at the top.
+    return SizedBox.expand(
+      child: _VaultPaneScope(
+        onBack: onBack,
+        requiresBack: requiresBack,
+        child: pane,
+      ),
     );
   }
 }
@@ -1400,26 +1536,50 @@ class _VaultDestinationScaffold extends StatelessWidget {
   }
 }
 
-/// spec-019 T035 / FR-014 — the vault's screen header, wherever there is no
-/// folder column to carry the database's name.
+/// spec-019 T035 / FR-014, amended 2026-08-31 — the vault's screen header,
+/// wherever there is no folder column to carry the database's name.
 ///
-/// `Vault`, then the record count and the database file name, then — from the
-/// right — the add affordance, the sort affordance, and the database actions
-/// the status card used to carry (FR-015). Each target is 44 px.
-class _VaultListHeader extends StatelessWidget {
-  const _VaultListHeader({
-    required this.onAddRecord,
-    required this.onOpenSort,
-    required this.onOpenRecycleBin,
-    required this.onOpenDuplicates,
-    required this.onChangeDatabase,
-  });
+/// The database's own name is the title (the word `Vault` told the user
+/// nothing), the count is the subtitle, and the only actions are sort and
+/// add, drawn with the app's circle buttons. The sync and overflow controls
+/// left this header — hygiene and database actions live in their own
+/// destinations.
+/// One line under the vault's name, everywhere the name appears: when the
+/// database is linked to Drive it says how fresh the copy is, otherwise it
+/// says plainly that this is a local, unsynced file.
+String _vaultSyncStatusLabel(VaultState state) {
+  if (!state.isDriveLinked) {
+    return 'Local vault, not synced';
+  }
+  final lastSyncAt = state.lastSyncAt;
+  if (lastSyncAt == null) {
+    return 'Not synced yet';
+  }
+  final diff = DateTime.now().difference(lastSyncAt);
+  if (diff.inMinutes < 1) {
+    return 'Last sync just now';
+  }
+  if (diff.inMinutes < 60) {
+    final m = diff.inMinutes;
+    return 'Last sync $m minute${m == 1 ? '' : 's'} ago';
+  }
+  if (diff.inHours < 24) {
+    final h = diff.inHours;
+    return 'Last sync $h hour${h == 1 ? '' : 's'} ago';
+  }
+  final d = diff.inDays;
+  return 'Last sync $d day${d == 1 ? '' : 's'} ago';
+}
 
-  final VoidCallback onAddRecord;
-  final VoidCallback onOpenSort;
-  final VoidCallback onOpenRecycleBin;
-  final VoidCallback onOpenDuplicates;
-  final Future<void> Function() onChangeDatabase;
+/// spec-019 T035 / FR-014, amended 2026-08-31 — ONE widget for the vault's
+/// name wherever it appears: the database file name as the title and the
+/// sync status (last sync, sync errors) as the subtitle. The 3-column folder
+/// column and the 1/2-column list header both render this; the item count
+/// lives in the list card's own count line at every width.
+class _VaultNameHeader extends StatelessWidget {
+  const _VaultNameHeader({required this.titleStyle});
+
+  final TextStyle titleStyle;
 
   @override
   Widget build(BuildContext context) {
@@ -1427,52 +1587,29 @@ class _VaultListHeader extends StatelessWidget {
 
     return BlocBuilder<VaultBloc, VaultState>(
       buildWhen: (previous, current) =>
-          previous.visibleEntries.length != current.visibleEntries.length ||
           previous.databasePath != current.databasePath ||
-          _databaseActionsBuildWhen(previous, current),
+          previous.isDriveLinked != current.isDriveLinked ||
+          previous.lastSyncAt != current.lastSyncAt ||
+          previous.syncStatus != current.syncStatus ||
+          previous.syncError != current.syncError ||
+          previous.isSyncing != current.isSyncing,
       builder: (context, state) {
-        return Row(
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Vault',
-                    style: AppTextStyles.screenTitle.copyWith(
-                      color: colors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${state.visibleEntries.length} items · '
-                    '${path.basename(state.databasePath)}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.meta.copyWith(
-                      color: colors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
+            Text(
+              path.basename(state.databasePath),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: titleStyle.copyWith(color: colors.textPrimary),
             ),
-            _VaultDatabaseActions(
-              state: state,
-              onOpenRecycleBin: onOpenRecycleBin,
-              onOpenDuplicates: onOpenDuplicates,
-              onChangeDatabase: onChangeDatabase,
-            ),
-            _VaultHeaderIconButton(
-              tooltip: 'Sort records',
-              glyph: AppGlyph.sort,
-              onPressed: onOpenSort,
-            ),
-            _VaultHeaderIconButton(
-              tooltip: 'Add record',
-              glyph: AppGlyph.add,
-              filled: true,
-              onPressed: onAddRecord,
+            const SizedBox(height: 2),
+            Text(
+              _vaultSyncStatusLabel(state),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.meta.copyWith(color: colors.textSecondary),
             ),
           ],
         );
@@ -1481,134 +1618,6 @@ class _VaultListHeader extends StatelessWidget {
   }
 }
 
-class _VaultHeaderIconButton extends StatelessWidget {
-  const _VaultHeaderIconButton({
-    required this.tooltip,
-    required this.glyph,
-    required this.onPressed,
-    this.filled = false,
-  });
-
-  final String tooltip;
-  final AppGlyph glyph;
-  final VoidCallback onPressed;
-
-  /// spec-019 C-03-01: the add affordance is an `accent-300` filled button,
-  /// not a bare glyph — it is the header's one primary action and the design
-  /// gives it the only fill in the row. The 44 px target is the button's, not
-  /// the fill's: the visible circle is 36 (PIXEL_SPEC §2).
-  final bool filled;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    return SizedBox(
-      width: 44,
-      height: 44,
-      child: IconButton(
-        tooltip: tooltip,
-        onPressed: onPressed,
-        padding: EdgeInsets.zero,
-        style: filled
-            ? IconButton.styleFrom(
-                backgroundColor: AppColors.accent300,
-                fixedSize: const Size.square(36),
-                shape: const CircleBorder(),
-              )
-            : null,
-        icon: KvIcon(
-          glyph: glyph,
-          size: 19,
-          color: filled ? AppColors.accent900 : colors.textPrimary,
-        ),
-      ),
-    );
-  }
-}
-
-/// spec-019 FR-015 — the database-level actions the status card carried.
-///
-/// Not re-implemented: this is the card's own primary button and its own
-/// overflow, moved. The sheet behind the overflow is `_VaultSettingsSheet`,
-/// unchanged, so `Lock vault`, `Change database`, `Database settings`,
-/// `Recycle bin` and `Manage duplicates` keep both their wording and their
-/// interaction count.
-class _VaultDatabaseActions extends StatelessWidget {
-  const _VaultDatabaseActions({
-    required this.state,
-    required this.onOpenRecycleBin,
-    required this.onOpenDuplicates,
-    required this.onChangeDatabase,
-  });
-
-  final VaultState state;
-  final VoidCallback onOpenRecycleBin;
-  final VoidCallback onOpenDuplicates;
-  final Future<void> Function() onChangeDatabase;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDriveSyncReady = state.isDriveConnected && state.isDriveLinked;
-    final isSyncInProgress =
-        state.syncStatus == DatabaseSyncStatus.syncing || state.isSyncing;
-    final isBusy = isDriveSyncReady && isSyncInProgress;
-    // Verbatim from the status card (Constitution VI).
-    final tooltip = isBusy
-        ? 'Sync in progress'
-        : isDriveSyncReady
-        ? 'Sync database'
-        : 'Refresh vault';
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: 44,
-          height: 44,
-          child: IconButton(
-            tooltip: tooltip,
-            padding: EdgeInsets.zero,
-            onPressed: isBusy
-                ? null
-                : () {
-                    final bloc = context.read<VaultBloc>();
-                    bloc.add(
-                      isDriveSyncReady
-                          ? const SyncCurrentDatabaseNow()
-                          : const RefreshVault(),
-                    );
-                  },
-            icon: _SyncStripActionIcon(
-              icon: isDriveSyncReady ? AppIcons.sync : AppIcons.refresh,
-              highlighted: isDriveSyncReady,
-              spinning: isSyncInProgress,
-            ),
-          ),
-        ),
-        _SyncStripMenuButton(
-          state: state,
-          canConfigureAndroidAutofill: false,
-          canConfigureBrowserAutofill: BrowserSetupScreen.shouldShow,
-          onOpenRecycleBin: onOpenRecycleBin,
-          onOpenDuplicates: onOpenDuplicates,
-          onChangeDatabase: onChangeDatabase,
-        ),
-      ],
-    );
-  }
-}
-
-bool _databaseActionsBuildWhen(VaultState previous, VaultState current) {
-  return previous.isDriveConnected != current.isDriveConnected ||
-      previous.isDriveLinked != current.isDriveLinked ||
-      previous.linkedDriveFileName != current.linkedDriveFileName ||
-      previous.syncStatus != current.syncStatus ||
-      previous.lastSyncAt != current.lastSyncAt ||
-      previous.autoSyncEnabled != current.autoSyncEnabled ||
-      previous.isSyncing != current.isSyncing ||
-      previous.isOffline != current.isOffline ||
-      previous.duplicateGroupCount != current.duplicateGroupCount;
-}
 
 /// spec-019 T051 / FR-016 — the KeyVault mark, as artwork.
 ///
@@ -1618,19 +1627,19 @@ bool _databaseActionsBuildWhen(VaultState previous, VaultState current) {
 class _VaultAppMark extends StatelessWidget {
   const _VaultAppMark({required this.size});
 
-  static const String assetPath =
-      'assets/logo/app_icon_family/keyvault-mark-monochrome.svg';
+  /// The full-colour mark (verbatim copy of the design master
+  /// `specs/_design/keyvault-mark-foreground.svg`), rendered untinted so the
+  /// rail shows the app's actual identity, not a silhouette.
+  static const String assetPath = 'assets/logo/keyvault-mark-color.svg';
 
   final double size;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
     return SvgPicture.asset(
       assetPath,
       width: size,
       height: size,
-      colorFilter: ColorFilter.mode(colors.actionText, BlendMode.srcIn),
       semanticsLabel: 'KeyVault',
     );
   }

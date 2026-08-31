@@ -222,12 +222,17 @@ class MoveVaultEntry extends VaultEvent {
 }
 
 class CreateVaultGroup extends VaultEvent {
-  const CreateVaultGroup(this.name);
+  const CreateVaultGroup(this.name, {this.parentGroupId});
 
   final String name;
 
+  /// Where to create the folder. Null falls back to the selected folder —
+  /// the pre-2026-08-30 behaviour, still what the column header path wants.
+  /// The Manage tree's per-row `New folder` passes the row explicitly.
+  final String? parentGroupId;
+
   @override
-  List<Object?> get props => [name];
+  List<Object?> get props => [name, parentGroupId];
 }
 
 class RenameVaultGroup extends VaultEvent {
@@ -474,14 +479,16 @@ class DeleteDuplicateEntry extends VaultEvent {
 class MergeDuplicateEntries extends VaultEvent {
   const MergeDuplicateEntries({
     required this.primaryId,
-    required this.secondaryId,
+    required this.secondaryIds,
   });
 
   final String primaryId;
-  final String secondaryId;
+
+  /// Every duplicate to fold into the kept entry, merged in order.
+  final List<String> secondaryIds;
 
   @override
-  List<Object?> get props => [primaryId, secondaryId];
+  List<Object?> get props => [primaryId, secondaryIds];
 }
 
 class RefreshAppleAutofillPendingAssociations extends VaultEvent {

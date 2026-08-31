@@ -59,14 +59,14 @@ void main() {
     await pumpMobileVault(tester);
 
     expect(find.text('Gmail'), findsWidgets);
-    expect(find.text('Copy password'), findsNothing);
+    expect(find.byKey(const ValueKey('entry-detail-body')), findsNothing);
 
     await openGmailDetail(tester);
 
     expect(tester.takeException(), isNull);
     // The detail surface is identifiable by its copy affordance, which the
     // list rows do not have.
-    expect(find.text('Copy password'), findsOneWidget);
+    expect(find.byKey(const ValueKey('entry-detail-body')), findsOneWidget);
   });
 
   testWidgets('mobile: the detail is a pushed route with a back affordance', (
@@ -82,7 +82,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Copy password'), findsNothing);
+    expect(find.byKey(const ValueKey('entry-detail-body')), findsNothing);
     // The list survived the round trip intact.
     expect(find.text('Gmail'), findsWidgets);
     expect(find.text('Banca Sella'), findsWidgets);
@@ -173,7 +173,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Save'), findsOneWidget);
-    expect(find.text('Cancel'), findsOneWidget);
+    expect(find.byTooltip('Save'), findsOneWidget);
+    expect(find.byTooltip('Cancel'), findsOneWidget);
   });
 }

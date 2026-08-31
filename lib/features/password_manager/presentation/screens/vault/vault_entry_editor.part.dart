@@ -43,33 +43,41 @@ InputDecoration _kvFieldDecoration(
   String? hint,
   Widget? suffixIcon,
   String? errorText,
+  Color? fillColor,
 }) {
   return InputDecoration(
     hintText: hint,
     filled: true,
-    fillColor: colors.surface,
-    suffixIcon: suffixIcon,
+    fillColor: fillColor ?? colors.surface,
+    // The suffix button keeps the same breathing room on its right as the
+    // field's content padding gives on the left.
+    suffixIcon: suffixIcon == null
+        ? null
+        : Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: suffixIcon,
+          ),
     errorText: errorText,
     errorMaxLines: 3,
     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
     border: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(AppRadii.row),
       borderSide: BorderSide.none,
     ),
     enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(AppRadii.row),
       borderSide: BorderSide.none,
     ),
     focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(AppRadii.row),
       borderSide: BorderSide(color: colors.selectionBorder, width: 2),
     ),
     errorBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(AppRadii.row),
       borderSide: BorderSide(color: AppColors.accent700, width: 2),
     ),
     focusedErrorBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(AppRadii.row),
       borderSide: BorderSide(color: AppColors.accent700, width: 2),
     ),
     errorStyle: AppTextStyles.secondary.copyWith(color: AppColors.accent800),
@@ -117,6 +125,7 @@ class _EntryDialogState extends State<_EntryDialog> {
   late final TextEditingController _usernameController;
   late final TextEditingController _passwordController;
   late final TextEditingController _urlController;
+  final List<TextEditingController> _extraUrlControllers = [];
   late final TextEditingController _notesController;
   late final TextEditingController _otpUriController;
   var _nextCustomFieldId = 0;
@@ -155,9 +164,18 @@ class _EntryDialogState extends State<_EntryDialog> {
       _titleController.text = widget.initialOtpAuth!.title;
     }
 
+    for (final field in widget.initial?.customFields ??
+        const <VaultCustomField>[]) {
+      if (isUrlFieldKey(field.key)) {
+        _extraUrlControllers.add(TextEditingController(text: field.value));
+      }
+    }
     _customFieldRows =
         widget.initial?.customFields
-            .where((field) => !_isOtpFieldKey(field.key))
+            .where(
+              (field) =>
+                  !_isOtpFieldKey(field.key) && !isUrlFieldKey(field.key),
+            )
             .map(
               (field) =>
                   _buildCustomFieldRow(key: field.key, value: field.value),
@@ -191,6 +209,9 @@ class _EntryDialogState extends State<_EntryDialog> {
     _usernameController.dispose();
     _passwordController.dispose();
     _urlController.dispose();
+    for (final controller in _extraUrlControllers) {
+      controller.dispose();
+    }
     _notesController.dispose();
     _otpUriController.dispose();
     super.dispose();
@@ -255,6 +276,9 @@ class _EntryDialogState extends State<_EntryDialog> {
         customFields: _buildCustomFields(
           customFieldRows: _customFieldRows,
           otpUri: _otpUriController.text,
+          extraUrls: _extraUrlControllers
+              .map((controller) => controller.text)
+              .toList(growable: false),
         ),
         attachmentPaths: List<String>.unmodifiable(_attachmentPaths),
       ),
@@ -305,6 +329,7 @@ class _EntryDialogState extends State<_EntryDialog> {
       usernameController: _usernameController,
       passwordController: _passwordController,
       urlController: _urlController,
+      extraUrlControllers: _extraUrlControllers,
       notesController: _notesController,
       otpUriController: _otpUriController,
       titleError: _titleError,
@@ -323,6 +348,22 @@ class _EntryDialogState extends State<_EntryDialog> {
         if (_titleError != null) setState(() => _titleError = null);
       },
       onOpenGenerator: () => _openGenerator(context, generatorFitsAsColumn),
+      onAddUrl: () => setState(() {
+        _extraUrlControllers.add(TextEditingController());
+        _markDirty('URL');
+      }),
+      onRemoveUrl: (index) {
+        final controller = _extraUrlControllers[index];
+        setState(() {
+          _extraUrlControllers.removeAt(index);
+          _markDirty('URL');
+        });
+        // The field is still in the tree this frame; dispose after it
+        // unmounts.
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => controller.dispose(),
+        );
+      },
       onRevealCustomFields: () => setState(() => _showCustomFields = true),
       onRevealAttachments: () => setState(() => _showAttachments = true),
       onRevealOtp: () => setState(() => _showOtp = true),
@@ -463,6 +504,7 @@ class _EntryEditorForm extends StatelessWidget {
     required this.usernameController,
     required this.passwordController,
     required this.urlController,
+    required this.extraUrlControllers,
     required this.notesController,
     required this.otpUriController,
     required this.titleError,
@@ -478,6 +520,8 @@ class _EntryEditorForm extends StatelessWidget {
     required this.onFieldChanged,
     required this.onTitleChanged,
     required this.onOpenGenerator,
+    required this.onAddUrl,
+    required this.onRemoveUrl,
     required this.onRevealCustomFields,
     required this.onRevealAttachments,
     required this.onRevealOtp,
@@ -495,6 +539,7 @@ class _EntryEditorForm extends StatelessWidget {
   final TextEditingController usernameController;
   final TextEditingController passwordController;
   final TextEditingController urlController;
+  final List<TextEditingController> extraUrlControllers;
   final TextEditingController notesController;
   final TextEditingController otpUriController;
   final String? titleError;
@@ -510,6 +555,8 @@ class _EntryEditorForm extends StatelessWidget {
   final ValueChanged<String> onFieldChanged;
   final ValueChanged<String> onTitleChanged;
   final VoidCallback onOpenGenerator;
+  final VoidCallback onAddUrl;
+  final ValueChanged<int> onRemoveUrl;
   final VoidCallback onRevealCustomFields;
   final VoidCallback onRevealAttachments;
   final VoidCallback onRevealOtp;
@@ -590,13 +637,64 @@ class _EntryEditorForm extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 14),
-          _kvFieldLabel('URL', colors),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 7),
+            child: Row(
+              children: [
+                Text(
+                  'URL',
+                  style: AppTextStyles.labelUpper.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                ),
+                const Spacer(),
+                KvCircleIconButton(
+                  glyph: AppGlyph.add,
+                  tooltip: 'Add URL',
+                  size: 28,
+                  iconSize: 15,
+                  onPressed: isSaving ? null : onAddUrl,
+                ),
+              ],
+            ),
+          ),
           TextFormField(
             controller: urlController,
             enabled: !isSaving,
             decoration: _kvFieldDecoration(colors, hint: 'netflix.com'),
             onChanged: (_) => onFieldChanged('URL'),
           ),
+          for (var i = 0; i < extraUrlControllers.length; i++) ...[
+            const SizedBox(height: 8),
+            TextFormField(
+              key: ValueKey('entry-extra-url-$i'),
+              controller: extraUrlControllers[i],
+              enabled: !isSaving,
+              decoration: _kvFieldDecoration(
+                colors,
+                hint: 'another-site.com',
+                suffixIcon: SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: IconButton(
+                    tooltip: 'Remove URL',
+                    onPressed: isSaving ? null : () => onRemoveUrl(i),
+                    style: IconButton.styleFrom(
+                      backgroundColor: colors.surfaceNested,
+                      shape: const CircleBorder(),
+                      padding: EdgeInsets.zero,
+                    ),
+                    icon: KvIcon(
+                      glyph: AppGlyph.close,
+                      size: 15,
+                      color: colors.iconNeutral,
+                    ),
+                  ),
+                ),
+              ),
+              onChanged: (_) => onFieldChanged('URL'),
+            ),
+          ],
           const SizedBox(height: 14),
           _kvFieldLabel('Notes', colors),
           TextFormField(
@@ -626,7 +724,6 @@ class _EntryEditorForm extends StatelessWidget {
                   _OptionalRow(
                     icon: AppGlyph.add,
                     label: 'Custom field',
-                    isWide: isWide,
                     onTap: () {
                       onRevealCustomFields();
                       onAddCustomField();
@@ -637,7 +734,6 @@ class _EntryEditorForm extends StatelessWidget {
                   _OptionalRow(
                     icon: AppGlyph.attachment,
                     label: 'Attachment',
-                    isWide: isWide,
                     onTap: () {
                       onRevealAttachments();
                       onAddAttachment();
@@ -650,7 +746,6 @@ class _EntryEditorForm extends StatelessWidget {
                   _OptionalRow(
                     icon: AppGlyph.qrCode,
                     label: 'One-time code',
-                    isWide: isWide,
                     onTap: onRevealOtp,
                   ),
                 ],
@@ -705,9 +800,10 @@ class _EntryEditorForm extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                TextButton(
+                KvCircleIconButton(
+                  glyph: AppGlyph.add,
+                  tooltip: 'Add field',
                   onPressed: isSaving ? null : onAddCustomField,
-                  child: const Text('Add field'),
                 ),
               ],
             ),
@@ -786,16 +882,10 @@ class _EntryEditorForm extends StatelessWidget {
 }
 
 class _OptionalRow extends StatelessWidget {
-  const _OptionalRow({
-    required this.icon,
-    required this.label,
-    this.isWide = false,
-    this.onTap,
-  });
+  const _OptionalRow({required this.icon, required this.label, this.onTap});
 
   final AppGlyph icon;
   final String label;
-  final bool isWide;
   final VoidCallback? onTap;
 
   @override
@@ -807,12 +897,12 @@ class _OptionalRow extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(20),
         child: Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: isWide ? 12 : 13,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+          // 2026-08-31: one look at every width — the wide layout's
+          // surfaceNested fill melted into the pane and the rows read as
+          // bare text.
           decoration: BoxDecoration(
-            color: isWide ? colors.surfaceNested : colors.surface,
+            color: colors.surface,
             borderRadius: BorderRadius.circular(20),
           ),
           child: Row(
@@ -863,55 +953,54 @@ class _CustomFieldRowEditor extends StatelessWidget {
         color: colors.surface,
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      // 2026-08-31: key above value, and the same label-above-field grammar
+      // as the rest of the form (_kvFieldLabel + _kvFieldDecoration) instead
+      // of Material floating labels. The remove button sits beside the key
+      // field so the value keeps symmetric margins.
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            flex: 2,
-            child: TextFormField(
-              initialValue: row.key,
-              enabled: enabled,
-              decoration: const InputDecoration(
-                isDense: true,
-                labelText: 'Key',
-                border: InputBorder.none,
-              ),
-              onChanged: (v) {
-                row.key = v;
-                onChanged();
-              },
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            flex: 3,
-            child: TextFormField(
-              initialValue: row.value,
-              enabled: enabled,
-              decoration: const InputDecoration(
-                isDense: true,
-                labelText: 'Value',
-                border: InputBorder.none,
-              ),
-              onChanged: (v) {
-                row.value = v;
-                onChanged();
-              },
-            ),
-          ),
-          SizedBox(
-            width: 32,
-            height: 32,
-            child: IconButton(
-              tooltip: 'Remove field',
-              onPressed: enabled ? onRemove : null,
-              padding: EdgeInsets.zero,
-              icon: KvIcon(
+          // The remove button lives in the card's header row, so Key and
+          // Value stay the same full width instead of one dodging the X.
+          Row(
+            children: [
+              Expanded(child: _kvFieldLabel('Key', colors)),
+              KvCircleIconButton(
                 glyph: AppGlyph.close,
-                size: 15,
-                color: colors.iconNeutral,
+                tooltip: 'Remove field',
+                nested: true,
+                size: 30,
+                iconSize: 15,
+                onPressed: enabled ? onRemove : null,
               ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          TextFormField(
+            initialValue: row.key,
+            enabled: enabled,
+            decoration: _kvFieldDecoration(
+              colors,
+              fillColor: colors.surfaceNested,
             ),
+            onChanged: (v) {
+              row.key = v;
+              onChanged();
+            },
+          ),
+          const SizedBox(height: 12),
+          _kvFieldLabel('Value', colors),
+          TextFormField(
+            initialValue: row.value,
+            enabled: enabled,
+            decoration: _kvFieldDecoration(
+              colors,
+              fillColor: colors.surfaceNested,
+            ),
+            onChanged: (v) {
+              row.value = v;
+              onChanged();
+            },
           ),
         ],
       ),
@@ -939,24 +1028,22 @@ class _EditorHeader extends StatelessWidget {
     // the header must add the status bar/notch inset itself, same pattern
     // as _VaultDestinationScaffold in vault_shell.part.dart.
     final topInset = MediaQuery.paddingOf(context).top;
+    // 2026-08-31: same header grammar as the record detail — title on the
+    // left, circular icon buttons on the right (Cancel = X, Save = check).
+    // The old Cancel/Save text buttons were the one header in the app not
+    // built from the design's circle buttons.
     return Padding(
-      padding: EdgeInsets.fromLTRB(20, 10 + topInset, 20, 0),
+      // Top 26: the same visual top as the folder column, the list card and
+      // the detail header; 12 below so the form does not sit glued to the
+      // title row.
+      padding: EdgeInsets.fromLTRB(20, 26 + topInset, 20, 12),
       child: Row(
         children: [
-          TextButton(
-            onPressed: onCancel,
-            child: Text(
-              'Cancel',
-              style: AppTextStyles.fieldValue.copyWith(
-                fontSize: 14,
-                color: colors.textSecondary,
-              ),
-            ),
-          ),
           Expanded(
             child: Text(
               title,
-              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontFamily: AppTextStyles.headingFamily,
                 fontSize: 16,
@@ -964,15 +1051,17 @@ class _EditorHeader extends StatelessWidget {
               ),
             ),
           ),
-          TextButton(
+          const SizedBox(width: 8),
+          KvCircleIconButton(
+            glyph: AppGlyph.close,
+            tooltip: 'Cancel',
+            onPressed: onCancel,
+          ),
+          const SizedBox(width: 8),
+          KvCircleIconButton(
+            glyph: AppGlyph.check,
+            tooltip: 'Save',
             onPressed: canSave ? onSave : null,
-            child: Text(
-              'Save',
-              style: AppTextStyles.fieldValue.copyWith(
-                fontSize: 14,
-                color: canSave ? colors.linkText : colors.textTertiary,
-              ),
-            ),
           ),
         ],
       ),
@@ -1384,7 +1473,7 @@ class _CameraDeniedScreen extends StatelessWidget {
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: colors.actionFill,
-                  borderRadius: BorderRadius.circular(22),
+                  borderRadius: BorderRadius.circular(AppRadii.row),
                 ),
                 child: Icon(
                   AppIcons.videocamOff,

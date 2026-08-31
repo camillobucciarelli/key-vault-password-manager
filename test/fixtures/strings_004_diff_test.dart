@@ -48,6 +48,11 @@ const _sectionToCurrentFiles = <String, List<String>>{
 /// reviewed and justified here — see spec-004's spec.md FR-1/FR-2/FR-3/
 /// FR-5/FR-6 for the corresponding mock/requirement.
 const _approvedSupersededLiterals = <String>{
+  // 2026-08-31, user-directed detail cleanup: custom fields render inline as
+  // ordinary field rows of the detail, so the "Custom fields" sheet (and its
+  // title) no longer exists. The fields themselves and their copy actions
+  // survive on the rows.
+  'Custom fields',
   // ── spec-019, journey 03 to navigation model 1a ────────────────────────
   // The records list stopped rendering the folder tree (FR-007, C-03-03), so
   // the folder row's own chrome went with it. Each of these described a

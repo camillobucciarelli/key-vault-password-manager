@@ -185,7 +185,9 @@ void main() {
 
     await tester.tap(find.text('GitHub').first);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Copy password'));
+    // 2026-08-31: the Copy password pill is gone — copy via the password
+    // row's own button.
+    await tester.tap(find.byTooltip('Copy').first);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 250));
 
@@ -302,7 +304,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextFormField).last, 'not-a-uri');
     await tester.pump();
-    await tester.tap(find.text('Save'));
+    await tester.tap(find.byTooltip('Save'));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
@@ -487,7 +489,7 @@ void main() {
 
     await tester.enterText(find.byType(TextFormField).first, 'Netflix');
     await tester.pump();
-    await tester.tap(find.text('Cancel'));
+    await tester.tap(find.byTooltip('Cancel'));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
@@ -506,7 +508,7 @@ void main() {
 
     await tester.enterText(find.byType(TextFormField).first, 'Netflix');
     await tester.pump();
-    await tester.tap(find.text('Save'));
+    await tester.tap(find.byTooltip('Save'));
     await tester.pump();
 
     expect(tester.takeException(), isNull);
@@ -525,7 +527,11 @@ void main() {
     await tester.pumpWidget(await pumpableEntryScreen());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Settings'));
+    // 2026-08-31: the `⋮` sheet is retired; the standalone generator lives
+    // in the Settings destination.
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Password generator'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Password generator'));
     await tester.pumpAndSettle();

@@ -32,6 +32,8 @@ import 'package:password_manager/features/password_manager/presentation/bloc/vau
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
 
 void main() {
+  _autoSyncAfterMutationTests();
+
   group('VaultState background sync fields', () {
     test('isSyncing defaults to false', () {
       final state = VaultState(databasePath: '/db.kdbx');
@@ -778,6 +780,87 @@ const _kDbPath = '/vault/test.kdbx';
 /// expire while the condition was still on its way to becoming true, turning a
 /// passing test into a random failure. The predicate is unchanged, so a real
 /// regression still fails; it just fails for the right reason.
+// The debounce timer outlives the handler that armed it, so it cannot use
+// that handler's emitter (done by then). It must enqueue a sync event —
+// the old emitter-capturing version made auto-sync a silent no-op.
+void _autoSyncAfterMutationTests() {
+  group('auto-sync after a vault mutation', () {
+    late _FakeSyncRepo repo;
+    late _FakeVaultKdbxService kdbx;
+    late VaultBloc bloc;
+
+    setUp(() {
+      repo = _FakeSyncRepo()
+        ..mapping = _testMapping
+        ..isConnectedResult = true;
+      kdbx = _FakeVaultKdbxService()
+        ..snapshot = VaultSnapshot(
+          rootGroupId: 'root',
+          currentGroupId: 'root',
+          groups: const [],
+          entries: [_entry()],
+          allEntries: [_entry()],
+        );
+      bloc = _makeBloc(repo, kdbx);
+    });
+
+    tearDown(() async => bloc.close());
+
+    test('an entry update triggers a debounced sync that actually runs', () async {
+      bloc.add(const InitializeVault());
+      await _waitUntil(() => bloc.state.currentGroupId == 'root');
+      bloc.add(const BackgroundDriveSync());
+      await _waitUntil(
+        () => bloc.state.isDriveConnected && bloc.state.isDriveLinked,
+      );
+      final syncsBefore = repo.syncNowCallCount;
+
+      bloc.add(
+        const UpdateVaultEntry(
+          entryId: 'entry-1',
+          title: 'Renamed',
+          username: 'user',
+          password: 'pw',
+          url: '',
+          notes: '',
+        ),
+      );
+
+      await _waitUntil(
+        () => repo.syncNowCallCount > syncsBefore,
+        timeout: const Duration(seconds: 10),
+      );
+      await _waitUntil(
+        () => bloc.state.syncStatus == DatabaseSyncStatus.success,
+      );
+    });
+
+    test('no auto-sync when autoSyncEnabled is false', () async {
+      repo.mapping = _testMapping.copyWith(autoSyncEnabled: false);
+      bloc.add(const InitializeVault());
+      await _waitUntil(() => bloc.state.currentGroupId == 'root');
+      bloc.add(const BackgroundDriveSync());
+      await _waitUntil(
+        () => bloc.state.isDriveConnected && bloc.state.isDriveLinked,
+      );
+      final syncsBefore = repo.syncNowCallCount;
+
+      bloc.add(
+        const UpdateVaultEntry(
+          entryId: 'entry-1',
+          title: 'Renamed',
+          username: 'user',
+          password: 'pw',
+          url: '',
+          notes: '',
+        ),
+      );
+      await Future<void>.delayed(const Duration(seconds: 3));
+      expect(repo.syncNowCallCount, syncsBefore);
+    });
+  });
+}
+
 Future<void> _waitUntil(
   bool Function() predicate, {
   Duration timeout = const Duration(seconds: 10),
@@ -991,6 +1074,7 @@ class _FakeSyncRepo implements DatabaseSyncRepository {
   DatabaseSyncMapping? mapping;
   bool isConnectedResult = false;
   SyncNowResult syncResult = const SyncNowSuccess();
+  int syncNowCallCount = 0;
 
   /// spec-005 T7: when set, `syncNow` throws this instead of returning
   /// [syncResult] — lets tests exercise `SocketException` (offline) vs any
@@ -1014,6 +1098,7 @@ class _FakeSyncRepo implements DatabaseSyncRepository {
     String path, {
     SyncConflictResolution? resolution,
   }) async {
+    syncNowCallCount += 1;
     final error = syncNowError;
     if (error != null) {
       throw error;

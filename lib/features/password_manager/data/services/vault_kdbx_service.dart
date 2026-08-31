@@ -10,6 +10,7 @@ import '../../domain/models/vault_custom_field.dart';
 import '../../domain/models/vault_entry.dart';
 import '../../domain/models/vault_group.dart';
 import '../../domain/models/vault_snapshot.dart';
+import '../../domain/services/url_field_keys.dart';
 import 'database_file_hash_recorder.dart';
 import 'database_path_mutex.dart';
 import 'safe_vault_file_writer.dart';
@@ -354,7 +355,7 @@ class VaultKdbxService {
     required String password,
     String? keyFilePath,
     required String primaryId,
-    required String secondaryId,
+    required List<String> secondaryIds,
   }) {
     return _mutex.withDatabaseLock([databasePath], () async {
       final file = await _openFile(
@@ -365,8 +366,19 @@ class VaultKdbxService {
 
       final allEntries = file.body.rootGroup.getAllEntries();
       final primary = _findEntryById(allEntries, primaryId);
-      final secondary = _findEntryById(allEntries, secondaryId);
+      for (final secondaryId in secondaryIds) {
+        final secondary = _findEntryById(allEntries, secondaryId);
+        _mergeInto(file, primary, secondary);
+      }
 
+      await _save(databasePath, file);
+    });
+  }
+
+  /// Folds [secondary] into [primary] (notes, custom fields, URLs,
+  /// attachments) and moves it to the recycle bin.
+  void _mergeInto(KdbxFile file, KdbxEntry primary, KdbxEntry secondary) {
+    {
       // Copy notes if primary notes is empty.
       final primaryNotes = primary.getString(_notesKey)?.getText() ?? '';
       final secondaryNotes = secondary.getString(_notesKey)?.getText() ?? '';
@@ -375,15 +387,46 @@ class VaultKdbxService {
       }
 
       // Copy custom fields present in secondary but absent in primary.
+      // URL-keyed fields are handled separately below, so they dedup by
+      // value instead of clashing by key.
       final primaryStringKeys = primary.stringEntries
           .map((e) => e.key.key.toLowerCase())
           .toSet();
       for (final stringEntry in secondary.stringEntries) {
         final key = stringEntry.key.key;
         if (_standardEntryKeys.contains(key.toLowerCase())) continue;
+        if (isUrlFieldKey(key)) continue;
         if (!primaryStringKeys.contains(key.toLowerCase())) {
           primary.setString(KdbxKey(key), stringEntry.value ?? PlainValue(''));
         }
+      }
+
+      // Collect every URL the secondary carries (primary URL field + URL
+      // custom fields) and append the ones the primary is missing as
+      // KP2A_URL_n extra-URL fields.
+      List<String> urlsOf(KdbxEntry entry) => [
+        entry.getString(KdbxKeyCommon.URL)?.getText() ?? '',
+        for (final stringEntry in entry.stringEntries)
+          if (!_standardEntryKeys.contains(stringEntry.key.key.toLowerCase()) &&
+              isUrlFieldKey(stringEntry.key.key))
+            stringEntry.value?.getText() ?? '',
+      ].map((u) => u.trim()).where((u) => u.isNotEmpty).toList();
+
+      final primaryUrls = urlsOf(primary).map(normalizeUrlForCompare).toSet();
+      var nextUrlIndex = 1;
+      for (final url in urlsOf(secondary)) {
+        if (!primaryUrls.add(normalizeUrlForCompare(url))) continue;
+        while (primary.getString(
+              KdbxKey('$kp2aUrlKeyPrefix$nextUrlIndex'),
+            ) !=
+            null) {
+          nextUrlIndex++;
+        }
+        primary.setString(
+          KdbxKey('$kp2aUrlKeyPrefix$nextUrlIndex'),
+          PlainValue(url),
+        );
+        nextUrlIndex++;
       }
 
       // Copy attachments present in secondary but absent in primary.
@@ -403,9 +446,7 @@ class VaultKdbxService {
 
       // Move secondary to recycle bin.
       file.deleteEntry(secondary);
-
-      await _save(databasePath, file);
-    });
+    }
   }
 
   Future<void> changeCredentials({

@@ -90,14 +90,14 @@ void main() {
       // FR-002c: the pane is persistent — the empty state is there before
       // anything is selected, not a pane that materialises on demand.
       expect(find.byKey(const ValueKey('vault-detail-pane')), findsOneWidget);
-      expect(find.text('Copy password'), findsNothing);
+      expect(find.byKey(const ValueKey('entry-detail-body')), findsNothing);
 
       await tester.tap(listRow('Gmail'));
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
       expect(
-        find.text('Copy password'),
+        find.byKey(const ValueKey('entry-detail-body')),
         findsOneWidget,
         reason: 'exactly one detail surface, never two (FR-001, D1)',
       );
@@ -131,7 +131,7 @@ void main() {
 
     // The detail lives in the shell's pane slot. If the card had kept its own
     // inline split, the copy affordance would appear twice.
-    expect(find.text('Copy password'), findsOneWidget);
+    expect(find.byKey(const ValueKey('entry-detail-body')), findsOneWidget);
     expect(find.byKey(const ValueKey('vault-detail-pane')), findsOneWidget);
   });
 
@@ -146,7 +146,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Copy password'), findsOneWidget);
+    expect(find.byKey(const ValueKey('entry-detail-body')), findsOneWidget);
     expect(selectedRowSemantics(tester).length, 1);
   });
 
@@ -158,7 +158,7 @@ void main() {
     await pumpAt(tester, 1024);
     await tester.tap(listRow('Gmail'));
     await tester.pumpAndSettle();
-    expect(find.text('Copy password'), findsOneWidget);
+    expect(find.byKey(const ValueKey('entry-detail-body')), findsOneWidget);
 
     for (final width in <double>[900, 800, 703, 800, 1024]) {
       tester.view.physicalSize = Size(width, 900);
@@ -170,7 +170,7 @@ void main() {
         reason: 'resize to $width must not throw (FR-015)',
       );
       expect(
-        find.text('Copy password'),
+        find.byKey(const ValueKey('entry-detail-body')),
         findsOneWidget,
         reason: 'the record stays open at $width, in one place only',
       );

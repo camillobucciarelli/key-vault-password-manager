@@ -382,8 +382,9 @@ void main() {
   test('vendored glyph assets enforce Lucide geometry', () async {
     final assets = <String>{...AppGlyph.values.map((glyph) => glyph.assetPath)};
     // spec-019 T021 added `arrow-up-down` for the phone header's sort
-    // control (DQ-8).
-    expect(assets, hasLength(43));
+    // control (DQ-8); 2026-08-31 added `link` (remote-file picker's
+    // contextual link action) and `log-out` (Settings' Close database).
+    expect(assets, hasLength(45));
 
     for (final asset in assets) {
       final svg = await rootBundle.loadString(asset);

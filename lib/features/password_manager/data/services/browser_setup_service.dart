@@ -237,6 +237,142 @@ class BrowserSetupService {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Stale user-level manifest detection (2026-08-31)
+  // ---------------------------------------------------------------------------
+
+  /// Chromium browsers read the per-user Native Messaging manifest BEFORE
+  /// the system-level one, so an old dev registration in a user directory —
+  /// pointing at an unpacked extension id — silently shadows a correctly
+  /// installed production package and the store extension reports the host
+  /// as "not found".
+  ///
+  /// Checked per browser (Chrome, Edge, Brave, Vivaldi, Chromium, Opera —
+  /// Arc reads Chrome's directories). A user manifest is flagged only when
+  /// BOTH hold: it does not allow [extensionId] (the store id), and that
+  /// browser's system-level manifest exists (a production install is
+  /// present to fall back to). A lone user-level dev manifest is a
+  /// legitimate dev setup and is left alone.
+  Future<List<File>> staleUserManifests({
+    String extensionId = chromeExtensionId,
+  }) async {
+    if (kIsWeb) return const [];
+    final stale = <File>[];
+    for (final pair in _manifestDirectoryPairs()) {
+      final userFile = File(p.join(pair.user, '$nativeHostName.json'));
+      if (!userFile.existsSync()) continue;
+      if (!File(p.join(pair.system, '$nativeHostName.json')).existsSync()) {
+        continue;
+      }
+      try {
+        final decoded = jsonDecode(await userFile.readAsString());
+        final origins = decoded is Map ? decoded['allowed_origins'] : null;
+        if (origins is List &&
+            origins.contains('chrome-extension://$extensionId/')) {
+          continue;
+        }
+      } catch (_) {
+        // Unreadable manifest shadows the system one all the same.
+      }
+      stale.add(userFile);
+    }
+    return stale;
+  }
+
+  /// Deletes every manifest found by [staleUserManifests]. Returns true when
+  /// nothing stale remains afterwards.
+  Future<bool> removeStaleUserManifests({
+    String extensionId = chromeExtensionId,
+  }) async {
+    var allRemoved = true;
+    for (final file in await staleUserManifests(extensionId: extensionId)) {
+      try {
+        await file.delete();
+      } catch (_) {
+        allRemoved = false;
+      }
+    }
+    return allRemoved;
+  }
+
+  /// (user directory, system directory) per supported browser on this
+  /// platform. Windows registers manifests via the registry — out of scope.
+  List<({String user, String system})> _manifestDirectoryPairs() {
+    final home = Platform.environment['HOME'];
+    if (home == null || home.isEmpty) return const [];
+    switch (_hostPlatform) {
+      case BrowserSetupHostPlatform.macOS:
+        final appSupport = p.join(home, 'Library', 'Application Support');
+        return [
+          (
+            user: p.join(
+              appSupport,
+              'Google',
+              'Chrome',
+              'NativeMessagingHosts',
+            ),
+            system: '/Library/Google/Chrome/NativeMessagingHosts',
+          ),
+          (
+            user: p.join(
+              appSupport,
+              'Microsoft Edge',
+              'NativeMessagingHosts',
+            ),
+            system: '/Library/Microsoft/Edge/NativeMessagingHosts',
+          ),
+          (
+            user: p.join(
+              appSupport,
+              'BraveSoftware',
+              'Brave-Browser',
+              'NativeMessagingHosts',
+            ),
+            system:
+                '/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts',
+          ),
+          (
+            user: p.join(appSupport, 'Vivaldi', 'NativeMessagingHosts'),
+            system:
+                '/Library/Application Support/Vivaldi/NativeMessagingHosts',
+          ),
+          (
+            user: p.join(appSupport, 'Chromium', 'NativeMessagingHosts'),
+            system:
+                '/Library/Application Support/Chromium/NativeMessagingHosts',
+          ),
+          (
+            user: p.join(
+              appSupport,
+              'com.operasoftware.Opera',
+              'NativeMessagingHosts',
+            ),
+            system:
+                '/Library/Application Support/com.operasoftware.Opera/NativeMessagingHosts',
+          ),
+        ];
+      case BrowserSetupHostPlatform.linux:
+        final config = p.join(home, '.config');
+        return [
+          (
+            user: p.join(config, 'google-chrome', 'NativeMessagingHosts'),
+            system: '/etc/opt/chrome/native-messaging-hosts',
+          ),
+          (
+            user: p.join(config, 'chromium', 'NativeMessagingHosts'),
+            system: '/etc/chromium/native-messaging-hosts',
+          ),
+          (
+            user: p.join(config, 'microsoft-edge', 'NativeMessagingHosts'),
+            system: '/etc/opt/edge/native-messaging-hosts',
+          ),
+        ];
+      case BrowserSetupHostPlatform.windows:
+      case BrowserSetupHostPlatform.unsupported:
+        return const [];
+    }
+  }
+
   static bool isValidExtensionId(String value) {
     return _extensionIdPattern.hasMatch(value.trim());
   }

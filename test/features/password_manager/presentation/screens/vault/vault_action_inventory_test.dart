@@ -30,57 +30,68 @@ void main() {
   // `New folder` and given a parent with `Move…`, so there is one way to
   // nest instead of two that could disagree. Nothing else may leave this
   // list without the same kind of note (T049, SC-004).
+  // 2026-08-31 supersession (user-directed): the vault header's `⋮` overflow
+  // sheet was retired. What it alone carried either moved (Lock vault,
+  // Recycle bin, Manage duplicates, Database settings -> Settings
+  // destination; connect/link/auto-sync -> the Sync destination's hero,
+  // outside this file scan; exports -> Backups & import as 'Export the
+  // database' / 'Export the key file') or was already reachable elsewhere
+  // (standalone Password generator -> the editor's generator). The removed
+  // pins: Android autofill, Auto-sync, Change database (now the Settings
+  // 'Close database' pill), Connect/Disconnect Google Drive, Desktop browser
+  // extension, Export database backup, Export key file, Google Drive, Link
+  // database to Drive, Tools, Vault. Password generator stayed: it is a
+  // Settings-destination row now.
   const inventory = <String>[
     'Add record',
-    'Android autofill',
     'Appearance',
     'Apply',
     'Attachment',
     'Attachments',
-    'Auto-sync',
     'Back',
     'Cancel',
-    'Change database',
     'Check again',
     'Close',
-    'Connect Google Drive',
     'Copy',
-    'Copy password',
-    'Copy username',
+    // 2026-08-31: the `Copy password` / `Copy username` pills were removed
+    // at the user's direction — every field row carries its own copy button
+    // (tooltip 'Copy', pinned above), so the capability survives; only the
+    // redundant pills left.
     'Custom field',
-    'Database settings',
+    // 2026-08-31 supersession (user-directed Settings reorg): the combined
+    // "Database settings" dialog is retired — every capability it carried is
+    // an inline Settings row (biometrics, inactivity, master password, key
+    // file) and its one unique action became the 'Rename database' row.
     'Delete',
-    'Desktop browser extension',
     'Discard',
-    'Disconnect Google Drive',
     'Dismiss',
     'Drive',
     'Edit',
     'Empty bin',
     'Entry',
-    'Export database backup',
-    'Export key file',
     'Folder actions',
     'Generate secure password',
-    'Google Drive',
     'Import from CSV',
     'Keep editing',
     'Keep local',
     'KeyVault is backgrounded',
     'Link',
-    'Link database to Drive',
     'Lock vault',
     'Lowercase letters (a-z)',
     'Manage duplicates',
-    'Merge and move duplicate',
+    // 2026-08-31 (user-directed group-merge UX): 'Merge and move duplicate'
+    // became count-aware — one button per group, labelled 'Merge and move
+    // duplicate' or 'Merge and move N duplicates'. The literal now sits in
+    // a ternary this scan's `label: '…'` adjacency pattern cannot see, so
+    // the pin moves to the dedicated assertion below the main test.
     'Move',
     'Move this record to recycle bin?',
     'Notes',
+    'Password generator',
     'Numbers (0-9)',
     'One-time code',
     'Open system settings',
     'Password',
-    'Password generator',
     'Paste the URI instead',
     'Permanently delete this empty folder?',
     'Reconnect',
@@ -98,16 +109,22 @@ void main() {
     'Special characters (!@#...)',
     'Target',
     'This device',
-    'Tools',
     'Unlock with biometrics',
     'Unlock with Face ID',
     'Uppercase letters (A-Z)',
     'Use password',
     'Use remote',
     'Username',
-    'Vault',
     'Website',
   ];
+
+  test('the group-merge action survives, count-aware (2026-08-31)', () {
+    final source = File(
+      'lib/features/password_manager/presentation/screens/vault/vault_duplicates.part.dart',
+    ).readAsStringSync();
+    expect(source, contains("'Merge and move duplicate'"));
+    expect(source, contains('duplicates'));
+  });
 
   test('every vault action present at spec 019 HEAD survives', () {
     final dir = Directory(
@@ -141,7 +158,9 @@ void main() {
     // item is built from — spec 019 moved the folder actions into a widget
     // that builds its items that way.
     final pattern = RegExp(
-      r"(?:(?:tooltip|label): |Text\()'([^'\\$]*)'",
+      // `title:` joined 2026-08-31: the retired `⋮` sheet's `label:` rows
+      // became `_SettingsRow(title: …)` rows in the Settings destination.
+      r"(?:(?:tooltip|label|title): |Text\()'([^'\\$]*)'",
     );
     final found = <String>{};
     for (final file in sources) {

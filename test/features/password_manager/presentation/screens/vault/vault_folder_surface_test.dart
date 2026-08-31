@@ -5,7 +5,6 @@
 // treatment is the goldens' subject.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:password_manager/core/widgets/kv_filter_chip.dart';
 import 'package:password_manager/core/widgets/kv_folder_tree.dart';
 
 import 'vault_navigation_fixture.dart';
@@ -42,11 +41,13 @@ void main() {
       );
     });
 
-    testWidgets('All items is the first row and carries the vault total', (
+    // 2026-08-30: the first row shows the root group's real name, not a
+    // synthetic `All items` label. The fixture's root is named 'root'.
+    testWidgets('the root is the first row and carries the vault total', (
       tester,
     ) async {
       await pumpAt(tester, 1024);
-      expect(find.text('All items'), findsOneWidget);
+      expect(find.text('root'), findsOneWidget);
       // Three records in the fixture, one of them inside Devs.
       expect(
         find.descendant(
@@ -96,7 +97,9 @@ void main() {
       expect(find.text('Duplicates'), findsOneWidget);
     });
 
-    testWidgets('no folder row in the column carries an action (FR-006c)', (
+    // 2026-08-30: `Manage folders` retired — the tree carries its own row
+    // actions (see vault_folder_actions_test.dart for the recipe).
+    testWidgets('every folder row in the column carries its actions', (
       tester,
     ) async {
       await pumpAt(tester, 1024);
@@ -105,83 +108,60 @@ void main() {
           of: find.byType(KvFolderTree),
           matching: find.byTooltip('Folder actions'),
         ),
-        findsNothing,
+        findsWidgets,
       );
     });
   });
 
-  group('the phone chip row (FR-005, FR-006c)', () {
-    testWidgets('carries Folders, All and the first-level folders', (
+  // 2026-08-31: the chip row and the Folders sheet are retired — the 1/2
+  // column list browses like a file system: subfolders and records in one
+  // list, tap a folder to descend, an up-row to come back.
+  group('the narrow file-system list', () {
+    testWidgets('the root shows its folders and its own records', (
       tester,
     ) async {
       await pumpAt(tester, 390);
-      final labels = tester
-          .widgetList<KvFilterChip>(find.byType(KvFilterChip))
-          .map((chip) => chip.label)
-          .toList();
-      expect(labels, ['Folders', 'All', 'Devs']);
+      // Devs is a folder row; GitHub lives inside it and is not flattened
+      // into the root listing.
+      expect(find.text('Devs'), findsOneWidget);
+      expect(find.text('Gmail'), findsOneWidget);
+      expect(find.text('GitHub'), findsNothing);
     });
 
-    testWidgets('no chip carries an action', (tester) async {
-      await pumpAt(tester, 390);
-      expect(
-        find.descendant(
-          of: find.byKey(const ValueKey('vault-folder-chips')),
-          matching: find.byType(PopupMenuButton<dynamic>),
-        ),
-        findsNothing,
-      );
-    });
-
-    testWidgets('a chip filters the list', (tester) async {
+    testWidgets('tapping a folder descends and the up-row returns', (
+      tester,
+    ) async {
       await pumpAt(tester, 390);
       await tester.tap(find.text('Devs'));
       await tester.pumpAndSettle();
 
       expect(find.text('GitHub'), findsWidgets);
+      // The location header names the folder being looked at.
+      expect(find.text('Devs'), findsOneWidget);
       expect(find.text('Gmail'), findsNothing);
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      expect(find.text('Gmail'), findsOneWidget);
+      expect(find.text('GitHub'), findsNothing);
     });
 
-    // plan Risks: the 704-940 band lost its folder affordance when folders
-    // left the list, and the design still owes the artboard for it.
-    testWidgets('stands in for the column in the 704-940 band', (tester) async {
+    testWidgets('stands in for the column in the 704-1023 band', (
+      tester,
+    ) async {
       await pumpAt(tester, 800);
-      expect(find.byType(KvFilterChip), findsWidgets);
       expect(find.byKey(const ValueKey('vault-folder-pane')), findsNothing);
+      expect(find.text('Devs'), findsOneWidget);
+      expect(find.byTooltip('Folder actions'), findsWidgets);
     });
-  });
 
-  group('the Folders sheet (FR-005a, FR-006a)', () {
-    testWidgets('opens from the first chip and shows the same tree', (
+    testWidgets('a live search flattens the subtree and hides folder rows', (
       tester,
     ) async {
       await pumpAt(tester, 390);
-      await tester.tap(find.text('Folders'));
+      await tester.enterText(find.byType(TextFormField).first, 'git');
       await tester.pumpAndSettle();
-
-      expect(find.byType(KvFolderTree), findsOneWidget);
-      expect(find.text('All items'), findsOneWidget);
-      expect(find.text('Manage'), findsOneWidget);
-    });
-
-    testWidgets('choosing a folder filters and closes the sheet', (
-      tester,
-    ) async {
-      await pumpAt(tester, 390);
-      await tester.tap(find.text('Folders'));
-      await tester.pumpAndSettle();
-
-      await tester.tap(
-        find.descendant(
-          of: find.byType(KvFolderTree),
-          matching: find.text('Devs'),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.byType(KvFolderTree), findsNothing, reason: 'sheet closed');
       expect(find.text('GitHub'), findsWidgets);
-      expect(find.text('Gmail'), findsNothing);
+      expect(find.byTooltip('Folder actions'), findsNothing);
     });
   });
 
@@ -192,9 +172,6 @@ void main() {
       // The fixture is one level deep, so this asserts the wiring rather than
       // a deep tree: both hosts build their nodes from `expandedGroupIds`.
       await pumpAt(tester, 1024);
-      final columnTree = tester.widget<KvFolderTree>(find.byType(KvFolderTree));
-      expect(columnTree.mode, KvFolderTreeMode.filter);
-
       await tester.tap(find.text('Devs').first);
       await tester.pumpAndSettle();
       expect(

@@ -295,8 +295,9 @@ final class SyncConflictSurface<R extends VaultRouteResult>
   const SyncConflictSurface({required super.builder});
 }
 
-/// spec-005 T11/FR-5: the "What the merge does" bottom sheet — sheet on
-/// mobile like `SyncConflictSurface`/`GroupEditSurface`, pane on wide
+/// spec-005 T11/FR-5: the "What the merge does" review — amended
+/// 2026-08-31 (user-directed): a full-screen pushed route at every width,
+/// like the Duplicates destination it opens from
 /// screens (same rule as every other surface).
 final class MergePreviewSurface<R extends VaultRouteResult>
     extends VaultSurface<R> {
@@ -316,17 +317,6 @@ final class KeyFileManagerSurface<R extends VaultRouteResult>
 final class ConfirmationSurface<R extends VaultRouteResult>
     extends VaultSurface<R> {
   const ConfirmationSurface({required super.builder});
-}
-
-/// spec-019 T017 / DQ-6 — the single folder-management surface.
-///
-/// One recipe at every width: the same tree, the same `New folder`, the same
-/// per-row `•••`. Only the container changes — a centred dialog where the
-/// folder column lives, a pushed screen on the phone
-/// (`decisions-folder-management.md`).
-final class ManageFoldersSurface<R extends VaultRouteResult>
-    extends VaultSurface<R> {
-  const ManageFoldersSurface({required super.builder});
 }
 
 sealed class VaultSurfacePresentation {
@@ -352,7 +342,12 @@ final class VaultPanePresentation extends VaultSurfacePresentation {
 /// from a sheet: `KvBottomSheet` stays bottom-anchored however narrow its
 /// content, which reads as a phone surface on a 1024 px window (research R4).
 final class VaultDialogPresentation extends VaultSurfacePresentation {
-  const VaultDialogPresentation();
+  const VaultDialogPresentation({this.bare = false});
+
+  /// When true the surface's builder supplies its own dialog chrome (an
+  /// `AlertDialog`); the host must not wrap it in a second `Dialog`, which
+  /// would render card-in-card.
+  final bool bare;
 }
 
 /// spec-018 FR-002a: the presentation of a surface is decided by the single
@@ -375,12 +370,18 @@ VaultSurfacePresentation presentationFor<R extends VaultRouteResult>(
     EntrySurface() ||
     OtpScannerSurface() ||
     AttachmentsSurface() ||
-    RecycleBinSurface() ||
-    DuplicatesSurface() ||
     HealthCategorySurface() ||
     SyncLinkSurface() ||
     DatabaseSettingsSurface() =>
       mobile ? const VaultRoutePresentation() : const VaultPanePresentation(),
+    // Amended 2026-08-31 (user-directed): the hygiene destinations and the
+    // merge preview are full-screen pushed routes at every width — the
+    // 2026-08-30 dialog experiment stacked a dialog plus a sheet on wide
+    // layouts and the flow got hard to read. One navigation model, as on
+    // the phone.
+    RecycleBinSurface() ||
+    DuplicatesSurface() ||
+    MergePreviewSurface() => const VaultRoutePresentation(),
     // spec-018 FR-002e: the generator is the one surface whose presentation
     // needs a width beyond the layout class. It becomes a 290 px column only
     // where that column fits; below 995 the sheet is a declared fallback.
@@ -388,17 +389,21 @@ VaultSurfacePresentation presentationFor<R extends VaultRouteResult>(
       width >= VaultLayoutWidths.generatorColumn
           ? const VaultPanePresentation()
           : const VaultSheetPresentation(),
-    GroupEditSurface() ||
-    MoveTargetSurface() ||
-    SyncConflictSurface() ||
-    MergePreviewSurface() =>
+    // Amended with spec 019's Manage dialog: a folder create/rename or a
+    // move-target picker hosted in the detail *pane* renders behind any open
+    // dialog (Manage) and replaces the record detail with a floating card —
+    // the defect the 2026-08-30 walk caught. On wide layouts they are true
+    // modal dialogs; their builders already return `AlertDialog`s, hence
+    // `bare`. Contract vault_navigation_contract.md §presentations amended
+    // in the same change.
+    GroupEditSurface() || MoveTargetSurface() =>
+      mobile
+          ? const VaultSheetPresentation()
+          : const VaultDialogPresentation(bare: true),
+    SyncConflictSurface() =>
       mobile ? const VaultSheetPresentation() : const VaultPanePresentation(),
     KeyFileManagerSurface() ||
     ConfirmationSurface() => const VaultSheetPresentation(),
-    // spec-019: no new threshold — `hasDetailPane` is the same 704 every
-    // other surface already turns on (contract `vault-surfaces.md`).
-    ManageFoldersSurface() =>
-      mobile ? const VaultRoutePresentation() : const VaultDialogPresentation(),
   };
 }
 
@@ -658,17 +663,31 @@ final class VaultShellRouter {
   }
 
   /// spec-019 T018 / contract S3 — the dialog is hosted here, beside the route
-  /// and sheet hosts, so `ManageFoldersSurface` gets the same session,
+  /// and sheet hosts, so dialog surfaces get the same session,
   /// cancellation and result handling as everything else. A bare `showDialog`
   /// would get none of it.
   Future<void> _hostDialog(
     BuildContext context,
     _VaultOperationSession session,
   ) async {
+    final presentation = session.presentation;
+    final bare =
+        presentation is VaultDialogPresentation && presentation.bare;
     try {
       await (_dialogHost ?? _defaultDialogHost)(
         context,
-        (_) => _buildScoped(session),
+        (_) => bare
+            ? _buildScoped(session)
+            : Dialog(
+                clipBehavior: Clip.antiAlias,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: 520,
+                    maxHeight: 620,
+                  ),
+                  child: _buildScoped(session),
+                ),
+              ),
         (dismiss) => session.dismissHost = dismiss,
       );
     } finally {
@@ -789,15 +808,12 @@ final class VaultShellRouter {
         dialogContext = modalContext;
         // Same rationale as the route and sheet hosts: the root Navigator's
         // Overlay is outside `VaultShellRouterScope`'s ancestor chain.
+        // The Dialog chrome (or its absence, for `bare` surfaces) is decided
+        // by `_hostDialog`, which knows the presentation; this host only
+        // re-provides the scope.
         return VaultShellRouterScope(
           router: this,
-          child: Dialog(
-            clipBehavior: Clip.antiAlias,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520, maxHeight: 620),
-              child: builder(modalContext),
-            ),
-          ),
+          child: builder(modalContext),
         );
       },
     );

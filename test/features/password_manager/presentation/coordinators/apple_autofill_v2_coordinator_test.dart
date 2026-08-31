@@ -202,6 +202,9 @@ class _FakeAppleAutofillV2Client implements AppleAutofillV2Client {
   @override
   final bool isSupported;
 
+  @override
+  Future<bool?> getExtensionEnabled() async => null;
+
   int publishCallCount = 0;
   int clearCallCount = 0;
   int readPendingCallCount = 0;

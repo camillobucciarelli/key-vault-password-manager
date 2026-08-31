@@ -1,7 +1,7 @@
 part of '../vault_screen.dart';
 
 // FR-5 / T10-T12/T20: Duplicates destination — group cards (screen 10),
-// merge-preview sheet with exactly the four `MergePreview` flags (screen
+// merge-preview sheet with exactly the five `MergePreview` flags (screen
 // 11), no-duplicates empty state (screen 12). Replaces the old dialog-based
 // `_DuplicatesDialog`/`_showMergeReviewDialog` with first-class surfaces.
 
@@ -22,6 +22,19 @@ Future<VaultDone?> _showDuplicatesDialog(BuildContext context) async {
   );
 }
 
+/// Site groups keep the old "username · N records" line; credentials groups
+/// (same username + password across sites) say how many sites are involved.
+String _duplicateGroupSubtitle(DuplicateGroup group) {
+  if (group.sharedUrl == null) {
+    final sites = group.urls.length;
+    return '${group.entries.length} records · '
+        '$sites ${sites == 1 ? 'site' : 'sites'}';
+  }
+  return group.sharedUsername.isEmpty
+      ? '${group.entries.length} records'
+      : '${group.sharedUsername} · ${group.entries.length} records';
+}
+
 class _DuplicatesScreen extends StatelessWidget {
   const _DuplicatesScreen();
 
@@ -35,19 +48,19 @@ class _DuplicatesScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+              // 2026-08-31 (user-directed): a pushed screen at every width —
+              // back button on the left, refresh on the right.
+              padding: const EdgeInsets.fromLTRB(18, 12, 14, 0),
               child: Row(
                 children: [
-                  IconButton(
+                  KvCircleIconButton(
+                    glyph: AppGlyph.back,
+                    tooltip: 'Back',
                     onPressed: () => VaultOperationScope.of(
                       context,
                     ).complete(const VaultDone()),
-                    icon: KvIcon(
-                      glyph: AppGlyph.back,
-                      size: 19,
-                      color: colors.textPrimary,
-                    ),
                   ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: BlocBuilder<VaultBloc, VaultState>(
                       buildWhen: (p, n) =>
@@ -79,15 +92,12 @@ class _DuplicatesScreen extends StatelessWidget {
                       },
                     ),
                   ),
-                  IconButton(
+                  KvCircleIconButton(
+                    glyph: AppGlyph.refresh,
                     tooltip: 'Check again',
+                    iconSize: 18,
                     onPressed: () =>
                         context.read<VaultBloc>().add(const LoadDuplicates()),
-                    icon: KvIcon(
-                      glyph: AppGlyph.refresh,
-                      size: 18,
-                      color: colors.textPrimary,
-                    ),
                   ),
                 ],
               ),
@@ -149,7 +159,11 @@ class _DuplicateGroupCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              KvLetterAvatar(letter: group.sharedUrl, size: 34, fontSize: 14),
+              KvLetterAvatar(
+                letter: group.sharedUrl ?? group.sharedUsername,
+                size: 34,
+                fontSize: 14,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -157,7 +171,7 @@ class _DuplicateGroupCard extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      group.sharedUrl,
+                      group.sharedUrl ?? group.sharedUsername,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppTextStyles.rowTitle.copyWith(
@@ -165,9 +179,7 @@ class _DuplicateGroupCard extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      group.sharedUsername.isEmpty
-                          ? '${group.entries.length} records'
-                          : '${group.sharedUsername} · ${group.entries.length} records',
+                      _duplicateGroupSubtitle(group),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppTextStyles.secondary.copyWith(
@@ -184,29 +196,24 @@ class _DuplicateGroupCard extends StatelessWidget {
           for (final secondary in secondaries) ...[
             const SizedBox(height: 7),
             _DuplicateEntryRow(entry: secondary, tagLabel: 'Merge'),
-            Builder(
-              builder: (context) {
-                final preview = service.previewMerge(primary, secondary);
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (preview.hasAnythingToCopy) ...[
-                      const SizedBox(height: 8),
-                      _CopyNoticeStrip(colors: colors),
-                    ],
-                    const SizedBox(height: 8),
-                    KvPillButton(
-                      label: 'Merge and move duplicate',
-                      compact: true,
-                      onPressed: isBusy
-                          ? null
-                          : () => _handleMerge(context, primary, secondary),
-                    ),
-                  ],
-                );
-              },
-            ),
           ],
+          if (secondaries.any(
+            (secondary) =>
+                service.previewMerge(primary, secondary).hasAnythingToCopy,
+          )) ...[
+            const SizedBox(height: 8),
+            _CopyNoticeStrip(colors: colors),
+          ],
+          const SizedBox(height: 8),
+          KvPillButton(
+            label: secondaries.length == 1
+                ? 'Merge and move duplicate'
+                : 'Merge and move ${secondaries.length} duplicates',
+            compact: true,
+            onPressed: isBusy
+                ? null
+                : () => _handleMerge(context, primary, secondaries),
+          ),
         ],
       ),
     );
@@ -215,14 +222,20 @@ class _DuplicateGroupCard extends StatelessWidget {
   Future<void> _handleMerge(
     BuildContext context,
     VaultEntry primary,
-    VaultEntry secondary,
+    List<VaultEntry> secondaries,
   ) async {
     final service = di.sl<VaultDuplicateService>();
-    final preview = service.previewMerge(primary, secondary);
-    final confirmed = await _showMergePreviewSheet(context, preview);
+    final previews = [
+      for (final secondary in secondaries)
+        service.previewMerge(primary, secondary),
+    ];
+    final confirmed = await _showMergePreviewSheet(context, previews);
     if (confirmed == ConfirmDecision.confirm && context.mounted) {
       context.read<VaultBloc>().add(
-        MergeDuplicateEntries(primaryId: primary.id, secondaryId: secondary.id),
+        MergeDuplicateEntries(
+          primaryId: primary.id,
+          secondaryIds: [for (final s in secondaries) s.id],
+        ),
       );
     }
   }
@@ -341,125 +354,154 @@ class _DuplicateEntryRow extends StatelessWidget {
   }
 }
 
-/// FR-5/AC5/T11/T20: exactly the four `MergePreview` flags — no more, no
+/// FR-5/AC5/T11/T20: exactly the five `MergePreview` flags — no more, no
 /// fewer. `customFieldKeysToCopy` (a list) collapses into a single row.
+/// 2026-08-31 (user-directed): a full-screen pushed route, not a sheet.
 Future<ConfirmDecision?> _showMergePreviewSheet(
   BuildContext context,
-  MergePreview preview,
+  List<MergePreview> previews,
 ) {
   return VaultShellRouterScope.of(context).open<ConfirmDecision>(
     context: context,
     surface: MergePreviewSurface<ConfirmDecision>(
-      builder: (sheetContext) => _MergePreviewSheet(preview: preview),
+      builder: (screenContext) => _MergePreviewScreen(previews: previews),
     ),
   );
 }
 
-class _MergePreviewSheet extends StatelessWidget {
-  const _MergePreviewSheet({required this.preview});
+class _MergePreviewScreen extends StatelessWidget {
+  const _MergePreviewScreen({required this.previews});
 
-  final MergePreview preview;
+  /// One per duplicate being folded into the kept entry; the sheet shows
+  /// the union of what would be copied.
+  final List<MergePreview> previews;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    final primaryLabel = preview.primary.title.isEmpty
-        ? 'Untitled'
-        : preview.primary.title;
-    final secondaryLabel = preview.secondary.title.isEmpty
-        ? 'Untitled'
-        : preview.secondary.title;
+    final primary = previews.first.primary;
+    final primaryLabel = primary.title.isEmpty ? 'Untitled' : primary.title;
+    final secondaryLabel = previews.length == 1
+        ? (previews.first.secondary.title.isEmpty
+              ? 'Untitled'
+              : previews.first.secondary.title)
+        : '${previews.length} duplicates';
+    final willCopyNotes = previews.any((p) => p.willCopyNotes);
+    final willCopyOtp = previews.any((p) => p.willCopyOtp);
+    final willCopyAttachments = previews.any((p) => p.willCopyAttachments);
+    final customFieldKeysToCopy = <String>{
+      for (final p in previews) ...p.customFieldKeysToCopy,
+    }.toList(growable: false);
+    final urlsToCopy = <String>{
+      for (final p in previews) ...p.urlsToCopy,
+    }.toList(growable: false);
 
-    return Container(
-      padding: const EdgeInsets.fromLTRB(18, 20, 18, 26),
-      decoration: BoxDecoration(
-        color: colors.ground,
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(AppRadii.sheet),
+    return Scaffold(
+      backgroundColor: colors.ground,
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 26),
+              children: [
+                Row(
+                  children: [
+                    KvCircleIconButton(
+                      glyph: AppGlyph.back,
+                      tooltip: 'Back',
+                      onPressed: () => VaultOperationScope.of(
+                        context,
+                      ).complete(ConfirmDecision.cancel),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'What the merge does',
+                      style: AppTextStyles.panelTitleLarge.copyWith(
+                        fontSize: 19,
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Keeps $primaryLabel and moves $secondaryLabel to the recycle '
+                  "bin, after copying what's missing into it.",
+                  style: AppTextStyles.body.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                // Exactly five rows — one per `MergePreview` flag (T20 counts
+                // these via the `merge-flag-row-*` key prefix, since the row
+                // widget itself is private to this library).
+                _MergePreviewFlagRow(
+                  key: const ValueKey('merge-flag-row-notes'),
+                  active: willCopyNotes,
+                  label: willCopyNotes
+                      ? 'Notes — will be copied'
+                      : 'Notes — kept item already has some',
+                ),
+                const SizedBox(height: 8),
+                _MergePreviewFlagRow(
+                  key: const ValueKey('merge-flag-row-attachments'),
+                  active: willCopyAttachments,
+                  label: willCopyAttachments
+                      ? 'Attachments — missing ones will be copied'
+                      : 'Attachments — nothing missing to copy',
+                ),
+                const SizedBox(height: 8),
+                _MergePreviewFlagRow(
+                  key: const ValueKey('merge-flag-row-customFields'),
+                  active: customFieldKeysToCopy.isNotEmpty,
+                  label: customFieldKeysToCopy.isEmpty
+                      ? 'Custom fields — nothing missing to copy'
+                      : 'Custom fields — ${customFieldKeysToCopy.join(', ')}',
+                ),
+                const SizedBox(height: 8),
+                _MergePreviewFlagRow(
+                  key: const ValueKey('merge-flag-row-urls'),
+                  active: urlsToCopy.isNotEmpty,
+                  label: urlsToCopy.isEmpty
+                      ? 'Websites — nothing missing to copy'
+                      : 'Websites — ${urlsToCopy.join(', ')}',
+                ),
+                const SizedBox(height: 8),
+                _MergePreviewFlagRow(
+                  key: const ValueKey('merge-flag-row-otp'),
+                  active: willCopyOtp,
+                  label: willCopyOtp
+                      ? 'One-time code — will be copied'
+                      : 'One-time code — kept item already has one',
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'Passwords are never merged: the kept record keeps its own.',
+                  style: AppTextStyles.secondary.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                KvPillButton(
+                  label: previews.length == 1
+                      ? 'Merge and move duplicate'
+                      : 'Merge and move ${previews.length} duplicates',
+                  onPressed: () => VaultOperationScope.of(
+                    context,
+                  ).complete(ConfirmDecision.confirm),
+                ),
+                const SizedBox(height: 9),
+                KvSecondaryPillButton(
+                  label: 'Cancel',
+                  onPressed: () => VaultOperationScope.of(
+                    context,
+                  ).complete(ConfirmDecision.cancel),
+                ),
+              ],
+            ),
+          ),
         ),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: 46,
-              height: 5,
-              decoration: BoxDecoration(
-                color: colors.divider,
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            'What the merge does',
-            style: AppTextStyles.sheetTitle.copyWith(color: colors.textPrimary),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Keeps $primaryLabel and moves $secondaryLabel to the recycle '
-            "bin, after copying what's missing.",
-            style: AppTextStyles.body.copyWith(color: colors.textSecondary),
-          ),
-          const SizedBox(height: 14),
-          // Exactly four rows — one per `MergePreview` flag (T20 counts
-          // these via the `merge-flag-row-*` key prefix, since the row
-          // widget itself is private to this library).
-          _MergePreviewFlagRow(
-            key: const ValueKey('merge-flag-row-notes'),
-            active: preview.willCopyNotes,
-            label: preview.willCopyNotes
-                ? 'Notes — will be copied'
-                : 'Notes — kept item already has some',
-          ),
-          const SizedBox(height: 8),
-          _MergePreviewFlagRow(
-            key: const ValueKey('merge-flag-row-attachments'),
-            active: preview.willCopyAttachments,
-            label: preview.willCopyAttachments
-                ? 'Attachments — missing ones will be copied'
-                : 'Attachments — nothing missing to copy',
-          ),
-          const SizedBox(height: 8),
-          _MergePreviewFlagRow(
-            key: const ValueKey('merge-flag-row-customFields'),
-            active: preview.customFieldKeysToCopy.isNotEmpty,
-            label: preview.customFieldKeysToCopy.isEmpty
-                ? 'Custom fields — nothing missing to copy'
-                : 'Custom fields — ${preview.customFieldKeysToCopy.join(', ')}',
-          ),
-          const SizedBox(height: 8),
-          _MergePreviewFlagRow(
-            key: const ValueKey('merge-flag-row-otp'),
-            active: preview.willCopyOtp,
-            label: preview.willCopyOtp
-                ? 'One-time code — will be copied'
-                : 'One-time code — kept item already has one',
-          ),
-          const SizedBox(height: 14),
-          Text(
-            'Passwords are never merged: the kept record keeps its own.',
-            style: AppTextStyles.secondary.copyWith(
-              color: colors.textSecondary,
-            ),
-          ),
-          const SizedBox(height: 14),
-          KvPillButton(
-            label: 'Merge and move duplicate',
-            onPressed: () => VaultOperationScope.of(
-              context,
-            ).complete(ConfirmDecision.confirm),
-          ),
-          const SizedBox(height: 9),
-          KvSecondaryPillButton(
-            label: 'Cancel',
-            onPressed: () => VaultOperationScope.of(
-              context,
-            ).complete(ConfirmDecision.cancel),
-          ),
-        ],
       ),
     );
   }
@@ -553,8 +595,9 @@ class _DuplicatesEmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'No two records share the same site and username. KeyVault '
-              'checks again every time you open the vault.',
+              'No two records share the same credentials, or the same site '
+              'and username. KeyVault checks again every time you open the '
+              'vault.',
               style: AppTextStyles.body.copyWith(color: colors.textSecondary),
             ),
             const SizedBox(height: 16),

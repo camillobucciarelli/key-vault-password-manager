@@ -156,6 +156,23 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
       return;
     }
 
+    // 2026-08-31 (user-directed): go straight to the OS biometric prompt —
+    // no intermediate sheet. The sheet only appears as a fallback when the
+    // prompt fails or is cancelled, offering retry and the password path.
+    bool authenticated;
+    try {
+      authenticated = await di.sl<BiometricDataSource>().authenticate(
+        reason: 'Reveal password',
+      );
+    } catch (_) {
+      authenticated = false;
+    }
+    if (!mounted) return;
+    if (authenticated) {
+      _revealController.reveal();
+      return;
+    }
+
     final unlocked = await _showBiometricRevealGate(context, databasePath);
     if (unlocked == true && mounted) {
       _revealController.reveal();
@@ -166,8 +183,6 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
   Widget build(BuildContext context) {
     final entry = widget.entry;
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    final width = MediaQuery.sizeOf(context).width;
-    final isWide = width >= Breakpoints.mobile;
     final databasePath = context.read<VaultBloc>().state.databasePath;
 
     final title = entry.title.isEmpty ? '(Untitled)' : entry.title;
@@ -176,16 +191,22 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
         ? folderName
         : '$folderName · ${_hostFor(entry.url)}';
 
+    final extraUrls = entry.customFields
+        .where(
+          (field) =>
+              isUrlFieldKey(field.key) && field.value.trim().isNotEmpty,
+        )
+        .map((field) => field.value.trim())
+        .toList(growable: false);
     final customFields = entry.customFields
-        .where((field) => !_isOtpFieldKey(field.key))
+        .where(
+          (field) => !_isOtpFieldKey(field.key) && !isUrlFieldKey(field.key),
+        )
         .toList(growable: false);
     final totpData = entry.otpUri == null
         ? null
         : TotpUtils.fromOtpAuthUri(entry.otpUri!, _nowUtc);
     final strength = evaluatePasswordStrength(entry.password);
-    // C-04-03: the action's label is the HOST, not the whole URL — a record
-    // pointing at a long path would otherwise put it in a button.
-    final entryHost = _entryHost(entry.url);
     final reusedByCount = entry.password.isEmpty
         ? 0
         : context.read<VaultBloc>().state.allEntries.where((other) {
@@ -201,7 +222,11 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
 
     return SafeArea(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 6, 20, 30),
+        // Stable handle for tests: "a detail is shown" used to be asserted
+        // via the `Copy password` pill, which is gone (2026-08-31).
+        key: const ValueKey('entry-detail-body'),
+        // Top 26: one visual top across folder column, list card and detail.
+        padding: const EdgeInsets.fromLTRB(20, 26, 20, 30),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -282,51 +307,46 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    SizedBox(
-                      width: 36,
-                      height: 36,
-                      child: IconButton(
-                        tooltip: 'Show password',
-                        onPressed: _isCheckingBiometrics
-                            ? null
-                            : () => _handleRevealTap(databasePath),
-                        style: IconButton.styleFrom(
-                          backgroundColor: colors.surfaceNested,
-                          shape: const CircleBorder(),
-                          padding: EdgeInsets.zero,
-                        ),
-                        icon: KvIcon(
-                          glyph: AppGlyph.eye,
-                          size: 17,
-                          color: colors.iconNeutral,
-                        ),
-                      ),
+                    KvCircleIconButton(
+                      glyph: AppGlyph.eye,
+                      tooltip: 'Show password',
+                      nested: true,
+                      iconSize: 17,
+                      onPressed: _isCheckingBiometrics
+                          ? null
+                          : () => _handleRevealTap(databasePath),
                     ),
                     const SizedBox(width: 8),
-                    SizedBox(
-                      width: 36,
-                      height: 36,
-                      child: IconButton(
-                        tooltip: 'Copy',
-                        onPressed: () => _copy(
-                          text: entry.password,
-                          message: 'Copied password.',
-                        ),
-                        style: IconButton.styleFrom(
-                          backgroundColor: colors.surfaceNested,
-                          shape: const CircleBorder(),
-                          padding: EdgeInsets.zero,
-                        ),
-                        icon: KvIcon(
-                          glyph: AppGlyph.copy,
-                          size: 17,
-                          color: colors.iconNeutral,
-                        ),
+                    KvCircleIconButton(
+                      glyph: AppGlyph.copy,
+                      tooltip: 'Copy',
+                      nested: true,
+                      iconSize: 17,
+                      onPressed: () => _copy(
+                        text: entry.password,
+                        message: 'Copied password.',
                       ),
                     ),
                   ],
                 ),
               ),
+            // 2026-08-30: the password's own information sits directly under
+            // the password field, not at the foot of the screen.
+            if (entry.password.isNotEmpty) ...[
+              const SizedBox(height: 9),
+              if (isWarning)
+                StrengthStrip.warning(
+                  assessment: strength,
+                  changedAgoLabel: changedAgo,
+                  reusedByCount: reusedByCount,
+                  onGenerateNew: () => _openGeneratorForEntry(context, entry),
+                )
+              else
+                StrengthStrip.normal(
+                  assessment: strength,
+                  changedAgoLabel: changedAgo,
+                ),
+            ],
             if (totpData != null) ...[
               const SizedBox(height: 9),
               TotpRow(
@@ -344,6 +364,59 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                 value: entry.url,
                 valueColor: colors.linkText,
                 onCopy: () => _copy(text: entry.url, message: 'Copied URL.'),
+                // 2026-08-30: opening the site is a button on the field
+                // itself, like copy — the standalone `Open <host>` pill is
+                // gone.
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    KvCircleIconButton(
+                      glyph: AppGlyph.linkSimple,
+                      tooltip: 'Open website',
+                      nested: true,
+                      iconSize: 17,
+                      onPressed: () => _openEntryUrl(context, entry.url),
+                    ),
+                    const SizedBox(width: 8),
+                    KvCircleIconButton(
+                      glyph: AppGlyph.copy,
+                      tooltip: 'Copy',
+                      nested: true,
+                      iconSize: 17,
+                      onPressed: () =>
+                          _copy(text: entry.url, message: 'Copied URL.'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            for (final url in extraUrls) ...[
+              const SizedBox(height: 9),
+              KvFieldRow(
+                label: 'Website',
+                value: url,
+                valueColor: colors.linkText,
+                onCopy: () => _copy(text: url, message: 'Copied URL.'),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    KvCircleIconButton(
+                      glyph: AppGlyph.linkSimple,
+                      tooltip: 'Open website',
+                      nested: true,
+                      iconSize: 17,
+                      onPressed: () => _openEntryUrl(context, url),
+                    ),
+                    const SizedBox(width: 8),
+                    KvCircleIconButton(
+                      glyph: AppGlyph.copy,
+                      tooltip: 'Copy',
+                      nested: true,
+                      iconSize: 17,
+                      onPressed: () => _copy(text: url, message: 'Copied URL.'),
+                    ),
+                  ],
+                ),
               ),
             ],
             if (entry.notes.isNotEmpty) ...[
@@ -357,7 +430,22 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                     _copy(text: entry.notes, message: 'Copied notes.'),
               ),
             ],
-            if (entry.attachments.isNotEmpty || customFields.isNotEmpty) ...[
+            // 2026-08-31: custom fields are ordinary rows of the list, not a
+            // count hidden behind a chip.
+            for (final field in customFields) ...[
+              const SizedBox(height: 9),
+              KvFieldRow(
+                label: field.key,
+                value: field.value.isEmpty ? 'Value not set' : field.value,
+                onCopy: field.value.isEmpty
+                    ? null
+                    : () => _copy(
+                        text: field.value,
+                        message: 'Copied ${field.key}.',
+                      ),
+              ),
+            ],
+            if (entry.attachments.isNotEmpty) ...[
               const SizedBox(height: 16),
               Text(
                 'More',
@@ -370,113 +458,18 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  if (entry.attachments.isNotEmpty)
-                    _MoreChip(
-                      icon: AppGlyph.attachment,
-                      label:
-                          '${entry.attachments.length} attachment${entry.attachments.length == 1 ? '' : 's'}',
-                      onTap: widget.onSelectedAction == null
-                          ? null
-                          : () => widget.onSelectedAction!(
-                              _EntryAction.attachments,
-                            ),
-                    ),
-                  if (customFields.isNotEmpty)
-                    _MoreChip(
-                      icon: AppGlyph.rowsDiff,
-                      label:
-                          '${customFields.length} custom field${customFields.length == 1 ? '' : 's'}',
-                      onTap: () =>
-                          _showCustomFieldsSheet(context, customFields, _copy),
-                    ),
-                ],
-              ),
-            ],
-            const SizedBox(height: 18),
-            if (isWarning)
-              StrengthStrip.warning(
-                assessment: strength,
-                changedAgoLabel: changedAgo,
-                reusedByCount: reusedByCount,
-                onGenerateNew: entry.password.isEmpty
-                    ? null
-                    : () => _openGeneratorForEntry(context, entry),
-              )
-            else
-              StrengthStrip.normal(
-                assessment: strength,
-                changedAgoLabel: changedAgo,
-              ),
-            const SizedBox(height: 10),
-            // spec-019 C-04-03 — the normative action row is
-            // `Copy password` · `Copy username` · `Open <host>`, the last
-            // omitted when the record has no URL (DQ-5).
-            if (isWide) ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: _CopyPill(
-                      label: 'Copy password',
-                      primary: true,
-                      onTap: entry.password.isEmpty
-                          ? null
-                          : () => _copy(
-                              text: entry.password,
-                              message: 'Copied password.',
-                            ),
-                    ),
+                  _MoreChip(
+                    icon: AppGlyph.attachment,
+                    label:
+                        '${entry.attachments.length} attachment${entry.attachments.length == 1 ? '' : 's'}',
+                    onTap: widget.onSelectedAction == null
+                        ? null
+                        : () => widget.onSelectedAction!(
+                            _EntryAction.attachments,
+                          ),
                   ),
-                  if (entry.username.isNotEmpty) ...[
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _CopyPill(
-                        label: 'Copy username',
-                        primary: false,
-                        onTap: () => _copy(
-                          text: entry.username,
-                          message: 'Copied username.',
-                        ),
-                      ),
-                    ),
-                  ],
                 ],
               ),
-              // `Open <host>` gets its own row rather than a third of the
-              // first: a host is as long as the user's URL, and three pills
-              // sharing a 330 px column wrapped "mail.google.com" mid-word.
-              if (entryHost != null) ...[
-                const SizedBox(height: 8),
-                _CopyPill(
-                  label: 'Open $entryHost',
-                  primary: false,
-                  onTap: () => _openEntryUrl(context, entry.url),
-                ),
-              ],
-            ] else ...[
-              KvPillButton(
-                label: 'Copy password',
-                icon: null,
-                onPressed: entry.password.isEmpty
-                    ? null
-                    : () => _copy(
-                        text: entry.password,
-                        message: 'Copied password.',
-                      ),
-              ),
-              if (entryHost != null) ...[
-                const SizedBox(height: 8),
-                KvPillButton(
-                  label: 'Open $entryHost',
-                  icon: null,
-                  onPressed: () => _openEntryUrl(context, entry.url),
-                ),
-              ],
-            ],
-            if (isWide) ...[
-              const SizedBox(height: 16),
-              const _MetadataGridLabel(),
-              const SizedBox(height: 8),
-              _MetadataGrid(entry: entry),
             ],
           ],
         ),
@@ -500,42 +493,38 @@ class _DetailHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
 
-    Widget circleButton({
-      required AppGlyph glyph,
-      required String tooltip,
-      required VoidCallback? onPressed,
-    }) {
-      return SizedBox(
-        width: 36,
-        height: 36,
-        child: IconButton(
-          tooltip: tooltip,
-          onPressed: onPressed,
-          style: IconButton.styleFrom(
-            backgroundColor: colors.surface,
-            shape: const CircleBorder(),
-            padding: EdgeInsets.zero,
-          ),
-          icon: KvIcon(glyph: glyph, size: 19, color: colors.iconNeutral),
-        ),
-      );
-    }
+    // 2026-08-31: in the two/three-column layouts the detail carries no back
+    // at all — the list beside it IS the navigation. But a pane opened wide
+    // and then resized below the detail-pane threshold fills the window with
+    // no list beside it, so THERE the back must reappear or the user is
+    // stuck. The pushed route on the phone keeps its own.
+    final paneBack = _VaultPaneScope.onBackOf(context);
+    final isSoleColumn = !VaultLayoutClass.fromWidth(
+      MediaQuery.sizeOf(context).width,
+    ).hasDetailPane;
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         if (allowsPop)
-          circleButton(
+          KvCircleIconButton(
             glyph: AppGlyph.back,
             tooltip: 'Back',
             onPressed: () => Navigator.maybePop(context),
+          )
+        else if (paneBack != null &&
+            (isSoleColumn || _VaultPaneScope.requiresBackOf(context)))
+          KvCircleIconButton(
+            glyph: AppGlyph.back,
+            tooltip: 'Back',
+            onPressed: () => unawaited(paneBack()),
           )
         else
           const SizedBox(width: 36, height: 36),
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            circleButton(
+            KvCircleIconButton(
               glyph: AppGlyph.edit,
               tooltip: 'Edit',
               onPressed: onEdit,
@@ -573,6 +562,13 @@ class _DetailHeader extends StatelessWidget {
                   child: _MenuItemContent(
                     icon: AppIcons.copy,
                     label: 'Duplicate',
+                  ),
+                ),
+                _RoundedPopupItem(
+                  value: _EntryAction.info,
+                  child: _MenuItemContent(
+                    icon: AppIcons.info,
+                    label: 'Record info',
                   ),
                 ),
                 _RoundedPopupItem(
@@ -655,67 +651,25 @@ class _MoreChip extends StatelessWidget {
   }
 }
 
-class _CopyPill extends StatelessWidget {
-  const _CopyPill({
-    required this.label,
-    required this.primary,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool primary;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    return Material(
-      color: primary ? colors.actionFill : colors.surface,
-      shape: const StadiumBorder(),
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const StadiumBorder(),
-        child: Container(
-          height: 46,
-          alignment: Alignment.center,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: primary
-                ? TextStyle(
-                    fontFamily: AppTextStyles.headingFamily,
-                    fontSize: 14,
-                    color: colors.actionText,
-                  )
-                : AppTextStyles.secondary.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: colors.textPrimary,
-                  ),
-          ),
+/// 2026-08-30: the metadata grid lives in the `Record info` dialog opened
+/// from the record's `•••`, at every width. Exactly three rows — Created,
+/// Updated, last password change (spec-004 FR-7/AC8).
+Future<void> _showRecordInfoDialog(BuildContext context, VaultEntry entry) {
+  return showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Record info'),
+      content: SizedBox(width: 360, child: _MetadataGrid(entry: entry)),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Close'),
         ),
-      ),
-    );
-  }
+      ],
+    ),
+  );
 }
 
-class _MetadataGridLabel extends StatelessWidget {
-  const _MetadataGridLabel();
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    return Text(
-      'Record info',
-      style: AppTextStyles.labelUpper.copyWith(color: colors.textSecondary),
-    );
-  }
-}
-
-/// Tablet-only metadata grid (spec-004 FR-7/AC8): exactly three rows —
-/// Created, Updated, last password change. Not shown on mobile.
 class _MetadataGrid extends StatelessWidget {
   const _MetadataGrid({required this.entry});
 
@@ -841,8 +795,8 @@ class _BiometricRevealGateSheetState extends State<_BiometricRevealGateSheet> {
           ),
           const SizedBox(height: 6),
           Text(
-            'This database requires biometrics before a password is shown '
-            'or copied.',
+            'Biometric check didn\u2019t complete. Try again, or unlock '
+            'with your master password.',
             textAlign: TextAlign.center,
             style: AppTextStyles.body.copyWith(color: colors.textSecondary),
           ),
@@ -857,61 +811,6 @@ class _BiometricRevealGateSheetState extends State<_BiometricRevealGateSheet> {
       ),
     );
   }
-}
-
-Future<void> _showCustomFieldsSheet(
-  BuildContext context,
-  List<VaultCustomField> fields,
-  Future<void> Function({required String text, required String message}) copy,
-) {
-  return KvBottomSheet.show<void>(
-    context: context,
-    builder: (sheetContext) {
-      final colors = Theme.of(sheetContext).extension<KeyVaultColors>()!;
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(18, 20, 18, 26),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 46,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: colors.divider,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              'Custom fields',
-              style: AppTextStyles.sheetTitle.copyWith(
-                color: colors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 12),
-            for (var i = 0; i < fields.length; i++) ...[
-              if (i > 0) const SizedBox(height: 8),
-              KvFieldRow(
-                label: fields[i].key,
-                value: fields[i].value.isEmpty
-                    ? 'Value not set'
-                    : fields[i].value,
-                onCopy: fields[i].value.isEmpty
-                    ? null
-                    : () => copy(
-                        text: fields[i].value,
-                        message: 'Copied ${fields[i].key}.',
-                      ),
-              ),
-            ],
-          ],
-        ),
-      );
-    },
-  );
 }
 
 String _folderNameFor(BuildContext context, String groupId) {
@@ -960,31 +859,6 @@ PasswordGeneratorOptions _optionsFromPassword(String password) {
     includeDigits: anySet ? hasDigit : true,
     includeSymbols: anySet ? hasSymbol : true,
   );
-}
-
-/// spec-019 C-04-03 — the host of [url], or null when there is nothing
-/// openable.
-///
-/// A bare `example.com` parses as a URI with an empty host and a path, which
-/// is the common shape in a vault: users type the domain, not the scheme. So
-/// an authority-less value is retried with `https://` before giving up.
-String? _entryHost(String url) {
-  final trimmed = url.trim();
-  if (trimmed.isEmpty) {
-    return null;
-  }
-  final parsed = Uri.tryParse(trimmed);
-  if (parsed == null) {
-    return null;
-  }
-  if (parsed.hasAuthority && parsed.host.isNotEmpty) {
-    return parsed.host;
-  }
-  final assumed = Uri.tryParse('https://$trimmed');
-  if (assumed != null && assumed.host.isNotEmpty) {
-    return assumed.host;
-  }
-  return null;
 }
 
 /// Opens [url] in the browser, assuming `https` when the record omits the

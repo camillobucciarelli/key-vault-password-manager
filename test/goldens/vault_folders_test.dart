@@ -3,7 +3,7 @@
 // The vault_shell goldens render an EMPTY vault; these render the navigation
 // fixture, so they show what the spec is actually about: a folder column with
 // counts, a records list that holds only records, the phone's chip row, and
-// the one folder-management surface in both of its containers.
+// and the folder tree carrying its own row actions.
 //
 // Omitted axes (VR-002), stated per case rather than left implicit: the state
 // variants (folder selected, sort open, row menu open) are light-theme only —
@@ -99,49 +99,38 @@ void main() {
     });
   }
 
-  testWidgets('vault_1a_phone_folders_sheet_390x844_light.png', (tester) async {
+  // 2026-08-31: the Folders sheet is retired — the phone browses folders in
+  // the list itself; this golden captures the descended state.
+  testWidgets('vault_1a_phone_folder_open_390x844_light.png', (tester) async {
     await pump(tester, size: phone);
-    await tester.tap(find.text('Folders'));
+    await tester.tap(find.text('Devs'));
     await tester.pumpAndSettle();
-    await shoot(tester, 'vault_1a_phone_folders_sheet_390x844_light.png');
+    await shoot(tester, 'vault_1a_phone_folder_open_390x844_light.png');
   });
 
-  testWidgets('vault_1a_phone_sort_sheet_390x844_light.png', (tester) async {
+  // 2026-08-31: the Sort sheet is retired — one popup beside the search.
+  testWidgets('vault_1a_phone_sort_menu_390x844_light.png', (tester) async {
     await pump(tester, size: phone);
     await tester.tap(find.byTooltip('Sort records'));
     await tester.pumpAndSettle();
-    await shoot(tester, 'vault_1a_phone_sort_sheet_390x844_light.png');
+    await shoot(tester, 'vault_1a_phone_sort_menu_390x844_light.png');
   });
 
-  // ── Manage folders: one surface, two containers (US3) ───────────────────
-  for (final themeMode in <ThemeMode>[ThemeMode.light, ThemeMode.dark]) {
-    final suffix = themeMode == ThemeMode.light ? 'light' : 'dark';
-    testWidgets('manage_folders_dialog_1024x768_$suffix.png', (tester) async {
-      await pump(tester, size: wide, themeMode: themeMode);
-      await tester.tap(find.text('Manage'));
-      await tester.pumpAndSettle();
-      await shoot(tester, 'manage_folders_dialog_1024x768_$suffix.png');
-    });
-  }
-
-  testWidgets('manage_folders_screen_390x844_light.png', (tester) async {
-    await pump(tester, size: phone);
-    await tester.tap(find.text('Folders'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Manage'));
-    await tester.pumpAndSettle();
-    await shoot(tester, 'manage_folders_screen_390x844_light.png');
-  });
-
-  testWidgets('manage_folders_row_menu_390x844_light.png', (tester) async {
-    await pump(tester, size: phone);
-    await tester.tap(find.text('Folders'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Manage'));
-    await tester.pumpAndSettle();
+  // ── Folder row actions: the tree is the management surface (US3) ────────
+  // 2026-08-30: `Manage folders` retired — the per-row `•••` lives on the
+  // tree itself, in the column and in the sheet.
+  testWidgets('folder_row_menu_wide_1024x768_light.png', (tester) async {
+    await pump(tester, size: wide);
     await tester.tap(find.byTooltip('Folder actions').last);
     await tester.pumpAndSettle();
-    await shoot(tester, 'manage_folders_row_menu_390x844_light.png');
+    await shoot(tester, 'folder_row_menu_wide_1024x768_light.png');
+  });
+
+  testWidgets('folder_row_menu_list_390x844_light.png', (tester) async {
+    await pump(tester, size: phone);
+    await tester.tap(find.byTooltip('Folder actions').last);
+    await tester.pumpAndSettle();
+    await shoot(tester, 'folder_row_menu_list_390x844_light.png');
   });
 
   // Constitution IV: the inventory is exact. A golden that appears without a
@@ -155,12 +144,10 @@ void main() {
       'vault_1a_sort_menu_1024x768_light.png',
       'vault_1a_phone_390x844_light.png',
       'vault_1a_phone_390x844_dark.png',
-      'vault_1a_phone_folders_sheet_390x844_light.png',
-      'vault_1a_phone_sort_sheet_390x844_light.png',
-      'manage_folders_dialog_1024x768_light.png',
-      'manage_folders_dialog_1024x768_dark.png',
-      'manage_folders_screen_390x844_light.png',
-      'manage_folders_row_menu_390x844_light.png',
+      'vault_1a_phone_folder_open_390x844_light.png',
+      'vault_1a_phone_sort_menu_390x844_light.png',
+      'folder_row_menu_wide_1024x768_light.png',
+      'folder_row_menu_list_390x844_light.png',
     };
 
     final onDisk = Directory('test/goldens')
@@ -170,7 +157,7 @@ void main() {
         .where(
           (name) =>
               name.startsWith('vault_1a_') ||
-              name.startsWith('manage_folders_'),
+              name.startsWith('folder_row_menu_'),
         )
         .toSet();
 

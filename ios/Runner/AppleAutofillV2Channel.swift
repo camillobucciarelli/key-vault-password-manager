@@ -1,4 +1,5 @@
 import Flutter
+import AuthenticationServices
 import Foundation
 import OSLog
 
@@ -34,6 +35,14 @@ final class AppleAutofillV2Channel {
       handleClearPendingAssociations(arguments: call.arguments, result: result)
     case "getStatus":
       result(store.status().dictionary)
+    case "getExtensionEnabled":
+      // Whether the Credential Provider extension is enabled in system
+      // settings — the one signal the app cannot infer from its own state.
+      ASCredentialIdentityStore.shared.getState { state in
+        DispatchQueue.main.async {
+          result(state.isEnabled)
+        }
+      }
     default:
       result(FlutterMethodNotImplemented)
     }

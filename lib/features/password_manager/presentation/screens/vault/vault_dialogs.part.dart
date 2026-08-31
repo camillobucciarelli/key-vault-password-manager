@@ -32,7 +32,17 @@ Future<GroupEditResult?> _showGroupDialog(
                 initialValue: initialName ?? '',
                 autofocus: true,
                 decoration: const InputDecoration(labelText: 'Folder name'),
+                textInputAction: TextInputAction.done,
                 onChanged: (value) => name = value,
+                // Enter submits, same as the Create button.
+                onFieldSubmitted: (_) {
+                  if (!formKey.currentState!.validate()) {
+                    return;
+                  }
+                  VaultOperationScope.of(
+                    context,
+                  ).complete(GroupEditResult(name.trim()));
+                },
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
                     return 'Folder name is required.';
@@ -179,6 +189,9 @@ Future<VaultDone?> _showAttachmentsDialog(
                         title: Text(attachment.name),
                         subtitle: Text(formatBytes(attachment.size)),
                         trailing: PopupMenuButton<_AttachmentAction>(
+                          // Vertical dots everywhere: the adaptive default
+                          // is horizontal on Apple platforms.
+                          icon: const Icon(AppIcons.more),
                           onSelected: (action) async {
                             if (!dialogContext.mounted) {
                               return;

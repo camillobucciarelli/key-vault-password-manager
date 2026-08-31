@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -76,6 +78,7 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
 
   String? _errorMessage;
   String? _nativeHostSetupMessage;
+  List<String> _staleManifestPaths = const [];
   bool _isCheckingConnection = false;
   bool _appBridgeConnected = false;
 
@@ -99,6 +102,7 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
   Future<void> _checkInitialState() async {
     final bridge = await _service.checkBridgeConnection();
     if (!mounted) return;
+    unawaited(_checkStaleManifest());
 
     final initialStatus = browserSetupInitialStatusForBridge(bridge);
     setState(() {
@@ -197,6 +201,39 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
     }
   }
 
+  Future<void> _checkStaleManifest() async {
+    final stale = await _service.staleUserManifests();
+    if (!mounted) return;
+    setState(
+      () => _staleManifestPaths = stale
+          .map((file) => file.path)
+          .toList(growable: false),
+    );
+  }
+
+  Future<void> _removeStaleManifest() async {
+    final stalePaths = _staleManifestPaths.join(', ');
+    final removed = await _service.removeStaleUserManifests();
+    if (!mounted) return;
+    setState(() {
+      _staleManifestPaths = const [];
+      if (!removed) {
+        _errorMessage =
+            'Impossibile rimuovere la vecchia registrazione. '
+            'Elimina a mano: $stalePaths';
+      }
+    });
+    if (removed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Vecchia registrazione rimossa. Riavvia Chrome e riprova.',
+          ),
+        ),
+      );
+    }
+  }
+
   Future<void> _checkConnection() async {
     setState(() {
       _isCheckingConnection = true;
@@ -206,6 +243,7 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
 
     final result = await _service.checkBridgeConnection();
     if (!mounted) return;
+    unawaited(_checkStaleManifest());
 
     setState(() {
       _isCheckingConnection = false;
@@ -314,6 +352,19 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                           const SizedBox(height: 24),
                           const Divider(height: 1),
                           const SizedBox(height: 20),
+
+                          // 2026-08-31: an old dev registration in the
+                          // per-user NativeMessagingHosts directory shadows
+                          // the production package (Chrome reads the user
+                          // level first) and the store extension reports
+                          // "host not found" with everything else correct.
+                          if (_staleManifestPaths.isNotEmpty) ...[
+                            _StaleManifestCard(
+                              paths: _staleManifestPaths,
+                              onRemove: _removeStaleManifest,
+                            ),
+                            const SizedBox(height: 16),
+                          ],
 
                           // Step 1 — Install Extension
                           _SetupStep(
@@ -490,6 +541,71 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
 // ---------------------------------------------------------------------------
 
 enum _StepStatus { pending, disabled, loading, done, error }
+
+/// Warning card for a stale per-user Native Messaging manifest that
+/// shadows the production (system-level) registration.
+class _StaleManifestCard extends StatelessWidget {
+  const _StaleManifestCard({required this.paths, required this.onRemove});
+
+  final List<String> paths;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.errorContainer.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: scheme.error.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, size: 20, color: scheme.error),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Vecchia registrazione di sviluppo trovata',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Un manifest utente obsoleto sta oscurando quello installato dal '
+            'pacchetto Chrome Support: l\'estensione dello store non trova '
+            'il collegamento. Rimuovilo e riavvia Chrome.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 4),
+          for (final path in paths)
+            Text(
+              path,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontFamily: 'monospace',
+                fontSize: 11,
+              ),
+            ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.tonal(
+              onPressed: onRemove,
+              child: const Text('Rimuovi registrazione obsoleta'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _SetupStep extends StatelessWidget {
   const _SetupStep({

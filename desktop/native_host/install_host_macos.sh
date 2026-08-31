@@ -4,7 +4,7 @@ set -euo pipefail
 HOST_NAME="dev.camillobucciarelli.keyvault_native_host"
 
 if [[ "$#" -lt 2 ]]; then
-  echo "Usage: $0 <chrome|edge> <extension-id>"
+  echo "Usage: $0 <chrome|arc|edge|brave|vivaldi|chromium|opera> <extension-id>"
   exit 1
 fi
 
@@ -19,8 +19,10 @@ fi
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 HOST_PATH="${SCRIPT_DIR}/keyvault_native_host.sh"
 
+# The manifest content is browser-independent; only the destination differs.
+# Arc reads Chrome's directories, so `arc` is an alias for `chrome`.
 case "${BROWSER}" in
-  chrome)
+  chrome|arc)
     TEMPLATE="${SCRIPT_DIR}/manifests/chrome/${HOST_NAME}.json"
     DEST_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
     ;;
@@ -28,8 +30,24 @@ case "${BROWSER}" in
     TEMPLATE="${SCRIPT_DIR}/manifests/edge/${HOST_NAME}.json"
     DEST_DIR="$HOME/Library/Application Support/Microsoft Edge/NativeMessagingHosts"
     ;;
+  brave)
+    TEMPLATE="${SCRIPT_DIR}/manifests/chrome/${HOST_NAME}.json"
+    DEST_DIR="$HOME/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts"
+    ;;
+  vivaldi)
+    TEMPLATE="${SCRIPT_DIR}/manifests/chrome/${HOST_NAME}.json"
+    DEST_DIR="$HOME/Library/Application Support/Vivaldi/NativeMessagingHosts"
+    ;;
+  chromium)
+    TEMPLATE="${SCRIPT_DIR}/manifests/chrome/${HOST_NAME}.json"
+    DEST_DIR="$HOME/Library/Application Support/Chromium/NativeMessagingHosts"
+    ;;
+  opera)
+    TEMPLATE="${SCRIPT_DIR}/manifests/chrome/${HOST_NAME}.json"
+    DEST_DIR="$HOME/Library/Application Support/com.operasoftware.Opera/NativeMessagingHosts"
+    ;;
   *)
-    echo "Unsupported browser '${BROWSER}'. Use chrome or edge."
+    echo "Unsupported browser '${BROWSER}'. Use chrome, arc, edge, brave, vivaldi, chromium or opera."
     exit 1
     ;;
 esac

@@ -66,19 +66,19 @@ class _RecycleBinScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+              // 2026-08-31 (user-directed): a pushed screen at every width —
+              // back button on the left, same rule as `Manage duplicates`.
+              padding: const EdgeInsets.fromLTRB(18, 12, 14, 0),
               child: Row(
                 children: [
-                  IconButton(
+                  KvCircleIconButton(
+                    glyph: AppGlyph.back,
+                    tooltip: 'Back',
                     onPressed: () => VaultOperationScope.of(
                       context,
                     ).complete(const VaultDone()),
-                    icon: KvIcon(
-                      glyph: AppGlyph.back,
-                      size: 19,
-                      color: colors.textPrimary,
-                    ),
                   ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: BlocBuilder<VaultBloc, VaultState>(
                       buildWhen: (p, n) =>
@@ -107,17 +107,15 @@ class _RecycleBinScreen extends StatelessWidget {
                       },
                     ),
                   ),
-                  IconButton(
+                  KvCircleIconButton(
+                    glyph: AppGlyph.refresh,
                     tooltip: 'Refresh recycle bin',
+                    iconSize: 18,
                     onPressed: () => context.read<VaultBloc>().add(
                       const LoadRecycleBinEntries(),
                     ),
-                    icon: KvIcon(
-                      glyph: AppGlyph.refresh,
-                      size: 18,
-                      color: colors.textPrimary,
-                    ),
                   ),
+
                 ],
               ),
             ),

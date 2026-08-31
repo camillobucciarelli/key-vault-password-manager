@@ -1,4 +1,5 @@
 import '../models/apple_autofill_v2_models.dart';
+import 'url_field_keys.dart';
 import '../models/vault_entry.dart';
 
 class AppleAutofillV2PayloadMapper {
@@ -172,17 +173,7 @@ class AppleAutofillV2PayloadMapper {
         RegExp(r'^kph:webdomain\d+$').hasMatch(key);
   }
 
-  bool _isUrlField(String key) {
-    return key == 'url' ||
-        key == 'uri' ||
-        key == 'website' ||
-        key == 'weburl' ||
-        key == 'loginurl' ||
-        key == 'kph:url' ||
-        key == 'kph:uri' ||
-        RegExp(r'^kph:url\d+$').hasMatch(key) ||
-        RegExp(r'^kph:uri\d+$').hasMatch(key);
-  }
+  bool _isUrlField(String key) => isUrlFieldKey(key);
 
   String _normalizeFieldKey(String value) {
     return value.trim().toLowerCase().replaceAll(RegExp(r'[\s_-]+'), '');

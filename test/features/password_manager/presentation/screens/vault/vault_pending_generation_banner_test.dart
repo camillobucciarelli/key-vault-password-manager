@@ -152,7 +152,7 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(find.text('Save'));
+    await tester.tap(find.byTooltip('Save'));
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pump();
     await tester.pump();
@@ -180,7 +180,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('New item'), findsOneWidget);
 
-    await tester.tap(find.text('Cancel'));
+    await tester.tap(find.byTooltip('Cancel'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
@@ -208,7 +208,7 @@ void main() {
     expect(find.text('New item'), findsOneWidget);
 
     now = now.add(const Duration(minutes: 6));
-    await tester.tap(find.text('Save'));
+    await tester.tap(find.byTooltip('Save'));
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pump();
 

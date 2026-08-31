@@ -266,7 +266,10 @@ void main() {
                 .map(_posixPath)
                 .toList()
               ..sort();
-        expect(callers, hasLength(3));
+        // 2026-08-31: the vault header's overflow sheet (the third caller,
+        // vault_navigation.part.dart) was retired; exports live in Backups &
+        // import and the Sync destination.
+        expect(callers, hasLength(2));
       },
     );
 
@@ -803,6 +806,13 @@ const _baseline = <String, List<String>>{
     'rename',
   ],
   // --- unlisted by FR-8, non-database -------------------------------------
+  // 2026-08-31: removeStaleUserManifest deletes ONE non-database file — a
+  // stale per-user Chrome NativeMessagingHosts manifest that shadows the
+  // production registration. No vault bytes are ever touched.
+  'lib/features/password_manager/data/services/'
+      'browser_setup_service.dart': [
+    'delete',
+  ],
   'lib/features/password_manager/data/services/'
       'desktop_browser_autofill_cache.dart': [
     'create',

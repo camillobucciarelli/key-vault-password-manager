@@ -70,7 +70,7 @@ void main() {
   ) async {
     await pumpAt(tester, 1024);
     await openGmail(tester);
-    expect(inDetail(find.text('Copy password')), findsOneWidget);
+    expect(inDetail(find.byKey(const ValueKey('entry-detail-body'))), findsOneWidget);
 
     await tester.tap(inDetail(find.byTooltip('Record actions')));
     await tester.pumpAndSettle();
@@ -85,7 +85,7 @@ void main() {
       reason: 'FR-008/G4.5 — no error dialog, no exception',
     );
     expect(
-      find.text('Copy password'),
+      find.byKey(const ValueKey('entry-detail-body')),
       findsNothing,
       reason: 'D6 — the pane must not be left showing a dead surface',
     );
@@ -113,18 +113,21 @@ void main() {
     expect(tester.takeException(), isNull);
     // G4.2: the dismissal path is presentation-neutral, so the pushed
     // presentation lands back on the list just as the pane lands on empty.
-    expect(find.text('Copy password'), findsNothing);
+    expect(find.byKey(const ValueKey('entry-detail-body')), findsNothing);
     expect(find.text('Banca Sella'), findsWidgets);
   });
 
   // ---- Resize keeps exactly one back affordance ---------------------------
 
-  testWidgets('shrinking the window with a record open leaves one back button', (
-    tester,
-  ) async {
+  // Amended 2026-08-31 (twice): beside a list the pane detail carries no
+  // back — the list is the navigation. But once a resize leaves the mounted
+  // pane as the ONLY column, the back must appear or the user is stuck in
+  // the detail with nothing to dismiss it.
+  testWidgets('shrinking the window until the detail stands alone shows '
+      'exactly one back button', (tester) async {
     await pumpAt(tester, 1024);
     await openGmail(tester);
-    expect(find.byTooltip('Back'), findsOneWidget);
+    expect(find.byTooltip('Back'), findsNothing);
 
     // The pane was chosen at 1024 and stays mounted; only the width changes.
     tester.view.physicalSize = const Size(650, 900);
@@ -133,10 +136,13 @@ void main() {
     expect(
       find.byTooltip('Back'),
       findsOneWidget,
-      reason:
-          'the pane host owns the back affordance; the panel must not add a '
-          'second one just because the window is now narrow',
+      reason: 'a sole-column detail with no back is a dead end',
     );
+
+    // Growing the window back restores the list — and removes the back.
+    tester.view.physicalSize = const Size(1024, 900);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Back'), findsNothing);
   });
 
   // ---- T014: US1 origin parity -------------------------------------------
@@ -198,12 +204,12 @@ void main() {
 
     await tester.tap(inDetail(find.byTooltip('Edit')));
     await tester.pumpAndSettle();
-    await tester.tap(inDetail(find.text('Cancel')));
+    await tester.tap(inDetail(find.byTooltip('Cancel')));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
     expect(
-      inDetail(find.text('Copy password')),
+      inDetail(find.byKey(const ValueKey('entry-detail-body'))),
       findsOneWidget,
       reason: 'FR-009 — not the empty state (D7)',
     );
@@ -254,7 +260,7 @@ void main() {
       reason: 'FR-002e — the generator column collapses the folder column',
     );
 
-    await tester.tap(inDetail(find.text('Cancel')));
+    await tester.tap(inDetail(find.byTooltip('Cancel')));
     await tester.pumpAndSettle();
 
     expect(
@@ -278,6 +284,6 @@ void main() {
     // rather than being covered by a sheet — the "dialog over dialog" case
     // the design called the worst of the current app.
     expect(tester.takeException(), isNull);
-    expect(inDetail(find.text('Save')), findsOneWidget);
+    expect(inDetail(find.byTooltip('Save')), findsOneWidget);
   });
 }

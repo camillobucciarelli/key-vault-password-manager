@@ -408,7 +408,7 @@ void main() {
     await tester.pumpAndSettle();
 
     repo.syncNowBehavior = _SyncNowBehavior.hang;
-    await tester.tap(find.text('Sync now'));
+    await tester.tap(find.byTooltip('Sync now'));
     // Indeterminate spinner: bounded pumps, not pumpAndSettle.
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
@@ -441,7 +441,7 @@ void main() {
     await tester.pumpAndSettle();
 
     repo.syncNowBehavior = _SyncNowBehavior.offline;
-    await tester.tap(find.text('Sync now'));
+    await tester.tap(find.byTooltip('Sync now'));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
@@ -472,7 +472,7 @@ void main() {
     await tester.pumpAndSettle();
 
     repo.syncNowBehavior = _SyncNowBehavior.error;
-    await tester.tap(find.text('Sync now'));
+    await tester.tap(find.byTooltip('Sync now'));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
@@ -503,7 +503,7 @@ void main() {
     await tester.pumpAndSettle();
 
     repo.syncNowBehavior = _SyncNowBehavior.conflict;
-    await tester.tap(find.text('Sync now'));
+    await tester.tap(find.byTooltip('Sync now'));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
@@ -553,6 +553,28 @@ void main() {
     });
   }
 
+  // Regression: at desktop widths a health category opens as a pane pushed
+  // over the Health destination body — before the fix the pane surface was
+  // created but the non-vault rail body never rendered it, so the tap read
+  // as dead.
+  testWidgets('health category list opens from Health at 1024', (tester) async {
+    await _setSize(tester, const Size(1024, 768));
+    await tester.pumpWidget(
+      await pumpableVaultShell(vaultKdbxService: _PopulatedVaultKdbxService()),
+    );
+    await tester.pumpAndSettle();
+
+    await _tapDestination(tester, 'Health');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Weak passwords'));
+    await tester.pumpAndSettle();
+
+    // The category list screen renders its entries — the health rows never
+    // show entry titles, so this only passes when the pane actually shows.
+    expect(find.text('Old router admin'), findsOneWidget);
+  });
+
   // --- 10/11. Duplicates — groups + merge preview (390×844 L) --------------
   testWidgets('dup_groups_390x844_light.png', (tester) async {
     await _setSize(tester, const Size(390, 844));
@@ -584,7 +606,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Duplicates'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Merge and move duplicate'));
+    // Two duplicate groups since credentials grouping landed (reused-1/2
+    // share username+password) — tap the first group's merge button.
+    await tester.tap(find.text('Merge and move duplicate').first);
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
@@ -620,7 +644,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Settings'));
+    // 2026-08-31: the list header's `⋮` (tooltip 'Settings') is retired —
+    // the path is the Settings destination's own 'Recycle bin' row.
+    await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Recycle bin'));
     await tester.pumpAndSettle();
@@ -648,7 +674,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Settings'));
+    // 2026-08-31: the list header's `⋮` (tooltip 'Settings') is retired —
+    // the path is the Settings destination's own 'Recycle bin' row.
+    await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Recycle bin'));
     await tester.pumpAndSettle();

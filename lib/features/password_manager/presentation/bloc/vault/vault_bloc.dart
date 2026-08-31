@@ -19,6 +19,7 @@ import '../../../domain/repositories/database_sync_repository.dart';
 import '../../../domain/models/vault_entry.dart';
 import '../../../domain/models/vault_group.dart';
 import '../../../domain/models/vault_snapshot.dart';
+import '../../../domain/services/url_field_keys.dart';
 import '../../../domain/services/vault_health_service.dart';
 import '../../coordinators/android_autofill_save_coordinator.dart';
 import '../../coordinators/apple_autofill_v2_coordinator.dart';
@@ -174,6 +175,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           linkedDriveFileName: mapping.driveFileName,
           autoSyncEnabled: mapping.autoSyncEnabled,
           lastSyncAt: mapping.lastSyncAt,
+          lastSyncedLocalChecksum: mapping.lastSyncedLocalChecksum,
           syncStatus: DatabaseSyncStatus.idle,
         ),
       );
@@ -540,7 +542,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         currentGroupId: currentGroupId,
         keepLoadingFlag: false,
       );
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
     } catch (e, st) {
       logError('Failed creating vault entry.', e, st);
       _safeEmit(
@@ -577,7 +579,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
     } catch (e, st) {
       logError('Failed updating vault entry.', e, st);
       _safeEmit(
@@ -612,7 +614,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         currentGroupId: state.currentGroupId,
         keepLoadingFlag: false,
       );
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
     } catch (e, st) {
       logError('Failed duplicating vault entry.', e, st);
       _safeEmit(
@@ -643,7 +645,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
     } catch (e, st) {
       logError('Failed deleting vault entry.', e, st);
       _safeEmit(
@@ -674,7 +676,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         currentGroupId: state.currentGroupId,
         keepLoadingFlag: false,
       );
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
     } catch (e, st) {
       logError('Failed moving vault entry.', e, st);
       _safeEmit(
@@ -688,7 +690,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     CreateVaultGroup event,
     Emitter<VaultState> emit,
   ) async {
-    final parentGroupId = state.currentGroupId;
+    final parentGroupId = event.parentGroupId ?? state.currentGroupId;
     if (parentGroupId == null) {
       return;
     }
@@ -707,7 +709,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         currentGroupId: parentGroupId,
         keepLoadingFlag: false,
       );
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
     } catch (e, st) {
       logError('Failed creating vault group.', e, st);
       _safeEmit(
@@ -738,7 +740,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         currentGroupId: state.currentGroupId,
         keepLoadingFlag: false,
       );
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
     } catch (e, st) {
       logError('Failed renaming vault group.', e, st);
       _safeEmit(
@@ -796,7 +798,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         currentGroupId: fallbackGroupId,
         keepLoadingFlag: false,
       );
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
     } catch (e, st) {
       logError('Failed deleting vault group.', e, st);
       _safeEmit(
@@ -828,7 +830,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
     } catch (e, st) {
       logError('Failed moving vault group.', e, st);
       _safeEmit(
@@ -856,7 +858,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
     } catch (e, st) {
       logError('Failed restoring vault entry from recycle bin.', e, st);
       _safeEmit(
@@ -887,7 +889,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
     } catch (e, st) {
       logError('Failed restoring vault group from recycle bin.', e, st);
       _safeEmit(
@@ -918,7 +920,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
     } catch (e, st) {
       logError('Failed permanently deleting vault entry.', e, st);
       _safeEmit(
@@ -949,7 +951,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
     } catch (e, st) {
       logError('Failed permanently deleting vault group.', e, st);
       _safeEmit(
@@ -979,7 +981,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
     } catch (e, st) {
       logError('Failed emptying recycle bin.', e, st);
       _safeEmit(
@@ -1123,7 +1125,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           currentGroupId: state.currentGroupId,
           keepLoadingFlag: false,
         );
-        await _scheduleAutoSync(emit);
+        _scheduleAutoSync();
         _safeEmit(
           emit,
           state.copyWith(
@@ -1279,7 +1281,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
       _safeEmit(
         emit,
         state.copyWith(
@@ -1391,7 +1393,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       _safeEmit(emit, state.copyWith(infoMessage: 'Attachment added.'));
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
     } catch (e, st) {
       logError('Failed adding attachment.', e, st);
       _safeEmit(
@@ -1426,7 +1428,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         keepLoadingFlag: false,
       );
       _safeEmit(emit, state.copyWith(infoMessage: 'Attachment removed.'));
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
     } catch (e, st) {
       logError('Failed removing attachment.', e, st);
       _safeEmit(
@@ -1564,7 +1566,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       );
       _computeDuplicates(emit);
       _computeHealth(emit);
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
 
       skippedRows.sort((a, b) => a.index.compareTo(b.index));
       _safeEmit(
@@ -1789,7 +1791,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
       _computeDuplicates(emit);
       _computeHealth(emit);
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
     } catch (e, st) {
       logError('Failed deleting duplicate entry.', e, st);
       _safeEmit(
@@ -1813,7 +1815,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         password: _password,
         keyFilePath: _keyFilePath,
         primaryId: event.primaryId,
-        secondaryId: event.secondaryId,
+        secondaryIds: event.secondaryIds,
       );
       await _reload(
         emit,
@@ -1823,7 +1825,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       await _loadRecycleBinEntries(emit, isInitialLoad: true);
       _computeDuplicates(emit);
       _computeHealth(emit);
-      await _scheduleAutoSync(emit);
+      _scheduleAutoSync();
     } catch (e, st) {
       logError('Failed merging duplicate entries.', e, st);
       _safeEmit(
@@ -1945,6 +1947,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         linkedDriveFileName: mapping?.driveFileName,
         autoSyncEnabled: mapping?.autoSyncEnabled ?? true,
         lastSyncAt: mapping?.lastSyncAt,
+        lastSyncedLocalChecksum: mapping?.lastSyncedLocalChecksum,
       ),
     );
 
@@ -2055,6 +2058,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           linkedDriveFileName: mapping.driveFileName,
           autoSyncEnabled: mapping.autoSyncEnabled,
           lastSyncAt: mapping.lastSyncAt,
+          lastSyncedLocalChecksum: mapping.lastSyncedLocalChecksum,
           syncStatus: DatabaseSyncStatus.success,
           infoMessage: 'Database linked to ${mapping.driveFileName}.',
         ),
@@ -2295,6 +2299,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         linkedDriveFileName: mapping?.driveFileName,
         autoSyncEnabled: mapping?.autoSyncEnabled ?? true,
         lastSyncAt: mapping?.lastSyncAt,
+        lastSyncedLocalChecksum: mapping?.lastSyncedLocalChecksum,
         syncStatus: connected
             ? DatabaseSyncStatus.idle
             : DatabaseSyncStatus.disconnected,
@@ -2303,7 +2308,12 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     );
   }
 
-  Future<void> _scheduleAutoSync(Emitter<VaultState> emit) async {
+  /// Debounced auto-sync after a vault mutation. The timer outlives the
+  /// handler that armed it, so it must NOT capture that handler's emitter
+  /// (it is done by then — the old `emit.isDone` guard made auto-sync a
+  /// silent no-op). It enqueues a sync event instead, which runs with a
+  /// live emitter and shows the non-blocking syncing indicator.
+  void _scheduleAutoSync() {
     if (!state.isDriveConnected ||
         !state.isDriveLinked ||
         !state.autoSyncEnabled) {
@@ -2311,11 +2321,11 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     }
 
     _autoSyncDebounce?.cancel();
-    _autoSyncDebounce = Timer(const Duration(seconds: 2), () async {
-      if (isClosed || emit.isDone) {
+    _autoSyncDebounce = Timer(const Duration(seconds: 2), () {
+      if (isClosed) {
         return;
       }
-      await _performSync(emit, silentIfConflict: true);
+      add(const SyncCurrentDatabaseNow(silentIfConflict: true));
     });
   }
 
@@ -2660,18 +2670,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         _isAppleAutofillDomainFieldKey(key);
   }
 
-  bool _isAppleAutofillUrlFieldKey(String key) {
-    final normalized = _normalizeAppleAutofillFieldKey(key);
-    return normalized == 'url' ||
-        normalized == 'uri' ||
-        normalized == 'website' ||
-        normalized == 'weburl' ||
-        normalized == 'loginurl' ||
-        normalized == 'kph:url' ||
-        normalized == 'kph:uri' ||
-        RegExp(r'^kph:url\d+$').hasMatch(normalized) ||
-        RegExp(r'^kph:uri\d+$').hasMatch(normalized);
-  }
+  bool _isAppleAutofillUrlFieldKey(String key) => isUrlFieldKey(key);
 
   bool _isAppleAutofillDomainFieldKey(String key) {
     final normalized = _normalizeAppleAutofillFieldKey(key);
@@ -2831,6 +2830,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           syncStatus: DatabaseSyncStatus.success,
           linkedDriveFileName: mapping?.driveFileName,
           lastSyncAt: mapping?.lastSyncAt ?? DateTime.now(),
+          lastSyncedLocalChecksum: mapping?.lastSyncedLocalChecksum,
           isOffline: false,
           clearSyncError: true,
           clearSyncConflict: true,
