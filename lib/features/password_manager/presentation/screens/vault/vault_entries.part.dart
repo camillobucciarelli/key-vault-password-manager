@@ -294,7 +294,13 @@ class _EntriesCardState extends State<_EntriesCard> {
           .toList(growable: false);
     }
 
-    if (browsing ? effectiveGroupId == null : widget.entries.isEmpty) {
+    // A folder with no subfolders and no direct records must show the empty
+    // state too, not a zero-item ListView (PR #180 review finding).
+    final showEmpty = browsing
+        ? (effectiveGroupId == null ||
+              (childFolders.isEmpty && records.isEmpty))
+        : widget.entries.isEmpty;
+    if (showEmpty) {
       final emptyState = _RecordsEmptyState(
         searchQuery: widget.searchQuery,
         onClearSearch: widget.searchQuery.isNotEmpty

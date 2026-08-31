@@ -431,6 +431,11 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     }
   }
 
+  /// Background lock backstop when `Lock on inactivity` is unset: `Never`
+  /// disables the foreground timer, not the guarantee that a backgrounded
+  /// vault eventually locks.
+  static const _kUnsetBackgroundLockCeiling = Duration(minutes: 15);
+
   void _onAppResumed() {
     if (!mounted) return;
 
@@ -440,12 +445,17 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     final elapsed = backgroundedAt != null
         ? DateTime.now().difference(backgroundedAt)
         : Duration.zero;
-    // 2026-08-31: auto-lock happens ONLY when the user configured it, and
-    // only after the configured time — the old fixed 30 s background rule
-    // locked vaults whose setting says `Never`.
+    // 2026-08-31: the FOREGROUND inactivity timer runs only when configured
+    // (the old fixed 30 s background rule locked vaults whose setting says
+    // `Never`). For the background an unset timeout still keeps a
+    // conservative ceiling (PR #180 review): a password manager left in the
+    // background must not stay unlocked forever, so `Never` governs the
+    // foreground timer while a long backstop covers the background.
     final timeoutSeconds = _inactivityTimeoutSeconds;
-    final shouldLock =
-        timeoutSeconds != null && elapsed >= Duration(seconds: timeoutSeconds);
+    final backgroundCeiling = timeoutSeconds != null
+        ? Duration(seconds: timeoutSeconds)
+        : _kUnsetBackgroundLockCeiling;
+    final shouldLock = elapsed >= backgroundCeiling;
 
     setState(() {
       _isBackground = false;
