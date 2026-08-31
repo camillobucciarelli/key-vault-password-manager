@@ -61,13 +61,20 @@ class _SyncMergeScreenState extends State<SyncMergeScreen> {
       backgroundColor: colors.ground,
       body: SafeArea(
         child: BlocConsumer<VaultBloc, VaultState>(
-          listenWhen: (p, n) => p.mergeReview != n.mergeReview,
+          listenWhen: (p, n) =>
+              p.mergeReview != n.mergeReview || p.isMergeBusy != n.isMergeBusy,
           listener: (context, state) {
-            final review = state.mergeReview;
-            if (review == null ||
-                !review.decisions.any((d) => d.decisionId == _selected)) {
-              setState(() => _selected = null);
-            }
+            setState(() {
+              // PR #188 review: a commit that ends in MergeNeedsReview (or a
+              // rejection) returns to editing — the flag must not survive it,
+              // or the next brief busy state flashes the progress pane.
+              if (!state.isMergeBusy) _committing = false;
+              final review = state.mergeReview;
+              if (review == null ||
+                  !review.decisions.any((d) => d.decisionId == _selected)) {
+                _selected = null;
+              }
+            });
           },
           buildWhen: (p, n) =>
               p.mergeReview != n.mergeReview ||

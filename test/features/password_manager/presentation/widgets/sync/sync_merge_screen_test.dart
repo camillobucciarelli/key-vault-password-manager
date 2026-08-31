@@ -195,6 +195,56 @@ void main() {
       expect(find.text('Merge complete'), findsOneWidget);
     });
 
+    testWidgets('a needs-review re-entry clears the commit flag: the next '
+        'busy decision update shows the review, not the progress pane', (
+      tester,
+    ) async {
+      await setMergeTestSize(tester, _phone);
+      final harness = MergeScreenHarness();
+      addTearDown(harness.dispose);
+      await tester.pumpWidget(harness.app());
+      await harness.startReview(tester);
+      harness.bloc.add(const ApplySyncMergeShortcut(MergeShortcut.preferLocal));
+      await tester.pumpAndSettle();
+      // The re-entry summary carries fresh (still-default) conflicts, so the
+      // screen must land back on the REVIEW pane, not the ready pane.
+      harness.port.commitOutcome = MergeNeedsReview(
+        summary: MergeReviewSummary(
+          sessionId: fixtureSessionId(9),
+          databaseId: mergeFixtureDatabaseId,
+          phase: MergeReviewPhase.needsReview,
+          decisions: mixedDecisions(),
+          localOnlyRecordCount: 2,
+          remoteOnlyRecordCount: 1,
+          oneSidedFieldCount: 3,
+        ),
+        newConflictCount: 1,
+        reviewReentryCount: 1,
+      );
+
+      await tester.tap(find.text('Merge and sync'));
+      await tester.pumpAndSettle();
+      expect(find.text('Review merge'), findsOneWidget);
+
+      final decision = harness.bloc.state.mergeReview!.decisions.first;
+      harness.port.updateGate = Completer<void>();
+      harness.bloc.add(
+        UpdateSyncMergeDecision(
+          decisionId: decision.decisionId,
+          choice: MergeChoice.remote,
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 20));
+
+      expect(find.text('Merging'), findsNothing);
+      expect(find.text('Review merge'), findsOneWidget);
+
+      harness.port.updateGate!.complete();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('field plaintext is absent after widget dispose and lock', (
       tester,
     ) async {

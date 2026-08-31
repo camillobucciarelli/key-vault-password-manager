@@ -173,6 +173,17 @@ class _HoverSurfaceState extends State<_HoverSurface> {
         ? Duration.zero
         : const Duration(milliseconds: 120);
     return FocusableActionDetector(
+      enabled: widget.onTap != null,
+      // PR #188 review: focus alone is not activation — Enter/Space must
+      // invoke the same tap handler, as the InkWell this surface replaced did.
+      actions: <Type, Action<Intent>>{
+        ActivateIntent: CallbackAction<ActivateIntent>(
+          onInvoke: (_) {
+            widget.onTap?.call();
+            return null;
+          },
+        ),
+      },
       onShowFocusHighlight: (value) {
         if (_isFocused != value) setState(() => _isFocused = value);
       },

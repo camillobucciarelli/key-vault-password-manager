@@ -111,6 +111,7 @@ class FixtureMergePort implements SyncMergeRepository {
     uploadState: MergeUploadState.uploaded,
   );
   Completer<void>? commitGate;
+  Completer<void>? updateGate;
   int _sessions = 0;
 
   MergeReviewSummary summary() => MergeReviewSummary(
@@ -139,6 +140,7 @@ class FixtureMergePort implements SyncMergeRepository {
     required MergeChoice choice,
   }) async {
     calls.add('updateDecision');
+    await updateGate?.future;
     _decisions = [
       for (final d in _decisions)
         d.decisionId == decisionId ? d.withChoice(choice) : d,
