@@ -62,9 +62,10 @@ handed in is the window width; no caller substitutes its own
 
 | Surface | narrow* | wide* |
 |---|---|---|
-| `EntrySurface`, `OtpScannerSurface`, `AttachmentsSurface`, `RecycleBinSurface`, `DuplicatesSurface`, `HealthCategorySurface`, `SyncLinkSurface`, `DatabaseSettingsSurface` | route | pane |
+| `EntrySurface`, `OtpScannerSurface`, `AttachmentsSurface`, `HealthCategorySurface`, `SyncLinkSurface`, `DatabaseSettingsSurface` | route | pane |
+| `RecycleBinSurface`, `DuplicatesSurface`, `MergePreviewSurface` | route | route — amended 2026-08-31 (user-directed): full-screen pushed routes at every width; the earlier dialog-plus-sheet stack on wide layouts was hard to read |
 | `GroupEditSurface`, `MoveTargetSurface` | sheet | dialog (bare) — amended 2026-08-30: pane-hosting rendered them behind the spec-019 Manage dialog and replaced the record detail with a floating card |
-| `SyncConflictSurface`, `MergePreviewSurface` | sheet | pane |
+| `SyncConflictSurface` | sheet | pane |
 | `PasswordGeneratorSurface` | sheet | **pane iff width >= 995**, else sheet |
 
 Note that "narrow" here means below the derived 704, not below 600: FR-002d

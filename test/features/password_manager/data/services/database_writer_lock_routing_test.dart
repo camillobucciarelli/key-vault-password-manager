@@ -190,7 +190,7 @@ void main() {
           databasePath: databasePath,
           password: _password,
           primaryId: primary,
-          secondaryId: secondary,
+          secondaryIds: [secondary],
         ),
       );
     });

@@ -18,9 +18,11 @@
 #   this picker screen for the "pick existing" path only.
 # - Row 11: FR-5 requires the merge preview as a **bottom sheet** (spec.md
 #   screen 11 "Form: bottom sheet"), not spec-002's provisional
-#   route/pane guess. New surface `MergePreviewSurface` (sheet/pane, like
-#   `SyncConflictSurface`); title/action restyled to the mock's literal
-#   "What the merge does" / "Merge and move duplicate".
+#   route/pane guess. New surface `MergePreviewSurface`; title/action
+#   restyled to the mock's literal "What the merge does" / "Merge and move
+#   duplicate". Amended 2026-08-31 (user-directed): rows 10, 11 and 15 are
+#   full-screen pushed routes at every width — the dialog-plus-sheet stack
+#   on wide layouts was hard to read.
 # - Row 09: title restyled to the mock's literal "Both versions changed"
 #   (07-09 mock, screen 8); presentation/surface/action unchanged.
 #
@@ -37,12 +39,12 @@
 07|_showAttachmentsDialog|Attachments|-|Close|VaultDone?|route|pane
 08|_pickExistingDriveFile|Link to a Drive file|-|Link|DriveLinkResult?|route|pane
 09|_showSyncConflictDialog|Both versions changed|This device and "{driveFileName}" on Drive were both edited since the last sync.|Use remote|SyncConflictRouteResult?|sheet|pane
-10|_showDuplicatesDialog|Manage duplicates|-|Close|VaultDone?|route|dialog
-11|_showMergePreviewSheet|What the merge does|-|Merge and move duplicate|ConfirmDecision?|sheet|pane
+10|_showDuplicatesDialog|Manage duplicates|-|Close|VaultDone?|route|route
+11|_showMergePreviewSheet|What the merge does|-|Merge and move duplicate|ConfirmDecision?|route|route
 12|_showRecordMetadataDialog|Record info|-|Close|VaultDone?|route|pane
 13|_showDatabaseSettings|Database settings|-|Save changes|DatabaseSettingsResult?|route|pane
 14|_showDatabaseSettings.securityConfirm|Confirm security changes|You are about to update: {securityChanges}. Use the new credentials to unlock this vault after saving.|Confirm and apply|ConfirmDecision?|sheet|sheet
-15|_showRecycleBinDialog|Recycle bin|-|-|VaultDone?|route|dialog
+15|_showRecycleBinDialog|Recycle bin|-|-|VaultDone?|route|route
 16|_startCsvImportFlow|Import CSV|-|Import|CsvImportResult?|route|pane
 17|_handleOtpAuthEvent|Add OTP account?|An OTP account for {otpAuth.title} was received. Review it before saving to this vault.|Review|ConfirmDecision?|sheet|sheet
 18|_closeCurrentDatabaseAndSelectAnother|Close database|Close this database and return to file selection? Saved credentials for the current database will be removed.|Close database|ConfirmDecision?|sheet|sheet

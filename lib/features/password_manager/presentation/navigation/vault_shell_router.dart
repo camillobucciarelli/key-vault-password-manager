@@ -295,8 +295,9 @@ final class SyncConflictSurface<R extends VaultRouteResult>
   const SyncConflictSurface({required super.builder});
 }
 
-/// spec-005 T11/FR-5: the "What the merge does" bottom sheet — sheet on
-/// mobile like `SyncConflictSurface`/`GroupEditSurface`, pane on wide
+/// spec-005 T11/FR-5: the "What the merge does" review — amended
+/// 2026-08-31 (user-directed): a full-screen pushed route at every width,
+/// like the Duplicates destination it opens from
 /// screens (same rule as every other surface).
 final class MergePreviewSurface<R extends VaultRouteResult>
     extends VaultSurface<R> {
@@ -373,12 +374,14 @@ VaultSurfacePresentation presentationFor<R extends VaultRouteResult>(
     SyncLinkSurface() ||
     DatabaseSettingsSurface() =>
       mobile ? const VaultRoutePresentation() : const VaultPanePresentation(),
-    // 2026-08-30: the two hygiene destinations are modal dialogs on wide
-    // layouts — they are visits, not columns of the working layout, so they
-    // must not displace the record detail the way a pane does.
+    // Amended 2026-08-31 (user-directed): the hygiene destinations and the
+    // merge preview are full-screen pushed routes at every width — the
+    // 2026-08-30 dialog experiment stacked a dialog plus a sheet on wide
+    // layouts and the flow got hard to read. One navigation model, as on
+    // the phone.
     RecycleBinSurface() ||
-    DuplicatesSurface() =>
-      mobile ? const VaultRoutePresentation() : const VaultDialogPresentation(),
+    DuplicatesSurface() ||
+    MergePreviewSurface() => const VaultRoutePresentation(),
     // spec-018 FR-002e: the generator is the one surface whose presentation
     // needs a width beyond the layout class. It becomes a 290 px column only
     // where that column fits; below 995 the sheet is a declared fallback.
@@ -397,8 +400,7 @@ VaultSurfacePresentation presentationFor<R extends VaultRouteResult>(
       mobile
           ? const VaultSheetPresentation()
           : const VaultDialogPresentation(bare: true),
-    SyncConflictSurface() ||
-    MergePreviewSurface() =>
+    SyncConflictSurface() =>
       mobile ? const VaultSheetPresentation() : const VaultPanePresentation(),
     KeyFileManagerSurface() ||
     ConfirmationSurface() => const VaultSheetPresentation(),

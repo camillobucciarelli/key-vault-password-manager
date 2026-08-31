@@ -9,6 +9,7 @@ class MergePreview extends Equatable {
     required this.willCopyNotes,
     required this.willCopyOtp,
     required this.customFieldKeysToCopy,
+    this.urlsToCopy = const [],
     required this.willCopyAttachments,
   });
 
@@ -27,6 +28,10 @@ class MergePreview extends Equatable {
   /// Non-OTP custom field keys present in secondary but absent in primary.
   final List<String> customFieldKeysToCopy;
 
+  /// URLs the secondary carries (primary URL + URL custom fields) that the
+  /// primary does not; copied as extra-URL custom fields on merge.
+  final List<String> urlsToCopy;
+
   /// True if secondary has at least one attachment whose name is absent in primary.
   final bool willCopyAttachments;
 
@@ -34,6 +39,7 @@ class MergePreview extends Equatable {
       willCopyNotes ||
       willCopyOtp ||
       customFieldKeysToCopy.isNotEmpty ||
+      urlsToCopy.isNotEmpty ||
       willCopyAttachments;
 
   @override
@@ -43,6 +49,7 @@ class MergePreview extends Equatable {
     willCopyNotes,
     willCopyOtp,
     customFieldKeysToCopy,
+    urlsToCopy,
     willCopyAttachments,
   ];
 }

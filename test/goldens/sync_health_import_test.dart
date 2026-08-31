@@ -584,7 +584,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Duplicates'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Merge and move duplicate'));
+    // Two duplicate groups since credentials grouping landed (reused-1/2
+    // share username+password) — tap the first group's merge button.
+    await tester.tap(find.text('Merge and move duplicate').first);
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);

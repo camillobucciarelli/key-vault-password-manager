@@ -34,16 +34,6 @@ void main() {
       expect(presentationFor(surface, railWidth), isA<VaultPanePresentation>());
     }
 
-    void expectRouteThenDialog(VaultSurface<VaultDone> surface) {
-      expect(
-        presentationFor(surface, mobileWidth),
-        isA<VaultRoutePresentation>(),
-      );
-      final wide = presentationFor(surface, railWidth);
-      expect(wide, isA<VaultDialogPresentation>());
-      expect((wide as VaultDialogPresentation).bare, isFalse);
-    }
-
     void expectSheetThenBareDialog(VaultSurface<VaultDone> surface) {
       expect(
         presentationFor(surface, mobileWidth),
@@ -52,6 +42,17 @@ void main() {
       final wide = presentationFor(surface, railWidth);
       expect(wide, isA<VaultDialogPresentation>());
       expect((wide as VaultDialogPresentation).bare, isTrue);
+    }
+
+    void expectAlwaysRoute(VaultSurface<VaultDone> surface) {
+      expect(
+        presentationFor(surface, mobileWidth),
+        isA<VaultRoutePresentation>(),
+      );
+      expect(
+        presentationFor(surface, railWidth),
+        isA<VaultRoutePresentation>(),
+      );
     }
 
     void expectAlwaysSheet(VaultSurface<VaultDone> surface) {
@@ -74,13 +75,16 @@ void main() {
     test('Attachments: route / pane', () {
       expectRouteThenPane(AttachmentsSurface<VaultDone>(builder: _noop));
     });
-    // 2026-08-30: hygiene destinations are wide-layout dialogs — visits,
-    // not columns of the working layout.
-    test('Recycle bin: route / dialog', () {
-      expectRouteThenDialog(RecycleBinSurface<VaultDone>(builder: _noop));
+    // 2026-08-31 (user-directed): hygiene destinations and the merge
+    // preview are full-screen pushed routes at every width.
+    test('Recycle bin: route / route', () {
+      expectAlwaysRoute(RecycleBinSurface<VaultDone>(builder: _noop));
     });
-    test('Duplicates/merge preview: route / dialog', () {
-      expectRouteThenDialog(DuplicatesSurface<VaultDone>(builder: _noop));
+    test('Duplicates: route / route', () {
+      expectAlwaysRoute(DuplicatesSurface<VaultDone>(builder: _noop));
+    });
+    test('Merge preview: route / route', () {
+      expectAlwaysRoute(MergePreviewSurface<VaultDone>(builder: _noop));
     });
     test('Sync link/remote picker: route / pane', () {
       expectRouteThenPane(SyncLinkSurface<VaultDone>(builder: _noop));

@@ -76,7 +76,11 @@ void main() {
     'Lock vault',
     'Lowercase letters (a-z)',
     'Manage duplicates',
-    'Merge and move duplicate',
+    // 2026-08-31 (user-directed group-merge UX): 'Merge and move duplicate'
+    // became count-aware — one button per group, labelled 'Merge and move
+    // duplicate' or 'Merge and move N duplicates'. The literal now sits in
+    // a ternary this scan's `label: '…'` adjacency pattern cannot see, so
+    // the pin moves to the dedicated assertion below the main test.
     'Move',
     'Move this record to recycle bin?',
     'Notes',
@@ -110,6 +114,14 @@ void main() {
     'Username',
     'Website',
   ];
+
+  test('the group-merge action survives, count-aware (2026-08-31)', () {
+    final source = File(
+      'lib/features/password_manager/presentation/screens/vault/vault_duplicates.part.dart',
+    ).readAsStringSync();
+    expect(source, contains("'Merge and move duplicate'"));
+    expect(source, contains('duplicates'));
+  });
 
   test('every vault action present at spec 019 HEAD survives', () {
     final dir = Directory(

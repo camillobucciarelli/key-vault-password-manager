@@ -66,24 +66,19 @@ class _RecycleBinScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              // 2026-08-30: dialog UX on wide layouts (dismiss X on the
-              // right), pushed-screen UX with a back button on the phone —
-              // same rule as `Manage duplicates`.
+              // 2026-08-31 (user-directed): a pushed screen at every width —
+              // back button on the left, same rule as `Manage duplicates`.
               padding: const EdgeInsets.fromLTRB(18, 12, 14, 0),
               child: Row(
                 children: [
-                  if (!VaultLayoutClass.fromWidth(
-                    MediaQuery.sizeOf(context).width,
-                  ).hasDetailPane) ...[
-                    KvCircleIconButton(
-                      glyph: AppGlyph.back,
-                      tooltip: 'Back',
-                      onPressed: () => VaultOperationScope.of(
-                        context,
-                      ).complete(const VaultDone()),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
+                  KvCircleIconButton(
+                    glyph: AppGlyph.back,
+                    tooltip: 'Back',
+                    onPressed: () => VaultOperationScope.of(
+                      context,
+                    ).complete(const VaultDone()),
+                  ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: BlocBuilder<VaultBloc, VaultState>(
                       buildWhen: (p, n) =>
@@ -120,18 +115,7 @@ class _RecycleBinScreen extends StatelessWidget {
                       const LoadRecycleBinEntries(),
                     ),
                   ),
-                  if (VaultLayoutClass.fromWidth(
-                    MediaQuery.sizeOf(context).width,
-                  ).hasDetailPane) ...[
-                    const SizedBox(width: 8),
-                    KvCircleIconButton(
-                      glyph: AppGlyph.close,
-                      tooltip: 'Close',
-                      onPressed: () => VaultOperationScope.of(
-                        context,
-                      ).complete(const VaultDone()),
-                    ),
-                  ],
+
                 ],
               ),
             ),

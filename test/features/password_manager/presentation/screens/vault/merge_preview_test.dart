@@ -1,4 +1,4 @@
-// spec-005 T20/AC5: merge preview sheet shows exactly the four
+// spec-005 T20/AC5: merge preview sheet shows exactly the five
 // `MergePreview` flags — no more, no fewer.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -80,7 +80,7 @@ void main() {
 
   tearDown(resetVaultShellTestDi);
 
-  testWidgets('merge preview sheet renders exactly 4 MergePreview flag rows', (
+  testWidgets('merge preview sheet renders exactly 5 MergePreview flag rows', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -109,11 +109,12 @@ void main() {
     });
     expect(
       flagRowKeys,
-      findsNWidgets(4),
-      reason: 'exactly the four MergePreview flags — no more, no fewer',
+      findsNWidgets(5),
+      reason: 'exactly the five MergePreview flags — no more, no fewer',
     );
 
-    // Sanity: the four concepts are exactly notes/attachments/customFields/otp.
+    // Sanity: the five concepts are exactly
+    // notes/attachments/customFields/urls/otp.
     expect(find.byKey(const ValueKey('merge-flag-row-notes')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('merge-flag-row-attachments')),
@@ -123,6 +124,7 @@ void main() {
       find.byKey(const ValueKey('merge-flag-row-customFields')),
       findsOneWidget,
     );
+    expect(find.byKey(const ValueKey('merge-flag-row-urls')), findsOneWidget);
     expect(find.byKey(const ValueKey('merge-flag-row-otp')), findsOneWidget);
   });
 }

@@ -828,7 +828,7 @@ void main() {
           databasePath: databasePath,
           password: password,
           primaryId: primaryId,
-          secondaryId: secondaryId,
+          secondaryIds: [secondaryId],
         );
 
         final all = await service.loadAllEntries(
@@ -867,7 +867,7 @@ void main() {
         databasePath: databasePath,
         password: password,
         primaryId: primaryId,
-        secondaryId: secondaryId,
+        secondaryIds: [secondaryId],
       );
 
       final all = await service.loadAllEntries(
@@ -909,7 +909,7 @@ void main() {
         databasePath: databasePath,
         password: password,
         primaryId: primaryId,
-        secondaryId: secondaryId,
+        secondaryIds: [secondaryId],
       );
 
       final all = await service.loadAllEntries(
@@ -919,6 +919,60 @@ void main() {
       final primary = all.firstWhere((e) => e.id == primaryId);
       final fieldKeys = primary.customFields.map((f) => f.key).toList();
       expect(fieldKeys, containsAll(['PIN', 'Recovery']));
+    });
+
+    test('copies missing URLs from secondary as KP2A_URL_n fields', () async {
+      final rootGroupId = await _rootGroupId(service, databasePath, password);
+      final primaryId = await service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: rootGroupId,
+        title: 'Primary',
+        username: 'alice',
+        entryPassword: 'pw',
+        url: 'https://github.com',
+        notes: '',
+        customFields: [
+          const VaultCustomField(key: 'KP2A_URL_1', value: 'https://a.com'),
+        ],
+      );
+      final secondaryId = await service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: rootGroupId,
+        title: 'Secondary',
+        username: 'alice',
+        entryPassword: 'pw',
+        url: 'https://gitlab.com',
+        notes: '',
+        customFields: [
+          // Same as primary's URL after normalization — must not duplicate.
+          const VaultCustomField(key: 'KP2A_URL_1', value: 'http://github.com/'),
+          const VaultCustomField(key: 'KP2A_URL_2', value: 'https://b.com'),
+        ],
+      );
+
+      await service.mergeEntries(
+        databasePath: databasePath,
+        password: password,
+        primaryId: primaryId,
+        secondaryIds: [secondaryId],
+      );
+
+      final all = await service.loadAllEntries(
+        databasePath: databasePath,
+        password: password,
+      );
+      final primary = all.firstWhere((e) => e.id == primaryId);
+      expect(primary.url, 'https://github.com');
+      final urlValues = primary.customFields
+          .where((f) => f.key.startsWith('KP2A_URL_'))
+          .map((f) => f.value)
+          .toList();
+      expect(
+        urlValues,
+        unorderedEquals(['https://a.com', 'https://gitlab.com', 'https://b.com']),
+      );
     });
 
     test('moves secondary to recycle bin after merge', () async {
@@ -948,7 +1002,7 @@ void main() {
         databasePath: databasePath,
         password: password,
         primaryId: primaryId,
-        secondaryId: secondaryId,
+        secondaryIds: [secondaryId],
       );
 
       final recycleBinEntries = await service.loadRecycleBinEntries(
@@ -993,7 +1047,7 @@ void main() {
         databasePath: databasePath,
         password: password,
         primaryId: primaryId,
-        secondaryId: secondaryId,
+        secondaryIds: [secondaryId],
       );
 
       final snapshot = await service.loadVault(

@@ -30,3 +30,20 @@ bool isUrlFieldKey(String key) {
       _kphUrlPattern.hasMatch(normalized) ||
       _kp2aUrlPattern.hasMatch(normalized);
 }
+
+final RegExp _urlScheme = RegExp(r'^(https?|ftp)://');
+
+/// Normalizes a URL for equality checks: lowercases, strips scheme, `www.`,
+/// trailing slash, query and fragment. `https://www.GitHub.com/login?x#y`,
+/// `github.com/login` and `http://github.com/login/` all compare equal.
+String normalizeUrlForCompare(String url) {
+  var result = url.trim().toLowerCase();
+  result = result.replaceFirst(_urlScheme, '');
+  result = result.replaceFirst(RegExp(r'^www\.'), '');
+  final queryIdx = result.indexOf('?');
+  if (queryIdx >= 0) result = result.substring(0, queryIdx);
+  final fragmentIdx = result.indexOf('#');
+  if (fragmentIdx >= 0) result = result.substring(0, fragmentIdx);
+  if (result.endsWith('/')) result = result.substring(0, result.length - 1);
+  return result;
+}

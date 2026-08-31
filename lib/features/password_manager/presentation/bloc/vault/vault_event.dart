@@ -479,14 +479,16 @@ class DeleteDuplicateEntry extends VaultEvent {
 class MergeDuplicateEntries extends VaultEvent {
   const MergeDuplicateEntries({
     required this.primaryId,
-    required this.secondaryId,
+    required this.secondaryIds,
   });
 
   final String primaryId;
-  final String secondaryId;
+
+  /// Every duplicate to fold into the kept entry, merged in order.
+  final List<String> secondaryIds;
 
   @override
-  List<Object?> get props => [primaryId, secondaryId];
+  List<Object?> get props => [primaryId, secondaryIds];
 }
 
 class RefreshAppleAutofillPendingAssociations extends VaultEvent {

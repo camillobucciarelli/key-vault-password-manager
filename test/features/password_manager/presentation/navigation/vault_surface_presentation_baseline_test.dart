@@ -69,13 +69,14 @@ void main() {
     'GroupEditSurface': (narrow: 'sheet', wide: 'dialog'),
     'MoveTargetSurface': (narrow: 'sheet', wide: 'dialog'),
     'AttachmentsSurface': (narrow: 'route', wide: 'pane'),
-    // 2026-08-30: hygiene destinations became wide-layout dialogs.
-    'RecycleBinSurface': (narrow: 'route', wide: 'dialog'),
-    'DuplicatesSurface': (narrow: 'route', wide: 'dialog'),
+    // 2026-08-31 (user-directed): hygiene destinations and the merge
+    // preview are full-screen pushed routes at every width.
+    'RecycleBinSurface': (narrow: 'route', wide: 'route'),
+    'DuplicatesSurface': (narrow: 'route', wide: 'route'),
     'HealthCategorySurface': (narrow: 'route', wide: 'pane'),
     'SyncLinkSurface': (narrow: 'route', wide: 'pane'),
     'SyncConflictSurface': (narrow: 'sheet', wide: 'pane'),
-    'MergePreviewSurface': (narrow: 'sheet', wide: 'pane'),
+    'MergePreviewSurface': (narrow: 'route', wide: 'route'),
     'DatabaseSettingsSurface': (narrow: 'route', wide: 'pane'),
     'KeyFileManagerSurface': (narrow: 'sheet', wide: 'sheet'),
     'ConfirmationSurface': (narrow: 'sheet', wide: 'sheet'),
@@ -172,13 +173,15 @@ void main() {
         'GroupEditSurface': 'sheet sheet sheet dialog dialog dialog dialog dialog',
         'MoveTargetSurface': 'sheet sheet sheet dialog dialog dialog dialog dialog',
         'AttachmentsSurface': 'route route route pane pane pane pane pane',
-        // 2026-08-30: hygiene destinations became wide-layout dialogs.
-        'RecycleBinSurface': 'route route route dialog dialog dialog dialog dialog',
-        'DuplicatesSurface': 'route route route dialog dialog dialog dialog dialog',
+        // 2026-08-31 (user-directed): full-screen routes at every width.
+        'RecycleBinSurface': 'route route route route route route route route',
+        'DuplicatesSurface': 'route route route route route route route route',
         'HealthCategorySurface': 'route route route pane pane pane pane pane',
         'SyncLinkSurface': 'route route route pane pane pane pane pane',
         'SyncConflictSurface': 'sheet sheet sheet pane pane pane pane pane',
-        'MergePreviewSurface': 'sheet sheet sheet pane pane pane pane pane',
+        // 2026-08-31 (user-directed): full-screen route at every width.
+        'MergePreviewSurface':
+            'route route route route route route route route',
         'DatabaseSettingsSurface':
             'route route route pane pane pane pane pane',
         'KeyFileManagerSurface':
