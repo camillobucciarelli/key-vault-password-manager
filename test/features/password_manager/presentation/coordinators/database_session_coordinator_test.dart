@@ -1440,7 +1440,7 @@ DatabaseRecord _record({
   return DatabaseRecord(
     databaseId: id,
     canonicalPath: path,
-    displayName: path.split('/').last,
+    displayName: p.basename(path),
     sourceType: sourceType,
     fileHash: fileHash,
     createdAt: DateTime(2026),
