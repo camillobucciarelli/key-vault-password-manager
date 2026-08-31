@@ -85,14 +85,21 @@ class VaultSessionCoordinator {
   final SessionSecretHolder sessionSecretHolder;
   final AppleAutofillV2CoordinatorContract appleAutofillV2Coordinator;
 
-  Future<String?> getSelectedKeyFilePath() {
-    return localDataSource.getCachedKeyFilePath();
+  /// spec 014 FR-8: the per-database security profile is the only source of
+  /// a key-file path. The selected key file is the active database's.
+  Future<String?> getSelectedKeyFilePath() async {
+    final activeId = await databaseRegistryRepository.getActive();
+    if (activeId == null) {
+      return null;
+    }
+    final profile = await databaseSecurityRepository.getProfile(activeId);
+    return profile?.keyFilePath;
   }
 
   Future<String?> getPersistedKeyFilePath(String databasePath) async {
     final record = await _findRecordByPath(databasePath);
     if (record == null) {
-      return localDataSource.getCachedKeyFilePath();
+      return null;
     }
     final profile = await databaseSecurityRepository.getProfile(
       record.databaseId,
@@ -120,7 +127,6 @@ class VaultSessionCoordinator {
   Future<void> changeDatabase({required String currentDatabasePath}) async {
     sessionSecretHolder.clear();
     await appleAutofillV2Coordinator.clearCredentials();
-    await localDataSource.cacheKeyFilePath(null);
     await databaseRegistryRepository.setActive(null);
   }
 
@@ -205,8 +211,7 @@ class VaultSessionCoordinator {
       record.databaseId,
     );
     final currentKeyFilePath = _normalizeKeyFilePath(
-      existingProfile?.keyFilePath ??
-          await localDataSource.getCachedKeyFilePath(),
+      existingProfile?.keyFilePath,
     );
     final keyFileChanged = !_samePath(currentKeyFilePath, persistedKeyFilePath);
 
@@ -315,7 +320,6 @@ class VaultSessionCoordinator {
         ),
       );
       await databaseSecurityRepository.saveProfile(profile);
-      await localDataSource.cacheKeyFilePath(persistedKeyFilePath);
 
       if (credentialChange != null) {
         try {
@@ -378,9 +382,6 @@ class VaultSessionCoordinator {
       } else {
         await databaseSecurityRepository.saveProfile(profile);
       }
-    } catch (_) {}
-    try {
-      await localDataSource.cacheKeyFilePath(keyFilePath);
     } catch (_) {}
     try {
       if (password == null) {

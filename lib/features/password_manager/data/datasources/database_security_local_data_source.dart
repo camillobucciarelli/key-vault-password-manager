@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
+import '../../../../core/utils/managed_storage_root.dart';
+import 'metadata_cipher.dart';
+import 'secure_data_source.dart';
 
 abstract class DatabaseSecurityLocalDataSource {
   Future<Map<String, dynamic>?> getProfile(String databaseId);
@@ -12,7 +14,11 @@ abstract class DatabaseSecurityLocalDataSource {
 
 class DatabaseSecurityLocalDataSourceImpl
     implements DatabaseSecurityLocalDataSource {
-  DatabaseSecurityLocalDataSourceImpl();
+  DatabaseSecurityLocalDataSourceImpl({
+    required SecureDataSource secureDataSource,
+  }) : _store = EncryptedMetadataStore(secureDataSource: secureDataSource);
+
+  final EncryptedMetadataStore _store;
 
   static const _securitySubdirectory = 'metadata';
   static const _profilesFileName = 'database_security_profiles.json';
@@ -46,12 +52,8 @@ class DatabaseSecurityLocalDataSourceImpl
 
   Future<Map<String, Map<String, dynamic>>> _loadProfiles() async {
     final file = await _profilesFile();
-    if (!await file.exists()) {
-      return <String, Map<String, dynamic>>{};
-    }
-
-    final raw = await file.readAsString();
-    if (raw.trim().isEmpty) {
+    final raw = await _store.readString(file);
+    if (raw == null || raw.trim().isEmpty) {
       return <String, Map<String, dynamic>>{};
     }
 
@@ -75,11 +77,11 @@ class DatabaseSecurityLocalDataSourceImpl
     Map<String, Map<String, dynamic>> profiles,
   ) async {
     final file = await _profilesFile();
-    await file.writeAsString(jsonEncode(profiles), flush: true);
+    await _store.writeString(file, jsonEncode(profiles));
   }
 
   Future<File> _profilesFile() async {
-    final root = await getApplicationDocumentsDirectory();
+    final root = await ManagedStorageRoot.resolveDirectory();
     final directory = Directory(p.join(root.path, _securitySubdirectory));
     if (!await directory.exists()) {
       await directory.create(recursive: true);

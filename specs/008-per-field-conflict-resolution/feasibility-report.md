@@ -1473,3 +1473,15 @@ closing them is Gate 1 work, outside the Phase 0 scope.
 | Gate 3 Phase 3 (round 3) | `failed` | independent tester | 2026-08-22 | **Not validated.** HIGH-6 `_unionTombstones` was add-if-missing, so two devices deleting the same record never converged; HIGH-5 `applyMerge` never merged `KdbxMeta`. Both merged rather than refused, on the KDBX per-field change clocks, which entered the canonical manifest. MEDIUM-4, LOW-2, LOW-3 closed. Frozen-contract insufficiency raised and NOT resolved: automatic metadata adoption is invisible in `MergeReviewSummary`. |
 | Gate 3 Phase 3 (final) | `passed` | independent tester | 2026-08-22 | **VALIDATED.** 1293 tests green, `flutter analyze` clean, commutativity 30/30 on `main`, zero undeclared dimensions in the full-manifest diff at 0/10/25 s of skew on a metadata-divergent fixture, 15/15 regression mutants killed including `_newer` inverted and the D16 codes. HIGH-5 and HIGH-6 re-verified closed with the original probes. Four residual findings (MEDIUM-5, MEDIUM-6, LOW-4, LOW-5) — coverage gaps on verified-correct code, no data loss, handed to T401. |
 | Gate 3 close | `passed` | PM | 2026-08-22 | **T301–T310 all passed; Gate 3 CLOSED.** PRs #91, #93, #96. Phase 4 is unblocked. The four residual findings plus the four previously open T401/T401a items are indexed as one list under T401 in `tasks.md`. |
+
+## Addendum — spec 014 metadata encryption (writer inventory reconciliation)
+
+Spec 014 FR-4 moved the metadata-file writes of the four non-database data
+sources (`database_registry_local_data_source.dart`,
+`database_security_local_data_source.dart`, `local_data_source.dart`,
+`sync_metadata_data_source.dart`) behind `EncryptedMetadataStore` in
+`lib/features/password_manager/data/datasources/metadata_cipher.dart`, which
+seals AES-256-GCM bytes with `writeAsBytes`. These remain non-database local
+state and must not take the database mutex; no FR-8 database writer changed.
+The inventory baseline in `database_writer_inventory_test.dart` was updated
+accordingly.

@@ -115,7 +115,6 @@ class _RecycleBinScreen extends StatelessWidget {
                       const LoadRecycleBinEntries(),
                     ),
                   ),
-
                 ],
               ),
             ),

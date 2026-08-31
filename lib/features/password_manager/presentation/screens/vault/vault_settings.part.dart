@@ -54,7 +54,8 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
     String? label;
     try {
       if (defaultTargetPlatform == TargetPlatform.iOS) {
-        final enabled = await di.sl<AppleAutofillV2Client>()
+        final enabled = await di
+            .sl<AppleAutofillV2Client>()
             .getExtensionEnabled();
         label = switch (enabled) {
           true => 'Autofill enabled',
@@ -580,7 +581,8 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
                 glyph: AppGlyph.desktop,
                 title: 'Autofill & browsers',
                 subtitle:
-                    _autofillStatusSubtitle ?? 'Face ID keyboard, desktop helper',
+                    _autofillStatusSubtitle ??
+                    'Face ID keyboard, desktop helper',
                 onTap: () => _openAutofillSettings(context),
               ),
               const SizedBox(height: 8),
@@ -1029,7 +1031,6 @@ class _AppearanceCard extends StatelessWidget {
     );
   }
 }
-
 
 String _normalizeDatabaseFileName(String value) {
   final trimmed = value.trim();

@@ -122,4 +122,7 @@ class _FixedPathProvider extends PathProviderPlatform
 
   @override
   Future<String?> getApplicationDocumentsPath() async => basePath;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => basePath;
 }

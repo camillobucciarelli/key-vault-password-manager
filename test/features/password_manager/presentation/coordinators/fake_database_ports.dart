@@ -192,14 +192,6 @@ class FakeDatabaseSessionRepository implements DatabaseSessionRepository {
   final Map<String, String> masterPasswords = {};
 
   @override
-  Future<String?> getCachedKeyFilePath() async => keyFilePath;
-
-  @override
-  Future<void> cacheKeyFilePath(String? path) async {
-    keyFilePath = path;
-  }
-
-  @override
   Future<void> saveMasterPassword(String databaseId, String password) async {
     masterPasswords[databaseId] = password;
   }

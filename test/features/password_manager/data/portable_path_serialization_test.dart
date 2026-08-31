@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'datasources/in_memory_secure_data_source.dart';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:password_manager/features/password_manager/data/datasources/metadata_cipher.dart';
 import 'package:password_manager/features/password_manager/data/datasources/database_registry_local_data_source.dart';
 import 'package:password_manager/features/password_manager/data/datasources/database_security_local_data_source.dart';
 import 'package:password_manager/features/password_manager/data/datasources/sync_metadata_data_source.dart';
@@ -26,6 +28,9 @@ class _MutablePathProvider extends PathProviderPlatform
 
   @override
   Future<String?> getApplicationDocumentsPath() async => basePath;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => basePath;
 }
 
 void main() {
@@ -35,8 +40,12 @@ void main() {
   late Directory oldDocs;
   late Directory newDocs;
   late _MutablePathProvider pathProvider;
+  // One secure store across relocations: the metadata key lives in the
+  // platform keystore, which survives a container-UUID rotation.
+  late InMemorySecureDataSource secure;
 
   setUp(() async {
+    secure = InMemorySecureDataSource();
     containerRoot = await Directory.systemTemp.createTemp('portable_path_');
     // Stand-ins for /var/mobile/Containers/Data/Application/<UUID>/Documents.
     oldDocs = await Directory(
@@ -72,10 +81,18 @@ void main() {
     pathProvider.basePath = newDocs.path;
   }
 
+  Future<String> readSealed(String path) async {
+    final key = base64Decode(secure.entries['METADATA_ENCRYPTION_KEY']!);
+    return utf8.decode(
+      MetadataCipher.open(key, await File(path).readAsBytes()),
+    );
+  }
+
   Future<DatabaseRegistryRepositoryImpl> buildRegistry() async {
     return DatabaseRegistryRepositoryImpl(
       localDataSource: DatabaseRegistryLocalDataSourceImpl(
         sharedPreferences: await SharedPreferences.getInstance(),
+        secureDataSource: secure,
       ),
     );
   }
@@ -116,9 +133,9 @@ void main() {
         buildRecord(p.join(oldDocs.path, 'databases', 'vault.kdbx')),
       );
 
-      final raw = await File(
+      final raw = await readSealed(
         p.join(oldDocs.path, 'metadata', 'database_registry_records.json'),
-      ).readAsString();
+      );
       final decoded = (jsonDecode(raw) as List).single as Map;
       expect(decoded['canonicalPath'], 'appdocs:databases/vault.kdbx');
     });
@@ -127,9 +144,9 @@ void main() {
       final externalPath = p.join(containerRoot.path, 'external', 'vault.kdbx');
       await (await buildRegistry()).upsert(buildRecord(externalPath));
 
-      final raw = await File(
+      final raw = await readSealed(
         p.join(oldDocs.path, 'metadata', 'database_registry_records.json'),
-      ).readAsString();
+      );
       final decoded = (jsonDecode(raw) as List).single as Map;
       expect(decoded['canonicalPath'], externalPath);
     });
@@ -144,20 +161,16 @@ void main() {
       expect(records.single.canonicalPath, externalPath);
     });
 
-    test('legacy absolute record loads unchanged, without migration', () async {
-      // Written the way the pre-fix build persisted it: a frozen absolute path
-      // under the *old* container UUID.
+    test('legacy PLAINTEXT registry file is no longer readable (spec 014 '
+        'FR-9: no plaintext fallback, no migration)', () async {
+      // Written the way the pre-spec-014 build persisted it: plaintext JSON.
+      // Since FR-4 the registry is encrypted at rest and FR-9 forbids any
+      // migration or plaintext fallback, so this file must read as empty
+      // rather than be parsed.
       final legacyPath = p.join(oldDocs.path, 'databases', 'legacy.kdbx');
       final metadata = await Directory(
         p.join(oldDocs.path, 'metadata'),
       ).create(recursive: true);
-      // Built with `jsonEncode` rather than as a hand-written literal. The
-      // literal interpolated the path straight into JSON source, which is only
-      // valid while the path contains no backslash: on Windows `legacyPath` is
-      // `C:\Users\...`, and `\U` is not a legal JSON string escape, so the
-      // fixture failed to parse before the code under test was ever reached.
-      // Production writes this file with `jsonEncode` too, so this is also the
-      // more faithful reproduction of a pre-fix record.
       await File(
         p.join(metadata.path, 'database_registry_records.json'),
       ).writeAsString(
@@ -167,27 +180,24 @@ void main() {
             'canonicalPath': legacyPath,
             'displayName': 'Legacy',
             'sourceType': 'local',
-            'sourceRef': null,
-            'fileHash': null,
             'createdAt': '2024-01-01T00:00:00.000Z',
             'updatedAt': '2024-01-01T00:00:00.000Z',
-            'lastOpenedAt': null,
-            'isFavorite': false,
           },
         ]),
       );
 
       await relocateContainer();
 
-      final records = await (await buildRegistry()).list();
-      expect(records.single.canonicalPath, legacyPath);
+      expect(await (await buildRegistry()).list(), isEmpty);
     });
   });
 
   group('DatabaseSecurityRepositoryImpl keyFilePath portability', () {
     Future<DatabaseSecurityRepositoryImpl> buildSecurity() async =>
         DatabaseSecurityRepositoryImpl(
-          localDataSource: DatabaseSecurityLocalDataSourceImpl(),
+          localDataSource: DatabaseSecurityLocalDataSourceImpl(
+            secureDataSource: secure,
+          ),
         );
 
     test('key file inside app documents follows the new root', () async {
@@ -210,9 +220,9 @@ void main() {
         ),
       );
 
-      final raw = await File(
+      final raw = await readSealed(
         p.join(oldDocs.path, 'metadata', 'database_security_profiles.json'),
-      ).readAsString();
+      );
       final decoded = (jsonDecode(raw) as Map)['db-1'] as Map;
       expect(decoded['keyFilePath'], 'appdocs:keys/vault.keyx');
     });
@@ -223,9 +233,9 @@ void main() {
         DatabaseSecurityProfile(databaseId: 'db-1', keyFilePath: externalKey),
       );
 
-      final raw = await File(
+      final raw = await readSealed(
         p.join(oldDocs.path, 'metadata', 'database_security_profiles.json'),
-      ).readAsString();
+      );
       final decoded = (jsonDecode(raw) as Map)['db-1'] as Map;
       expect(decoded['keyFilePath'], externalKey);
     });
@@ -251,7 +261,8 @@ void main() {
   group('SyncMetadataDataSource databasePath portability', () {
     test('mapping key follows the new documents root', () async {
       final oldPath = p.join(oldDocs.path, 'databases', 'vault.kdbx');
-      await SyncMetadataDataSourceImpl().upsertMapping(
+      await SyncMetadataDataSourceImpl(secureDataSource: secure).upsertMapping(
+        'db-1',
         DatabaseSyncMapping(
           databasePath: oldPath,
           driveFileId: 'drive-id',
@@ -262,7 +273,9 @@ void main() {
       await relocateContainer();
 
       final newPath = p.join(newDocs.path, 'databases', 'vault.kdbx');
-      final mapping = await SyncMetadataDataSourceImpl().getMapping(newPath);
+      final mapping = await SyncMetadataDataSourceImpl(
+        secureDataSource: secure,
+      ).getMapping('db-1');
       expect(mapping, isNotNull);
       expect(mapping!.driveFileId, 'drive-id');
       expect(mapping.databasePath, newPath);
@@ -270,7 +283,8 @@ void main() {
 
     test('external mapping key round-trips unchanged', () async {
       final externalPath = p.join(containerRoot.path, 'external', 'vault.kdbx');
-      await SyncMetadataDataSourceImpl().upsertMapping(
+      await SyncMetadataDataSourceImpl(secureDataSource: secure).upsertMapping(
+        'db-1',
         DatabaseSyncMapping(
           databasePath: externalPath,
           driveFileId: 'drive-id',
@@ -280,9 +294,9 @@ void main() {
 
       await relocateContainer();
 
-      final mapping = await SyncMetadataDataSourceImpl().getMapping(
-        externalPath,
-      );
+      final mapping = await SyncMetadataDataSourceImpl(
+        secureDataSource: secure,
+      ).getMapping('db-1');
       expect(mapping, isNotNull);
       expect(mapping!.databasePath, externalPath);
     });

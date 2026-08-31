@@ -154,7 +154,11 @@ class DatabaseImportService implements DatabaseFileRepository {
     final fileHash = md5.convert(bytes).toString();
     return DatabaseImportResult(
       path: resolvedPath,
-      fileName: p.basename(resolvedPath),
+      // spec 014 FR-3: under managed storage `resolvedPath` carries an
+      // opaque name; the human-readable name is the caller's [fileName].
+      fileName: _usesManagedStorage
+          ? p.basename(fileName)
+          : p.basename(resolvedPath),
       fileHash: fileHash,
       sourceType: DatabaseSourceType.local,
     );

@@ -671,8 +671,7 @@ final class VaultShellRouter {
     _VaultOperationSession session,
   ) async {
     final presentation = session.presentation;
-    final bare =
-        presentation is VaultDialogPresentation && presentation.bare;
+    final bare = presentation is VaultDialogPresentation && presentation.bare;
     try {
       await (_dialogHost ?? _defaultDialogHost)(
         context,

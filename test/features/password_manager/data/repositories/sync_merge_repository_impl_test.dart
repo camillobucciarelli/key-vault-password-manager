@@ -36,7 +36,6 @@ import 'package:kdbx/kdbx.dart';
 // Fixtures only: `forceSetUuid` is how two replicas are given a shared lineage.
 // ignore: implementation_imports
 import 'package:kdbx/src/kdbx_object.dart' show KdbxObjectInternal;
-import 'package:password_manager/features/password_manager/data/datasources/local_data_source.dart';
 import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
 import 'package:password_manager/features/password_manager/data/datasources/sync_metadata_data_source.dart';
 import 'package:password_manager/features/password_manager/data/repositories/sync_merge_repository_impl.dart';
@@ -2480,7 +2479,6 @@ class _Harness {
         ),
         syncRepository: sync,
         secureDataSource: secure,
-        localDataSource: _FakeLocalDataSource(),
         mutex: DatabasePathMutex(),
         driveApiService: drive,
         syncMetadataDataSource: syncMetadata,
@@ -2759,8 +2757,11 @@ class _FakeSyncMetadataDataSource implements SyncMetadataDataSource {
   final Map<String, PendingMergeUpload> _pendingUploads = {};
 
   @override
-  Future<void> upsertMapping(DatabaseSyncMapping mapping) async {
-    upsertCalls.add(mapping);
+  Future<void> upsertMapping(
+    String databaseId,
+    DatabaseSyncMapping mapping,
+  ) async {
+    upsertCalls.add(mapping.copyWith(databaseId: databaseId));
   }
 
   @override
@@ -2791,15 +2792,6 @@ class _FakeSecureDataSource implements SecureDataSource {
 
   @override
   Future<String?> getMasterPassword(String databaseId) async => password;
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError('${invocation.memberName} is not part of T302');
-}
-
-class _FakeLocalDataSource implements LocalDataSource {
-  @override
-  Future<String?> getCachedKeyFilePath() async => null;
 
   @override
   dynamic noSuchMethod(Invocation invocation) =>

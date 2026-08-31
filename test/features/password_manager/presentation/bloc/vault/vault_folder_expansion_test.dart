@@ -36,23 +36,24 @@ void main() {
     await Future<void>.delayed(Duration.zero);
   }
 
-  test('an expanded folder is still expanded after a lock and unlock', () async {
-    final first = await unlock();
-    await expand(first, 'work');
-    await first.close();
+  test(
+    'an expanded folder is still expanded after a lock and unlock',
+    () async {
+      final first = await unlock();
+      await expand(first, 'work');
+      await first.close();
 
-    final second = await unlock();
-    expect(second.state.expandedGroupIds, contains('work'));
-    await second.close();
-  });
+      final second = await unlock();
+      expect(second.state.expandedGroupIds, contains('work'));
+      await second.close();
+    },
+  );
 
   test('collapsing is remembered too, not just expanding', () async {
     final first = await unlock();
     await expand(first, 'work');
     first.add(const SetVaultFolderExpanded('work', expanded: false));
-    await first.stream.firstWhere(
-      (s) => !s.expandedGroupIds.contains('work'),
-    );
+    await first.stream.firstWhere((s) => !s.expandedGroupIds.contains('work'));
     await Future<void>.delayed(Duration.zero);
     await first.close();
 
@@ -71,13 +72,16 @@ void main() {
     await other.close();
   });
 
-  test('expanding a folder changes nothing about which records are visible', () async {
-    final bloc = await unlock();
-    final before = bloc.state.visibleEntries.map((e) => e.id).toList();
-    await expand(bloc, 'work');
-    expect(bloc.state.visibleEntries.map((e) => e.id).toList(), before);
-    await bloc.close();
-  });
+  test(
+    'expanding a folder changes nothing about which records are visible',
+    () async {
+      final bloc = await unlock();
+      final before = bloc.state.visibleEntries.map((e) => e.id).toList();
+      await expand(bloc, 'work');
+      expect(bloc.state.visibleEntries.map((e) => e.id).toList(), before);
+      await bloc.close();
+    },
+  );
 
   test('an unknown folder id is not written to disk', () async {
     final bloc = await unlock();

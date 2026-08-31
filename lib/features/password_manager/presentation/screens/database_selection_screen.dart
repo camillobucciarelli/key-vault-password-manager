@@ -157,7 +157,14 @@ class DatabaseSelectionScreen extends StatelessWidget {
       return;
     }
 
-    final defaultName = p.basename(path);
+    // spec 014 FR-3: the on-disk name is opaque; export suggests the
+    // human-readable registry name, normalised to a .kdbx suffix.
+    final displayName = item.displayName.trim();
+    final defaultName = displayName.isEmpty
+        ? 'database.kdbx'
+        : (displayName.toLowerCase().endsWith('.kdbx')
+              ? displayName
+              : '$displayName.kdbx');
     final savePath = await FilePicker.saveFile(
       dialogTitle: 'Export database backup',
       fileName: defaultName,

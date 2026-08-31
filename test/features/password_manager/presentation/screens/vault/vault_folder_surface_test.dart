@@ -23,7 +23,9 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final service = NavigationFixtureVaultKdbxService();
-    await tester.pumpWidget(await pumpableVaultShell(vaultKdbxService: service));
+    await tester.pumpWidget(
+      await pumpableVaultShell(vaultKdbxService: service),
+    );
     await tester.pumpAndSettle();
     return service;
   }

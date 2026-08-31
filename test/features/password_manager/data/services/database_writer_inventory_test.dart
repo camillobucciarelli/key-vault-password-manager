@@ -762,21 +762,22 @@ const _baseline = <String, List<String>>{
   'lib/features/password_manager/data/datasources/'
       'database_registry_local_data_source.dart': [
     'create',
-    'writeAsString',
   ],
   'lib/features/password_manager/data/datasources/'
       'database_security_local_data_source.dart': [
     'create',
-    'writeAsString',
   ],
   'lib/features/password_manager/data/datasources/local_data_source.dart': [
     'create',
-    'writeAsString',
+  ],
+  // spec 014 FR-4: the sealed metadata writer — the four metadata data
+  // sources delegate their file writes to EncryptedMetadataStore here.
+  'lib/features/password_manager/data/datasources/metadata_cipher.dart': [
+    'writeAsBytes',
   ],
   'lib/features/password_manager/data/datasources/'
       'sync_metadata_data_source.dart': [
     'create',
-    'writeAsString',
   ],
   // --- FR-8 database writers ----------------------------------------------
   'lib/features/password_manager/data/services/database_import_service.dart': [

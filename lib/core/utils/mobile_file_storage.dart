@@ -1,8 +1,9 @@
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
+import 'managed_storage_root.dart';
 
 import 'portable_path.dart';
 
@@ -55,7 +56,15 @@ class MobileFileStorage {
     bool overwriteIfExists = false,
   }) async {
     final directory = await _ensureSubdirectory(subdirectory);
-    final normalized = _normalizeFileName(fileName);
+    // spec 014 FR-3: databases and key files rest under an opaque random
+    // identifier with no extension. The caller's [fileName] is ignored for
+    // those subdirectories — the human-readable name lives only in the
+    // encrypted registry. The database name and its key file's name are
+    // independent draws, so the association between them is not
+    // reconstructable from a directory listing.
+    final normalized = _opaqueSubdirectories.contains(subdirectory)
+        ? allocateOpaqueFileName()
+        : _normalizeFileName(fileName);
     final filePath = overwriteIfExists
         ? p.join(directory.path, normalized)
         : await _buildUniquePath(directory.path, normalized);
@@ -102,6 +111,7 @@ class MobileFileStorage {
         );
       }
       await tempFile.rename(filePath);
+      await _enforceOwnerOnly(filePath, subdirectory);
     } catch (_) {
       try {
         await tempFile.delete();
@@ -279,8 +289,43 @@ class MobileFileStorage {
     }
   }
 
+  /// Managed subdirectories whose at-rest file names are opaque
+  /// (spec 014 FR-3).
+  static const _opaqueSubdirectories = {'databases', 'keys'};
+
+  /// A fresh 128-bit random identifier, lowercase hex, no extension.
+  ///
+  /// Not derived from the database identifier, the display name, or any
+  /// value stored in the metadata files (spec 014 FR-3 / AC-1).
+  static String allocateOpaqueFileName() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  }
+
+  /// spec 014 FR-7 (T012): databases and key files in managed storage are
+  /// owner-only on desktop POSIX platforms. Windows has no `chmod` in
+  /// `dart:io` (its owner-only outcome is an ACL property of the per-user
+  /// app-data directory); iOS/Android containers are already app-private,
+  /// and the iOS sandbox forbids spawning a process at all.
+  static Future<void> _enforceOwnerOnly(
+    String filePath,
+    String subdirectory,
+  ) async {
+    if (!_opaqueSubdirectories.contains(subdirectory)) {
+      return;
+    }
+    if (!Platform.isMacOS && !Platform.isLinux) {
+      return;
+    }
+    final result = await Process.run('chmod', ['600', filePath]);
+    if (result.exitCode != 0) {
+      throw FileSystemException('chmod 600 failed: ${result.stderr}', filePath);
+    }
+  }
+
   static Future<Directory> _ensureSubdirectory(String subdirectory) async {
-    final root = await getApplicationDocumentsDirectory();
+    final root = await ManagedStorageRoot.resolveDirectory();
     final dir = Directory(p.join(root.path, subdirectory));
     if (!await dir.exists()) {
       await dir.create(recursive: true);

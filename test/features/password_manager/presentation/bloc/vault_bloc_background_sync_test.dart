@@ -806,34 +806,37 @@ void _autoSyncAfterMutationTests() {
 
     tearDown(() async => bloc.close());
 
-    test('an entry update triggers a debounced sync that actually runs', () async {
-      bloc.add(const InitializeVault());
-      await _waitUntil(() => bloc.state.currentGroupId == 'root');
-      bloc.add(const BackgroundDriveSync());
-      await _waitUntil(
-        () => bloc.state.isDriveConnected && bloc.state.isDriveLinked,
-      );
-      final syncsBefore = repo.syncNowCallCount;
+    test(
+      'an entry update triggers a debounced sync that actually runs',
+      () async {
+        bloc.add(const InitializeVault());
+        await _waitUntil(() => bloc.state.currentGroupId == 'root');
+        bloc.add(const BackgroundDriveSync());
+        await _waitUntil(
+          () => bloc.state.isDriveConnected && bloc.state.isDriveLinked,
+        );
+        final syncsBefore = repo.syncNowCallCount;
 
-      bloc.add(
-        const UpdateVaultEntry(
-          entryId: 'entry-1',
-          title: 'Renamed',
-          username: 'user',
-          password: 'pw',
-          url: '',
-          notes: '',
-        ),
-      );
+        bloc.add(
+          const UpdateVaultEntry(
+            entryId: 'entry-1',
+            title: 'Renamed',
+            username: 'user',
+            password: 'pw',
+            url: '',
+            notes: '',
+          ),
+        );
 
-      await _waitUntil(
-        () => repo.syncNowCallCount > syncsBefore,
-        timeout: const Duration(seconds: 10),
-      );
-      await _waitUntil(
-        () => bloc.state.syncStatus == DatabaseSyncStatus.success,
-      );
-    });
+        await _waitUntil(
+          () => repo.syncNowCallCount > syncsBefore,
+          timeout: const Duration(seconds: 10),
+        );
+        await _waitUntil(
+          () => bloc.state.syncStatus == DatabaseSyncStatus.success,
+        );
+      },
+    );
 
     test('no auto-sync when autoSyncEnabled is false', () async {
       repo.mapping = _testMapping.copyWith(autoSyncEnabled: false);

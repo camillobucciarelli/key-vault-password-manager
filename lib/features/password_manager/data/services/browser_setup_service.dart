@@ -314,11 +314,7 @@ class BrowserSetupService {
             system: '/Library/Google/Chrome/NativeMessagingHosts',
           ),
           (
-            user: p.join(
-              appSupport,
-              'Microsoft Edge',
-              'NativeMessagingHosts',
-            ),
+            user: p.join(appSupport, 'Microsoft Edge', 'NativeMessagingHosts'),
             system: '/Library/Microsoft/Edge/NativeMessagingHosts',
           ),
           (
@@ -333,8 +329,7 @@ class BrowserSetupService {
           ),
           (
             user: p.join(appSupport, 'Vivaldi', 'NativeMessagingHosts'),
-            system:
-                '/Library/Application Support/Vivaldi/NativeMessagingHosts',
+            system: '/Library/Application Support/Vivaldi/NativeMessagingHosts',
           ),
           (
             user: p.join(appSupport, 'Chromium', 'NativeMessagingHosts'),

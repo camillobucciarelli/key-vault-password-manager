@@ -943,7 +943,6 @@ void main() {
           ),
         ];
         secureDataSource.passwords['db-other'] = 'secret';
-        localDataSource.selectedKeyFilePath = '/tmp/key.key';
 
         final result = await coordinator.openRecentDatabase(currentPath);
 
@@ -951,7 +950,6 @@ void main() {
         expect(result.path, currentPath);
         expect(result.duplicatePrompt, isNull);
         expect(registryRepository.activeId, 'db-current');
-        expect(localDataSource.selectedKeyFilePath, isNull);
         // spec-011 Slice 2: switching database never erases another
         // database's persistent biometric credential (FR-4/FR-5).
         expect(secureDataSource.passwords['db-other'], 'secret');
@@ -976,7 +974,6 @@ void main() {
         databaseId: 'db-current',
         keyFilePath: '/tmp/key.key',
       );
-      localDataSource.selectedKeyFilePath = '/tmp/key.key';
       secureDataSource.passwords['db-current'] = 'secret';
 
       final result = await coordinator.removeRecentDatabase(
@@ -987,75 +984,58 @@ void main() {
       expect(result.status, DatabaseSessionStatus.info);
       expect(registryRepository.records, isEmpty);
       expect(securityRepository.profiles, isEmpty);
-      expect(localDataSource.selectedKeyFilePath, isNull);
       // spec-011 FR-5: unregistering deletes the database's stored
       // credential.
       expect(secureDataSource.passwords, isEmpty);
       expect(appleAutofillV2Coordinator.clearCallCount, 1);
     });
 
-    test(
-      'initializeUnlock clears stale cached key file for registered database without profile key',
-      () async {
-        final databasePath = await _writeManagedDatabase(tempDir, 'plain.kdbx');
-        final staleKeyPath = '${tempDir.path}/keys/other.key';
-        await File(staleKeyPath).create(recursive: true);
-        registryRepository.records = [
-          _record(id: 'db-plain', path: databasePath),
-        ];
-        localDataSource.selectedKeyFilePath = staleKeyPath;
+    test('initializeUnlock resolves no key for a registered database without a '
+        'profile key (spec 014 FR-8)', () async {
+      final databasePath = await _writeManagedDatabase(tempDir, 'plain.kdbx');
+      registryRepository.records = [
+        _record(id: 'db-plain', path: databasePath),
+      ];
 
-        final result = await coordinator.initializeUnlock(
-          databasePath: databasePath,
-          biometricAvailable: false,
-        );
+      final result = await coordinator.initializeUnlock(
+        databasePath: databasePath,
+        biometricAvailable: false,
+      );
 
-        expect(result.keyFilePath, isNull);
-        expect(localDataSource.selectedKeyFilePath, isNull);
-      },
-    );
+      expect(result.keyFilePath, isNull);
+    });
 
-    test(
-      'initializeUnlock syncs profile key file into selected key cache',
-      () async {
-        final databasePath = await _writeManagedDatabase(tempDir, 'keyed.kdbx');
-        final keyPath = '${tempDir.path}/keys/database.key';
-        await File(keyPath).create(recursive: true);
-        registryRepository.records = [
-          _record(id: 'db-keyed', path: databasePath),
-        ];
-        securityRepository.profiles['db-keyed'] = DatabaseSecurityProfile(
-          databaseId: 'db-keyed',
-          keyFilePath: keyPath,
-          biometricProtectionEnabled: false,
-        );
+    test('initializeUnlock resolves the profile key file (the only source, '
+        'spec 014 FR-8)', () async {
+      final databasePath = await _writeManagedDatabase(tempDir, 'keyed.kdbx');
+      final keyPath = '${tempDir.path}/keys/database.key';
+      await File(keyPath).create(recursive: true);
+      registryRepository.records = [
+        _record(id: 'db-keyed', path: databasePath),
+      ];
+      securityRepository.profiles['db-keyed'] = DatabaseSecurityProfile(
+        databaseId: 'db-keyed',
+        keyFilePath: keyPath,
+        biometricProtectionEnabled: false,
+      );
 
-        final result = await coordinator.initializeUnlock(
-          databasePath: databasePath,
-          biometricAvailable: false,
-        );
+      final result = await coordinator.initializeUnlock(
+        databasePath: databasePath,
+        biometricAvailable: false,
+      );
 
-        expect(result.keyFilePath, keyPath);
-        expect(localDataSource.selectedKeyFilePath, keyPath);
-      },
-    );
+      expect(result.keyFilePath, keyPath);
+    });
 
-    test(
-      'initializeUnlock keeps cached key fallback for unregistered database',
-      () async {
-        final keyPath = '${tempDir.path}/keys/legacy.key';
-        await File(keyPath).create(recursive: true);
-        localDataSource.selectedKeyFilePath = keyPath;
+    test('initializeUnlock resolves no key for an unregistered database — the '
+        'global cached fallback is gone (spec 014 FR-8)', () async {
+      final result = await coordinator.initializeUnlock(
+        databasePath: '${tempDir.path}/legacy.kdbx',
+        biometricAvailable: false,
+      );
 
-        final result = await coordinator.initializeUnlock(
-          databasePath: '${tempDir.path}/legacy.kdbx',
-          biometricAvailable: false,
-        );
-
-        expect(result.keyFilePath, keyPath);
-        expect(localDataSource.selectedKeyFilePath, keyPath);
-      },
-    );
+      expect(result.keyFilePath, isNull);
+    });
 
     // spec-003 AC-7 / plan.md risk "Locate points metadata at another
     // vault" — mitigation "Require stored hash match when available;
@@ -1503,19 +1483,14 @@ class _FakePathProvider extends PathProviderPlatform
 
   @override
   Future<String?> getApplicationDocumentsPath() async => basePath;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => basePath;
 }
 
 class _FakeLocalDataSource implements LocalDataSource {
   String? selectedKeyFilePath;
   bool autofillPromptSeen = false;
-
-  @override
-  Future<String?> getCachedKeyFilePath() async => selectedKeyFilePath;
-
-  @override
-  Future<void> cacheKeyFilePath(String? path) async {
-    selectedKeyFilePath = path;
-  }
 
   @override
   Future<bool> getAutofillPromptSeen() async => autofillPromptSeen;
@@ -1621,6 +1596,19 @@ class _FakeSecurityRepository implements DatabaseSecurityRepository {
 }
 
 class _FakeSecureDataSource implements SecureDataSource {
+  final Map<String, String> metadataEntries = {};
+
+  @override
+  Future<String?> readMetadataKey() async =>
+      metadataEntries['METADATA_ENCRYPTION_KEY'];
+
+  @override
+  Future<String> createMetadataKey() async {
+    const key = 'dGVzdC1tZXRhZGF0YS1rZXktMzItYnl0ZXMtLS0tLS0=';
+    metadataEntries['METADATA_ENCRYPTION_KEY'] = key;
+    return key;
+  }
+
   @override
   Future<void> deleteLegacyMasterPassword() async {}
 

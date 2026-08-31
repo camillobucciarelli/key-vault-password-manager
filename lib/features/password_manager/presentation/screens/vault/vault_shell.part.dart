@@ -1618,7 +1618,6 @@ class _VaultNameHeader extends StatelessWidget {
   }
 }
 
-
 /// spec-019 T051 / FR-016 — the KeyVault mark, as artwork.
 ///
 /// The rail used to show `AppGlyph.key`, a Lucide glyph standing in for the

@@ -113,8 +113,7 @@ class _VaultFolderTreeSection extends StatelessWidget {
       // FR-002a: never null. An unknown or deleted folder falls back to the
       // root, which is `All items`.
       selectedId: state.currentGroupId ?? rootGroupId,
-      onSelect: (id) =>
-          context.read<VaultBloc>().add(SelectVaultFolder(id)),
+      onSelect: (id) => context.read<VaultBloc>().add(SelectVaultFolder(id)),
       onToggleExpanded: (id, expanded) => context.read<VaultBloc>().add(
         SetVaultFolderExpanded(id, expanded: expanded),
       ),
@@ -225,8 +224,6 @@ bool _folderSurfaceBuildWhen(VaultState previous, VaultState current) {
       previous.recycleBinEntries != current.recycleBinEntries ||
       previous.duplicateGroups != current.duplicateGroups;
 }
-
-
 
 /// Flattens the group tree into the rows [KvFolderTree] renders.
 ///

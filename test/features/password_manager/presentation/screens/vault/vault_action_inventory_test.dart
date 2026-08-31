@@ -144,10 +144,9 @@ void main() {
       ...dir.listSync().whereType<File>().where(
         (f) => f.path.endsWith('.dart'),
       ),
-      ...Directory('lib/core/widgets')
-          .listSync()
-          .whereType<File>()
-          .where((f) => f.path.endsWith('.dart')),
+      ...Directory(
+        'lib/core/widgets',
+      ).listSync().whereType<File>().where((f) => f.path.endsWith('.dart')),
       File(
         'lib/features/password_manager/presentation/screens/vault_screen.dart',
       ),

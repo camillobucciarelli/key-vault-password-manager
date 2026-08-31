@@ -348,9 +348,8 @@ class _EntriesCardState extends State<_EntriesCard> {
             return _FolderListItem(
               folder: folder,
               count: widget.folderCounts[folder.id] ?? 0,
-              onOpen: () => context.read<VaultBloc>().add(
-                SelectVaultFolder(folder.id),
-              ),
+              onOpen: () =>
+                  context.read<VaultBloc>().add(SelectVaultFolder(folder.id)),
               onAction: (action) => unawaited(
                 _handleFolderAction(
                   context,
@@ -521,10 +520,6 @@ class _EntriesCardState extends State<_EntriesCard> {
 // normative overflow inventory for the detail is `Move / Delete / Duplicate`;
 // the list row offers the same set it always did, plus this.
 enum _EntryAction { edit, move, attachments, duplicate, delete, info }
-
-
-
-
 
 OverlayEntry? _activeCopyToastEntry;
 Timer? _activeCopyToastTimer;
@@ -742,7 +737,6 @@ Future<void> _createRecordInCurrentFolder(BuildContext context) async {
   );
 }
 
-
 /// 2026-08-31 — a folder as a row of the 1/2-column list: same surface,
 /// radius and hover recipe as [_RecordListItem], a folder-glyph avatar, the
 /// inclusive count, and the same `•••` action menu the folder tree carries.
@@ -889,9 +883,7 @@ class _BrowserFolderTitle extends StatelessWidget {
             name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: AppTextStyles.panelTitle.copyWith(
-              color: colors.textPrimary,
-            ),
+            style: AppTextStyles.panelTitle.copyWith(color: colors.textPrimary),
           ),
         ),
         const SizedBox(width: 8),

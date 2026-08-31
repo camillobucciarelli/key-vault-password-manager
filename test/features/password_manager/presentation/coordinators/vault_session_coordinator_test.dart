@@ -282,7 +282,6 @@ void main() {
         expect(oldFile.existsSync(), isFalse);
         expect(syncRepository.movedFrom, oldFile.path);
         expect(syncRepository.movedTo, result.databasePath);
-        expect(localDataSource.selectedKeyFilePath, isNotNull);
 
         final profile = securityRepository.profiles['db-1'];
         expect(profile, isNotNull);
@@ -351,7 +350,6 @@ void main() {
           (oldFile.path, renamedPath),
           (renamedPath, oldFile.path),
         ]);
-        expect(localDataSource.selectedKeyFilePath, isNull);
         expect(securityRepository.profiles['db-1'], isNull);
         expect(secureDataSource.passwords, isEmpty);
       },
@@ -400,7 +398,12 @@ void main() {
           updatedAt: DateTime(2026),
         ),
       ];
-      localDataSource.selectedKeyFilePath = '/tmp/current.key';
+      // spec 014 FR-8: the security profile is the only key-file source.
+      securityRepository.profiles['db-key-only'] =
+          const DatabaseSecurityProfile(
+            databaseId: 'db-key-only',
+            keyFilePath: '/tmp/current.key',
+          );
       sessionSecretHolder.set('');
 
       await expectLater(
@@ -418,7 +421,10 @@ void main() {
       );
 
       expect(vaultKdbxService.currentPassword, isNull);
-      expect(localDataSource.selectedKeyFilePath, '/tmp/current.key');
+      expect(
+        securityRepository.profiles['db-key-only']!.keyFilePath,
+        '/tmp/current.key',
+      );
     });
 
     test(
@@ -442,7 +448,6 @@ void main() {
           // because this profile had biometric protection enabled.
           biometricProtectionEnabled: true,
         );
-        localDataSource.selectedKeyFilePath = currentKey;
         sessionSecretHolder.set('old-secret');
         secureDataSource.passwords['db-1'] = 'old-secret';
         securityRepository.failNextSave = true;
@@ -466,7 +471,6 @@ void main() {
         expect(vaultKdbxService.rollbackCount, 1);
         expect(secureDataSource.passwords, {'db-1': 'old-secret'});
         expect(sessionSecretHolder.read(), 'old-secret');
-        expect(localDataSource.selectedKeyFilePath, currentKey);
         expect(securityRepository.profiles['db-1']!.keyFilePath, currentKey);
         expect(await File(pendingKey).exists(), isTrue);
       },
@@ -703,14 +707,12 @@ void main() {
 
     test('changeDatabase clears the selected key file and active database '
         'but keeps the stored biometric credential (spec-011)', () async {
-      localDataSource.selectedKeyFilePath = '/tmp/a.key';
       secureDataSource.passwords['db-1'] = 'secret';
       sessionSecretHolder.set('secret');
       registryRepository.activeId = 'db-1';
 
       await coordinator.changeDatabase(currentDatabasePath: '/tmp/a.kdbx');
 
-      expect(localDataSource.selectedKeyFilePath, isNull);
       expect(secureDataSource.passwords['db-1'], 'secret');
       expect(sessionSecretHolder.hasSecret, isFalse);
       expect(registryRepository.activeId, isNull);
@@ -803,14 +805,6 @@ class _FakeLocalDataSource implements LocalDataSource {
   String? selectedKeyFilePath;
 
   @override
-  Future<String?> getCachedKeyFilePath() async => selectedKeyFilePath;
-
-  @override
-  Future<void> cacheKeyFilePath(String? path) async {
-    selectedKeyFilePath = path;
-  }
-
-  @override
   Future<bool> getAutofillPromptSeen() async => false;
 
   @override
@@ -889,6 +883,19 @@ class _FakeSecurityRepository implements DatabaseSecurityRepository {
 }
 
 class _FakeSecureDataSource implements SecureDataSource {
+  final Map<String, String> metadataEntries = {};
+
+  @override
+  Future<String?> readMetadataKey() async =>
+      metadataEntries['METADATA_ENCRYPTION_KEY'];
+
+  @override
+  Future<String> createMetadataKey() async {
+    const key = 'dGVzdC1tZXRhZGF0YS1rZXktMzItYnl0ZXMtLS0tLS0=';
+    metadataEntries['METADATA_ENCRYPTION_KEY'] = key;
+    return key;
+  }
+
   @override
   Future<void> deleteLegacyMasterPassword() async {}
 

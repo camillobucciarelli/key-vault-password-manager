@@ -5,6 +5,7 @@
 // `ubuntu-latest`, and macOS is unaffected.
 
 import 'dart:io';
+import 'datasources/in_memory_secure_data_source.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/core/utils/portable_path.dart';
@@ -30,6 +31,9 @@ class _MutablePathProvider extends PathProviderPlatform
 
   @override
   Future<String?> getApplicationDocumentsPath() async => basePath;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => basePath;
 }
 
 void main() {
@@ -126,10 +130,14 @@ void main() {
       'vault.kdbx',
     );
 
+    // One secure store across the relocation: the metadata key survives a
+    // container-UUID rotation in the platform keystore.
+    final secure = InMemorySecureDataSource();
     Future<DatabaseRegistryRepositoryImpl> registry() async =>
         DatabaseRegistryRepositoryImpl(
           localDataSource: DatabaseRegistryLocalDataSourceImpl(
             sharedPreferences: await SharedPreferences.getInstance(),
+            secureDataSource: secure,
           ),
         );
 

@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
+import 'managed_storage_root.dart';
 
 /// Serialization boundary helper that keeps persisted file paths portable
 /// across app container relocations.
@@ -80,7 +80,7 @@ class PortablePath {
   /// the containment check in [encode] instead, which is the only place that
   /// actually compares two spellings of the same location.
   static Future<String> documentsRoot() async {
-    final directory = await getApplicationDocumentsDirectory();
+    final directory = await ManagedStorageRoot.resolveDirectory();
     return directory.path;
   }
 

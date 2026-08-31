@@ -380,8 +380,9 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
                         selected: _selectedId == file.id,
                         isLinkedElsewhere: _isLinkedElsewhere(file.id),
                         onTap: () => setState(
-                          () => _selectedId =
-                              _selectedId == file.id ? null : file.id,
+                          () => _selectedId = _selectedId == file.id
+                              ? null
+                              : file.id,
                         ),
                         onLink: _completeSelectedLink,
                       );
@@ -467,9 +468,7 @@ class _SyncConflictSheet extends StatelessWidget {
         color: colors.ground,
         borderRadius: isPane
             ? null
-            : const BorderRadius.vertical(
-                top: Radius.circular(AppRadii.sheet),
-              ),
+            : const BorderRadius.vertical(top: Radius.circular(AppRadii.sheet)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,

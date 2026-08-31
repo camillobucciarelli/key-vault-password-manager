@@ -55,7 +55,6 @@ class SelectVaultFolder extends VaultEvent {
 // state are two ways to do one thing, and the three hosts of the folder tree
 // are exactly the situation where they drift apart (`data-model.md`).
 
-
 /// spec-019 T012 / FR-006g — fold or unfold one folder, explicitly.
 ///
 /// The explicit form exists because model 1a has three hosts for the same tree

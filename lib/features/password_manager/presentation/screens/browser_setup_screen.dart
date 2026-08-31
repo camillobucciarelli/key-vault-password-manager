@@ -570,9 +570,9 @@ class _StaleManifestCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   'Vecchia registrazione di sviluppo trovata',
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
             ],

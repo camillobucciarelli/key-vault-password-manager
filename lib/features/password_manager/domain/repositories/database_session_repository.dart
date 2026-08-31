@@ -7,8 +7,6 @@
 /// the stored value is the persistent biometric credential of exactly one
 /// database.
 abstract class DatabaseSessionRepository {
-  Future<String?> getCachedKeyFilePath();
-  Future<void> cacheKeyFilePath(String? path);
   Future<void> saveMasterPassword(String databaseId, String password);
   Future<String?> getMasterPassword(String databaseId);
   Future<void> clearMasterPassword(String databaseId);

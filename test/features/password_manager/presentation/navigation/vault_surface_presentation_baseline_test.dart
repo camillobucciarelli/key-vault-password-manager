@@ -170,8 +170,10 @@ void main() {
         'OtpScannerSurface': 'route route route pane pane pane pane pane',
         'PasswordGeneratorSurface':
             'sheet sheet sheet sheet sheet sheet sheet pane',
-        'GroupEditSurface': 'sheet sheet sheet dialog dialog dialog dialog dialog',
-        'MoveTargetSurface': 'sheet sheet sheet dialog dialog dialog dialog dialog',
+        'GroupEditSurface':
+            'sheet sheet sheet dialog dialog dialog dialog dialog',
+        'MoveTargetSurface':
+            'sheet sheet sheet dialog dialog dialog dialog dialog',
         'AttachmentsSurface': 'route route route pane pane pane pane pane',
         // 2026-08-31 (user-directed): full-screen routes at every width.
         'RecycleBinSurface': 'route route route route route route route route',
@@ -182,8 +184,7 @@ void main() {
         // 2026-08-31 (user-directed): full-screen route at every width.
         'MergePreviewSurface':
             'route route route route route route route route',
-        'DatabaseSettingsSurface':
-            'route route route pane pane pane pane pane',
+        'DatabaseSettingsSurface': 'route route route pane pane pane pane pane',
         'KeyFileManagerSurface':
             'sheet sheet sheet sheet sheet sheet sheet sheet',
         'ConfirmationSurface':
@@ -210,6 +211,5 @@ void main() {
         });
       }
     });
-
   });
 }

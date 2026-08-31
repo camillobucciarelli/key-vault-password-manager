@@ -18,14 +18,6 @@ void main() {
       );
     });
 
-    test('composes local data source for key-file caching', () async {
-      await repository.cacheKeyFilePath('/tmp/key.key');
-      expect(await repository.getCachedKeyFilePath(), '/tmp/key.key');
-
-      await repository.cacheKeyFilePath(null);
-      expect(await repository.getCachedKeyFilePath(), isNull);
-    });
-
     test('composes secure data source for the per-database master password '
         '(spec-011 FR-4)', () async {
       expect(await repository.getMasterPassword('db-a'), isNull);
@@ -52,14 +44,6 @@ class _FakeLocalDataSource implements LocalDataSource {
   bool autofillPromptSeen = false;
 
   @override
-  Future<String?> getCachedKeyFilePath() async => keyFilePath;
-
-  @override
-  Future<void> cacheKeyFilePath(String? path) async {
-    keyFilePath = path;
-  }
-
-  @override
   Future<bool> getAutofillPromptSeen() async => autofillPromptSeen;
 
   @override
@@ -69,6 +53,19 @@ class _FakeLocalDataSource implements LocalDataSource {
 }
 
 class _FakeSecureDataSource implements SecureDataSource {
+  final Map<String, String> metadataEntries = {};
+
+  @override
+  Future<String?> readMetadataKey() async =>
+      metadataEntries['METADATA_ENCRYPTION_KEY'];
+
+  @override
+  Future<String> createMetadataKey() async {
+    const key = 'dGVzdC1tZXRhZGF0YS1rZXktMzItYnl0ZXMtLS0tLS0=';
+    metadataEntries['METADATA_ENCRYPTION_KEY'] = key;
+    return key;
+  }
+
   @override
   Future<void> deleteLegacyMasterPassword() async {}
 

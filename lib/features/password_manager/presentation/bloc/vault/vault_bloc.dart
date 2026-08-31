@@ -367,10 +367,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           entries: state.allEntries,
           searchQuery: state.searchQuery,
           sortBy: state.sortBy,
-          folderIds: _folderFilterIds(
-            event.groupId,
-            state.folderDescendantIds,
-          ),
+          folderIds: _folderFilterIds(event.groupId, state.folderDescendantIds),
         ),
         clearError: true,
       ),
@@ -431,10 +428,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           entries: state.allEntries,
           searchQuery: state.searchQuery,
           sortBy: state.sortBy,
-          folderIds: _folderFilterIds(
-            event.groupId,
-            state.folderDescendantIds,
-          ),
+          folderIds: _folderFilterIds(event.groupId, state.folderDescendantIds),
         ),
         clearError: true,
       ),
@@ -502,8 +496,6 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     }
     _safeEmit(emit, state.copyWith(expandedGroupIds: List<String>.of(stored)));
   }
-
-
 
   Future<void> _onCreateVaultEntry(
     CreateVaultEntry event,

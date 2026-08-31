@@ -58,6 +58,7 @@ final class OtpAuthDeepLinkForwarder {
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     wipeLegacyAutofillPlaintextArtifacts(reason: "app launch")
+    excludeManagedStorageFromBackup()
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
@@ -75,6 +76,26 @@ final class OtpAuthDeepLinkForwarder {
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+  }
+
+
+  /// spec 014 FR-7 (T013): the managed vault directories never enter the
+  /// iCloud/iTunes backup. Databases and key files are recoverable only
+  /// through their own credentials and explicit export, never via a backup
+  /// that outlives the device passcode.
+  private func excludeManagedStorageFromBackup() {
+    guard let documents = FileManager.default.urls(
+      for: .documentDirectory, in: .userDomainMask
+    ).first else { return }
+    for name in ["databases", "keys", "metadata", "database_imports"] {
+      var url = documents.appendingPathComponent(name, isDirectory: true)
+      try? FileManager.default.createDirectory(
+        at: url, withIntermediateDirectories: true
+      )
+      var values = URLResourceValues()
+      values.isExcludedFromBackup = true
+      try? url.setResourceValues(values)
+    }
   }
 
   private func wipeLegacyAutofillPlaintextArtifacts(reason: String) {

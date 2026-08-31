@@ -123,8 +123,6 @@ List<Widget> _adaptiveDialogActions(
       .toList(growable: false);
 }
 
-
-
 void _showSyncSnackBar(
   BuildContext context,
   String message, {
