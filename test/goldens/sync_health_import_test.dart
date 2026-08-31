@@ -553,6 +553,28 @@ void main() {
     });
   }
 
+  // Regression: at desktop widths a health category opens as a pane pushed
+  // over the Health destination body — before the fix the pane surface was
+  // created but the non-vault rail body never rendered it, so the tap read
+  // as dead.
+  testWidgets('health category list opens from Health at 1024', (tester) async {
+    await _setSize(tester, const Size(1024, 768));
+    await tester.pumpWidget(
+      await pumpableVaultShell(vaultKdbxService: _PopulatedVaultKdbxService()),
+    );
+    await tester.pumpAndSettle();
+
+    await _tapDestination(tester, 'Health');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Weak passwords'));
+    await tester.pumpAndSettle();
+
+    // The category list screen renders its entries — the health rows never
+    // show entry titles, so this only passes when the pane actually shows.
+    expect(find.text('Old router admin'), findsOneWidget);
+  });
+
   // --- 10/11. Duplicates — groups + merge preview (390×844 L) --------------
   testWidgets('dup_groups_390x844_light.png', (tester) async {
     await _setSize(tester, const Size(390, 844));

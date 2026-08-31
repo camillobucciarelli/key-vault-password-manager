@@ -309,19 +309,17 @@ class _HealthCategoryListScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+              padding: const EdgeInsets.fromLTRB(18, 12, 14, 0),
               child: Row(
                 children: [
-                  IconButton(
+                  KvCircleIconButton(
+                    glyph: AppGlyph.back,
+                    tooltip: 'Back',
                     onPressed: () => VaultOperationScope.of(
                       context,
                     ).complete(const VaultDone()),
-                    icon: KvIcon(
-                      glyph: AppGlyph.back,
-                      size: 19,
-                      color: colors.textPrimary,
-                    ),
                   ),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: BlocBuilder<VaultBloc, VaultState>(
                       buildWhen: (p, n) =>

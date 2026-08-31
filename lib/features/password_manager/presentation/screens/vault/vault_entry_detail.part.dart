@@ -512,7 +512,8 @@ class _DetailHeader extends StatelessWidget {
             tooltip: 'Back',
             onPressed: () => Navigator.maybePop(context),
           )
-        else if (paneBack != null && isSoleColumn)
+        else if (paneBack != null &&
+            (isSoleColumn || _VaultPaneScope.requiresBackOf(context)))
           KvCircleIconButton(
             glyph: AppGlyph.back,
             tooltip: 'Back',

@@ -1091,6 +1091,9 @@ class _VaultNavigationLayout extends StatelessWidget {
     // spec's design-decisions section.
     const railWidth = VaultColumns.rail;
     return Row(
+      // A destination shorter than the window (Health) would otherwise be
+      // vertically centered by the Row's default cross-axis alignment.
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SizedBox(
           key: const ValueKey('vault-rail'),
@@ -1131,9 +1134,19 @@ class _VaultNavigationLayout extends StatelessWidget {
 
   Widget _railBody(BuildContext context, double railWidth) {
     if (selectedDestination != VaultDestination.vault) {
+      // A pane surface opened from a non-vault destination (Health category
+      // list, entry detail from it) pushes over the destination body, as on
+      // mobile — before this the pane opened invisibly and the tap read as
+      // dead.
       return KeyedSubtree(
         key: ValueKey('vault-${selectedDestination.name}-root'),
-        child: _destinationBody(),
+        child: activePane == null
+            ? _destinationBody()
+            : _VaultPaneHost(
+                pane: activePane!,
+                onBack: onBackFromPane,
+                requiresBack: true,
+              ),
       );
     }
     // spec-018 FR-002d: below the derived pane threshold the rail is shown
@@ -1438,9 +1451,18 @@ class _VaultRail extends StatelessWidget {
 /// the surface opens, so a resize made the width answer disagree with the
 /// tree that was actually mounted — and both back buttons appeared at once.
 class _VaultPaneScope extends InheritedWidget {
-  const _VaultPaneScope({required this.onBack, required super.child});
+  const _VaultPaneScope({
+    required this.onBack,
+    this.requiresBack = false,
+    required super.child,
+  });
 
   final Future<bool> Function() onBack;
+
+  /// True when the pane is pushed over a body with no list beside it (a
+  /// non-vault destination) — the pane content must then draw its own back
+  /// even at widths where the vault's detail column would not.
+  final bool requiresBack;
 
   static bool of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<_VaultPaneScope>() != null;
@@ -1448,15 +1470,27 @@ class _VaultPaneScope extends InheritedWidget {
   static Future<bool> Function()? onBackOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<_VaultPaneScope>()?.onBack;
 
+  static bool requiresBackOf(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<_VaultPaneScope>()
+          ?.requiresBack ??
+      false;
+
   @override
-  bool updateShouldNotify(_VaultPaneScope oldWidget) => false;
+  bool updateShouldNotify(_VaultPaneScope oldWidget) =>
+      requiresBack != oldWidget.requiresBack;
 }
 
 class _VaultPaneHost extends StatelessWidget {
-  const _VaultPaneHost({required this.pane, required this.onBack});
+  const _VaultPaneHost({
+    required this.pane,
+    required this.onBack,
+    this.requiresBack = false,
+  });
 
   final Widget pane;
   final Future<bool> Function() onBack;
+  final bool requiresBack;
 
   @override
   Widget build(BuildContext context) {
@@ -1464,7 +1498,11 @@ class _VaultPaneHost extends StatelessWidget {
     // scroll-view pane shrink-wraps — without tight constraints the detail
     // floated vertically centered instead of starting at the top.
     return SizedBox.expand(
-      child: _VaultPaneScope(onBack: onBack, child: pane),
+      child: _VaultPaneScope(
+        onBack: onBack,
+        requiresBack: requiresBack,
+        child: pane,
+      ),
     );
   }
 }
