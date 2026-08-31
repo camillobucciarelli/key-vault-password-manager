@@ -35,19 +35,25 @@ class _DuplicatesScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+              // 2026-08-30: on wide layouts this is a modal dialog, so the
+              // chrome follows dialog UX — title on the left, actions and the
+              // dismiss X on the right. On the phone it is a pushed screen
+              // and keeps its back button.
+              padding: const EdgeInsets.fromLTRB(18, 12, 14, 0),
               child: Row(
                 children: [
-                  IconButton(
-                    onPressed: () => VaultOperationScope.of(
-                      context,
-                    ).complete(const VaultDone()),
-                    icon: KvIcon(
+                  if (!VaultLayoutClass.fromWidth(
+                    MediaQuery.sizeOf(context).width,
+                  ).hasDetailPane) ...[
+                    KvCircleIconButton(
                       glyph: AppGlyph.back,
-                      size: 19,
-                      color: colors.textPrimary,
+                      tooltip: 'Back',
+                      onPressed: () => VaultOperationScope.of(
+                        context,
+                      ).complete(const VaultDone()),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                  ],
                   Expanded(
                     child: BlocBuilder<VaultBloc, VaultState>(
                       buildWhen: (p, n) =>
@@ -79,16 +85,25 @@ class _DuplicatesScreen extends StatelessWidget {
                       },
                     ),
                   ),
-                  IconButton(
+                  KvCircleIconButton(
+                    glyph: AppGlyph.refresh,
                     tooltip: 'Check again',
+                    iconSize: 18,
                     onPressed: () =>
                         context.read<VaultBloc>().add(const LoadDuplicates()),
-                    icon: KvIcon(
-                      glyph: AppGlyph.refresh,
-                      size: 18,
-                      color: colors.textPrimary,
-                    ),
                   ),
+                  if (VaultLayoutClass.fromWidth(
+                    MediaQuery.sizeOf(context).width,
+                  ).hasDetailPane) ...[
+                    const SizedBox(width: 8),
+                    KvCircleIconButton(
+                      glyph: AppGlyph.close,
+                      tooltip: 'Close',
+                      onPressed: () => VaultOperationScope.of(
+                        context,
+                      ).complete(const VaultDone()),
+                    ),
+                  ],
                 ],
               ),
             ),

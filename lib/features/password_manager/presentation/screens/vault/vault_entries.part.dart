@@ -199,6 +199,14 @@ class _EntriesCardState extends State<_EntriesCard> {
           return;
         }
         await _showAttachmentsDialog(surfaceContext, fresh);
+      case _EntryAction.info:
+        // Read-only: a stale copy could show stale timestamps, so re-read.
+        final freshInfo = currentEntry();
+        if (freshInfo == null) {
+          bloc.add(const ReportVaultActionAbandoned());
+          return;
+        }
+        await _showRecordInfoDialog(surfaceContext, freshInfo);
       case _EntryAction.duplicate:
         // No confirmation: duplicating creates, it never destroys, and the
         // result is visible in the list the user is already looking at
@@ -397,7 +405,7 @@ class _EntriesCardState extends State<_EntriesCard> {
 // spec-019 C-04-05: `duplicate` joins the record actions. The design's
 // normative overflow inventory for the detail is `Move / Delete / Duplicate`;
 // the list row offers the same set it always did, plus this.
-enum _EntryAction { edit, move, attachments, duplicate, delete }
+enum _EntryAction { edit, move, attachments, duplicate, delete, info }
 
 
 

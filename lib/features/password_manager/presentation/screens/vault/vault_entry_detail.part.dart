@@ -183,9 +183,6 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
         ? null
         : TotpUtils.fromOtpAuthUri(entry.otpUri!, _nowUtc);
     final strength = evaluatePasswordStrength(entry.password);
-    // C-04-03: the action's label is the HOST, not the whole URL — a record
-    // pointing at a long path would otherwise put it in a button.
-    final entryHost = _entryHost(entry.url);
     final reusedByCount = entry.password.isEmpty
         ? 0
         : context.read<VaultBloc>().state.allEntries.where((other) {
@@ -282,51 +279,46 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    SizedBox(
-                      width: 36,
-                      height: 36,
-                      child: IconButton(
-                        tooltip: 'Show password',
-                        onPressed: _isCheckingBiometrics
-                            ? null
-                            : () => _handleRevealTap(databasePath),
-                        style: IconButton.styleFrom(
-                          backgroundColor: colors.surfaceNested,
-                          shape: const CircleBorder(),
-                          padding: EdgeInsets.zero,
-                        ),
-                        icon: KvIcon(
-                          glyph: AppGlyph.eye,
-                          size: 17,
-                          color: colors.iconNeutral,
-                        ),
-                      ),
+                    KvCircleIconButton(
+                      glyph: AppGlyph.eye,
+                      tooltip: 'Show password',
+                      nested: true,
+                      iconSize: 17,
+                      onPressed: _isCheckingBiometrics
+                          ? null
+                          : () => _handleRevealTap(databasePath),
                     ),
                     const SizedBox(width: 8),
-                    SizedBox(
-                      width: 36,
-                      height: 36,
-                      child: IconButton(
-                        tooltip: 'Copy',
-                        onPressed: () => _copy(
-                          text: entry.password,
-                          message: 'Copied password.',
-                        ),
-                        style: IconButton.styleFrom(
-                          backgroundColor: colors.surfaceNested,
-                          shape: const CircleBorder(),
-                          padding: EdgeInsets.zero,
-                        ),
-                        icon: KvIcon(
-                          glyph: AppGlyph.copy,
-                          size: 17,
-                          color: colors.iconNeutral,
-                        ),
+                    KvCircleIconButton(
+                      glyph: AppGlyph.copy,
+                      tooltip: 'Copy',
+                      nested: true,
+                      iconSize: 17,
+                      onPressed: () => _copy(
+                        text: entry.password,
+                        message: 'Copied password.',
                       ),
                     ),
                   ],
                 ),
               ),
+            // 2026-08-30: the password's own information sits directly under
+            // the password field, not at the foot of the screen.
+            if (entry.password.isNotEmpty) ...[
+              const SizedBox(height: 9),
+              if (isWarning)
+                StrengthStrip.warning(
+                  assessment: strength,
+                  changedAgoLabel: changedAgo,
+                  reusedByCount: reusedByCount,
+                  onGenerateNew: () => _openGeneratorForEntry(context, entry),
+                )
+              else
+                StrengthStrip.normal(
+                  assessment: strength,
+                  changedAgoLabel: changedAgo,
+                ),
+            ],
             if (totpData != null) ...[
               const SizedBox(height: 9),
               TotpRow(
@@ -344,6 +336,30 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                 value: entry.url,
                 valueColor: colors.linkText,
                 onCopy: () => _copy(text: entry.url, message: 'Copied URL.'),
+                // 2026-08-30: opening the site is a button on the field
+                // itself, like copy — the standalone `Open <host>` pill is
+                // gone.
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    KvCircleIconButton(
+                      glyph: AppGlyph.linkSimple,
+                      tooltip: 'Open website',
+                      nested: true,
+                      iconSize: 17,
+                      onPressed: () => _openEntryUrl(context, entry.url),
+                    ),
+                    const SizedBox(width: 8),
+                    KvCircleIconButton(
+                      glyph: AppGlyph.copy,
+                      tooltip: 'Copy',
+                      nested: true,
+                      iconSize: 17,
+                      onPressed: () =>
+                          _copy(text: entry.url, message: 'Copied URL.'),
+                    ),
+                  ],
+                ),
               ),
             ],
             if (entry.notes.isNotEmpty) ...[
@@ -392,25 +408,9 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                 ],
               ),
             ],
-            const SizedBox(height: 18),
-            if (isWarning)
-              StrengthStrip.warning(
-                assessment: strength,
-                changedAgoLabel: changedAgo,
-                reusedByCount: reusedByCount,
-                onGenerateNew: entry.password.isEmpty
-                    ? null
-                    : () => _openGeneratorForEntry(context, entry),
-              )
-            else
-              StrengthStrip.normal(
-                assessment: strength,
-                changedAgoLabel: changedAgo,
-              ),
-            const SizedBox(height: 10),
-            // spec-019 C-04-03 — the normative action row is
-            // `Copy password` · `Copy username` · `Open <host>`, the last
-            // omitted when the record has no URL (DQ-5).
+            // spec-019 C-04-03, amended 2026-08-30 — the action row is
+            // `Copy password` · `Copy username`; opening the site moved onto
+            // the Website field itself.
             if (isWide) ...[
               Row(
                 children: [
@@ -441,17 +441,6 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                   ],
                 ],
               ),
-              // `Open <host>` gets its own row rather than a third of the
-              // first: a host is as long as the user's URL, and three pills
-              // sharing a 330 px column wrapped "mail.google.com" mid-word.
-              if (entryHost != null) ...[
-                const SizedBox(height: 8),
-                _CopyPill(
-                  label: 'Open $entryHost',
-                  primary: false,
-                  onTap: () => _openEntryUrl(context, entry.url),
-                ),
-              ],
             ] else ...[
               KvPillButton(
                 label: 'Copy password',
@@ -463,20 +452,6 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                         message: 'Copied password.',
                       ),
               ),
-              if (entryHost != null) ...[
-                const SizedBox(height: 8),
-                KvPillButton(
-                  label: 'Open $entryHost',
-                  icon: null,
-                  onPressed: () => _openEntryUrl(context, entry.url),
-                ),
-              ],
-            ],
-            if (isWide) ...[
-              const SizedBox(height: 16),
-              const _MetadataGridLabel(),
-              const SizedBox(height: 8),
-              _MetadataGrid(entry: entry),
             ],
           ],
         ),
@@ -500,32 +475,11 @@ class _DetailHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
 
-    Widget circleButton({
-      required AppGlyph glyph,
-      required String tooltip,
-      required VoidCallback? onPressed,
-    }) {
-      return SizedBox(
-        width: 36,
-        height: 36,
-        child: IconButton(
-          tooltip: tooltip,
-          onPressed: onPressed,
-          style: IconButton.styleFrom(
-            backgroundColor: colors.surface,
-            shape: const CircleBorder(),
-            padding: EdgeInsets.zero,
-          ),
-          icon: KvIcon(glyph: glyph, size: 19, color: colors.iconNeutral),
-        ),
-      );
-    }
-
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         if (allowsPop)
-          circleButton(
+          KvCircleIconButton(
             glyph: AppGlyph.back,
             tooltip: 'Back',
             onPressed: () => Navigator.maybePop(context),
@@ -535,7 +489,7 @@ class _DetailHeader extends StatelessWidget {
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            circleButton(
+            KvCircleIconButton(
               glyph: AppGlyph.edit,
               tooltip: 'Edit',
               onPressed: onEdit,
@@ -573,6 +527,13 @@ class _DetailHeader extends StatelessWidget {
                   child: _MenuItemContent(
                     icon: AppIcons.copy,
                     label: 'Duplicate',
+                  ),
+                ),
+                _RoundedPopupItem(
+                  value: _EntryAction.info,
+                  child: _MenuItemContent(
+                    icon: AppIcons.info,
+                    label: 'Record info',
                   ),
                 ),
                 _RoundedPopupItem(
@@ -701,21 +662,25 @@ class _CopyPill extends StatelessWidget {
   }
 }
 
-class _MetadataGridLabel extends StatelessWidget {
-  const _MetadataGridLabel();
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    return Text(
-      'Record info',
-      style: AppTextStyles.labelUpper.copyWith(color: colors.textSecondary),
-    );
-  }
+/// 2026-08-30: the metadata grid lives in the `Record info` dialog opened
+/// from the record's `•••`, at every width. Exactly three rows — Created,
+/// Updated, last password change (spec-004 FR-7/AC8).
+Future<void> _showRecordInfoDialog(BuildContext context, VaultEntry entry) {
+  return showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Record info'),
+      content: SizedBox(width: 360, child: _MetadataGrid(entry: entry)),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
 }
 
-/// Tablet-only metadata grid (spec-004 FR-7/AC8): exactly three rows —
-/// Created, Updated, last password change. Not shown on mobile.
 class _MetadataGrid extends StatelessWidget {
   const _MetadataGrid({required this.entry});
 
@@ -960,31 +925,6 @@ PasswordGeneratorOptions _optionsFromPassword(String password) {
     includeDigits: anySet ? hasDigit : true,
     includeSymbols: anySet ? hasSymbol : true,
   );
-}
-
-/// spec-019 C-04-03 — the host of [url], or null when there is nothing
-/// openable.
-///
-/// A bare `example.com` parses as a URI with an empty host and a path, which
-/// is the common shape in a vault: users type the domain, not the scheme. So
-/// an authority-less value is retried with `https://` before giving up.
-String? _entryHost(String url) {
-  final trimmed = url.trim();
-  if (trimmed.isEmpty) {
-    return null;
-  }
-  final parsed = Uri.tryParse(trimmed);
-  if (parsed == null) {
-    return null;
-  }
-  if (parsed.hasAuthority && parsed.host.isNotEmpty) {
-    return parsed.host;
-  }
-  final assumed = Uri.tryParse('https://$trimmed');
-  if (assumed != null && assumed.host.isNotEmpty) {
-    return assumed.host;
-  }
-  return null;
 }
 
 /// Opens [url] in the browser, assuming `https` when the record omits the

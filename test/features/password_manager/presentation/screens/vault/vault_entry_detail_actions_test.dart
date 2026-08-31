@@ -33,32 +33,34 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  group('C-04-03 — the action row offers Open <host>', () {
+  // Amended 2026-08-30: the standalone `Open <host>` pill is gone — opening
+  // the site is a button on the Website field itself, like copy.
+  group('C-04-03 — opening the site is a button on the Website field', () {
     for (final width in <double>[390, 1024]) {
-      testWidgets('at $width, labelled with the host and not the URL', (
+      testWidgets('at $width, the Website field carries Open website', (
         tester,
       ) async {
         await pumpAt(tester, width);
         await openRecord(tester, 'Gmail');
 
         expect(find.text('Copy password'), findsWidgets);
-        expect(find.text('Open mail.google.com'), findsOneWidget);
-        // The whole URL never becomes a button label.
-        expect(find.text('Open https://mail.google.com'), findsNothing);
+        expect(find.byTooltip('Open website'), findsOneWidget);
+        // No pill labelled with the host or the URL survives.
+        expect(find.textContaining('Open mail.google.com'), findsNothing);
       });
     }
 
-    testWidgets('a bare domain still resolves to a host', (tester) async {
+    testWidgets('a bare domain still gets the button', (tester) async {
       // The fixture stores `sella.it` — no scheme, which is what users type.
       await pumpAt(tester, 1024);
       await openRecord(tester, 'Banca Sella');
-      expect(find.text('Open sella.it'), findsOneWidget);
+      expect(find.byTooltip('Open website'), findsOneWidget);
     });
 
     testWidgets('a record with no URL offers no Open action', (tester) async {
       await pumpAt(tester, 1024);
       await openRecord(tester, 'Gmail');
-      expect(find.text('Open mail.google.com'), findsOneWidget);
+      expect(find.byTooltip('Open website'), findsOneWidget);
 
       // Every fixture record ships with a URL, so the negative case is made
       // rather than assumed: clear the field in the editor and the action
@@ -81,7 +83,7 @@ void main() {
       await tester.tap(find.text('Save').last);
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('Open '), findsNothing);
+      expect(find.byTooltip('Open website'), findsNothing);
     });
   });
 

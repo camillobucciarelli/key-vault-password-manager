@@ -34,6 +34,16 @@ void main() {
       expect(presentationFor(surface, railWidth), isA<VaultPanePresentation>());
     }
 
+    void expectRouteThenDialog(VaultSurface<VaultDone> surface) {
+      expect(
+        presentationFor(surface, mobileWidth),
+        isA<VaultRoutePresentation>(),
+      );
+      final wide = presentationFor(surface, railWidth);
+      expect(wide, isA<VaultDialogPresentation>());
+      expect((wide as VaultDialogPresentation).bare, isFalse);
+    }
+
     void expectSheetThenBareDialog(VaultSurface<VaultDone> surface) {
       expect(
         presentationFor(surface, mobileWidth),
@@ -64,11 +74,13 @@ void main() {
     test('Attachments: route / pane', () {
       expectRouteThenPane(AttachmentsSurface<VaultDone>(builder: _noop));
     });
-    test('Recycle bin: route / pane', () {
-      expectRouteThenPane(RecycleBinSurface<VaultDone>(builder: _noop));
+    // 2026-08-30: hygiene destinations are wide-layout dialogs — visits,
+    // not columns of the working layout.
+    test('Recycle bin: route / dialog', () {
+      expectRouteThenDialog(RecycleBinSurface<VaultDone>(builder: _noop));
     });
-    test('Duplicates/merge preview: route / pane', () {
-      expectRouteThenPane(DuplicatesSurface<VaultDone>(builder: _noop));
+    test('Duplicates/merge preview: route / dialog', () {
+      expectRouteThenDialog(DuplicatesSurface<VaultDone>(builder: _noop));
     });
     test('Sync link/remote picker: route / pane', () {
       expectRouteThenPane(SyncLinkSurface<VaultDone>(builder: _noop));

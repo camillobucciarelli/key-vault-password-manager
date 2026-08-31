@@ -69,8 +69,9 @@ void main() {
     'GroupEditSurface': (narrow: 'sheet', wide: 'dialog'),
     'MoveTargetSurface': (narrow: 'sheet', wide: 'dialog'),
     'AttachmentsSurface': (narrow: 'route', wide: 'pane'),
-    'RecycleBinSurface': (narrow: 'route', wide: 'pane'),
-    'DuplicatesSurface': (narrow: 'route', wide: 'pane'),
+    // 2026-08-30: hygiene destinations became wide-layout dialogs.
+    'RecycleBinSurface': (narrow: 'route', wide: 'dialog'),
+    'DuplicatesSurface': (narrow: 'route', wide: 'dialog'),
     'HealthCategorySurface': (narrow: 'route', wide: 'pane'),
     'SyncLinkSurface': (narrow: 'route', wide: 'pane'),
     'SyncConflictSurface': (narrow: 'sheet', wide: 'pane'),
@@ -171,8 +172,9 @@ void main() {
         'GroupEditSurface': 'sheet sheet sheet dialog dialog dialog dialog dialog',
         'MoveTargetSurface': 'sheet sheet sheet dialog dialog dialog dialog dialog',
         'AttachmentsSurface': 'route route route pane pane pane pane pane',
-        'RecycleBinSurface': 'route route route pane pane pane pane pane',
-        'DuplicatesSurface': 'route route route pane pane pane pane pane',
+        // 2026-08-30: hygiene destinations became wide-layout dialogs.
+        'RecycleBinSurface': 'route route route dialog dialog dialog dialog dialog',
+        'DuplicatesSurface': 'route route route dialog dialog dialog dialog dialog',
         'HealthCategorySurface': 'route route route pane pane pane pane pane',
         'SyncLinkSurface': 'route route route pane pane pane pane pane',
         'SyncConflictSurface': 'sheet sheet sheet pane pane pane pane pane',

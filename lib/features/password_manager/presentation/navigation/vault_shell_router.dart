@@ -369,12 +369,16 @@ VaultSurfacePresentation presentationFor<R extends VaultRouteResult>(
     EntrySurface() ||
     OtpScannerSurface() ||
     AttachmentsSurface() ||
-    RecycleBinSurface() ||
-    DuplicatesSurface() ||
     HealthCategorySurface() ||
     SyncLinkSurface() ||
     DatabaseSettingsSurface() =>
       mobile ? const VaultRoutePresentation() : const VaultPanePresentation(),
+    // 2026-08-30: the two hygiene destinations are modal dialogs on wide
+    // layouts — they are visits, not columns of the working layout, so they
+    // must not displace the record detail the way a pane does.
+    RecycleBinSurface() ||
+    DuplicatesSurface() =>
+      mobile ? const VaultRoutePresentation() : const VaultDialogPresentation(),
     // spec-018 FR-002e: the generator is the one surface whose presentation
     // needs a width beyond the layout class. It becomes a 290 px column only
     // where that column fits; below 995 the sheet is a declared fallback.
