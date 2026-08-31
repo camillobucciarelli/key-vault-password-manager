@@ -124,12 +124,15 @@ final class NewDriveLinkResult extends DriveLinkResult {
 }
 
 final class SyncConflictRouteResult extends VaultRouteResult {
-  const SyncConflictRouteResult(this.resolution);
+  const SyncConflictRouteResult(this.resolution, {this.openMerge = false});
 
   final SyncConflictResolution resolution;
 
+  /// spec-008 T601: the user chose the per-field review instead of a side.
+  final bool openMerge;
+
   @override
-  List<Object?> get props => [resolution];
+  List<Object?> get props => [resolution, openMerge];
 }
 
 final class ConfirmDecision extends VaultRouteResult {
@@ -304,6 +307,13 @@ final class MergePreviewSurface<R extends VaultRouteResult>
   const MergePreviewSurface({required super.builder});
 }
 
+/// spec-008 T601: the per-field sync merge review. A full-screen route at
+/// every width; the screen lays out its own two panes when wide.
+final class SyncMergeSurface<R extends VaultRouteResult>
+    extends VaultSurface<R> {
+  const SyncMergeSurface({required super.builder});
+}
+
 final class DatabaseSettingsSurface<R extends VaultRouteResult>
     extends VaultSurface<R> {
   const DatabaseSettingsSurface({required super.builder});
@@ -316,7 +326,17 @@ final class KeyFileManagerSurface<R extends VaultRouteResult>
 
 final class ConfirmationSurface<R extends VaultRouteResult>
     extends VaultSurface<R> {
-  const ConfirmationSurface({required super.builder});
+  const ConfirmationSurface({
+    required super.builder,
+    this.dialogOnWide = false,
+  });
+
+  /// 2026-08-31 (user-directed): a confirmation whose builder returns an
+  /// `AlertDialog` (the generic `confirm`) is a bare modal dialog on wide
+  /// layouts — hosted in a sheet it rendered as a card-in-card the size of
+  /// the window. Sheet-styled confirmations (empty bin, autofill link) keep
+  /// the sheet at every width.
+  final bool dialogOnWide;
 }
 
 sealed class VaultSurfacePresentation {
@@ -381,7 +401,8 @@ VaultSurfacePresentation presentationFor<R extends VaultRouteResult>(
     // the phone.
     RecycleBinSurface() ||
     DuplicatesSurface() ||
-    MergePreviewSurface() => const VaultRoutePresentation(),
+    MergePreviewSurface() ||
+    SyncMergeSurface() => const VaultRoutePresentation(),
     // spec-018 FR-002e: the generator is the one surface whose presentation
     // needs a width beyond the layout class. It becomes a 290 px column only
     // where that column fits; below 995 the sheet is a declared fallback.
@@ -402,6 +423,8 @@ VaultSurfacePresentation presentationFor<R extends VaultRouteResult>(
           : const VaultDialogPresentation(bare: true),
     SyncConflictSurface() =>
       mobile ? const VaultSheetPresentation() : const VaultPanePresentation(),
+    ConfirmationSurface(dialogOnWide: true) when !mobile =>
+      const VaultDialogPresentation(bare: true),
     KeyFileManagerSurface() ||
     ConfirmationSurface() => const VaultSheetPresentation(),
   };
@@ -500,6 +523,7 @@ final class VaultShellRouter {
     return open<ConfirmDecision>(
       context: context,
       surface: ConfirmationSurface<ConfirmDecision>(
+        dialogOnWide: true,
         builder: (surfaceContext) => AlertDialog(
           title: Text(title),
           content: Text(body),

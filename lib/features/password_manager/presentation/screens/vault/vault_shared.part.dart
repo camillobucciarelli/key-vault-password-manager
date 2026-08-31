@@ -215,7 +215,10 @@ Future<void> _exportDatabaseBackup(
     return;
   }
 
-  final defaultName = path.basename(databasePath);
+  // The macOS save panel appends the allowed extension itself, so a full
+  // basename showed "name.kdbx.kdbx". The resolvedPath guard below restores
+  // ".kdbx" where the platform does not append it.
+  final defaultName = path.basenameWithoutExtension(databasePath);
   final savePath = await FilePicker.saveFile(
     dialogTitle: 'Export database backup',
     fileName: defaultName,
@@ -259,7 +262,8 @@ Future<void> _exportKeyFileBackup(BuildContext context) async {
     return;
   }
 
-  final defaultName = path.basename(keyPath);
+  // Same double-extension fix as the database export above.
+  final defaultName = path.basenameWithoutExtension(keyPath);
   final savePath = await FilePicker.saveFile(
     dialogTitle: 'Export key file backup',
     fileName: defaultName,
@@ -270,9 +274,12 @@ Future<void> _exportKeyFileBackup(BuildContext context) async {
     return;
   }
 
+  final resolvedPath = savePath.toLowerCase().endsWith('.key')
+      ? savePath
+      : '$savePath.key';
   await di.sl<DatabaseFileRepository>().copyFile(
     sourcePath: keyPath,
-    targetPath: savePath,
+    targetPath: resolvedPath,
   );
   messenger.showSnackBar(
     const SnackBar(content: Text('Key file backup exported.')),

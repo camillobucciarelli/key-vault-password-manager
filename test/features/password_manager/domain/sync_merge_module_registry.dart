@@ -123,10 +123,31 @@ const mergeModuleFiles = <String>[
 
 /// Every file accounted for by the registry, in any layer. The completeness
 /// check uses this; the redaction and layering gates use [mergeModuleFiles].
+/// spec-008 Gate 5 (T501-T507): the presentation files that name merge
+/// types. They may import the safe models, the port's failure type, the
+/// policy and the command use cases — never the data implementation. Their
+/// own redaction/boundary gates live in
+/// `presentation/coordinators/sync_merge_coordinator_test.dart`.
+const mergePresentationFiles = <String>[
+  'lib/features/password_manager/presentation/coordinators/sync_merge_coordinator.dart',
+  'lib/features/password_manager/presentation/coordinators/vault_session_coordinator.dart',
+  'lib/features/password_manager/presentation/widgets/sync_merge_field_display_view.dart',
+  'lib/features/password_manager/presentation/bloc/vault/vault_bloc.dart',
+  'lib/features/password_manager/presentation/bloc/vault/vault_event.dart',
+  'lib/features/password_manager/presentation/bloc/vault/vault_state.dart',
+  'lib/features/password_manager/di/password_manager_presentation_di.dart',
+  // Gate 6 (T601-T605): the review UI and its two entry points.
+  'lib/features/password_manager/presentation/widgets/sync/sync_merge_screen.dart',
+  'lib/features/password_manager/presentation/screens/vault_screen.dart',
+  'lib/features/password_manager/presentation/screens/vault/vault_sync.part.dart',
+  'lib/features/password_manager/presentation/navigation/vault_shell_router.dart',
+];
+
 const mergeRegisteredFiles = <String>[
   ...mergeModuleFiles,
   ...mergeDataImplementationFiles,
   ...mergeCompositionRootFiles,
+  ...mergePresentationFiles,
 ];
 
 /// Files whose declared top-level names make a file elsewhere a merge-module
@@ -161,6 +182,8 @@ const mergeStrictlyRedactedFiles = <String>[
 /// `.value` into a durable `String`.
 const mergeFieldDisplayImporters = <String>[
   'lib/features/password_manager/domain/models/merge_field_display.dart',
+  // spec-008 T503: the one field widget that may hold the transient display.
+  'lib/features/password_manager/presentation/widgets/sync_merge_field_display_view.dart',
   'lib/features/password_manager/domain/repositories/sync_merge_repository.dart',
   'lib/features/password_manager/domain/usecases/load_sync_merge_field_display_usecase.dart',
   // T302: the port declares `Future<MergeFieldDisplay> loadFieldDisplay(...)`,

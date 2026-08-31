@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../../../../../core/theme/app_icons.dart';
+import '../../../../../../core/theme/app_glyph.dart';
 import '../../../../../../core/theme/app_radii.dart';
+import '../../../../../../core/widgets/kv_icon.dart';
 import '../../../../../../core/theme/app_text_styles.dart';
 import '../../../../../../core/theme/keyvault_colors.dart';
 import '../../../domain/entities/database_record.dart';
@@ -61,82 +62,153 @@ class DatabaseItemTile extends StatelessWidget {
     final active = item.isActive && !item.isMissing;
 
     return Semantics(
+      button: true,
       label: item.displayName,
       value: item.canonicalPath,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AppRadii.card),
-          onTap: item.isMissing ? onLocate : () => onOpen(),
-          child: Container(
+      child: _HoverSurface(
+        onTap: item.isMissing ? onLocate : () => onOpen(),
+        baseColor: active ? colors.attentionTint : colors.surface,
+        hoveredBorderColor: colors.selectionBorder.withValues(alpha: 0.5),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: item.isMissing
+                      ? colors.attentionTint
+                      : colors.surfaceNested,
+                  shape: BoxShape.circle,
+                ),
+                child: KvIcon(
+                  glyph: item.isMissing
+                      ? AppGlyph.warning
+                      : item.sourceType == DatabaseSourceType.drive
+                      ? AppGlyph.cloud
+                      : AppGlyph.file,
+                  size: 18,
+                  color: item.isMissing
+                      ? colors.attentionText
+                      : colors.iconNeutral,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.rowTitle.copyWith(
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      item.isMissing
+                          ? 'File not found on this device'
+                          : databaseSubtitle(item),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.secondary.copyWith(
+                        color: item.isMissing
+                            ? colors.attentionText
+                            : (active
+                                  ? colors.actionText
+                                  : colors.textSecondary),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (item.isMissing)
+                TextButton(onPressed: onLocate, child: const Text('Locate')),
+              DatabaseActionMenu(
+                onOpen: () => onOpen(),
+                onExport: () => onExport(),
+                onRemove: () => onRemove(),
+                onLocate: item.isMissing ? onLocate : null,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 2026-08-31: the vault list's surface/hover recipe (spec 019) applied to a
+/// recent-database card — same [AppRadii.row] corners, transparent border at
+/// rest, `selectionBorder` on hover/focus, click cursor.
+class _HoverSurface extends StatefulWidget {
+  const _HoverSurface({
+    required this.child,
+    required this.baseColor,
+    required this.hoveredBorderColor,
+    this.onTap,
+  });
+
+  final Widget child;
+  final Color baseColor;
+  final Color hoveredBorderColor;
+  final VoidCallback? onTap;
+
+  @override
+  State<_HoverSurface> createState() => _HoverSurfaceState();
+}
+
+class _HoverSurfaceState extends State<_HoverSurface> {
+  bool _isHovered = false;
+  bool _isFocused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final highlight = _isHovered || _isFocused;
+    final duration = MediaQuery.of(context).disableAnimations
+        ? Duration.zero
+        : const Duration(milliseconds: 120);
+    return FocusableActionDetector(
+      enabled: widget.onTap != null,
+      // PR #188 review: focus alone is not activation — Enter/Space must
+      // invoke the same tap handler, as the InkWell this surface replaced did.
+      actions: <Type, Action<Intent>>{
+        ActivateIntent: CallbackAction<ActivateIntent>(
+          onInvoke: (_) {
+            widget.onTap?.call();
+            return null;
+          },
+        ),
+      },
+      onShowFocusHighlight: (value) {
+        if (_isFocused != value) setState(() => _isFocused = value);
+      },
+      child: MouseRegion(
+        cursor: widget.onTap == null
+            ? SystemMouseCursors.basic
+            : SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: duration,
+            curve: Curves.easeOutCubic,
             constraints: const BoxConstraints(minHeight: 62),
-            padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(AppRadii.card),
-              color: active ? colors.attentionTint : colors.surface,
+              color: widget.baseColor,
+              borderRadius: BorderRadius.circular(AppRadii.row),
+              border: Border.all(
+                color: highlight
+                    ? widget.hoveredBorderColor
+                    : Colors.transparent,
+              ),
             ),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: item.isMissing
-                        ? colors.attentionTint
-                        : colors.surfaceNested,
-                    borderRadius: BorderRadius.circular(AppRadii.iconSquare),
-                  ),
-                  child: Icon(
-                    item.isMissing
-                        ? AppIcons.warning
-                        : item.sourceType == DatabaseSourceType.drive
-                        ? AppIcons.cloud
-                        : AppIcons.file,
-                    color: item.isMissing ? colors.attentionText : null,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.displayName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTextStyles.rowTitle.copyWith(
-                          color: colors.textPrimary,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        item.isMissing
-                            ? 'File not found on this device'
-                            : databaseSubtitle(item),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTextStyles.secondary.copyWith(
-                          color: item.isMissing
-                              ? colors.attentionText
-                              : (active
-                                    ? colors.actionText
-                                    : colors.textSecondary),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (item.isMissing)
-                  TextButton(onPressed: onLocate, child: const Text('Locate')),
-                DatabaseActionMenu(
-                  onOpen: () => onOpen(),
-                  onExport: () => onExport(),
-                  onRemove: () => onRemove(),
-                  onLocate: item.isMissing ? onLocate : null,
-                ),
-              ],
-            ),
+            child: widget.child,
           ),
         ),
       ),

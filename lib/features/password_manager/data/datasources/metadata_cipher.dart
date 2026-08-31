@@ -135,6 +135,21 @@ class EncryptedMetadataStore {
       base64Decode(encoded),
       Uint8List.fromList(utf8.encode(content)),
     );
-    await file.writeAsBytes(sealed, flush: true);
+    // Atomic replace: a crash mid-write must never leave truncated
+    // ciphertext over a valid file — GCM would refuse it and every vault
+    // would read as absent with no repair path (FR-9). Temp sibling +
+    // flush + rename, same durability shape as SafeVaultFileWriter.
+    final tmp = File(
+      '${file.path}.tmp-${DateTime.now().microsecondsSinceEpoch}',
+    );
+    try {
+      await tmp.writeAsBytes(sealed, flush: true);
+      await tmp.rename(file.path);
+    } catch (_) {
+      try {
+        await tmp.delete();
+      } catch (_) {}
+      rethrow;
+    }
   }
 }

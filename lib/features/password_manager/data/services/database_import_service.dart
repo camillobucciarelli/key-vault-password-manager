@@ -628,12 +628,19 @@ class DatabaseImportService implements DatabaseFileRepository {
     if (_usesManagedStorage) {
       return normalizedFileName;
     }
-    return FilePicker.saveFile(
+    // The macOS save panel appends the allowed extension itself, so the
+    // normalized ".kdbx" name showed doubled; re-append after the pick for
+    // platforms that do not.
+    final picked = await FilePicker.saveFile(
       dialogTitle: 'Please select an output file:',
-      fileName: normalizedFileName,
+      fileName: normalizedFileName.replaceFirst(RegExp(r'\.kdbx$'), ''),
       type: FileType.custom,
       allowedExtensions: ['kdbx'],
     );
+    if (picked == null || picked.trim().isEmpty) {
+      return picked;
+    }
+    return picked.toLowerCase().endsWith('.kdbx') ? picked : '$picked.kdbx';
   }
 
   String _normalizeDatabaseFileName(String value) {

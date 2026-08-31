@@ -19,14 +19,18 @@
 // semantic-manifest equality, and otherwise re-merges with the T401b sticky
 // decision ledger, up to a budget of 3 rounds per `commit` call.
 //
-// **What is still NOT done, honestly.** Step 10 (persist a pendingUpload
-// record before dispatch) has no home yet — that is T404's own type and
-// persistence design. So a process crash between this file's local atomic
-// replace and its mapping-finalize update is NOT recoverable: `recoverPending`
-// still always answers `.none`, even though `commit` now genuinely uploads.
-// T403 will formalize the backup+atomic-replace composition this file already
-// exercises through `SafeVaultFileWriter`; T405-T410 own outcome
-// classification, ambiguous-transport handling and restart recovery proper.
+// **T403/T404 — the atomic commit.** Every round of the cycle composes, in
+// this order and nowhere else: candidate semantic revalidation, verified
+// collision-safe backup, same-directory temp + atomic replace, the
+// pre-dispatch `PendingMergeUpload` record, the upload, the step-5 read-back
+// and only then the mapping finalization. A backup failure aborts before any
+// remote write; a mapping is never finalized on an unverified response.
+//
+// **T407/T408 — restart recovery.** `recoverPending` reads the persisted
+// record under the same mutex, guards on the local checksum BEFORE any remote
+// call, then triages the remote checksum: applied → finalize; unchanged
+// expected-old → re-put the committed local bytes and verify; anything else →
+// hand off to a new conflict, retaining the local merge and its backup.
 // No concurrency token is selected or sent: Drive declares no `conditionalWrite`
 // capability, so FR-7's optional token never applies to this adapter.
 import 'dart:io';
@@ -759,12 +763,135 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
   Future<MergeRecoveryOutcome> recoverPending(
     MergeDatabaseId databaseId,
   ) async {
-    // T401 makes `commit` dispatch a real upload, but it persists no
-    // pendingUpload record before doing so (step 10 — T404's own type and
-    // persistence design, not built yet). So there is nothing on disk here to
-    // recover from a crash between the local atomic replace and the
-    // mapping-finalize update: this stays `.none` until T404/T409 land.
-    return const MergeRecoveryOutcome(MergeRecoveryDisposition.none);
+    // T407/T408 — FR-10 restart recovery. Everything below runs under the same
+    // per-database mutex every writer takes, so the local checksum it reads
+    // is the one it acts on.
+    final record = await _registry.getById(databaseId.value);
+    if (record == null) {
+      return const MergeRecoveryOutcome(MergeRecoveryDisposition.none);
+    }
+    return _mutex.withDatabaseLock([
+      record.canonicalPath,
+    ], () => _recoverLocked(record));
+  }
+
+  Future<MergeRecoveryOutcome> _recoverLocked(DatabaseRecord record) async {
+    final pending = await _syncMetadata.getPendingUpload(record.canonicalPath);
+    if (pending == null) {
+      return const MergeRecoveryOutcome(MergeRecoveryDisposition.none);
+    }
+
+    // T407 — the local guard comes BEFORE any remote call or vault mutation.
+    // A local file that no longer holds the committed bytes means the review
+    // this record describes is stale: nothing about it may be uploaded,
+    // retried or finalized. The record and the dated backup are retained as
+    // evidence; a fresh conflict must be opened from the current state.
+    final Uint8List localBytes;
+    try {
+      localBytes = await File(record.canonicalPath).readAsBytes();
+    } on Object {
+      return const MergeRecoveryOutcome(
+        MergeRecoveryDisposition.staleRecoveryLocal,
+      );
+    }
+    if (_checksumOf(localBytes) != pending.localCommittedChecksum) {
+      return const MergeRecoveryOutcome(
+        MergeRecoveryDisposition.staleRecoveryLocal,
+      );
+    }
+
+    // T408 — matching local: refetch remote metadata and triage on checksum.
+    // Drive is a bare `get`/`put` adapter: no `conditionalWrite` token to
+    // re-send and no `versionHistory` revision to fetch, so the step-3
+    // re-read plus the step-5 verification carry the whole safety here.
+    final mapping = await _sync.getMapping(record.canonicalPath);
+    if (mapping == null || mapping.driveFileId != pending.remoteFileId) {
+      // The mapping moved under the record; nothing can be verified against
+      // it. Keep the evidence and stay ambiguous rather than guess.
+      await _markPendingAmbiguous(pending);
+      return const MergeRecoveryOutcome(
+        MergeRecoveryDisposition.stillAmbiguous,
+      );
+    }
+    final DriveRemoteFile remoteMeta;
+    try {
+      remoteMeta = await _drive.getFileMetadata(pending.remoteFileId);
+    } on Object {
+      await _markPendingAmbiguous(pending);
+      return const MergeRecoveryOutcome(
+        MergeRecoveryDisposition.stillAmbiguous,
+      );
+    }
+    final observed = remoteMeta.md5Checksum;
+    if (observed == null) {
+      await _markPendingAmbiguous(pending);
+      return const MergeRecoveryOutcome(
+        MergeRecoveryDisposition.stillAmbiguous,
+      );
+    }
+
+    // Step 5: the upload applied after all — finalize what the remote holds.
+    if (observed == pending.mergedChecksum) {
+      await _finalizeMapping(
+        databaseId: record.databaseId,
+        mapping: mapping,
+        localChecksum: pending.localCommittedChecksum,
+        remoteChecksum: observed,
+        modifiedTime: remoteMeta.modifiedTime,
+      );
+      await _clearPending(pending);
+      return const MergeRecoveryOutcome(
+        MergeRecoveryDisposition.finalizedApplied,
+      );
+    }
+
+    // Step 6: the remote still holds the expected old content, so the write
+    // never applied. Re-enter FR-7 from step 3 with the committed local bytes
+    // (the candidate the review produced is exactly what is on disk) and
+    // verify with the same step-5 read-back `commit` uses.
+    if (observed == pending.expectedOldRemoteChecksum) {
+      final DriveRemoteFile updated;
+      try {
+        updated = await _drive.updateFile(
+          fileId: pending.remoteFileId,
+          bytes: localBytes,
+        );
+      } on Object {
+        await _markPendingAmbiguous(pending);
+        return const MergeRecoveryOutcome(
+          MergeRecoveryDisposition.stillAmbiguous,
+        );
+      }
+      final afterWrite = updated.md5Checksum;
+      if (afterWrite == null) {
+        await _markPendingAmbiguous(pending);
+        return const MergeRecoveryOutcome(
+          MergeRecoveryDisposition.stillAmbiguous,
+        );
+      }
+      if (afterWrite == pending.mergedChecksum) {
+        await _finalizeMapping(
+          databaseId: record.databaseId,
+          mapping: mapping,
+          localChecksum: pending.localCommittedChecksum,
+          remoteChecksum: afterWrite,
+          modifiedTime: updated.modifiedTime,
+        );
+        await _clearPending(pending);
+        return const MergeRecoveryOutcome(
+          MergeRecoveryDisposition.retriedAndFinalized,
+        );
+      }
+      // The retry raced another writer: a third state, handled below.
+    }
+
+    // Step 7: the remote changed independently. Hand off to a new conflict —
+    // the local merged file and its dated backup stay exactly as they are,
+    // and the record clears only because the handoff is the resolution.
+    await _clearPending(pending);
+    return const MergeRecoveryOutcome(
+      MergeRecoveryDisposition.needsNewConflict,
+    );
   }
 
   @override

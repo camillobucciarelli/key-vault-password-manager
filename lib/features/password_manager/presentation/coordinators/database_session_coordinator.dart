@@ -519,10 +519,21 @@ class DatabaseSessionCoordinator {
         overwriteExisting) {
       // spec 014 FR-3: the overwrite target is the registry record carrying
       // this display name; the on-disk name is opaque and never derived
-      // from it.
-      targetPath = (await _findRecordByDisplayName(
-        staged.preferredFileName,
-      ))?.canonicalPath;
+      // from it. An unresolvable target must fail loudly — degrading to a
+      // new-database commit would hand the user a silent duplicate after
+      // they explicitly chose "overwrite".
+      final match = await _findRecordByDisplayName(staged.preferredFileName);
+      if (match == null) {
+        await databaseFileRepository.discardStagedDatabase(staged);
+        return DatabaseSelectionSessionResult(
+          status: DatabaseSessionStatus.error,
+          message:
+              'Could not find the existing database to replace. '
+              'Nothing was changed.',
+          items: await _loadSelectionItems(),
+        );
+      }
+      targetPath = match.canonicalPath;
     }
 
     final originalRecord = targetPath == null

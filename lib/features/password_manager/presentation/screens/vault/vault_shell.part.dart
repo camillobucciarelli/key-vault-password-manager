@@ -89,6 +89,7 @@ class _VaultView extends StatefulWidget {
 }
 
 class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
+  bool _syncConflictSheetOpen = false;
   late final VaultShellRouter _router;
   // Resolved once, at construction, and held for this State's lifetime.
   // `dispose()` must not reach back into the service locator: a widget's
@@ -767,8 +768,20 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                   );
                   context.read<VaultBloc>().add(const ClearVaultSyncFeedback());
                 }
-                if (state.pendingSyncConflict != null) {
-                  _showSyncConflictDialog(context, state.pendingSyncConflict!);
+                // spec-008 T507/T608: a conflict found by a background or
+                // auto sync stays a persistent status on the Sync tab. Only a
+                // manual sync (which sets the conflict message) opens the
+                // sheet, and only one sheet at a time.
+                if (state.pendingSyncConflict != null &&
+                    state.syncError != null &&
+                    !_syncConflictSheetOpen) {
+                  _syncConflictSheetOpen = true;
+                  unawaited(
+                    _showSyncConflictDialog(
+                      context,
+                      state.pendingSyncConflict!,
+                    ).whenComplete(() => _syncConflictSheetOpen = false),
+                  );
                 }
                 _maybeShowAppleAutofillAssociationDialog(state);
                 _maybePullAndroidAutofillCapture(context, state);

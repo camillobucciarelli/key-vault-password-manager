@@ -3,6 +3,8 @@ import 'package:password_manager/core/utils/redacted_value.dart';
 
 import '../../../domain/models/vault_custom_field.dart';
 import '../../../domain/models/sync_conflict.dart';
+import '../../../domain/models/sync_merge_models.dart';
+import '../../../domain/services/sync_merge_policy.dart' show MergeShortcut;
 import '../../../domain/models/drive_remote_file.dart';
 import 'vault_state.dart';
 
@@ -540,4 +542,47 @@ class DeclineAndroidAutofillCapture extends VaultEvent {
 
 class CancelAndroidAutofillCapture extends VaultEvent {
   const CancelAndroidAutofillCapture();
+}
+
+// ---------------------------------------------------------------------------
+// spec-008 T504 — per-field merge commands. Opaque ids and redacted choices
+// only; the BLoC forwards each to `SyncMergeCoordinator` (T505).
+// ---------------------------------------------------------------------------
+
+class StartSyncMergeReview extends VaultEvent {
+  const StartSyncMergeReview();
+}
+
+class UpdateSyncMergeDecision extends VaultEvent {
+  const UpdateSyncMergeDecision({
+    required this.decisionId,
+    required this.choice,
+  });
+
+  final MergeDecisionId decisionId;
+  final MergeChoice choice;
+
+  @override
+  List<Object?> get props => [decisionId, choice];
+}
+
+class ApplySyncMergeShortcut extends VaultEvent {
+  const ApplySyncMergeShortcut(this.shortcut);
+
+  final MergeShortcut shortcut;
+
+  @override
+  List<Object?> get props => [shortcut];
+}
+
+class CommitSyncMerge extends VaultEvent {
+  const CommitSyncMerge();
+}
+
+class CancelSyncMerge extends VaultEvent {
+  const CancelSyncMerge();
+}
+
+class ClearSyncMergeOutcome extends VaultEvent {
+  const ClearSyncMergeOutcome();
 }

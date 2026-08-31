@@ -12,6 +12,8 @@ import '../presentation/coordinators/desktop_browser_autofill_coordinator.dart';
 import '../presentation/coordinators/google_drive_reconnect_coordinator.dart';
 import '../presentation/coordinators/otpauth_deep_link_coordinator.dart';
 import '../presentation/coordinators/session_secret_holder.dart';
+import '../domain/repositories/database_registry_repository.dart';
+import '../presentation/coordinators/sync_merge_coordinator.dart';
 import '../presentation/coordinators/vault_session_coordinator.dart';
 
 void registerPasswordManagerPresentationDependencies(GetIt sl) {
@@ -64,6 +66,17 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
     ),
   );
 
+  sl.registerLazySingleton<SyncMergeCoordinator>(
+    () => SyncMergeCoordinator(
+      startReview: sl(),
+      updateDecision: sl(),
+      commit: sl(),
+      cancel: sl(),
+      invalidate: sl(),
+      recoverPending: sl(),
+    ),
+  );
+
   sl.registerLazySingleton<VaultSessionCoordinator>(
     () => VaultSessionCoordinator(
       databaseFileRepository: sl(),
@@ -76,6 +89,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       vaultKdbxService: sl(),
       sessionSecretHolder: sl(),
       appleAutofillV2Coordinator: sl(),
+      syncMergeCoordinator: sl(),
     ),
   );
 
@@ -115,6 +129,14 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       androidAutofillSaveCoordinator: sl(),
       // spec-019 FR-006g: the folder expansion set outlives the session.
       folderExpansionPreferences: sl<SharedPreferences>(),
+      syncMergeCoordinator: sl(),
+      resolveDatabaseId: (databasePath) async {
+        final records = await sl<DatabaseRegistryRepository>().list();
+        for (final record in records) {
+          if (record.canonicalPath == databasePath) return record.databaseId;
+        }
+        return null;
+      },
     ),
   );
 }

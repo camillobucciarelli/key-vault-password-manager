@@ -773,6 +773,8 @@ const _baseline = <String, List<String>>{
   // spec 014 FR-4: the sealed metadata writer — the four metadata data
   // sources delegate their file writes to EncryptedMetadataStore here.
   'lib/features/password_manager/data/datasources/metadata_cipher.dart': [
+    'delete',
+    'rename',
     'writeAsBytes',
   ],
   'lib/features/password_manager/data/datasources/'

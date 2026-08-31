@@ -5,6 +5,7 @@ import '../../../domain/models/database_sync_status.dart';
 import '../../../domain/models/drive_remote_file.dart';
 import '../../../domain/models/duplicate_group.dart';
 import '../../../domain/models/sync_conflict.dart';
+import '../../../domain/models/sync_merge_models.dart';
 import '../../../domain/models/vault_entry.dart';
 import '../../../domain/models/vault_group.dart';
 import '../../../domain/models/vault_health_report.dart';
@@ -58,6 +59,10 @@ class VaultState extends Equatable {
     this.pendingAndroidAutofillSave,
     this.healthReport = VaultHealthReport.empty,
     this.lastCsvImportOutcome,
+    this.mergeReview,
+    this.mergeCommitOutcome,
+    this.mergeFailureCode,
+    this.isMergeBusy = false,
   });
 
   factory VaultState.initial({required String databasePath}) {
@@ -140,6 +145,18 @@ class VaultState extends Equatable {
   /// outcome screen then cleared via `ClearCsvImportOutcome`.
   final CsvImportOutcome? lastCsvImportOutcome;
 
+  /// spec-008 T504: the redacted review in progress (opaque ids, choices,
+  /// counts, phase). Null when no merge review is open.
+  final MergeReviewSummary? mergeReview;
+
+  /// The last commit outcome: counts and codes only.
+  final MergeCommitOutcome? mergeCommitOutcome;
+
+  /// The last merge failure, as a safe code.
+  final MergeFailureCode? mergeFailureCode;
+
+  final bool isMergeBusy;
+
   int get duplicateGroupCount => duplicateGroups.length;
 
   /// spec-019 FR-002a — the number `All items` carries.
@@ -201,6 +218,10 @@ class VaultState extends Equatable {
     AndroidAutofillPendingSave? pendingAndroidAutofillSave,
     VaultHealthReport? healthReport,
     CsvImportOutcome? lastCsvImportOutcome,
+    MergeReviewSummary? mergeReview,
+    MergeCommitOutcome? mergeCommitOutcome,
+    MergeFailureCode? mergeFailureCode,
+    bool? isMergeBusy,
     bool clearError = false,
     bool clearInfo = false,
     bool clearSyncError = false,
@@ -209,6 +230,9 @@ class VaultState extends Equatable {
     bool clearSyncReloadPending = false,
     bool clearCsvImportOutcome = false,
     bool clearPendingAndroidAutofillSave = false,
+    bool clearMergeReview = false,
+    bool clearMergeCommitOutcome = false,
+    bool clearMergeFailureCode = false,
   }) {
     return VaultState(
       databasePath: databasePath,
@@ -271,6 +295,14 @@ class VaultState extends Equatable {
       lastCsvImportOutcome: clearCsvImportOutcome
           ? null
           : lastCsvImportOutcome ?? this.lastCsvImportOutcome,
+      mergeReview: clearMergeReview ? null : mergeReview ?? this.mergeReview,
+      mergeCommitOutcome: clearMergeCommitOutcome
+          ? null
+          : mergeCommitOutcome ?? this.mergeCommitOutcome,
+      mergeFailureCode: clearMergeFailureCode
+          ? null
+          : mergeFailureCode ?? this.mergeFailureCode,
+      isMergeBusy: isMergeBusy ?? this.isMergeBusy,
     );
   }
 
@@ -364,6 +396,10 @@ class VaultState extends Equatable {
     healthReport.score,
     for (final category in healthReport.categories) category.count,
     lastCsvImportOutcome,
+    mergeReview,
+    mergeCommitOutcome,
+    mergeFailureCode,
+    isMergeBusy,
   ];
 
   @override
@@ -410,6 +446,10 @@ class VaultState extends Equatable {
         'pendingAndroidAutofillSave: '
         '${pendingAndroidAutofillSave != null}, '
         'healthReport.score: ${healthReport.score}, '
-        'lastCsvImportOutcome: ${lastCsvImportOutcome != null})';
+        'lastCsvImportOutcome: ${lastCsvImportOutcome != null}, '
+        'mergeReview: ${mergeReview?.phase}, '
+        'mergeCommitOutcome: ${mergeCommitOutcome?.runtimeType}, '
+        'mergeFailureCode: $mergeFailureCode, '
+        'isMergeBusy: $isMergeBusy)';
   }
 }
