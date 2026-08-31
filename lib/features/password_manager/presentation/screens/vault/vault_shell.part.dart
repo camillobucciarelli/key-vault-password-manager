@@ -16,7 +16,6 @@ class _VaultUiTokens {
   static const double recordListSpacing = 8;
   static const Duration itemTransitionDuration = Duration(milliseconds: 190);
   static const Duration buttonTransitionDuration = Duration(milliseconds: 220);
-  static const Duration backgroundLockTimeout = Duration(seconds: 30);
 }
 
 class VaultScreen extends StatelessWidget {
@@ -441,7 +440,12 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     final elapsed = backgroundedAt != null
         ? DateTime.now().difference(backgroundedAt)
         : Duration.zero;
-    final shouldLock = elapsed >= _VaultUiTokens.backgroundLockTimeout;
+    // 2026-08-31: auto-lock happens ONLY when the user configured it, and
+    // only after the configured time — the old fixed 30 s background rule
+    // locked vaults whose setting says `Never`.
+    final timeoutSeconds = _inactivityTimeoutSeconds;
+    final shouldLock =
+        timeoutSeconds != null && elapsed >= Duration(seconds: timeoutSeconds);
 
     setState(() {
       _isBackground = false;
@@ -792,13 +796,13 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                                   // records list, at every width. Its actions
                                   // did not go away — they moved to the header
                                   // below and to the folder column (FR-015).
-                                  if (!_effectiveLayout(context)
-                                      .hasFolderPane) ...[
+                                  if (!_effectiveLayout(
+                                    context,
+                                  ).hasFolderPane) ...[
                                     _VaultListHeader(
                                       onAddRecord: () =>
                                           _createRecordInCurrentFolder(context),
-                                      onOpenSort: () =>
-                                          _showSortSheet(context),
+                                      onOpenSort: () => _showSortSheet(context),
                                       onOpenRecycleBin: () {
                                         unawaited(
                                           _showRecycleBinDialog(context),
@@ -861,6 +865,9 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                               activePane: _activePane,
                               vaultPane: vaultPane,
                               onSelectDestination: _selectDestination,
+                              settingsNeedsAttention:
+                                  _inactivityTimeoutSeconds == null,
+                              onSecuritySettingsChanged: _loadInactivityTimeout,
                               onBackFromPane: _router.requestCancelCurrentPane,
                               onCloseDatabase: () =>
                                   _closeCurrentDatabaseAndSelectAnother(
@@ -1026,7 +1033,17 @@ class _VaultNavigationLayout extends StatelessWidget {
     required this.onOpenRecycleBin,
     required this.onOpenDuplicates,
     required this.onChangeDatabase,
+    required this.settingsNeedsAttention,
+    required this.onSecuritySettingsChanged,
   });
+
+  /// True while auto-lock is not configured for the open database — the
+  /// Settings destination then carries an attention badge.
+  final bool settingsNeedsAttention;
+
+  /// Called after the security settings change, so the shell reloads the
+  /// auto-lock timeout (and the badge) without reopening the vault.
+  final VoidCallback onSecuritySettingsChanged;
 
   final VoidCallback onOpenRecycleBin;
   final VoidCallback onOpenDuplicates;
@@ -1060,6 +1077,7 @@ class _VaultNavigationLayout extends StatelessWidget {
           _VaultTabBar(
             selected: selectedDestination,
             onSelected: onSelectDestination,
+            settingsNeedsAttention: settingsNeedsAttention,
           ),
         ],
       );
@@ -1077,6 +1095,7 @@ class _VaultNavigationLayout extends StatelessWidget {
           child: _VaultRail(
             selected: selectedDestination,
             onSelected: onSelectDestination,
+            settingsNeedsAttention: settingsNeedsAttention,
           ),
         ),
         const _VaultVerticalDivider(),
@@ -1100,7 +1119,10 @@ class _VaultNavigationLayout extends StatelessWidget {
     // stopgap ("Settings" didn't have its own screen yet). Backups & import
     // is now reached from a row inside the real Settings destination.
     VaultDestination.settings => _VaultDestinationScaffold(
-      child: _VaultSettingsDestination(onCloseDatabase: onCloseDatabase),
+      child: _VaultSettingsDestination(
+        onCloseDatabase: onCloseDatabase,
+        onSecurityChanged: onSecuritySettingsChanged,
+      ),
     ),
   };
 
@@ -1146,31 +1168,31 @@ class _VaultNavigationLayout extends StatelessWidget {
           VaultColumns.listMax,
         );
         return Row(
-      children: [
-        if (layout.hasFolderPane) ...[
-          SizedBox(
-            key: const ValueKey('vault-folder-pane'),
-            width: folderWidth,
-            child: const _VaultFolderColumn(),
-          ),
-          const _VaultVerticalDivider(),
-        ],
-        SizedBox(
-          key: const ValueKey('vault-list-pane'),
-          width: listWidth,
-          child: vaultPane,
-        ),
-        const _VaultVerticalDivider(),
-        // FR-002c: the detail pane is persistent — always present, showing
-        // the empty state when nothing is selected, never a pane that only
-        // materialises once a surface opens.
-        Expanded(
-          key: const ValueKey('vault-detail-pane'),
-          child: activePane == null
-              ? const _EntryDetailEmptyState()
-              : _VaultPaneHost(pane: activePane!, onBack: onBackFromPane),
-        ),
-      ],
+          children: [
+            if (layout.hasFolderPane) ...[
+              SizedBox(
+                key: const ValueKey('vault-folder-pane'),
+                width: folderWidth,
+                child: const _VaultFolderColumn(),
+              ),
+              const _VaultVerticalDivider(),
+            ],
+            SizedBox(
+              key: const ValueKey('vault-list-pane'),
+              width: listWidth,
+              child: vaultPane,
+            ),
+            const _VaultVerticalDivider(),
+            // FR-002c: the detail pane is persistent — always present, showing
+            // the empty state when nothing is selected, never a pane that only
+            // materialises once a surface opens.
+            Expanded(
+              key: const ValueKey('vault-detail-pane'),
+              child: activePane == null
+                  ? const _EntryDetailEmptyState()
+                  : _VaultPaneHost(pane: activePane!, onBack: onBackFromPane),
+            ),
+          ],
         );
       },
     );
@@ -1190,10 +1212,17 @@ class _VaultVerticalDivider extends StatelessWidget {
 }
 
 class _VaultTabBar extends StatelessWidget {
-  const _VaultTabBar({required this.selected, required this.onSelected});
+  const _VaultTabBar({
+    required this.selected,
+    required this.onSelected,
+    this.settingsNeedsAttention = false,
+  });
 
   final VaultDestination selected;
   final ValueChanged<VaultDestination> onSelected;
+
+  /// Auto-lock unset: the Settings tab carries an attention dot.
+  final bool settingsNeedsAttention;
 
   @override
   Widget build(BuildContext context) {
@@ -1220,26 +1249,31 @@ class _VaultTabBar extends StatelessWidget {
                         children: [
                           // FR-018: same treatment as the rail — one selected
                           // recipe for the chrome, whichever shape it takes.
-                          DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: destination == selected
-                                  ? AppColors.accent200
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(
-                                AppRadii.iconSquare,
-                              ),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 2,
-                              ),
-                              child: KvIcon(
-                                glyph: destination.glyph,
-                                size: 23,
+                          _AttentionBadge(
+                            visible:
+                                settingsNeedsAttention &&
+                                destination == VaultDestination.settings,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
                                 color: destination == selected
-                                    ? AppColors.accent800
-                                    : colors.textSecondary,
+                                    ? AppColors.accent200
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(
+                                  AppRadii.iconSquare,
+                                ),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 2,
+                                ),
+                                child: KvIcon(
+                                  glyph: destination.glyph,
+                                  size: 23,
+                                  color: destination == selected
+                                      ? AppColors.accent800
+                                      : colors.textSecondary,
+                                ),
                               ),
                             ),
                           ),
@@ -1266,40 +1300,91 @@ class _VaultTabBar extends StatelessWidget {
   }
 }
 
+/// A small attention dot pinned to the top-right of [child] — the badge the
+/// Settings destination carries while auto-lock is unset.
+class _AttentionBadge extends StatelessWidget {
+  const _AttentionBadge({required this.visible, required this.child});
+
+  final bool visible;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!visible) return child;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        child,
+        Positioned(
+          top: -1,
+          right: -1,
+          // The dot is decorative here — the Settings screen's disclaimer
+          // carries the message for assistive tech; naming the dot would
+          // merge into the destination's own label and rename it.
+          child: ExcludeSemantics(
+            child: Container(
+              width: 9,
+              height: 9,
+              decoration: const BoxDecoration(
+                color: AppColors.accent500,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _VaultRail extends StatelessWidget {
-  const _VaultRail({required this.selected, required this.onSelected});
+  const _VaultRail({
+    required this.selected,
+    required this.onSelected,
+    this.settingsNeedsAttention = false,
+  });
 
   final VaultDestination selected;
   final ValueChanged<VaultDestination> onSelected;
+
+  /// Auto-lock unset: the Settings tile carries an attention dot.
+  final bool settingsNeedsAttention;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
     Widget button(VaultDestination destination) {
       final isSelected = destination == selected;
+      final showsBadge =
+          settingsNeedsAttention && destination == VaultDestination.settings;
       return Semantics(
         selected: isSelected,
         button: true,
         label: destination.label,
         child: SizedBox.square(
           dimension: 36,
-          child: DecoratedBox(
-            // spec-019 FR-018 / C-03-14: the selected destination is a filled
-            // tile, not a recoloured glyph. The `Semantics(selected:)` above
-            // stays exactly as it was — the fill is in addition to it, never
-            // instead of it (Constitution V).
-            decoration: BoxDecoration(
-              color: isSelected ? AppColors.accent200 : Colors.transparent,
-              borderRadius: BorderRadius.circular(AppRadii.iconSquare),
-            ),
-            child: IconButton(
-              tooltip: destination.label,
-              padding: EdgeInsets.zero,
-              onPressed: () => onSelected(destination),
-              icon: KvIcon(
-                glyph: destination.glyph,
-                size: 22,
-                color: isSelected ? AppColors.accent800 : colors.textSecondary,
+          child: _AttentionBadge(
+            visible: showsBadge,
+            child: DecoratedBox(
+              // spec-019 FR-018 / C-03-14: the selected destination is a filled
+              // tile, not a recoloured glyph. The `Semantics(selected:)` above
+              // stays exactly as it was — the fill is in addition to it, never
+              // instead of it (Constitution V).
+              decoration: BoxDecoration(
+                color: isSelected ? AppColors.accent200 : Colors.transparent,
+                borderRadius: BorderRadius.circular(AppRadii.iconSquare),
+              ),
+              child: IconButton(
+                tooltip: destination.label,
+                padding: EdgeInsets.zero,
+                onPressed: () => onSelected(destination),
+                icon: KvIcon(
+                  glyph: destination.glyph,
+                  size: 22,
+                  color: isSelected
+                      ? AppColors.accent800
+                      : colors.textSecondary,
+                ),
               ),
             ),
           ),
@@ -1338,18 +1423,27 @@ class _VaultRail extends StatelessWidget {
   }
 }
 
-/// Marks the subtree as living inside [_VaultPaneHost].
+/// Marks the subtree as living inside [_VaultPaneHost] and hands it the
+/// host's back action.
 ///
-/// The host draws the back affordance for whatever it hosts, so a pane must
-/// not draw a second one. Asking "am I in a pane?" structurally is the fix
-/// for deriving it from the window width: the presentation is chosen when the
-/// surface opens, so a resize made the width answer disagree with the tree
-/// that was actually mounted — and both back buttons appeared at once.
+/// 2026-08-31: the host no longer draws its own back row above the pane —
+/// that stacked a second header over panes that already carry their own
+/// affordance (the detail's header, the editor's Cancel, every dialog-shaped
+/// pane's actions). The pane that wants a back button draws it inline and
+/// calls [onBackOf]. Asking "am I in a pane?" structurally remains the fix
+/// for deriving it from the window width: the presentation is chosen when
+/// the surface opens, so a resize made the width answer disagree with the
+/// tree that was actually mounted — and both back buttons appeared at once.
 class _VaultPaneScope extends InheritedWidget {
-  const _VaultPaneScope({required super.child});
+  const _VaultPaneScope({required this.onBack, required super.child});
+
+  final Future<bool> Function() onBack;
 
   static bool of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<_VaultPaneScope>() != null;
+
+  static Future<bool> Function()? onBackOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_VaultPaneScope>()?.onBack;
 
   @override
   bool updateShouldNotify(_VaultPaneScope oldWidget) => false;
@@ -1363,38 +1457,11 @@ class _VaultPaneHost extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            // PIXEL_SPEC §2: icon buttons are 36 px circles on the surface
-            // ramp with a 17-19 px glyph, never a bare Material button.
-            child: SizedBox.square(
-              dimension: 36,
-              child: IconButton(
-                key: const ValueKey('vault-pane-back'),
-                tooltip: 'Back',
-                onPressed: onBack,
-                style: IconButton.styleFrom(
-                  backgroundColor: colors.surface,
-                  shape: const CircleBorder(),
-                  padding: EdgeInsets.zero,
-                ),
-                icon: KvIcon(
-                  glyph: AppGlyph.back,
-                  size: 19,
-                  color: colors.iconNeutral,
-                ),
-              ),
-            ),
-          ),
-        ),
-        Expanded(child: _VaultPaneScope(child: pane)),
-      ],
+    // SizedBox.expand: the pane row centers non-stretched children, and a
+    // scroll-view pane shrink-wraps — without tight constraints the detail
+    // floated vertically centered instead of starting at the top.
+    return SizedBox.expand(
+      child: _VaultPaneScope(onBack: onBack, child: pane),
     );
   }
 }

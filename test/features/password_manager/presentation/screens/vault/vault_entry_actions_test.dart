@@ -82,7 +82,7 @@ void main() {
     await tester.enterText(inDetail(find.byType(TextField)).first, newTitle);
     await tester.pumpAndSettle();
 
-    await tester.tap(inDetail(find.text('Save')));
+    await tester.tap(inDetail(find.byTooltip('Save')));
     await tester.pumpAndSettle();
   }
 
@@ -192,7 +192,7 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(service.calls, isEmpty, reason: 'G5.5 — nothing was written');
     expect(
-      find.text('Copy password'),
+      find.byKey(const ValueKey('entry-detail-body')),
       findsOneWidget,
       reason: 'G5.5 — the record is still shown and still selected',
     );

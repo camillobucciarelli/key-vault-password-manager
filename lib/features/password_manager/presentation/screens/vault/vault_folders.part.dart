@@ -32,7 +32,10 @@ class _VaultFolderColumn extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+              // 2026-08-31: 26 aligns the column's first element with the
+              // list card's search field and the detail's header row — the
+              // three sections share one visual top.
+              padding: const EdgeInsets.fromLTRB(14, 26, 14, 4),
               child: Text(
                 // FR-001: the column is titled with the database the user
                 // opened, not with the word "Folders" — which told them

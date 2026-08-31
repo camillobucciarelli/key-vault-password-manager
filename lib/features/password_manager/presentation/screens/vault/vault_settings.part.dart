@@ -14,7 +14,14 @@ part of '../vault_screen.dart';
 // (T3) sets `changePassword: true`.
 
 class _VaultSettingsDestination extends StatefulWidget {
-  const _VaultSettingsDestination({required this.onCloseDatabase});
+  const _VaultSettingsDestination({
+    required this.onCloseDatabase,
+    this.onSecurityChanged,
+  });
+
+  /// Notifies the shell that the security profile changed, so it reloads the
+  /// auto-lock timeout and the Settings attention badge.
+  final VoidCallback? onSecurityChanged;
 
   /// Reuses `_VaultViewState._closeCurrentDatabaseAndSelectAnother` — same
   /// confirm dialog + `VaultSessionCoordinator.changeDatabase` + navigation
@@ -130,7 +137,9 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
     setState(() => _inactivityTimeoutSeconds = seconds);
     if (!await _persist(databasePath) && mounted) {
       setState(() => _inactivityTimeoutSeconds = previous);
+      return;
     }
+    widget.onSecurityChanged?.call();
   }
 
   Future<void> _pickKeyFile(String databasePath) async {
@@ -297,6 +306,42 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
                     ? null
                     : () => _pickInactivityTimeout(databasePath),
               ),
+              // 2026-08-31: auto-lock only runs when configured, so an
+              // unset vault says so where it can be fixed (the rail badge
+              // points here).
+              if (_inactivityTimeoutSeconds == null) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: colors.attentionTint,
+                    border: Border.all(color: colors.actionFill),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    children: [
+                      KvIcon(
+                        glyph: AppGlyph.lock,
+                        size: 17,
+                        color: colors.attentionText,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Auto-lock is off. Enable it so the vault locks '
+                          'itself when you step away.',
+                          style: AppTextStyles.secondary.copyWith(
+                            color: colors.attentionText,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 8),
               _SettingsRow(
                 glyph: AppGlyph.lock,

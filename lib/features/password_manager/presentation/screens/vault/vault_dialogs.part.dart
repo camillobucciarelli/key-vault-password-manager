@@ -32,7 +32,17 @@ Future<GroupEditResult?> _showGroupDialog(
                 initialValue: initialName ?? '',
                 autofocus: true,
                 decoration: const InputDecoration(labelText: 'Folder name'),
+                textInputAction: TextInputAction.done,
                 onChanged: (value) => name = value,
+                // Enter submits, same as the Create button.
+                onFieldSubmitted: (_) {
+                  if (!formKey.currentState!.validate()) {
+                    return;
+                  }
+                  VaultOperationScope.of(
+                    context,
+                  ).complete(GroupEditResult(name.trim()));
+                },
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
                     return 'Folder name is required.';

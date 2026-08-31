@@ -139,7 +139,7 @@ void main() {
 
         await tester.tap(find.text('GitHub').first);
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Copy password'));
+        await tester.tap(find.byTooltip('Copy').first);
         await tester.pump();
 
         expect(

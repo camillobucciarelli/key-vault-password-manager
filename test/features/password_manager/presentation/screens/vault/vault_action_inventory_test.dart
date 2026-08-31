@@ -45,8 +45,10 @@ void main() {
     'Close',
     'Connect Google Drive',
     'Copy',
-    'Copy password',
-    'Copy username',
+    // 2026-08-31: the `Copy password` / `Copy username` pills were removed
+    // at the user's direction — every field row carries its own copy button
+    // (tooltip 'Copy', pinned above), so the capability survives; only the
+    // redundant pills left.
     'Custom field',
     'Database settings',
     'Delete',

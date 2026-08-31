@@ -43,7 +43,7 @@ void main() {
         await pumpAt(tester, width);
         await openRecord(tester, 'Gmail');
 
-        expect(find.text('Copy password'), findsWidgets);
+        expect(find.byTooltip('Copy'), findsWidgets);
         expect(find.byTooltip('Open website'), findsOneWidget);
         // No pill labelled with the host or the URL survives.
         expect(find.textContaining('Open mail.google.com'), findsNothing);
@@ -80,7 +80,7 @@ void main() {
       await tester.enterText(urlField.first, '');
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Save').last);
+      await tester.tap(find.byTooltip('Save'));
       await tester.pumpAndSettle();
 
       expect(find.byTooltip('Open website'), findsNothing);

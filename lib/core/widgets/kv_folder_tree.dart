@@ -122,7 +122,7 @@ class KvFolderTree extends StatelessWidget {
   }
 }
 
-class _KvFolderRow extends StatelessWidget {
+class _KvFolderRow extends StatefulWidget {
   const _KvFolderRow({
     required this.node,
     required this.isSelected,
@@ -136,6 +136,19 @@ class _KvFolderRow extends StatelessWidget {
   final VoidCallback onSelect;
   final VoidCallback onToggleExpanded;
   final ValueChanged<KvFolderAction>? onAction;
+
+  @override
+  State<_KvFolderRow> createState() => _KvFolderRowState();
+}
+
+class _KvFolderRowState extends State<_KvFolderRow> {
+  bool _hovered = false;
+
+  KvFolderNode get node => widget.node;
+  bool get isSelected => widget.isSelected;
+  VoidCallback get onSelect => widget.onSelect;
+  VoidCallback get onToggleExpanded => widget.onToggleExpanded;
+  ValueChanged<KvFolderAction>? get onAction => widget.onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -214,11 +227,19 @@ class _KvFolderRow extends StatelessWidget {
           // span, so nothing looks detached from the row it acts on.
           Expanded(
             child: DecoratedBox(
+              // 2026-08-31: same hover/selected recipe as the records list —
+              // selected is accent-200 fill with an accent-400 border, hover
+              // is a half-alpha selection border on a transparent fill,
+              // never a solid wash.
               decoration: BoxDecoration(
                 color: isSelected ? AppColors.accent200 : Colors.transparent,
-                // Same radius as the theme's IconButtons: the chevron and `•••`
-                // hover inside this row, and two radii in one row read as a
-                // mistake.
+                border: Border.all(
+                  color: isSelected
+                      ? AppColors.accent400
+                      : _hovered
+                      ? colors.selectionBorder.withValues(alpha: 0.5)
+                      : Colors.transparent,
+                ),
                 borderRadius: BorderRadius.circular(AppRadii.iconSquare),
               ),
               // The InkWell spans the whole decorated row — `•••` included —
@@ -233,6 +254,11 @@ class _KvFolderRow extends StatelessWidget {
                   color: Colors.transparent,
                   child: InkWell(
                     onTap: onSelect,
+                    onHover: (hovered) =>
+                        setState(() => _hovered = hovered),
+                    // The hover state paints the border above — a solid
+                    // hoverColor wash here would fight the records recipe.
+                    hoverColor: Colors.transparent,
                     // When a dialog opened from this row closes, focus falls
                     // back here and the theme's focusColor (accent-400) would
                     // stay painted until the next click — a row that reads as

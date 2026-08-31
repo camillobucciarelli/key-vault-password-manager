@@ -194,6 +194,11 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: colors.surfaceNested,
+        // 2026-08-31: hover and focus act on the BORDER only. The default
+        // blends hoverColor into the fill, which darkened the field enough
+        // to drown the text-selection highlight.
+        hoverColor: Colors.transparent,
+        focusColor: Colors.transparent,
         constraints: const BoxConstraints(minHeight: 52),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 14,
@@ -421,7 +426,9 @@ class AppTheme {
   // external gap where a caller can share its FocusNode with the control.
   static OutlineInputBorder _inputBorder(Color color, {double width = 1}) =>
       OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadii.rowNested),
+        // AppRadii.row: one radius for every text field — the search bar
+        // (this theme) and the editor's fields (_kvFieldDecoration) agree.
+        borderRadius: BorderRadius.circular(AppRadii.row),
         borderSide: BorderSide(color: color, width: width),
       );
 }

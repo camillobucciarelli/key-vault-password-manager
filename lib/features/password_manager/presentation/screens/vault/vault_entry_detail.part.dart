@@ -166,8 +166,6 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
   Widget build(BuildContext context) {
     final entry = widget.entry;
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    final width = MediaQuery.sizeOf(context).width;
-    final isWide = width >= Breakpoints.mobile;
     final databasePath = context.read<VaultBloc>().state.databasePath;
 
     final title = entry.title.isEmpty ? '(Untitled)' : entry.title;
@@ -198,7 +196,11 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
 
     return SafeArea(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 6, 20, 30),
+        // Stable handle for tests: "a detail is shown" used to be asserted
+        // via the `Copy password` pill, which is gone (2026-08-31).
+        key: const ValueKey('entry-detail-body'),
+        // Top 26: one visual top across folder column, list card and detail.
+        padding: const EdgeInsets.fromLTRB(20, 26, 20, 30),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -373,7 +375,22 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                     _copy(text: entry.notes, message: 'Copied notes.'),
               ),
             ],
-            if (entry.attachments.isNotEmpty || customFields.isNotEmpty) ...[
+            // 2026-08-31: custom fields are ordinary rows of the list, not a
+            // count hidden behind a chip.
+            for (final field in customFields) ...[
+              const SizedBox(height: 9),
+              KvFieldRow(
+                label: field.key,
+                value: field.value.isEmpty ? 'Value not set' : field.value,
+                onCopy: field.value.isEmpty
+                    ? null
+                    : () => _copy(
+                        text: field.value,
+                        message: 'Copied ${field.key}.',
+                      ),
+              ),
+            ],
+            if (entry.attachments.isNotEmpty) ...[
               const SizedBox(height: 16),
               Text(
                 'More',
@@ -386,71 +403,17 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  if (entry.attachments.isNotEmpty)
-                    _MoreChip(
-                      icon: AppGlyph.attachment,
-                      label:
-                          '${entry.attachments.length} attachment${entry.attachments.length == 1 ? '' : 's'}',
-                      onTap: widget.onSelectedAction == null
-                          ? null
-                          : () => widget.onSelectedAction!(
-                              _EntryAction.attachments,
-                            ),
-                    ),
-                  if (customFields.isNotEmpty)
-                    _MoreChip(
-                      icon: AppGlyph.rowsDiff,
-                      label:
-                          '${customFields.length} custom field${customFields.length == 1 ? '' : 's'}',
-                      onTap: () =>
-                          _showCustomFieldsSheet(context, customFields, _copy),
-                    ),
-                ],
-              ),
-            ],
-            // spec-019 C-04-03, amended 2026-08-30 — the action row is
-            // `Copy password` · `Copy username`; opening the site moved onto
-            // the Website field itself.
-            if (isWide) ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: _CopyPill(
-                      label: 'Copy password',
-                      primary: true,
-                      onTap: entry.password.isEmpty
-                          ? null
-                          : () => _copy(
-                              text: entry.password,
-                              message: 'Copied password.',
-                            ),
-                    ),
+                  _MoreChip(
+                    icon: AppGlyph.attachment,
+                    label:
+                        '${entry.attachments.length} attachment${entry.attachments.length == 1 ? '' : 's'}',
+                    onTap: widget.onSelectedAction == null
+                        ? null
+                        : () => widget.onSelectedAction!(
+                            _EntryAction.attachments,
+                          ),
                   ),
-                  if (entry.username.isNotEmpty) ...[
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _CopyPill(
-                        label: 'Copy username',
-                        primary: false,
-                        onTap: () => _copy(
-                          text: entry.username,
-                          message: 'Copied username.',
-                        ),
-                      ),
-                    ),
-                  ],
                 ],
-              ),
-            ] else ...[
-              KvPillButton(
-                label: 'Copy password',
-                icon: null,
-                onPressed: entry.password.isEmpty
-                    ? null
-                    : () => _copy(
-                        text: entry.password,
-                        message: 'Copied password.',
-                      ),
               ),
             ],
           ],
@@ -475,6 +438,16 @@ class _DetailHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
 
+    // 2026-08-31: in the two/three-column layouts the detail carries no back
+    // at all — the list beside it IS the navigation. But a pane opened wide
+    // and then resized below the detail-pane threshold fills the window with
+    // no list beside it, so THERE the back must reappear or the user is
+    // stuck. The pushed route on the phone keeps its own.
+    final paneBack = _VaultPaneScope.onBackOf(context);
+    final isSoleColumn = !VaultLayoutClass.fromWidth(
+      MediaQuery.sizeOf(context).width,
+    ).hasDetailPane;
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -483,6 +456,12 @@ class _DetailHeader extends StatelessWidget {
             glyph: AppGlyph.back,
             tooltip: 'Back',
             onPressed: () => Navigator.maybePop(context),
+          )
+        else if (paneBack != null && isSoleColumn)
+          KvCircleIconButton(
+            glyph: AppGlyph.back,
+            tooltip: 'Back',
+            onPressed: () => unawaited(paneBack()),
           )
         else
           const SizedBox(width: 36, height: 36),
@@ -609,52 +588,6 @@ class _MoreChip extends StatelessWidget {
                 ),
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CopyPill extends StatelessWidget {
-  const _CopyPill({
-    required this.label,
-    required this.primary,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool primary;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    return Material(
-      color: primary ? colors.actionFill : colors.surface,
-      shape: const StadiumBorder(),
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const StadiumBorder(),
-        child: Container(
-          height: 46,
-          alignment: Alignment.center,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: primary
-                ? TextStyle(
-                    fontFamily: AppTextStyles.headingFamily,
-                    fontSize: 14,
-                    color: colors.actionText,
-                  )
-                : AppTextStyles.secondary.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: colors.textPrimary,
-                  ),
           ),
         ),
       ),
@@ -822,61 +755,6 @@ class _BiometricRevealGateSheetState extends State<_BiometricRevealGateSheet> {
       ),
     );
   }
-}
-
-Future<void> _showCustomFieldsSheet(
-  BuildContext context,
-  List<VaultCustomField> fields,
-  Future<void> Function({required String text, required String message}) copy,
-) {
-  return KvBottomSheet.show<void>(
-    context: context,
-    builder: (sheetContext) {
-      final colors = Theme.of(sheetContext).extension<KeyVaultColors>()!;
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(18, 20, 18, 26),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 46,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: colors.divider,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              'Custom fields',
-              style: AppTextStyles.sheetTitle.copyWith(
-                color: colors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 12),
-            for (var i = 0; i < fields.length; i++) ...[
-              if (i > 0) const SizedBox(height: 8),
-              KvFieldRow(
-                label: fields[i].key,
-                value: fields[i].value.isEmpty
-                    ? 'Value not set'
-                    : fields[i].value,
-                onCopy: fields[i].value.isEmpty
-                    ? null
-                    : () => copy(
-                        text: fields[i].value,
-                        message: 'Copied ${fields[i].key}.',
-                      ),
-              ),
-            ],
-          ],
-        ),
-      );
-    },
-  );
 }
 
 String _folderNameFor(BuildContext context, String groupId) {
