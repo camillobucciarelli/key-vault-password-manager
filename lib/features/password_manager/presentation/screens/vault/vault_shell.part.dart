@@ -924,6 +924,7 @@ bool _syncStatusStripBuildWhen(VaultState previous, VaultState current) {
       previous.linkedDriveFileName != current.linkedDriveFileName ||
       previous.syncStatus != current.syncStatus ||
       previous.lastSyncAt != current.lastSyncAt ||
+      previous.lastSyncedLocalChecksum != current.lastSyncedLocalChecksum ||
       previous.autoSyncEnabled != current.autoSyncEnabled ||
       previous.isSyncing != current.isSyncing ||
       previous.isOffline != current.isOffline ||

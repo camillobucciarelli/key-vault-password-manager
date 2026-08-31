@@ -42,6 +42,7 @@ class VaultState extends Equatable {
     this.syncError,
     this.driveReconnectRequired = false,
     this.lastSyncAt,
+    this.lastSyncedLocalChecksum,
     this.pendingSyncConflict,
     this.remoteDriveFiles = const [],
     this.isLoadingRemoteDriveFiles = false,
@@ -103,6 +104,11 @@ class VaultState extends Equatable {
   final String? syncError;
   final bool driveReconnectRequired;
   final DateTime? lastSyncAt;
+
+  /// The local file's checksum recorded at the last successful sync
+  /// (`DatabaseSyncMapping.lastSyncedLocalChecksum`) — surfaced so the Sync
+  /// destination can show it instead of a hard-coded null.
+  final String? lastSyncedLocalChecksum;
   final SyncConflict? pendingSyncConflict;
   final List<DriveRemoteFile> remoteDriveFiles;
   final bool isLoadingRemoteDriveFiles;
@@ -179,6 +185,7 @@ class VaultState extends Equatable {
     String? syncError,
     bool? driveReconnectRequired,
     DateTime? lastSyncAt,
+    String? lastSyncedLocalChecksum,
     SyncConflict? pendingSyncConflict,
     List<DriveRemoteFile>? remoteDriveFiles,
     bool? isLoadingRemoteDriveFiles,
@@ -231,6 +238,8 @@ class VaultState extends Equatable {
       driveReconnectRequired:
           driveReconnectRequired ?? this.driveReconnectRequired,
       lastSyncAt: lastSyncAt ?? this.lastSyncAt,
+      lastSyncedLocalChecksum:
+          lastSyncedLocalChecksum ?? this.lastSyncedLocalChecksum,
       pendingSyncConflict: clearSyncConflict
           ? null
           : pendingSyncConflict ?? this.pendingSyncConflict,
@@ -333,6 +342,7 @@ class VaultState extends Equatable {
     syncError,
     driveReconnectRequired,
     lastSyncAt,
+    lastSyncedLocalChecksum,
     pendingSyncConflict,
     remoteDriveFiles,
     isLoadingRemoteDriveFiles,

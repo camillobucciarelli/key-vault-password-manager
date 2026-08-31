@@ -192,11 +192,11 @@ void main() {
           0,
           reason:
               'no Drive auth call may happen before the user taps '
-              '"Connect Google account"',
+              'the Google Drive provider tile',
         );
 
         // Now the user acts — only then is the auth call allowed.
-        await tester.tap(find.text('Connect Google account'));
+        await tester.tap(find.text('Google Drive'));
         await tester.pumpAndSettle();
 
         expect(spyRepo.connectCallCount, 1);

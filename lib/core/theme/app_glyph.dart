@@ -38,6 +38,7 @@ enum AppGlyph {
   settings('settings'),
   globe('globe'),
   linkSimple('external-link'),
+  link('link'),
   desktop('monitor'),
   sun('sun'),
   moon('moon'),

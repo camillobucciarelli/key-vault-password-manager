@@ -58,7 +58,7 @@ class _VaultSyncDestinationState extends State<_VaultSyncDestination> {
                 isDriveLinked: state.isDriveLinked,
                 linkedDriveFileName: state.linkedDriveFileName,
                 lastSyncAt: state.lastSyncAt,
-                localChecksum: null,
+                localChecksum: state.lastSyncedLocalChecksum,
                 autoSyncEnabled: state.autoSyncEnabled,
                 syncError: state.syncError,
                 reconnectRequired: state.driveReconnectRequired,
@@ -144,10 +144,12 @@ Future<void> _pickExistingDriveFile(BuildContext context) async {
     ),
   );
 
-  if (result is ExistingDriveLinkResult && context.mounted) {
-    context.read<VaultBloc>().add(
-      LinkCurrentDatabaseToDrive(remoteFileId: result.remoteFileId),
-    );
+  // On desktop the picker is a pane that REPLACES this destination's body,
+  // so `context` is unmounted by the time the await resolves — dispatch on
+  // the captured bloc, never through the dead context (the "Link does
+  // nothing" defect, 2026-08-31).
+  if (result is ExistingDriveLinkResult && !bloc.isClosed) {
+    bloc.add(LinkCurrentDatabaseToDrive(remoteFileId: result.remoteFileId));
   }
 }
 
@@ -231,18 +233,15 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+              padding: const EdgeInsets.fromLTRB(18, 12, 14, 0),
               child: Row(
                 children: [
-                  IconButton(
+                  KvCircleIconButton(
+                    glyph: AppGlyph.back,
+                    tooltip: 'Back',
                     onPressed: () => VaultOperationScope.of(context).cancel(),
-                    icon: KvIcon(
-                      glyph: AppGlyph.close,
-                      size: 19,
-                      color: colors.textPrimary,
-                    ),
                   ),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 12),
                   Text(
                     'Link to a Drive file',
                     style: AppTextStyles.panelTitleLarge.copyWith(
@@ -370,7 +369,6 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
                       ),
                     );
                   }
-                  _selectedId ??= state.remoteDriveFiles.first.id;
                   return ListView.separated(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     itemCount: state.remoteDriveFiles.length,
@@ -381,7 +379,11 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
                         file: file,
                         selected: _selectedId == file.id,
                         isLinkedElsewhere: _isLinkedElsewhere(file.id),
-                        onTap: () => setState(() => _selectedId = file.id),
+                        onTap: () => setState(
+                          () => _selectedId =
+                              _selectedId == file.id ? null : file.id,
+                        ),
+                        onLink: _completeSelectedLink,
                       );
                     },
                   );
@@ -389,7 +391,7 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
               child: Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
@@ -408,47 +410,6 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
                 ),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: KvSecondaryPillButton(
-                      label: 'Cancel',
-                      onPressed: () => VaultOperationScope.of(context).cancel(),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    flex: 2,
-                    child: BlocBuilder<VaultBloc, VaultState>(
-                      buildWhen: (previous, next) =>
-                          previous.isDriveConnected != next.isDriveConnected ||
-                          previous.isLoadingRemoteDriveFiles !=
-                              next.isLoadingRemoteDriveFiles ||
-                          previous.remoteDriveFilesError !=
-                              next.remoteDriveFilesError ||
-                          previous.remoteDriveFiles != next.remoteDriveFiles,
-                      builder: (context, state) {
-                        final canLink =
-                            !_isReconnecting &&
-                            _selectedId != null &&
-                            state.isDriveConnected &&
-                            !state.isLoadingRemoteDriveFiles &&
-                            state.remoteDriveFilesError == null &&
-                            state.remoteDriveFiles.any(
-                              (file) => file.id == _selectedId,
-                            );
-                        return KvPillButton(
-                          label: 'Link',
-                          onPressed: canLink ? _completeSelectedLink : null,
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ],
         ),
       ),
@@ -460,6 +421,10 @@ Future<void> _showSyncConflictDialog(
   BuildContext context,
   SyncConflict conflict,
 ) async {
+  // Captured before the await: on desktop the conflict surface is a pane
+  // that replaces this destination's body, unmounting `context` (same
+  // defect as _pickExistingDriveFile).
+  final bloc = context.read<VaultBloc>();
   final resolution = await VaultShellRouterScope.of(context)
       .open<SyncConflictRouteResult>(
         context: context,
@@ -468,20 +433,18 @@ Future<void> _showSyncConflictDialog(
         ),
       );
 
-  if (!context.mounted) {
+  if (bloc.isClosed) {
     return;
   }
 
-  context.read<VaultBloc>().add(const ClearVaultSyncFeedback());
+  bloc.add(const ClearVaultSyncFeedback());
 
   if (resolution == null ||
       resolution.resolution == SyncConflictResolution.cancel) {
     return;
   }
 
-  context.read<VaultBloc>().add(
-    SyncCurrentDatabaseNow(resolution: resolution.resolution),
-  );
+  bloc.add(SyncCurrentDatabaseNow(resolution: resolution.resolution));
 }
 
 /// T9: two version cards radius 20 padding 14/16 with a 40 square, checksum

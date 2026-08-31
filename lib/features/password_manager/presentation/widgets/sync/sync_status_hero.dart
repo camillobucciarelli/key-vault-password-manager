@@ -5,6 +5,8 @@ import '../../../../../core/theme/app_radii.dart';
 import '../../../../../core/theme/app_text_styles.dart';
 import '../../../../../core/theme/keyvault_colors.dart';
 import '../../../../../core/widgets/kv_icon.dart';
+import '../../../../../core/widgets/kv_circle_icon_button.dart';
+import '../../../../../core/widgets/kv_list_row.dart';
 import '../../../../../core/widgets/kv_pill_button.dart';
 import '../../../../../core/widgets/kv_spinner.dart';
 import '../../../../../core/widgets/kv_switch.dart';
@@ -26,6 +28,36 @@ class SyncActivityItem {
   final String title;
   final String meta;
 }
+
+/// Presentation descriptor for one cloud sync provider.
+///
+/// UI predisposition for spec-010 (multi-cloud): the setup heroes render a
+/// provider list instead of a hard-coded "Connect Google account" button, so
+/// adding a provider is adding an entry here plus its `onConnect` wiring.
+/// The data layer is still Google-only — this changes nothing below the UI.
+class SyncProviderPresentation {
+  const SyncProviderPresentation({
+    required this.id,
+    required this.name,
+    required this.tagline,
+    required this.glyph,
+  });
+
+  final String id;
+  final String name;
+  final String tagline;
+  final AppGlyph glyph;
+}
+
+/// The providers the UI offers. One today; spec-010 adds more.
+const List<SyncProviderPresentation> kSyncProviders = [
+  SyncProviderPresentation(
+    id: 'google_drive',
+    name: 'Google Drive',
+    tagline: 'Sync via your Google account',
+    glyph: AppGlyph.cloud,
+  ),
+];
 
 /// FR-1 / T5: one widget, one rendered state per `DatabaseSyncStatus` value
 /// (`idle`, `syncing`, `success`, `error`, `conflict`, `disconnected`) —
@@ -198,8 +230,20 @@ class SyncStatusHero extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 18),
-          KvPillButton(label: 'Connect Google account', onPressed: onConnect),
-          const SizedBox(height: 10),
+          Text(
+            'CHOOSE A PROVIDER',
+            style: AppTextStyles.labelUpper.copyWith(
+              color: colors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          // ponytail: single provider today, onConnect goes to it directly;
+          // per-provider callbacks arrive with spec-010.
+          for (final provider in kSyncProviders) ...[
+            _providerTile(context, provider, onTap: onConnect),
+            const SizedBox(height: 8),
+          ],
+          const SizedBox(height: 4),
           KvSecondaryPillButton(
             label: 'Export a backup instead',
             onPressed: onExportBackup,
@@ -210,57 +254,89 @@ class SyncStatusHero extends StatelessWidget {
   }
 
   // ── connected, not linked ────────────────────────────────────────────
+  // Redesigned 2026-08-31: the previous version painted `ground` rows on an
+  // `attentionTint` card — in light theme those are neutral-100 on
+  // accent-100, nearly the same value, and the whole card read as one
+  // unreadable wash. Neutral `surface` card, a compact attention banner,
+  // and `surfaceNested` rows carry the contrast now.
   Widget _notLinkedHero(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    final provider = kSyncProviders.first;
     return _HeroCard(
-      backgroundColor: colors.attentionTint,
+      backgroundColor: colors.surface,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _glyphCircle(
-                context,
-                glyph: AppGlyph.warning,
-                size: 40,
-                background: colors.actionFill,
-                foreground: colors.actionText,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  "This database isn't linked to a Drive file yet. Nothing "
-                  'is uploaded until you choose one.',
-                  style: AppTextStyles.body.copyWith(
-                    color: colors.attentionText,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _linkOptionRow(
-            context,
-            icon: AppGlyph.add,
-            label: 'Create a new file on Drive',
-            meta: 'My Drive root',
-            onTap: onCreateNewFile,
-          ),
-          const SizedBox(height: 8),
-          _linkOptionRow(
-            context,
-            icon: AppGlyph.search,
-            label: 'Pick an existing .kdbx',
-            onTap: onPickExisting,
-          ),
-          const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
-              color: colors.ground,
+              color: colors.attentionTint,
               borderRadius: BorderRadius.circular(18),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                KvIcon(
+                  glyph: AppGlyph.warning,
+                  size: 18,
+                  color: colors.attentionText,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    "This database isn't linked to a remote file yet. "
+                    'Nothing is uploaded until you choose one.',
+                    style: AppTextStyles.body.copyWith(
+                      color: colors.attentionText,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'PROVIDER',
+            style: AppTextStyles.labelUpper.copyWith(
+              color: colors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _providerTile(
+            context,
+            provider,
+            statusLabel: 'Connected',
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'LINK A FILE',
+            style: AppTextStyles.labelUpper.copyWith(
+              color: colors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          KvListRow(
+            title: 'Create a new file on ${provider.name}',
+            subtitle: 'In My Drive root',
+            backgroundColor: colors.surfaceNested,
+            onTap: onCreateNewFile,
+            leading: _squareGlyph(context, AppGlyph.add),
+          ),
+          const SizedBox(height: 8),
+          KvListRow(
+            title: 'Pick an existing .kdbx',
+            subtitle: 'Browse your ${provider.name} files',
+            backgroundColor: colors.surfaceNested,
+            onTap: onPickExisting,
+            leading: _squareGlyph(context, AppGlyph.search),
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: colors.surfaceNested,
+              borderRadius: BorderRadius.circular(AppRadii.row),
             ),
             child: Row(
               children: [
@@ -285,45 +361,54 @@ class SyncStatusHero extends StatelessWidget {
     );
   }
 
-  Widget _linkOptionRow(
-    BuildContext context, {
-    required AppGlyph icon,
-    required String label,
-    String? meta,
+  /// One provider row for the setup heroes. [onTap] connects it (the
+  /// disconnected hero); [statusLabel] renders instead of a chevron when the
+  /// provider is already connected (the not-linked hero).
+  Widget _providerTile(
+    BuildContext context,
+    SyncProviderPresentation provider, {
     VoidCallback? onTap,
+    String? statusLabel,
   }) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    return Material(
-      color: colors.ground,
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Row(
-            children: [
-              KvIcon(glyph: icon, size: 18, color: colors.textPrimary),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  label,
-                  style: AppTextStyles.rowTitle.copyWith(
-                    color: colors.textPrimary,
-                  ),
-                ),
-              ),
-              if (meta != null)
-                Text(
-                  meta,
-                  style: AppTextStyles.secondary.copyWith(
-                    color: colors.textSecondary,
-                  ),
-                ),
-            ],
-          ),
+    return KvListRow(
+      title: provider.name,
+      subtitle: provider.tagline,
+      backgroundColor: colors.surfaceNested,
+      onTap: onTap,
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: colors.actionFill,
+          borderRadius: BorderRadius.circular(AppRadii.iconSquare),
         ),
+        alignment: Alignment.center,
+        child: KvIcon(glyph: provider.glyph, size: 19, color: colors.actionText),
       ),
+      trailing: statusLabel == null
+          ? null
+          : Text(
+              statusLabel,
+              style: AppTextStyles.secondary.copyWith(
+                fontWeight: FontWeight.w700,
+                color: colors.positiveText,
+              ),
+            ),
+    );
+  }
+
+  Widget _squareGlyph(BuildContext context, AppGlyph glyph) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.iconSquare),
+      ),
+      alignment: Alignment.center,
+      child: KvIcon(glyph: glyph, size: 18, color: colors.textPrimary),
     );
   }
 
@@ -432,13 +517,17 @@ class SyncStatusHero extends StatelessWidget {
   }
 
   // ── success / idle ───────────────────────────────────────────────────
+  // Redesigned 2026-08-31 with the other heroes: neutral `surface` card,
+  // positive status header, provider tile, readable `surfaceNested` rows —
+  // the previous all-green card washed its own key/value rows out.
   Widget _successHero(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    final provider = kSyncProviders.first;
     final activity = recentActivity;
     return _HeroCard(
-      backgroundColor: colors.positiveTint,
+      backgroundColor: colors.surface,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(
@@ -446,7 +535,7 @@ class SyncStatusHero extends StatelessWidget {
               _glyphCircle(
                 context,
                 glyph: AppGlyph.cloudDone,
-                background: colors.positiveFill,
+                background: colors.positiveTint,
                 foreground: colors.positiveText,
               ),
               const SizedBox(width: 14),
@@ -458,7 +547,7 @@ class SyncStatusHero extends StatelessWidget {
                     Text(
                       'Up to date',
                       style: AppTextStyles.panelTitleLarge.copyWith(
-                        color: colors.positiveText,
+                        color: colors.textPrimary,
                       ),
                     ),
                     Text(
@@ -466,54 +555,91 @@ class SyncStatusHero extends StatelessWidget {
                           ? 'No sync yet'
                           : 'Last sync ${_relativeTime(lastSyncAt!, now ?? debugNowOverride ?? DateTime.now())}',
                       style: AppTextStyles.secondary.copyWith(
-                        color: colors.positiveText,
+                        color: colors.textSecondary,
                       ),
                     ),
                   ],
                 ),
               ),
+              KvCircleIconButton(
+                glyph: AppGlyph.sync,
+                tooltip: 'Sync now',
+                filled: true,
+                onPressed: onSyncNow,
+              ),
             ],
           ),
           const SizedBox(height: 14),
-          _kv(
-            context,
-            'Drive file',
-            linkedDriveFileName ?? '—',
-            colors.positiveText,
+          Text(
+            'PROVIDER',
+            style: AppTextStyles.labelUpper.copyWith(
+              color: colors.textSecondary,
+            ),
           ),
-          const SizedBox(height: 7),
-          _kv(
-            context,
-            'Auto-sync',
-            autoSyncEnabled ? 'On' : 'Off',
-            colors.positiveText,
-          ),
-          const SizedBox(height: 7),
-          _kv(
-            context,
-            'Local checksum',
-            _truncateChecksum(localChecksum),
-            colors.positiveText,
-            mono: true,
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: KvPillButton(
-                  label: 'Sync now',
-                  compact: true,
-                  onPressed: onSyncNow,
-                ),
+          const SizedBox(height: 8),
+          KvListRow(
+            title: provider.name,
+            subtitle: linkedDriveFileName ?? provider.tagline,
+            backgroundColor: colors.surfaceNested,
+            leading: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: colors.actionFill,
+                borderRadius: BorderRadius.circular(AppRadii.iconSquare),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: KvSecondaryPillButton(
-                  label: 'Unlink',
-                  onPressed: onUnlink,
-                ),
+              alignment: Alignment.center,
+              child: KvIcon(
+                glyph: provider.glyph,
+                size: 19,
+                color: colors.actionText,
               ),
-            ],
+            ),
+            trailing: KvCircleIconButton(
+              glyph: AppGlyph.cloudOff,
+              tooltip: 'Unlink',
+              onPressed: onUnlink,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: colors.surfaceNested,
+              borderRadius: BorderRadius.circular(AppRadii.row),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Auto-sync',
+                    style: AppTextStyles.rowTitle.copyWith(
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                ),
+                KvSwitch(
+                  value: autoSyncEnabled,
+                  onChanged: onToggleAutoSync,
+                  semanticLabel: 'Auto-sync',
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: colors.surfaceNested,
+              borderRadius: BorderRadius.circular(AppRadii.row),
+            ),
+            child: _kv(
+              context,
+              'Local checksum',
+              _truncateChecksum(localChecksum),
+              colors.textSecondary,
+              mono: true,
+            ),
           ),
           if (activity.isNotEmpty) ...[
             const SizedBox(height: 14),
@@ -729,7 +855,7 @@ class SyncStatusHero extends StatelessWidget {
 
   static String _truncateChecksum(String? checksum) {
     if (checksum == null || checksum.length <= 8) {
-      return checksum ?? '—';
+      return checksum ?? '-';
     }
     return '${checksum.substring(0, 4)}…${checksum.substring(checksum.length - 4)}';
   }

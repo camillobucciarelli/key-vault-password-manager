@@ -175,6 +175,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           linkedDriveFileName: mapping.driveFileName,
           autoSyncEnabled: mapping.autoSyncEnabled,
           lastSyncAt: mapping.lastSyncAt,
+          lastSyncedLocalChecksum: mapping.lastSyncedLocalChecksum,
           syncStatus: DatabaseSyncStatus.idle,
         ),
       );
@@ -1946,6 +1947,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         linkedDriveFileName: mapping?.driveFileName,
         autoSyncEnabled: mapping?.autoSyncEnabled ?? true,
         lastSyncAt: mapping?.lastSyncAt,
+        lastSyncedLocalChecksum: mapping?.lastSyncedLocalChecksum,
       ),
     );
 
@@ -2056,6 +2058,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           linkedDriveFileName: mapping.driveFileName,
           autoSyncEnabled: mapping.autoSyncEnabled,
           lastSyncAt: mapping.lastSyncAt,
+          lastSyncedLocalChecksum: mapping.lastSyncedLocalChecksum,
           syncStatus: DatabaseSyncStatus.success,
           infoMessage: 'Database linked to ${mapping.driveFileName}.',
         ),
@@ -2296,6 +2299,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         linkedDriveFileName: mapping?.driveFileName,
         autoSyncEnabled: mapping?.autoSyncEnabled ?? true,
         lastSyncAt: mapping?.lastSyncAt,
+        lastSyncedLocalChecksum: mapping?.lastSyncedLocalChecksum,
         syncStatus: connected
             ? DatabaseSyncStatus.idle
             : DatabaseSyncStatus.disconnected,
@@ -2826,6 +2830,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           syncStatus: DatabaseSyncStatus.success,
           linkedDriveFileName: mapping?.driveFileName,
           lastSyncAt: mapping?.lastSyncAt ?? DateTime.now(),
+          lastSyncedLocalChecksum: mapping?.lastSyncedLocalChecksum,
           isOffline: false,
           clearSyncError: true,
           clearSyncConflict: true,

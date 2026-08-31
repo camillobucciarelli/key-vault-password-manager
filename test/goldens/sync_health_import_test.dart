@@ -408,7 +408,7 @@ void main() {
     await tester.pumpAndSettle();
 
     repo.syncNowBehavior = _SyncNowBehavior.hang;
-    await tester.tap(find.text('Sync now'));
+    await tester.tap(find.byTooltip('Sync now'));
     // Indeterminate spinner: bounded pumps, not pumpAndSettle.
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
@@ -441,7 +441,7 @@ void main() {
     await tester.pumpAndSettle();
 
     repo.syncNowBehavior = _SyncNowBehavior.offline;
-    await tester.tap(find.text('Sync now'));
+    await tester.tap(find.byTooltip('Sync now'));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
@@ -472,7 +472,7 @@ void main() {
     await tester.pumpAndSettle();
 
     repo.syncNowBehavior = _SyncNowBehavior.error;
-    await tester.tap(find.text('Sync now'));
+    await tester.tap(find.byTooltip('Sync now'));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
@@ -503,7 +503,7 @@ void main() {
     await tester.pumpAndSettle();
 
     repo.syncNowBehavior = _SyncNowBehavior.conflict;
-    await tester.tap(find.text('Sync now'));
+    await tester.tap(find.byTooltip('Sync now'));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
