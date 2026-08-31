@@ -68,7 +68,7 @@ void main() {
       expect(find.byKey(const ValueKey('vault-single-pane')), findsNothing);
       expect(find.byKey(const ValueKey('vault-list-pane')), findsOneWidget);
       expect(find.byKey(const ValueKey('vault-detail-pane')), findsOneWidget);
-      // Below 941 the folder column must not reserve space.
+      // Below 1024 the folder column must not reserve space.
       expect(find.byKey(const ValueKey('vault-folder-pane')), findsNothing);
     });
 
@@ -86,9 +86,10 @@ void main() {
     });
   });
 
-  group('folder-column boundary (941, spec-018 FR-002d)', () {
-    testWidgets('940 has no folder column', (tester) async {
-      await pumpAtWidth(tester, 940);
+  group('folder-column boundary (1024, spec-018 FR-002d amended '
+      '2026-08-31)', () {
+    testWidgets('1023 has no folder column', (tester) async {
+      await pumpAtWidth(tester, 1023);
 
       expect(tester.takeException(), isNull);
       expect(find.byKey(const ValueKey('vault-folder-pane')), findsNothing);
@@ -96,8 +97,8 @@ void main() {
       expect(find.byKey(const ValueKey('vault-detail-pane')), findsOneWidget);
     });
 
-    testWidgets('941 shows the folder column', (tester) async {
-      await pumpAtWidth(tester, 941);
+    testWidgets('1024 shows the folder column', (tester) async {
+      await pumpAtWidth(tester, 1024);
 
       expect(tester.takeException(), isNull);
       expect(find.byKey(const ValueKey('vault-folder-pane')), findsOneWidget);

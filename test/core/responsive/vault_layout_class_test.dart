@@ -13,8 +13,9 @@ void main() {
       expect(VaultLayoutWidths.detailPane, 704);
     });
 
-    test('folderPane is 941 = 72 + 236 + 330 + 300 + 3', () {
-      expect(VaultLayoutWidths.folderPane, 941);
+    // 2026-08-31: raised from the 941 column-minima sum by user direction.
+    test('folderPane is 1024', () {
+      expect(VaultLayoutWidths.folderPane, 1024);
     });
 
     test('generatorColumn is 995 = 72 + 330 + 300 + 290 + 3', () {
@@ -47,7 +48,8 @@ void main() {
       (703, VaultLayoutClass.narrowRail),
       (704, VaultLayoutClass.wide),
       (940, VaultLayoutClass.wide),
-      (941, VaultLayoutClass.wideWithFolders),
+      (941, VaultLayoutClass.wide),
+      (1023, VaultLayoutClass.wide),
       (1024, VaultLayoutClass.wideWithFolders),
       (4000, VaultLayoutClass.wideWithFolders),
     ];
@@ -80,13 +82,16 @@ void main() {
     });
 
     // G1.3 boundaries are the FIRST width of their class
-    test('600, 704 and 941 are the first width of their class', () {
+    test('600, 704 and 1024 are the first width of their class', () {
       expect(VaultLayoutClass.fromWidth(599.5), VaultLayoutClass.narrowTabBar);
       expect(VaultLayoutClass.fromWidth(600), VaultLayoutClass.narrowRail);
       expect(VaultLayoutClass.fromWidth(703.5), VaultLayoutClass.narrowRail);
       expect(VaultLayoutClass.fromWidth(704), VaultLayoutClass.wide);
-      expect(VaultLayoutClass.fromWidth(940.5), VaultLayoutClass.wide);
-      expect(VaultLayoutClass.fromWidth(941), VaultLayoutClass.wideWithFolders);
+      expect(VaultLayoutClass.fromWidth(1023.5), VaultLayoutClass.wide);
+      expect(
+        VaultLayoutClass.fromWidth(1024),
+        VaultLayoutClass.wideWithFolders,
+      );
     });
   });
 

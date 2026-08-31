@@ -65,13 +65,11 @@ class VaultLayoutWidths {
 
   /// At or above this, the folder column joins the strip.
   ///
-  /// `72 + 236 (folders) + 330 + 300 + 3 dividers = 941`
-  static const double folderPane =
-      VaultColumns.rail +
-      VaultColumns.folders +
-      VaultColumns.list +
-      VaultColumns.detailMin +
-      3 * VaultColumns.divider;
+  /// 2026-08-31 (user direction): raised from the bare sum of the column
+  /// minima (`72 + 236 + 330 + 300 + 3 dividers = 941`) to 1024 — at 941
+  /// three columns fit arithmetically but read as cramped, so the folder
+  /// column now waits for a genuinely wide window.
+  static const double folderPane = 1024;
 
   /// At or above this, an open generator is a column rather than a sheet over
   /// the editor. Below it the sheet is a declared fallback, not an accident
