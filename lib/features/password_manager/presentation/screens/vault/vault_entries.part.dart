@@ -774,7 +774,7 @@ class _FolderListItem extends StatelessWidget {
         baseBorderColor: Colors.transparent,
         hoveredBorderColor: colors.selectionBorder.withValues(alpha: 0.5),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
           child: Row(
             children: [
               Container(
@@ -899,9 +899,10 @@ class _BrowserFolderTitle extends StatelessWidget {
           '$count',
           style: AppTextStyles.meta.copyWith(color: colors.textTertiary),
         ),
+        // Same 44 box as the list rows' `•••`, so the dots line up.
         SizedBox(
-          width: 36,
-          height: 36,
+          width: 44,
+          height: 44,
           child: KvContextMenu(
             tooltip: 'Folder actions',
             icon: KvIcon(
