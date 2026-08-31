@@ -50,6 +50,11 @@ abstract interface class AppleAutofillV2Client {
 
   Future<AppleAutofillV2Status> getStatus();
 
+  /// Apple platforms only: whether the Credential Provider extension is
+  /// enabled in system settings (`ASCredentialIdentityStore.getState`).
+  /// `null` where the question does not apply (Android, unsupported).
+  Future<bool?> getExtensionEnabled();
+
   /// Android only: the token of a save capture the app was launched for, or
   /// `null`. Returns the token once; a second call yields `null`.
   Future<String?> takePendingCaptureToken();

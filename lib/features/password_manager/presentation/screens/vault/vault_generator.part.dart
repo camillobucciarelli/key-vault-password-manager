@@ -327,22 +327,38 @@ class _GeneratorSheetScaffoldState extends State<_GeneratorSheetScaffold> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
 
+    // Sheet chrome only when actually hosted as a sheet: on wide layouts
+    // this surface is a pane (`presentationFor`), where a drag handle lies
+    // about the interaction and a back affordance is missing (2026-08-31).
+    final isPane = _VaultPaneScope.of(context);
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 20, 18, 26),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Center(
-            child: Container(
-              width: 46,
-              height: 5,
-              decoration: BoxDecoration(
-                color: colors.divider,
-                borderRadius: BorderRadius.circular(999),
+          if (isPane)
+            Row(
+              children: [
+                KvCircleIconButton(
+                  glyph: AppGlyph.back,
+                  tooltip: 'Back',
+                  onPressed: () => VaultOperationScope.of(context).cancel(),
+                ),
+              ],
+            )
+          else
+            Center(
+              child: Container(
+                width: 46,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: colors.divider,
+                  borderRadius: BorderRadius.circular(999),
+                ),
               ),
             ),
-          ),
           const SizedBox(height: 14),
           _GeneratorPanel(
             initialOptions: widget.initialOptions,

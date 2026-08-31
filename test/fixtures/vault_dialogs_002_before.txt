@@ -42,7 +42,12 @@
 10|_showDuplicatesDialog|Manage duplicates|-|Close|VaultDone?|route|route
 11|_showMergePreviewSheet|What the merge does|-|Merge and move duplicate|ConfirmDecision?|route|route
 12|_showRecordMetadataDialog|Record info|-|Close|VaultDone?|route|pane
-13|_showDatabaseSettings|Database settings|-|Save changes|DatabaseSettingsResult?|route|pane
+# 2026-08-31 supersession (user-directed Settings reorg): row 13's combined
+# "Database settings" dialog is retired. Every capability it carried is an
+# inline Settings row (biometrics, inactivity, master password, key file) and
+# its one unique action became the Settings 'Rename database' row. Row 14's
+# security-confirm sheet lives on in ChangeMasterPasswordScreen.
+#13|_showDatabaseSettings|Database settings|-|Save changes|DatabaseSettingsResult?|route|pane
 14|_showDatabaseSettings.securityConfirm|Confirm security changes|You are about to update: {securityChanges}. Use the new credentials to unlock this vault after saving.|Confirm and apply|ConfirmDecision?|sheet|sheet
 15|_showRecycleBinDialog|Recycle bin|-|-|VaultDone?|route|route
 16|_startCsvImportFlow|Import CSV|-|Import|CsvImportResult?|route|pane

@@ -74,6 +74,8 @@ import '../widgets/internal_key_file_manager_dialog.dart';
 import '../widgets/sync/remote_file_row.dart';
 import '../widgets/sync/sync_status_hero.dart';
 import 'autofill_enablement_screen.dart';
+import '../../data/services/browser_setup_service.dart';
+import '../../domain/repositories/autofill_ports.dart';
 import 'browser_setup_screen.dart';
 import 'change_master_password_screen.dart';
 import 'database_selection_screen.dart';

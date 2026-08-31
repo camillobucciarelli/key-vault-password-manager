@@ -806,6 +806,13 @@ const _baseline = <String, List<String>>{
     'rename',
   ],
   // --- unlisted by FR-8, non-database -------------------------------------
+  // 2026-08-31: removeStaleUserManifest deletes ONE non-database file — a
+  // stale per-user Chrome NativeMessagingHosts manifest that shadows the
+  // production registration. No vault bytes are ever touched.
+  'lib/features/password_manager/data/services/'
+      'browser_setup_service.dart': [
+    'delete',
+  ],
   'lib/features/password_manager/data/services/'
       'desktop_browser_autofill_cache.dart': [
     'create',

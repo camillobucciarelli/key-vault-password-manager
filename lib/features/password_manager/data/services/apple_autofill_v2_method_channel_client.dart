@@ -157,6 +157,14 @@ class AppleAutofillV2MethodChannelClient implements AppleAutofillV2Client {
   }
 
   @override
+  Future<bool?> getExtensionEnabled() async {
+    if (!isSupported || defaultTargetPlatform == TargetPlatform.android) {
+      return null;
+    }
+    return _channel.invokeMethod<bool>('getExtensionEnabled');
+  }
+
+  @override
   Future<AppleAutofillV2Status> getStatus() async {
     if (!isSupported) {
       return const AppleAutofillV2Status.unsupported();

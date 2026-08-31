@@ -20,6 +20,9 @@ const _vaultSourceDirs = [
   // platform-channel handler, so the screen needed to be pumpable without
   // going through _startCsvImportFlow).
   'lib/features/password_manager/presentation/widgets/csv',
+  // 2026-08-31: row 14's security-confirm copy moved with the master-password
+  // flow into ChangeMasterPasswordScreen (the combined dialog was retired).
+  'lib/features/password_manager/presentation/screens',
 ];
 
 Widget _noop(BuildContext context) => const SizedBox.shrink();
@@ -98,7 +101,7 @@ final Map<String, VaultSurface<VaultDone>> _surfaceByRow = {
   // not spec-002's provisional DuplicatesSurface/route guess.
   '11': MergePreviewSurface<VaultDone>(builder: _noop),
   '12': EntrySurface<VaultDone>(builder: _noop),
-  '13': DatabaseSettingsSurface<VaultDone>(builder: _noop),
+  // Row 13 retired 2026-08-31 — see the fixture's supersession note.
   '14': ConfirmationSurface<VaultDone>(builder: _noop),
   '15': RecycleBinSurface<VaultDone>(builder: _noop),
   '16': DatabaseSettingsSurface<VaultDone>(builder: _noop),
@@ -145,8 +148,8 @@ void main() {
     vaultSources = buffer.toString();
   });
 
-  test('fixture has exactly 19 rows', () {
-    expect(rows.length, 19);
+  test('fixture has exactly 18 live rows (row 13 retired 2026-08-31)', () {
+    expect(rows.length, 18);
   });
 
   for (final row in rows) {
@@ -192,9 +195,10 @@ void main() {
   }
 
   test('every row maps to a distinct surface family or a documented reuse', () {
-    // 13/16 (Database settings/CSV import), 05/14/17/18/19 (confirmation
-    // sheets) and 02/12 (entry surface) intentionally share a surface
-    // family per FR-6; every other row must be unique. spec-005 gave row
+    // 05/14/17/18/19 (confirmation sheets) and 02/12 (entry surface)
+    // intentionally share a surface family per FR-6; every other row must
+    // be unique. Row 13 (Database settings) was retired 2026-08-31, which
+    // leaves row 16 (CSV import) as the sole DatabaseSettingsSurface user. spec-005 gave row
     // 11 (merge preview) its own `MergePreviewSurface` — it no longer
     // shares `DuplicatesSurface` with row 10 (FR-5: sheet, not route).
     final counts = <Type, int>{};
@@ -205,7 +209,6 @@ void main() {
     expect(
       shared.map((e) => e.key.toString()).toSet(),
       {
-        'DatabaseSettingsSurface<VaultDone>',
         'ConfirmationSurface<VaultDone>',
         'EntrySurface<VaultDone>',
       },

@@ -458,28 +458,44 @@ class _SyncConflictSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    // On wide layouts this surface is a pane, not a sheet — no drag handle,
+    // and it needs its own back affordance (same fix as the generator).
+    final isPane = _VaultPaneScope.of(context);
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 20, 18, 26),
       decoration: BoxDecoration(
         color: colors.ground,
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(AppRadii.sheet),
-        ),
+        borderRadius: isPane
+            ? null
+            : const BorderRadius.vertical(
+                top: Radius.circular(AppRadii.sheet),
+              ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Center(
-            child: Container(
-              width: 46,
-              height: 5,
-              decoration: BoxDecoration(
-                color: colors.divider,
-                borderRadius: BorderRadius.circular(999),
+          if (isPane)
+            Row(
+              children: [
+                KvCircleIconButton(
+                  glyph: AppGlyph.back,
+                  tooltip: 'Back',
+                  onPressed: () => VaultOperationScope.of(context).cancel(),
+                ),
+              ],
+            )
+          else
+            Center(
+              child: Container(
+                width: 46,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: colors.divider,
+                  borderRadius: BorderRadius.circular(999),
+                ),
               ),
             ),
-          ),
           const SizedBox(height: 14),
           Text(
             'Both versions changed',

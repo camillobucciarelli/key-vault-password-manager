@@ -134,7 +134,17 @@ X64_SDK_CHECKSUM="${X64_SDK_ARCHIVE}.sha256sum"
 X64_SDK_DIR="${WORK_DIR}/x64-sdk"
 PAYLOAD_ROOT="${WORK_DIR}/payload"
 HOST_DIR="${PAYLOAD_ROOT}/Library/Application Support/KeyVault/NativeMessagingHosts"
-MANIFEST_DIR="${PAYLOAD_ROOT}/Library/Google/Chrome/NativeMessagingHosts"
+# One manifest per Chromium-family browser: each reads its OWN system-level
+# NativeMessagingHosts directory (Arc reads Chrome's, so it needs no entry
+# of its own). Same content everywhere — only the directory differs.
+MANIFEST_DIRS=(
+  "${PAYLOAD_ROOT}/Library/Google/Chrome/NativeMessagingHosts"
+  "${PAYLOAD_ROOT}/Library/Microsoft/Edge/NativeMessagingHosts"
+  "${PAYLOAD_ROOT}/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts"
+  "${PAYLOAD_ROOT}/Library/Application Support/Vivaldi/NativeMessagingHosts"
+  "${PAYLOAD_ROOT}/Library/Application Support/Chromium/NativeMessagingHosts"
+  "${PAYLOAD_ROOT}/Library/Application Support/com.operasoftware.Opera/NativeMessagingHosts"
+)
 HOST_PATH="${HOST_DIR}/keyvault_native_host"
 UNSIGNED_PACKAGE="${WORK_DIR}/keyvault-native-host-unsigned.pkg"
 
@@ -165,7 +175,7 @@ X64_DART="${X64_SDK_DIR}/dart-sdk/bin/dart"
 printf 'Compiling x64 native host under Rosetta...\n'
 (cd "${ROOT_DIR}" && arch -x86_64 "${X64_DART}" compile exe tool/native_host.dart -o "${X64_HOST}")
 
-install -d -m 0755 "${HOST_DIR}" "${MANIFEST_DIR}"
+install -d -m 0755 "${HOST_DIR}" "${MANIFEST_DIRS[@]}"
 lipo -create "${ARM64_HOST}" "${X64_HOST}" -output "${HOST_PATH}"
 lipo "${HOST_PATH}" -verify_arch arm64 x86_64
 chmod 0755 "${HOST_PATH}"
@@ -189,7 +199,9 @@ codesign --force --options runtime --timestamp \
   --entitlements "${HOST_ENTITLEMENTS}" \
   --sign "${APPLICATION_IDENTITY}" "${HOST_PATH}"
 codesign --verify --strict --verbose=2 "${HOST_PATH}"
-install -m 0644 "${MANIFEST}" "${MANIFEST_DIR}/$(basename -- "${MANIFEST}")"
+for manifest_dir in "${MANIFEST_DIRS[@]}"; do
+  install -m 0644 "${MANIFEST}" "${manifest_dir}/$(basename -- "${MANIFEST}")"
+done
 # AGPL-3.0: ship the license alongside the separately distributed binary.
 install -m 0644 "${ROOT_DIR}/LICENSE" "${HOST_DIR}/LICENSE"
 install -m 0644 "${ROOT_DIR}/LICENSE-EXCEPTIONS.txt" "${HOST_DIR}/LICENSE-EXCEPTIONS.txt"

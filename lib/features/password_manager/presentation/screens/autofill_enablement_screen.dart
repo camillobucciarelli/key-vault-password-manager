@@ -25,13 +25,24 @@ import 'browser_setup_screen.dart';
 /// is kept in lock-step with that payload (see
 /// `apple_autofill_v2_enablement_claim_test.dart`) so this screen's copy
 /// can never silently drift from reality again.
-class AutofillEnablementScreen extends StatelessWidget {
-  const AutofillEnablementScreen({super.key, this.entryCount = 0});
+class AutofillEnablementScreen extends StatefulWidget {
+  const AutofillEnablementScreen({
+    super.key,
+    this.entryCount = 0,
+    this.statusLoader,
+  });
 
   /// Defaults to 0 so the screen can be golden-tested without a `VaultBloc`
   /// in scope; the real call site (`_VaultSettingsDestination`) passes
   /// `context.read<VaultBloc>().state.allEntries.length`.
   final int entryCount;
+
+  /// Loads whether the Credential Provider extension is enabled
+  /// (`AppleAutofillV2Client.getExtensionEnabled`). Injected so goldens can
+  /// pump the screen without a platform channel; `null` keeps the
+  /// not-enabled copy. Reloaded every time the app resumes, so toggling
+  /// AutoFill in iOS Settings and coming back updates the card.
+  final Future<bool?> Function()? statusLoader;
 
   /// AC8: every key `AppleAutofillV2Credential.toChannelMap()` publishes
   /// for one credential. Kept exactly equal to that payload's key set (see
@@ -49,6 +60,51 @@ class AutofillEnablementScreen extends StatelessWidget {
     'serviceIdentifiers',
   };
 
+  @override
+  State<AutofillEnablementScreen> createState() =>
+      _AutofillEnablementScreenState();
+}
+
+class _AutofillEnablementScreenState extends State<AutofillEnablementScreen>
+    with WidgetsBindingObserver {
+  bool? _extensionEnabled;
+
+  int get entryCount => widget.entryCount;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshStatus();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // The user flips the toggle in iOS Settings and comes back — refresh.
+    if (state == AppLifecycleState.resumed) {
+      _refreshStatus();
+    }
+  }
+
+  Future<void> _refreshStatus() async {
+    final loader = widget.statusLoader;
+    if (loader == null) return;
+    bool? enabled;
+    try {
+      enabled = await loader();
+    } catch (_) {
+      enabled = null;
+    }
+    if (!mounted) return;
+    setState(() => _extensionEnabled = enabled);
+  }
+
   Future<void> _openIosSettings(BuildContext context) async {
     await launchUrl(Uri.parse('app-settings:'));
   }
@@ -56,6 +112,7 @@ class AutofillEnablementScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    final enabled = _extensionEnabled ?? false;
 
     return Scaffold(
       backgroundColor: colors.ground,
@@ -103,7 +160,9 @@ class AutofillEnablementScreen extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.all(18),
                       decoration: BoxDecoration(
-                        color: colors.attentionTint,
+                        color: enabled
+                            ? colors.positiveTint
+                            : colors.attentionTint,
                         borderRadius: BorderRadius.circular(26),
                       ),
                       child: Column(
@@ -116,13 +175,19 @@ class AutofillEnablementScreen extends StatelessWidget {
                                 height: 40,
                                 alignment: Alignment.center,
                                 decoration: BoxDecoration(
-                                  color: colors.actionFill,
+                                  color: enabled
+                                      ? colors.positiveFill
+                                      : colors.actionFill,
                                   borderRadius: BorderRadius.circular(14),
                                 ),
                                 child: KvIcon(
-                                  glyph: AppGlyph.desktop,
+                                  glyph: enabled
+                                      ? AppGlyph.check
+                                      : AppGlyph.desktop,
                                   size: 20,
-                                  color: colors.actionText,
+                                  color: enabled
+                                      ? colors.positiveText
+                                      : colors.actionText,
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -131,15 +196,24 @@ class AutofillEnablementScreen extends StatelessWidget {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      'Not enabled yet',
+                                      enabled
+                                          ? 'Autofill is on'
+                                          : 'Not enabled yet',
                                       style: AppTextStyles.rowTitle.copyWith(
-                                        color: colors.attentionText,
+                                        color: enabled
+                                            ? colors.positiveText
+                                            : colors.attentionText,
                                       ),
                                     ),
                                     Text(
-                                      'iOS asks you once, in Settings',
+                                      enabled
+                                          ? 'KeyVault fills passwords in '
+                                                'Safari and apps'
+                                          : 'iOS asks you once, in Settings',
                                       style: AppTextStyles.metaLarge.copyWith(
-                                        color: colors.attentionText,
+                                        color: enabled
+                                            ? colors.positiveText
+                                            : colors.attentionText,
                                       ),
                                     ),
                                   ],
@@ -147,27 +221,30 @@ class AutofillEnablementScreen extends StatelessWidget {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 12),
-                          _EnablementStep(
-                            number: 1,
-                            text: 'Settings → General → AutoFill & Passwords',
-                          ),
-                          const SizedBox(height: 8),
-                          _EnablementStep(
-                            number: 2,
-                            text: 'Turn on AutoFill Passwords',
-                          ),
-                          const SizedBox(height: 8),
-                          _EnablementStep(
-                            number: 3,
-                            text: 'Pick KeyVault in the list',
-                          ),
-                          const SizedBox(height: 14),
-                          KvPillButton(
-                            label: 'Open iOS settings',
-                            compact: true,
-                            onPressed: () => _openIosSettings(context),
-                          ),
+                          if (!enabled) ...[
+                            const SizedBox(height: 12),
+                            _EnablementStep(
+                              number: 1,
+                              text:
+                                  'Settings → General → AutoFill & Passwords',
+                            ),
+                            const SizedBox(height: 8),
+                            _EnablementStep(
+                              number: 2,
+                              text: 'Turn on AutoFill Passwords',
+                            ),
+                            const SizedBox(height: 8),
+                            _EnablementStep(
+                              number: 3,
+                              text: 'Pick KeyVault in the list',
+                            ),
+                            const SizedBox(height: 14),
+                            KvPillButton(
+                              label: 'Open iOS settings',
+                              compact: true,
+                              onPressed: () => _openIosSettings(context),
+                            ),
+                          ],
                         ],
                       ),
                     ),

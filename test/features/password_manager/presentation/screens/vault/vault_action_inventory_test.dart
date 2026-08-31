@@ -58,7 +58,10 @@ void main() {
     // (tooltip 'Copy', pinned above), so the capability survives; only the
     // redundant pills left.
     'Custom field',
-    'Database settings',
+    // 2026-08-31 supersession (user-directed Settings reorg): the combined
+    // "Database settings" dialog is retired — every capability it carried is
+    // an inline Settings row (biometrics, inactivity, master password, key
+    // file) and its one unique action became the 'Rename database' row.
     'Delete',
     'Discard',
     'Dismiss',

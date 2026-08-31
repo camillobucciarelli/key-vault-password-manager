@@ -15,8 +15,20 @@ const _sectionToCurrentFiles = <String, List<String>>{
   // spec-002 T10: this copy moved from vault_navigation.part.dart to the
   // Settings-owned vault_settings.part.dart. The section key is kept as the
   // pre-restyle label (it names the fixture section, not the current file).
+  // 2026-08-31 Settings reorg: the combined "Database settings" dialog was
+  // retired from vault_settings.part.dart; the master-password copy lives on
+  // in ChangeMasterPasswordScreen, which joins the search space.
   'vault_navigation.part.dart (settings / master-password)': [
     'lib/features/password_manager/presentation/screens/vault/vault_settings.part.dart',
+    'lib/features/password_manager/presentation/screens/change_master_password_screen.dart',
+    // The validators ("New password is required." / "Passwords do not
+    // match.") were policy the retired dialog duplicated inline — the
+    // coordinator is their single home.
+    'lib/features/password_manager/presentation/coordinators/vault_session_coordinator.dart',
+    // "Passwords do not match." — ChangeMasterPasswordScreen disables its
+    // submit on a mismatch instead of erroring, so the literal's surviving
+    // home is the create-database form.
+    'lib/features/password_manager/presentation/screens/create_database_screen.dart',
   ],
 };
 
