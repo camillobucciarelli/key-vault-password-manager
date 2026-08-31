@@ -380,8 +380,9 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
                         selected: _selectedId == file.id,
                         isLinkedElsewhere: _isLinkedElsewhere(file.id),
                         onTap: () => setState(
-                          () => _selectedId =
-                              _selectedId == file.id ? null : file.id,
+                          () => _selectedId = _selectedId == file.id
+                              ? null
+                              : file.id,
                         ),
                         onLink: _completeSelectedLink,
                       );
@@ -425,13 +426,17 @@ Future<void> _showSyncConflictDialog(
   // that replaces this destination's body, unmounting `context` (same
   // defect as _pickExistingDriveFile).
   final bloc = context.read<VaultBloc>();
-  final resolution = await VaultShellRouterScope.of(context)
-      .open<SyncConflictRouteResult>(
-        context: context,
-        surface: SyncConflictSurface<SyncConflictRouteResult>(
-          builder: (dialogContext) => _SyncConflictSheet(conflict: conflict),
-        ),
-      );
+  // spec-008 T601: the merge review must open from a context that survives
+  // the conflict pane — the shell's navigator, not this destination's body.
+  final router = VaultShellRouterScope.of(context);
+  final hostContext = Navigator.of(context).context;
+  final width = MediaQuery.sizeOf(context).width;
+  final resolution = await router.open<SyncConflictRouteResult>(
+    context: context,
+    surface: SyncConflictSurface<SyncConflictRouteResult>(
+      builder: (dialogContext) => _SyncConflictSheet(conflict: conflict),
+    ),
+  );
 
   if (bloc.isClosed) {
     return;
@@ -439,12 +444,56 @@ Future<void> _showSyncConflictDialog(
 
   bloc.add(const ClearVaultSyncFeedback());
 
+  if (resolution != null && resolution.openMerge && hostContext.mounted) {
+    await _openSyncMergeReview(
+      router: router,
+      hostContext: hostContext,
+      width: width,
+      bloc: bloc,
+    );
+    return;
+  }
+
   if (resolution == null ||
       resolution.resolution == SyncConflictResolution.cancel) {
     return;
   }
 
   bloc.add(SyncCurrentDatabaseNow(resolution: resolution.resolution));
+}
+
+/// spec-008 T601: opens the per-field review as a full-screen route. The
+/// review starts when the route opens and any session still open when the
+/// route closes is cancelled, so no review outlives its screen.
+Future<void> _openSyncMergeReview({
+  required VaultShellRouter router,
+  required BuildContext hostContext,
+  required double width,
+  required VaultBloc bloc,
+}) async {
+  if (!hostContext.mounted) return;
+  bloc.add(const StartSyncMergeReview());
+  final loadFieldDisplay = di.sl<LoadSyncMergeFieldDisplayUseCase>();
+  await router.open<VaultDone>(
+    context: hostContext,
+    width: width,
+    surface: SyncMergeSurface<VaultDone>(
+      builder: (dialogContext) => BlocProvider.value(
+        value: bloc,
+        child: Builder(
+          builder: (screenContext) => SyncMergeScreen(
+            loadFieldDisplay: loadFieldDisplay,
+            onClose: () => VaultOperationScope.of(
+              screenContext,
+            ).complete(const VaultDone()),
+          ),
+        ),
+      ),
+    ),
+  );
+  if (bloc.isClosed) return;
+  if (bloc.state.mergeReview != null) bloc.add(const CancelSyncMerge());
+  bloc.add(const ClearSyncMergeOutcome());
 }
 
 /// T9: two version cards radius 20 padding 14/16 with a 40 square, checksum
@@ -467,9 +516,7 @@ class _SyncConflictSheet extends StatelessWidget {
         color: colors.ground,
         borderRadius: isPane
             ? null
-            : const BorderRadius.vertical(
-                top: Radius.circular(AppRadii.sheet),
-              ),
+            : const BorderRadius.vertical(top: Radius.circular(AppRadii.sheet)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -599,6 +646,16 @@ class _SyncConflictSheet extends StatelessWidget {
             label: 'Use remote',
             onPressed: () => VaultOperationScope.of(context).complete(
               const SyncConflictRouteResult(SyncConflictResolution.useRemote),
+            ),
+          ),
+          const SizedBox(height: 9),
+          KvSecondaryPillButton(
+            label: 'Review field by field',
+            onPressed: () => VaultOperationScope.of(context).complete(
+              const SyncConflictRouteResult(
+                SyncConflictResolution.cancel,
+                openMerge: true,
+              ),
             ),
           ),
           const SizedBox(height: 9),

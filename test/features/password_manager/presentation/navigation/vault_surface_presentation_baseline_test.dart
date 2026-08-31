@@ -46,6 +46,7 @@ void main() {
     'SyncLinkSurface': SyncLinkSurface<VaultDone>(builder: _noop),
     'SyncConflictSurface': SyncConflictSurface<VaultDone>(builder: _noop),
     'MergePreviewSurface': MergePreviewSurface<VaultDone>(builder: _noop),
+    'SyncMergeSurface': SyncMergeSurface<VaultDone>(builder: _noop),
     'DatabaseSettingsSurface': DatabaseSettingsSurface<VaultDone>(
       builder: _noop,
     ),
@@ -77,6 +78,8 @@ void main() {
     'SyncLinkSurface': (narrow: 'route', wide: 'pane'),
     'SyncConflictSurface': (narrow: 'sheet', wide: 'pane'),
     'MergePreviewSurface': (narrow: 'route', wide: 'route'),
+    // spec-008 T601: the per-field merge review lays out its own panes.
+    'SyncMergeSurface': (narrow: 'route', wide: 'route'),
     'DatabaseSettingsSurface': (narrow: 'route', wide: 'pane'),
     'KeyFileManagerSurface': (narrow: 'sheet', wide: 'sheet'),
     'ConfirmationSurface': (narrow: 'sheet', wide: 'sheet'),
@@ -182,6 +185,8 @@ void main() {
         // 2026-08-31 (user-directed): full-screen route at every width.
         'MergePreviewSurface':
             'route route route route route route route route',
+        // spec-008 T601 (added after 019, frozen from its first commit).
+        'SyncMergeSurface': 'route route route route route route route route',
         'DatabaseSettingsSurface':
             'route route route pane pane pane pane pane',
         'KeyFileManagerSurface':

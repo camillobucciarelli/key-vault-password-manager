@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 
-import '../../../../../../core/theme/app_icons.dart';
+import '../../../../../../core/theme/app_glyph.dart';
+import '../../../../../../core/theme/keyvault_colors.dart';
+import '../../../../../../core/widgets/kv_context_menu.dart';
+import '../../../../../../core/widgets/kv_icon.dart';
 
+/// 2026-08-31: restyled onto the design system's [KvContextMenu] — the same
+/// surface, hover and destructive cue the vault's row menus use — instead of
+/// the stock `PopupMenuButton`.
 class DatabaseActionMenu extends StatelessWidget {
   const DatabaseActionMenu({
     super.key,
@@ -20,34 +26,24 @@ class DatabaseActionMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<String>(
-      tooltip: 'More actions',
-      onSelected: (value) {
-        switch (value) {
-          case 'open':
-            onOpen();
-            break;
-          case 'export':
-            onExport();
-            break;
-          case 'remove':
-            onRemove();
-            break;
-          case 'locate':
-            onLocate?.call();
-            break;
-        }
-      },
-      itemBuilder: (_) => [
-        if (onLocate != null)
-          const PopupMenuItem<String>(value: 'locate', child: Text('Locate')),
-        const PopupMenuItem<String>(value: 'open', child: Text('Open')),
-        const PopupMenuItem<String>(value: 'export', child: Text('Export')),
-        const PopupMenuItem<String>(value: 'remove', child: Text('Remove')),
-      ],
-      child: const Padding(
-        padding: EdgeInsets.all(8),
-        child: Icon(AppIcons.more),
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: KvContextMenu(
+        tooltip: 'More actions',
+        icon: KvIcon(glyph: AppGlyph.more, size: 17, color: colors.iconNeutral),
+        items: [
+          if (onLocate != null)
+            KvContextMenuItem(label: 'Locate', onSelected: onLocate!),
+          KvContextMenuItem(label: 'Open', onSelected: onOpen),
+          KvContextMenuItem(label: 'Export', onSelected: onExport),
+          KvContextMenuItem(
+            label: 'Remove',
+            destructive: true,
+            onSelected: onRemove,
+          ),
+        ],
       ),
     );
   }

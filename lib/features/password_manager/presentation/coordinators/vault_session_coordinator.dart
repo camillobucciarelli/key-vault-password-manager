@@ -13,9 +13,11 @@ import '../../domain/repositories/database_file_repository.dart';
 import '../../domain/repositories/database_registry_repository.dart';
 import '../../domain/repositories/database_security_repository.dart';
 import '../../domain/repositories/database_sync_repository.dart';
+import '../../domain/models/sync_merge_models.dart' show MergeDatabaseId;
 import '../../../../core/utils/mobile_file_storage.dart';
 import 'apple_autofill_v2_coordinator.dart';
 import 'session_secret_holder.dart';
+import 'sync_merge_coordinator.dart';
 
 class DatabaseSettingsUpdateRequest {
   const DatabaseSettingsUpdateRequest({
@@ -61,6 +63,7 @@ class VaultSessionCoordinator {
     required this.vaultKdbxService,
     required this.sessionSecretHolder,
     this.appleAutofillV2Coordinator = const NoopAppleAutofillV2Coordinator(),
+    this.syncMergeCoordinator,
   });
 
   /// spec 008 T102: every database file mutation (rename, rollback rename,
@@ -84,6 +87,11 @@ class VaultSessionCoordinator {
   /// switch and app termination. Keystore behaviour is unchanged in Slice 1.
   final SessionSecretHolder sessionSecretHolder;
   final AppleAutofillV2CoordinatorContract appleAutofillV2Coordinator;
+
+  /// spec-008 T506: invalidated before credentials are cleared on lock or
+  /// database switch, so the data side can abort a pre-boundary merge or
+  /// finish its durable bookkeeping while it can still open the file.
+  final SyncMergeCoordinator? syncMergeCoordinator;
 
   Future<String?> getSelectedKeyFilePath() {
     return localDataSource.getCachedKeyFilePath();
@@ -118,6 +126,7 @@ class VaultSessionCoordinator {
   /// The per-database biometric credential is deliberately persistent
   /// (FR-4) and is removed solely by FR-5 (flag off, database removed).
   Future<void> changeDatabase({required String currentDatabasePath}) async {
+    await _invalidateSyncMerge(currentDatabasePath);
     sessionSecretHolder.clear();
     await appleAutofillV2Coordinator.clearCredentials();
     await localDataSource.cacheKeyFilePath(null);
@@ -128,6 +137,7 @@ class VaultSessionCoordinator {
   /// stored biometric credential (if any) stays so a biometric unlock of
   /// the same database keeps working.
   Future<void> lockVault({required String currentDatabasePath}) async {
+    await _invalidateSyncMerge(currentDatabasePath);
     sessionSecretHolder.clear();
     await appleAutofillV2Coordinator.clearCredentials();
   }
@@ -434,6 +444,19 @@ class VaultSessionCoordinator {
       );
     } catch (_) {
       // Best-effort — see doc comment.
+    }
+  }
+
+  Future<void> _invalidateSyncMerge(String databasePath) async {
+    final coordinator = syncMergeCoordinator;
+    if (coordinator == null) return;
+    try {
+      final record = await _findRecordByPath(databasePath);
+      if (record != null) {
+        await coordinator.invalidate(MergeDatabaseId(record.databaseId));
+      }
+    } on Object {
+      // The lock must clear credentials no matter what the merge side does.
     }
   }
 
