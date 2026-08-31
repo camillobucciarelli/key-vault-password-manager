@@ -23,7 +23,9 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final service = NavigationFixtureVaultKdbxService();
-    await tester.pumpWidget(await pumpableVaultShell(vaultKdbxService: service));
+    await tester.pumpWidget(
+      await pumpableVaultShell(vaultKdbxService: service),
+    );
     await tester.pumpAndSettle();
     return service;
   }
@@ -117,6 +119,41 @@ void main() {
       // No confirmation: duplicating creates, it never destroys.
       expect(find.text('Banca Sella copy'), findsWidgets);
       expect(find.text('Banca Sella'), findsWidgets);
+    });
+  });
+
+  // spec-020 (C-04-04): attachments have one home — a permanent section.
+  group('C-04-04 — attachments are a section, not an overflow item', () {
+    for (final width in <double>[390, 1024]) {
+      testWidgets(
+        'at $width a record with none shows 0 and Manage opens the dialog',
+        (tester) async {
+          await pumpAt(tester, width);
+          await openRecord(tester, 'Gmail');
+
+          expect(find.text('0 attachments'), findsOneWidget);
+          await tester.tap(find.byTooltip('Record actions').last);
+          await tester.pumpAndSettle();
+          // Once, as the section title — never as a menu item.
+          expect(find.text('Attachments'), findsOneWidget);
+          await tester.tapAt(Offset.zero);
+          await tester.pumpAndSettle();
+
+          await tester.tap(find.text('Manage').last);
+          await tester.pumpAndSettle();
+          expect(
+            find.widgetWithText(AlertDialog, 'Attachments'),
+            findsOneWidget,
+          );
+          expect(find.text('No attachments for this record.'), findsOneWidget);
+        },
+      );
+    }
+
+    testWidgets('a record with two shows 2', (tester) async {
+      await pumpAt(tester, 1024);
+      await openRecord(tester, 'GitHub');
+      expect(find.text('2 attachments'), findsOneWidget);
     });
   });
 

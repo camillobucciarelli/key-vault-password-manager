@@ -148,20 +148,24 @@ void main() {
   });
 
   testWidgets(
-    'mobile: the record-action menu offers Move, Attachments, Delete',
+    'mobile: the record-action menu offers Move, Delete; attachments are a section',
     (tester) async {
       await pumpMobileVault(tester);
       await openGmailDetail(tester);
 
       // Edit is its own header button; the rest live in the overflow.
       expect(find.byTooltip('Edit'), findsOneWidget);
+      // FR-011 as amended by spec 020: attachments are a permanent body
+      // section with a Manage action, not an overflow item.
+      expect(find.text('Attachments'), findsOneWidget);
+      expect(find.text('Manage'), findsOneWidget);
 
       await tester.tap(find.byTooltip('Record actions'));
       await tester.pumpAndSettle();
 
       expect(find.text('Move'), findsOneWidget);
-      expect(find.text('Attachments'), findsOneWidget);
       expect(find.text('Delete'), findsOneWidget);
+      expect(find.text('Attachments'), findsOneWidget);
     },
   );
 
