@@ -1,6 +1,6 @@
 # 022 — Dark mode verification
 
-**Status**: Planned — manual verification, see `plan.md`, `tasks.md` · **Kind**: Conformance / Design fidelity
+**Status**: Done — 2026-08-31, every journey rendered in dark and reviewed; one finding (F-001) fixed · **Kind**: Conformance / Design fidelity
 **Created**: 2026-08-29 · **Rescoped**: 2026-08-31
 **Depends on**: 019 (the shell chrome these screens sit inside)
 **Source**: `specs/_design/CONFORMANCE_AUDIT.md` — proposed remediation table

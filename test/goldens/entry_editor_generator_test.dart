@@ -294,25 +294,28 @@ void main() {
   });
 
   // --- Editor: constraint errors ------------------------------------------------
-  testWidgets('editor_errors_390x844_light.png', (tester) async {
-    await setSize(tester, const Size(390, 844));
-    await tester.pumpWidget(await pumpableEntryScreen());
-    await tester.pumpAndSettle();
-    await openNewItemEditor(tester);
+  // spec-022 F-001: dark added — the error text was a hard-coded light-ramp
+  // colour and vanished on the dark ground.
+  for (final themeMode in [ThemeMode.light, ThemeMode.dark]) {
+    final name =
+        'editor_errors_390x844_${themeMode == ThemeMode.dark ? 'dark' : 'light'}.png';
+    testWidgets(name, (tester) async {
+      await setSize(tester, const Size(390, 844));
+      await tester.pumpWidget(await pumpableEntryScreen(themeMode: themeMode));
+      await tester.pumpAndSettle();
+      await openNewItemEditor(tester);
 
-    await tester.tap(find.text('One-time code'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextFormField).last, 'not-a-uri');
-    await tester.pump();
-    await tester.tap(find.byTooltip('Save'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('One-time code'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField).last, 'not-a-uri');
+      await tester.pump();
+      await tester.tap(find.byTooltip('Save'));
+      await tester.pumpAndSettle();
 
-    expect(tester.takeException(), isNull);
-    await expectLater(
-      find.byType(MaterialApp),
-      matchesGoldenFile('editor_errors_390x844_light.png'),
-    );
-  });
+      expect(tester.takeException(), isNull);
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile(name));
+    });
+  }
 
   // --- QR scanner / camera denied (forced to a mobile platform: the QR ------
   // scan affordance and mobile_scanner are Android/iOS-only per

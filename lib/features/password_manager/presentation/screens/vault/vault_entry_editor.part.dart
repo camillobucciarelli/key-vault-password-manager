@@ -53,10 +53,7 @@ InputDecoration _kvFieldDecoration(
     // field's content padding gives on the left.
     suffixIcon: suffixIcon == null
         ? null
-        : Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: suffixIcon,
-          ),
+        : Padding(padding: const EdgeInsets.only(right: 8), child: suffixIcon),
     errorText: errorText,
     errorMaxLines: 3,
     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
@@ -80,7 +77,9 @@ InputDecoration _kvFieldDecoration(
       borderRadius: BorderRadius.circular(AppRadii.row),
       borderSide: BorderSide(color: AppColors.accent700, width: 2),
     ),
-    errorStyle: AppTextStyles.secondary.copyWith(color: AppColors.accent800),
+    // spec-022 F-001: the error text reads the semantic token — a hard-coded
+    // `accent800` vanished on the dark ground.
+    errorStyle: AppTextStyles.secondary.copyWith(color: colors.attentionText),
   );
 }
 
@@ -164,8 +163,8 @@ class _EntryDialogState extends State<_EntryDialog> {
       _titleController.text = widget.initialOtpAuth!.title;
     }
 
-    for (final field in widget.initial?.customFields ??
-        const <VaultCustomField>[]) {
+    for (final field
+        in widget.initial?.customFields ?? const <VaultCustomField>[]) {
       if (isUrlFieldKey(field.key)) {
         _extraUrlControllers.add(TextEditingController(text: field.value));
       }
@@ -194,7 +193,9 @@ class _EntryDialogState extends State<_EntryDialog> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _generatorColumnOpen = VaultShellRouterScope.of(context).generatorColumnOpen;
+    _generatorColumnOpen = VaultShellRouterScope.of(
+      context,
+    ).generatorColumnOpen;
   }
 
   @override
