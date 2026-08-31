@@ -119,6 +119,10 @@ void main() {
       final context = tester.element(find.text('Dark'));
       expect(context.read<ThemeCubit>().state, isNot(ThemeMode.dark));
 
+      // The Settings list grew (the retired overflow sheet's actions live
+      // here now), so the selector can sit below the fold.
+      await tester.ensureVisible(find.text('Dark'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Dark'));
       await tester.pumpAndSettle();
 

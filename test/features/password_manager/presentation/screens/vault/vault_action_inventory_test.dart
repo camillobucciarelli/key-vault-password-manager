@@ -30,20 +30,28 @@ void main() {
   // `New folder` and given a parent with `Move…`, so there is one way to
   // nest instead of two that could disagree. Nothing else may leave this
   // list without the same kind of note (T049, SC-004).
+  // 2026-08-31 supersession (user-directed): the vault header's `⋮` overflow
+  // sheet was retired. What it alone carried either moved (Lock vault,
+  // Recycle bin, Manage duplicates, Database settings -> Settings
+  // destination; connect/link/auto-sync -> the Sync destination's hero,
+  // outside this file scan; exports -> Backups & import as 'Export the
+  // database' / 'Export the key file') or was already reachable elsewhere
+  // (standalone Password generator -> the editor's generator). The removed
+  // pins: Android autofill, Auto-sync, Change database (now the Settings
+  // 'Close database' pill), Connect/Disconnect Google Drive, Desktop browser
+  // extension, Export database backup, Export key file, Google Drive, Link
+  // database to Drive, Tools, Vault. Password generator stayed: it is a
+  // Settings-destination row now.
   const inventory = <String>[
     'Add record',
-    'Android autofill',
     'Appearance',
     'Apply',
     'Attachment',
     'Attachments',
-    'Auto-sync',
     'Back',
     'Cancel',
-    'Change database',
     'Check again',
     'Close',
-    'Connect Google Drive',
     'Copy',
     // 2026-08-31: the `Copy password` / `Copy username` pills were removed
     // at the user's direction — every field row carries its own copy button
@@ -52,25 +60,19 @@ void main() {
     'Custom field',
     'Database settings',
     'Delete',
-    'Desktop browser extension',
     'Discard',
-    'Disconnect Google Drive',
     'Dismiss',
     'Drive',
     'Edit',
     'Empty bin',
     'Entry',
-    'Export database backup',
-    'Export key file',
     'Folder actions',
     'Generate secure password',
-    'Google Drive',
     'Import from CSV',
     'Keep editing',
     'Keep local',
     'KeyVault is backgrounded',
     'Link',
-    'Link database to Drive',
     'Lock vault',
     'Lowercase letters (a-z)',
     'Manage duplicates',
@@ -78,11 +80,11 @@ void main() {
     'Move',
     'Move this record to recycle bin?',
     'Notes',
+    'Password generator',
     'Numbers (0-9)',
     'One-time code',
     'Open system settings',
     'Password',
-    'Password generator',
     'Paste the URI instead',
     'Permanently delete this empty folder?',
     'Reconnect',
@@ -100,14 +102,12 @@ void main() {
     'Special characters (!@#...)',
     'Target',
     'This device',
-    'Tools',
     'Unlock with biometrics',
     'Unlock with Face ID',
     'Uppercase letters (A-Z)',
     'Use password',
     'Use remote',
     'Username',
-    'Vault',
     'Website',
   ];
 
@@ -143,7 +143,9 @@ void main() {
     // item is built from — spec 019 moved the folder actions into a widget
     // that builds its items that way.
     final pattern = RegExp(
-      r"(?:(?:tooltip|label): |Text\()'([^'\\$]*)'",
+      // `title:` joined 2026-08-31: the retired `⋮` sheet's `label:` rows
+      // became `_SettingsRow(title: …)` rows in the Settings destination.
+      r"(?:(?:tooltip|label|title): |Text\()'([^'\\$]*)'",
     );
     final found = <String>{};
     for (final file in sources) {

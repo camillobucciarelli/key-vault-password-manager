@@ -266,7 +266,10 @@ void main() {
                 .map(_posixPath)
                 .toList()
               ..sort();
-        expect(callers, hasLength(3));
+        // 2026-08-31: the vault header's overflow sheet (the third caller,
+        // vault_navigation.part.dart) was retired; exports live in Backups &
+        // import and the Sync destination.
+        expect(callers, hasLength(2));
       },
     );
 

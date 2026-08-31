@@ -527,7 +527,11 @@ void main() {
     await tester.pumpWidget(await pumpableEntryScreen());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Settings'));
+    // 2026-08-31: the `⋮` sheet is retired; the standalone generator lives
+    // in the Settings destination.
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Password generator'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Password generator'));
     await tester.pumpAndSettle();

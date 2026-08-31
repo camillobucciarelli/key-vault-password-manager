@@ -368,6 +368,45 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
                     : path.basename(_keyFilePath!),
                 onTap: _busy ? null : () => _pickKeyFile(databasePath),
               ),
+              // 2026-08-31: the vault header's `⋮` overflow sheet is gone;
+              // the actions it alone carried live here, labels verbatim.
+              const SizedBox(height: 8),
+              _SettingsRow(
+                glyph: AppGlyph.settings,
+                title: 'Database settings',
+                subtitle: 'Password, key file, biometrics',
+                onTap: _busy
+                    ? null
+                    : () => unawaited(
+                        _showDatabaseSettings(
+                          context,
+                          context.read<VaultBloc>().state,
+                        ),
+                      ),
+              ),
+              const SizedBox(height: 8),
+              _SettingsRow(
+                glyph: AppGlyph.lock,
+                title: 'Lock vault',
+                subtitle: 'Require password to access again',
+                onTap: _busy
+                    ? null
+                    : () => unawaited(_lockVaultNow(context, databasePath)),
+              ),
+              const SizedBox(height: 8),
+              _SettingsRow(
+                glyph: AppGlyph.delete,
+                title: 'Recycle bin',
+                subtitle: 'View and restore deleted records',
+                onTap: () => unawaited(_showRecycleBinDialog(context)),
+              ),
+              const SizedBox(height: 8),
+              _SettingsRow(
+                glyph: AppGlyph.duplicates,
+                title: 'Manage duplicates',
+                subtitle: 'Merge or remove duplicate entries',
+                onTap: () => unawaited(_showDuplicatesDialog(context)),
+              ),
               const SizedBox(height: 18),
               _SettingsGroupLabel('App'),
               const SizedBox(height: 8),
@@ -393,6 +432,15 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
                 title: 'Backups & import',
                 subtitle: null,
                 onTap: () => _openBackups(context),
+              ),
+              const SizedBox(height: 8),
+              _SettingsRow(
+                glyph: AppGlyph.magic,
+                title: 'Password generator',
+                subtitle: 'Generate and copy a strong password',
+                onTap: () => unawaited(
+                  _showPasswordGeneratorSheet(context, standalone: true),
+                ),
               ),
               const SizedBox(height: 18),
               _SettingsGroupLabel('About'),
@@ -448,6 +496,24 @@ const _kPrivacyPolicyUrl =
 
 const _kAppLicenceUrl =
     'https://github.com/camillobucciarelli/key-vault-password-manager/blob/main/LICENSE';
+
+/// `Lock vault`, verbatim from the retired overflow sheet: drop the session
+/// and land on the unlock screen for the same file.
+Future<void> _lockVaultNow(BuildContext context, String databasePath) async {
+  if (databasePath.trim().isEmpty) {
+    return;
+  }
+  await di.sl<VaultSessionCoordinator>().lockVault(
+    currentDatabasePath: databasePath,
+  );
+  if (!context.mounted) {
+    return;
+  }
+  await AppNavigation.pushFadeReplacement(
+    context,
+    DatabaseUnlockScreen(databasePath: databasePath),
+  );
+}
 
 String _inactivityTimeoutLabel(int? seconds) {
   if (seconds == null) return 'Never';
@@ -1665,571 +1731,3 @@ class _DatabaseSettingsChangesSummary extends StatelessWidget {
 }
 
 // ─── Duplicate badge ──────────────────────────────────────────────────────────
-
-class _DuplicateBadge extends StatelessWidget {
-  const _DuplicateBadge({required this.count, required this.child});
-
-  final int count;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    if (count == 0) return child;
-    final colorScheme = Theme.of(context).colorScheme;
-    return Badge(
-      label: Text('$count'),
-      backgroundColor: colorScheme.error,
-      textColor: colorScheme.onError,
-      child: child,
-    );
-  }
-}
-
-// ─── Settings bottom sheet ────────────────────────────────────────────────────
-
-class _VaultSettingsSheet extends StatelessWidget {
-  const _VaultSettingsSheet({
-    required this.state,
-    required this.themeMode,
-    required this.canConfigureAndroidAutofill,
-    required this.canConfigureBrowserAutofill,
-    required this.onSelect,
-  });
-
-  final VaultState state;
-  final ThemeMode themeMode;
-  final bool canConfigureAndroidAutofill;
-  final bool canConfigureBrowserAutofill;
-  final Future<void> Function(String) onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final maxSheetHeight = MediaQuery.sizeOf(context).height * 0.88;
-    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
-
-    return SafeArea(
-      minimum: EdgeInsets.only(bottom: bottomInset),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: maxSheetHeight),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-              child: Row(
-                children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: colorScheme.primaryContainer.withValues(
-                        alpha: 0.6,
-                      ),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(
-                      AppIcons.settings,
-                      size: 17,
-                      color: colorScheme.onPrimaryContainer,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    'Settings',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Flexible(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // ── Google Drive ──────────────────────────────────────
-                    _SheetSection(
-                      label: 'Google Drive',
-                      icon: AppIcons.cloud,
-                      iconColor: colorScheme.primary,
-                      children: [
-                        if (!state.isDriveConnected)
-                          _SheetItem(
-                            icon: AppIcons.cloud,
-                            iconContainerColor: colorScheme.primaryContainer
-                                .withValues(alpha: 0.6),
-                            iconColor: colorScheme.onPrimaryContainer,
-                            label: 'Connect Google Drive',
-                            subtitle: 'Enable cloud backup and sync',
-                            onTap: () => onSelect('connect'),
-                          )
-                        else if (!state.isDriveLinked)
-                          _SheetItem(
-                            icon: AppIcons.linkSimple,
-                            iconContainerColor: colorScheme.primaryContainer
-                                .withValues(alpha: 0.6),
-                            iconColor: colorScheme.onPrimaryContainer,
-                            label: 'Link database to Drive',
-                            subtitle: 'Choose a .kdbx file to sync with',
-                            onTap: () => onSelect('link'),
-                          ),
-                        _SheetToggleItem(
-                          icon: AppIcons.sync,
-                          iconContainerColor:
-                              state.isDriveConnected && state.isDriveLinked
-                              ? colorScheme.secondaryContainer.withValues(
-                                  alpha: 0.7,
-                                )
-                              : colorScheme.surfaceContainerHighest,
-                          iconColor:
-                              state.isDriveConnected && state.isDriveLinked
-                              ? colorScheme.onSecondaryContainer
-                              : colorScheme.onSurface.withValues(alpha: 0.38),
-                          label: 'Auto-sync',
-                          subtitle:
-                              state.isDriveConnected && state.isDriveLinked
-                              ? 'Sync automatically when the vault changes'
-                              : 'Connect and link Drive first',
-                          value: state.autoSyncEnabled,
-                          enabled:
-                              state.isDriveConnected && state.isDriveLinked,
-                          onChanged: (_) => onSelect('toggleAutoSync'),
-                        ),
-                        if (state.isDriveConnected)
-                          _SheetItem(
-                            icon: AppIcons.cloudOff,
-                            iconContainerColor: colorScheme.errorContainer
-                                .withValues(alpha: 0.42),
-                            iconColor: colorScheme.error,
-                            label: 'Disconnect Google Drive',
-                            labelColor: colorScheme.error,
-                            onTap: () => onSelect('disconnect'),
-                          ),
-                      ],
-                    ),
-                    const _SheetDivider(),
-
-                    // ── Vault ─────────────────────────────────────────────
-                    _SheetSection(
-                      label: 'Vault',
-                      icon: AppIcons.key,
-                      iconColor: colorScheme.secondary,
-                      children: [
-                        _SheetItem(
-                          icon: AppIcons.settings,
-                          iconContainerColor: colorScheme.secondaryContainer
-                              .withValues(alpha: 0.6),
-                          iconColor: colorScheme.onSecondaryContainer,
-                          label: 'Database settings',
-                          subtitle: 'Password, key file, biometrics',
-                          onTap: () => onSelect('databaseSettings'),
-                        ),
-                        _SheetItem(
-                          icon: AppIcons.folderCopy,
-                          iconContainerColor: colorScheme.secondaryContainer
-                              .withValues(alpha: 0.6),
-                          iconColor: colorScheme.onSecondaryContainer,
-                          label: 'Change database',
-                          subtitle: 'Switch to a different .kdbx file',
-                          onTap: () => onSelect('changeDatabase'),
-                        ),
-                        _SheetItem(
-                          icon: AppIcons.lock,
-                          iconContainerColor: colorScheme.tertiaryContainer
-                              .withValues(alpha: 0.6),
-                          iconColor: colorScheme.onTertiaryContainer,
-                          label: 'Lock vault',
-                          subtitle: 'Require password to access again',
-                          onTap: () => onSelect('lockVault'),
-                        ),
-                      ],
-                    ),
-                    const _SheetDivider(),
-
-                    // ── Tools ─────────────────────────────────────────────
-                    _SheetSection(
-                      label: 'Tools',
-                      icon: AppIcons.fileText,
-                      iconColor: colorScheme.tertiary,
-                      children: [
-                        _SheetItem(
-                          icon: AppIcons.magic,
-                          iconContainerColor: colorScheme.tertiaryContainer
-                              .withValues(alpha: 0.55),
-                          iconColor: colorScheme.onTertiaryContainer,
-                          label: 'Password generator',
-                          subtitle: 'Generate and copy a strong password',
-                          onTap: () => onSelect('passwordGenerator'),
-                        ),
-                        _SheetItem(
-                          icon: AppIcons.import,
-                          iconContainerColor: colorScheme.tertiaryContainer
-                              .withValues(alpha: 0.55),
-                          iconColor: colorScheme.onTertiaryContainer,
-                          label: 'Import from CSV',
-                          subtitle: 'Add records from a spreadsheet export',
-                          onTap: () => onSelect('importCsv'),
-                        ),
-                        _SheetItem(
-                          icon: AppIcons.export,
-                          iconContainerColor: colorScheme.tertiaryContainer
-                              .withValues(alpha: 0.55),
-                          iconColor: colorScheme.onTertiaryContainer,
-                          label: 'Export database backup',
-                          subtitle: 'Save a copy of the .kdbx file',
-                          onTap: () => onSelect('exportDatabaseBackup'),
-                        ),
-                        _SheetItem(
-                          icon: AppIcons.fileKey,
-                          iconContainerColor: colorScheme.tertiaryContainer
-                              .withValues(alpha: 0.55),
-                          iconColor: colorScheme.onTertiaryContainer,
-                          label: 'Export key file',
-                          subtitle: 'Back up the key file to a safe location',
-                          onTap: () => onSelect('exportKeyFile'),
-                        ),
-                        _SheetItem(
-                          icon: AppIcons.delete,
-                          iconContainerColor:
-                              colorScheme.surfaceContainerHighest,
-                          iconColor: colorScheme.onSurface.withValues(
-                            alpha: 0.7,
-                          ),
-                          label: 'Recycle bin',
-                          subtitle: 'View and restore deleted records',
-                          onTap: () => onSelect('recycleBin'),
-                        ),
-                        _SheetItem(
-                          icon: AppIcons.copy,
-                          iconContainerColor: state.duplicateGroupCount > 0
-                              ? colorScheme.tertiaryContainer.withValues(
-                                  alpha: 0.6,
-                                )
-                              : colorScheme.surfaceContainerHighest,
-                          iconColor: state.duplicateGroupCount > 0
-                              ? colorScheme.onTertiaryContainer
-                              : colorScheme.onSurface.withValues(alpha: 0.7),
-                          label: 'Manage duplicates',
-                          subtitle: state.duplicateGroupCount > 0
-                              ? '${state.duplicateGroupCount} group${state.duplicateGroupCount == 1 ? '' : 's'} detected'
-                              : 'Merge or remove duplicate entries',
-                          onTap: () => onSelect('manageDuplicates'),
-                        ),
-                        if (canConfigureAndroidAutofill)
-                          _SheetItem(
-                            icon: AppIcons.fingerprint,
-                            iconContainerColor: colorScheme.secondaryContainer
-                                .withValues(alpha: 0.6),
-                            iconColor: colorScheme.onSecondaryContainer,
-                            label: 'Android autofill',
-                            subtitle: 'Fill passwords in apps and browsers',
-                            onTap: () => onSelect('androidAutofill'),
-                          ),
-                        if (canConfigureBrowserAutofill)
-                          _SheetItem(
-                            icon: AppIcons.globe,
-                            iconContainerColor: colorScheme.secondaryContainer
-                                .withValues(alpha: 0.6),
-                            iconColor: colorScheme.onSecondaryContainer,
-                            label: 'Desktop browser extension',
-                            subtitle:
-                                'Install and connect the desktop browser host',
-                            onTap: () => onSelect('browserSetup'),
-                          ),
-                      ],
-                    ),
-                    const _SheetDivider(),
-
-                    // ── Appearance ────────────────────────────────────────
-                    _SheetSection(
-                      label: 'Appearance',
-                      icon: AppIcons.sun,
-                      iconColor: colorScheme.tertiary,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
-                          child: _ThemePicker(
-                            themeMode: themeMode,
-                            onSelect: (mode) {
-                              switch (mode) {
-                                case ThemeMode.system:
-                                  onSelect('themeSystem');
-                                case ThemeMode.light:
-                                  onSelect('themeLight');
-                                case ThemeMode.dark:
-                                  onSelect('themeDark');
-                              }
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SheetSection extends StatelessWidget {
-  const _SheetSection({
-    required this.label,
-    required this.icon,
-    required this.iconColor,
-    required this.children,
-  });
-
-  final String label;
-  final IconData icon;
-  final Color iconColor;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
-          child: Row(
-            children: [
-              Icon(icon, size: 13, color: iconColor),
-              const SizedBox(width: 6),
-              Text(
-                label.toUpperCase(),
-                style: theme.textTheme.labelSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8,
-                  color: colorScheme.onSurface.withValues(alpha: 0.52),
-                ),
-              ),
-            ],
-          ),
-        ),
-        ...children,
-      ],
-    );
-  }
-}
-
-class _SheetDivider extends StatelessWidget {
-  const _SheetDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Divider(
-      height: 1,
-      indent: 20,
-      endIndent: 20,
-      color: colorScheme.outlineVariant.withValues(alpha: 0.45),
-    );
-  }
-}
-
-class _SheetItem extends StatelessWidget {
-  const _SheetItem({
-    required this.icon,
-    required this.iconContainerColor,
-    required this.iconColor,
-    required this.label,
-    this.subtitle,
-    this.labelColor,
-    this.onTap,
-  });
-
-  final IconData icon;
-  final Color iconContainerColor;
-  final Color iconColor;
-  final String label;
-  final String? subtitle;
-  final Color? labelColor;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return ListTile(
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
-      leading: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: iconContainerColor,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Icon(icon, size: 17, color: iconColor),
-      ),
-      title: Text(
-        label,
-        style: theme.textTheme.bodyMedium?.copyWith(
-          fontWeight: FontWeight.w600,
-          color: labelColor,
-        ),
-      ),
-      subtitle: subtitle != null
-          ? Text(
-              subtitle!,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurface.withValues(alpha: 0.58),
-              ),
-            )
-          : null,
-    );
-  }
-}
-
-class _SheetToggleItem extends StatelessWidget {
-  const _SheetToggleItem({
-    required this.icon,
-    required this.iconContainerColor,
-    required this.iconColor,
-    required this.label,
-    this.subtitle,
-    required this.value,
-    this.enabled = true,
-    required this.onChanged,
-  });
-
-  final IconData icon;
-  final Color iconContainerColor;
-  final Color iconColor;
-  final String label;
-  final String? subtitle;
-  final bool value;
-  final bool enabled;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final effectiveAlpha = enabled ? 1.0 : 0.5;
-
-    return SwitchListTile.adaptive(
-      value: value,
-      onChanged: enabled ? onChanged : null,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
-      secondary: Opacity(
-        opacity: effectiveAlpha,
-        child: Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: iconContainerColor,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(icon, size: 17, color: iconColor),
-        ),
-      ),
-      title: Opacity(
-        opacity: effectiveAlpha,
-        child: Text(
-          label,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-      subtitle: subtitle != null
-          ? Opacity(
-              opacity: effectiveAlpha,
-              child: Text(
-                subtitle!,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurface.withValues(alpha: 0.58),
-                ),
-              ),
-            )
-          : null,
-    );
-  }
-}
-
-class _ThemePicker extends StatelessWidget {
-  const _ThemePicker({required this.themeMode, required this.onSelect});
-
-  final ThemeMode themeMode;
-  final ValueChanged<ThemeMode> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    Widget option(ThemeMode mode, IconData icon, String label) {
-      final selected = themeMode == mode;
-      return Expanded(
-        child: GestureDetector(
-          onTap: () => onSelect(mode),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOutCubic,
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            decoration: BoxDecoration(
-              color: selected
-                  ? colorScheme.primaryContainer.withValues(alpha: 0.76)
-                  : colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: selected
-                    ? colorScheme.primary.withValues(alpha: 0.5)
-                    : colorScheme.outlineVariant.withValues(alpha: 0.55),
-                width: selected ? 1.5 : 1,
-              ),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  icon,
-                  size: 18,
-                  color: selected
-                      ? colorScheme.onPrimaryContainer
-                      : colorScheme.onSurface.withValues(alpha: 0.62),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  label,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                    color: selected
-                        ? colorScheme.onPrimaryContainer
-                        : colorScheme.onSurface.withValues(alpha: 0.72),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Row(
-      children: [
-        option(ThemeMode.system, AppIcons.desktop, 'System'),
-        const SizedBox(width: 8),
-        option(ThemeMode.light, AppIcons.sun, 'Light'),
-        const SizedBox(width: 8),
-        option(ThemeMode.dark, AppIcons.moon, 'Dark'),
-      ],
-    );
-  }
-}

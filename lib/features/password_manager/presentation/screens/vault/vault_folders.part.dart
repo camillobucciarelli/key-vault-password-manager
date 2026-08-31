@@ -36,16 +36,30 @@ class _VaultFolderColumn extends StatelessWidget {
               // list card's search field and the detail's header row — the
               // three sections share one visual top.
               padding: const EdgeInsets.fromLTRB(14, 26, 14, 4),
-              child: Text(
-                // FR-001: the column is titled with the database the user
-                // opened, not with the word "Folders" — which told them
-                // something they could already see.
-                path.basename(state.databasePath),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTextStyles.panelTitle.copyWith(
-                  color: colors.textPrimary,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    // FR-001: the column is titled with the database the user
+                    // opened, not with the word "Folders" — which told them
+                    // something they could already see.
+                    path.basename(state.databasePath),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.panelTitle.copyWith(
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _vaultSyncStatusLabel(state),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.meta.copyWith(
+                      color: colors.textSecondary,
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 6),
@@ -237,7 +251,9 @@ class _VaultHygieneShortcuts extends StatelessWidget {
 }
 
 bool _folderSurfaceBuildWhen(VaultState previous, VaultState current) {
-  return previous.groups != current.groups ||
+  return previous.isDriveLinked != current.isDriveLinked ||
+      previous.lastSyncAt != current.lastSyncAt ||
+      previous.groups != current.groups ||
       previous.currentGroupId != current.currentGroupId ||
       previous.expandedGroupIds != current.expandedGroupIds ||
       previous.folderCounts != current.folderCounts ||

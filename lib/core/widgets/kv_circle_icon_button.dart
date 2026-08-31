@@ -17,6 +17,7 @@ class KvCircleIconButton extends StatelessWidget {
     required this.tooltip,
     required this.onPressed,
     this.nested = false,
+    this.filled = false,
     this.size = 36,
     this.iconSize = 19,
   });
@@ -28,6 +29,9 @@ class KvCircleIconButton extends StatelessWidget {
   /// True where the button sits on a surface already (a field row): it fills
   /// with `surfaceNested` instead of `surface` so it still reads as raised.
   final bool nested;
+
+  /// True for a header's one primary action: accent fill, accent-text glyph.
+  final bool filled;
 
   final double size;
   final double iconSize;
@@ -42,11 +46,19 @@ class KvCircleIconButton extends StatelessWidget {
         tooltip: tooltip,
         onPressed: onPressed,
         style: IconButton.styleFrom(
-          backgroundColor: nested ? colors.surfaceNested : colors.surface,
+          backgroundColor: filled
+              ? colors.actionFill
+              : nested
+              ? colors.surfaceNested
+              : colors.surface,
           shape: const CircleBorder(),
           padding: EdgeInsets.zero,
         ),
-        icon: KvIcon(glyph: glyph, size: iconSize, color: colors.iconNeutral),
+        icon: KvIcon(
+          glyph: glyph,
+          size: iconSize,
+          color: filled ? colors.actionText : colors.iconNeutral,
+        ),
       ),
     );
   }

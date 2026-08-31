@@ -803,20 +803,6 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                                       onAddRecord: () =>
                                           _createRecordInCurrentFolder(context),
                                       onOpenSort: () => _showSortSheet(context),
-                                      onOpenRecycleBin: () {
-                                        unawaited(
-                                          _showRecycleBinDialog(context),
-                                        );
-                                      },
-                                      onOpenDuplicates: () {
-                                        unawaited(
-                                          _showDuplicatesDialog(context),
-                                        );
-                                      },
-                                      onChangeDatabase: () =>
-                                          _closeCurrentDatabaseAndSelectAnother(
-                                            context,
-                                          ),
                                     ),
                                     const SizedBox(
                                       height: _VaultUiTokens.panelGap,
@@ -1484,26 +1470,46 @@ class _VaultDestinationScaffold extends StatelessWidget {
   }
 }
 
-/// spec-019 T035 / FR-014 — the vault's screen header, wherever there is no
-/// folder column to carry the database's name.
+/// spec-019 T035 / FR-014, amended 2026-08-31 — the vault's screen header,
+/// wherever there is no folder column to carry the database's name.
 ///
-/// `Vault`, then the record count and the database file name, then — from the
-/// right — the add affordance, the sort affordance, and the database actions
-/// the status card used to carry (FR-015). Each target is 44 px.
+/// The database's own name is the title (the word `Vault` told the user
+/// nothing), the count is the subtitle, and the only actions are sort and
+/// add, drawn with the app's circle buttons. The sync and overflow controls
+/// left this header — hygiene and database actions live in their own
+/// destinations.
+/// One line under the vault's name, everywhere the name appears: when the
+/// database is linked to Drive it says how fresh the copy is, otherwise it
+/// says plainly that this is a local, unsynced file.
+String _vaultSyncStatusLabel(VaultState state) {
+  if (!state.isDriveLinked) {
+    return 'Local vault, not synced';
+  }
+  final lastSyncAt = state.lastSyncAt;
+  if (lastSyncAt == null) {
+    return 'Not synced yet';
+  }
+  final diff = DateTime.now().difference(lastSyncAt);
+  if (diff.inMinutes < 1) {
+    return 'Last sync just now';
+  }
+  if (diff.inMinutes < 60) {
+    final m = diff.inMinutes;
+    return 'Last sync $m minute${m == 1 ? '' : 's'} ago';
+  }
+  if (diff.inHours < 24) {
+    final h = diff.inHours;
+    return 'Last sync $h hour${h == 1 ? '' : 's'} ago';
+  }
+  final d = diff.inDays;
+  return 'Last sync $d day${d == 1 ? '' : 's'} ago';
+}
+
 class _VaultListHeader extends StatelessWidget {
-  const _VaultListHeader({
-    required this.onAddRecord,
-    required this.onOpenSort,
-    required this.onOpenRecycleBin,
-    required this.onOpenDuplicates,
-    required this.onChangeDatabase,
-  });
+  const _VaultListHeader({required this.onAddRecord, required this.onOpenSort});
 
   final VoidCallback onAddRecord;
   final VoidCallback onOpenSort;
-  final VoidCallback onOpenRecycleBin;
-  final VoidCallback onOpenDuplicates;
-  final Future<void> Function() onChangeDatabase;
 
   @override
   Widget build(BuildContext context) {
@@ -1513,7 +1519,8 @@ class _VaultListHeader extends StatelessWidget {
       buildWhen: (previous, current) =>
           previous.visibleEntries.length != current.visibleEntries.length ||
           previous.databasePath != current.databasePath ||
-          _databaseActionsBuildWhen(previous, current),
+          previous.isDriveLinked != current.isDriveLinked ||
+          previous.lastSyncAt != current.lastSyncAt,
       builder: (context, state) {
         return Row(
           children: [
@@ -1523,7 +1530,9 @@ class _VaultListHeader extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'Vault',
+                    path.basename(state.databasePath),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: AppTextStyles.screenTitle.copyWith(
                       color: colors.textPrimary,
                     ),
@@ -1531,7 +1540,7 @@ class _VaultListHeader extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     '${state.visibleEntries.length} items · '
-                    '${path.basename(state.databasePath)}',
+                    '${_vaultSyncStatusLabel(state)}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTextStyles.meta.copyWith(
@@ -1541,20 +1550,15 @@ class _VaultListHeader extends StatelessWidget {
                 ],
               ),
             ),
-            _VaultDatabaseActions(
-              state: state,
-              onOpenRecycleBin: onOpenRecycleBin,
-              onOpenDuplicates: onOpenDuplicates,
-              onChangeDatabase: onChangeDatabase,
-            ),
-            _VaultHeaderIconButton(
-              tooltip: 'Sort records',
+            KvCircleIconButton(
               glyph: AppGlyph.sort,
+              tooltip: 'Sort records',
               onPressed: onOpenSort,
             ),
-            _VaultHeaderIconButton(
-              tooltip: 'Add record',
+            const SizedBox(width: 8),
+            KvCircleIconButton(
               glyph: AppGlyph.add,
+              tooltip: 'Add record',
               filled: true,
               onPressed: onAddRecord,
             ),
@@ -1612,90 +1616,6 @@ class _VaultHeaderIconButton extends StatelessWidget {
       ),
     );
   }
-}
-
-/// spec-019 FR-015 — the database-level actions the status card carried.
-///
-/// Not re-implemented: this is the card's own primary button and its own
-/// overflow, moved. The sheet behind the overflow is `_VaultSettingsSheet`,
-/// unchanged, so `Lock vault`, `Change database`, `Database settings`,
-/// `Recycle bin` and `Manage duplicates` keep both their wording and their
-/// interaction count.
-class _VaultDatabaseActions extends StatelessWidget {
-  const _VaultDatabaseActions({
-    required this.state,
-    required this.onOpenRecycleBin,
-    required this.onOpenDuplicates,
-    required this.onChangeDatabase,
-  });
-
-  final VaultState state;
-  final VoidCallback onOpenRecycleBin;
-  final VoidCallback onOpenDuplicates;
-  final Future<void> Function() onChangeDatabase;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDriveSyncReady = state.isDriveConnected && state.isDriveLinked;
-    final isSyncInProgress =
-        state.syncStatus == DatabaseSyncStatus.syncing || state.isSyncing;
-    final isBusy = isDriveSyncReady && isSyncInProgress;
-    // Verbatim from the status card (Constitution VI).
-    final tooltip = isBusy
-        ? 'Sync in progress'
-        : isDriveSyncReady
-        ? 'Sync database'
-        : 'Refresh vault';
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: 44,
-          height: 44,
-          child: IconButton(
-            tooltip: tooltip,
-            padding: EdgeInsets.zero,
-            onPressed: isBusy
-                ? null
-                : () {
-                    final bloc = context.read<VaultBloc>();
-                    bloc.add(
-                      isDriveSyncReady
-                          ? const SyncCurrentDatabaseNow()
-                          : const RefreshVault(),
-                    );
-                  },
-            icon: _SyncStripActionIcon(
-              icon: isDriveSyncReady ? AppIcons.sync : AppIcons.refresh,
-              highlighted: isDriveSyncReady,
-              spinning: isSyncInProgress,
-            ),
-          ),
-        ),
-        _SyncStripMenuButton(
-          state: state,
-          canConfigureAndroidAutofill: false,
-          canConfigureBrowserAutofill: BrowserSetupScreen.shouldShow,
-          onOpenRecycleBin: onOpenRecycleBin,
-          onOpenDuplicates: onOpenDuplicates,
-          onChangeDatabase: onChangeDatabase,
-        ),
-      ],
-    );
-  }
-}
-
-bool _databaseActionsBuildWhen(VaultState previous, VaultState current) {
-  return previous.isDriveConnected != current.isDriveConnected ||
-      previous.isDriveLinked != current.isDriveLinked ||
-      previous.linkedDriveFileName != current.linkedDriveFileName ||
-      previous.syncStatus != current.syncStatus ||
-      previous.lastSyncAt != current.lastSyncAt ||
-      previous.autoSyncEnabled != current.autoSyncEnabled ||
-      previous.isSyncing != current.isSyncing ||
-      previous.isOffline != current.isOffline ||
-      previous.duplicateGroupCount != current.duplicateGroupCount;
 }
 
 /// spec-019 T051 / FR-016 — the KeyVault mark, as artwork.

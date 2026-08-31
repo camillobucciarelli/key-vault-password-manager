@@ -160,16 +160,6 @@ void _showSyncSnackBar(
 // vault_sync.part.dart). This helper (still used by the Vault-tab overflow
 // menu's "Link" item) now goes straight to the existing-file picker, which
 // is the only ambiguous choice left; connecting first is still required.
-Future<void> _startDriveLinkFlow(BuildContext context) async {
-  final bloc = context.read<VaultBloc>();
-  if (!bloc.state.isDriveConnected) {
-    bloc.add(const ConnectGoogleDrive());
-    return;
-  }
-
-  await _pickExistingDriveFile(context);
-}
-
 String _formatSyncDateTime(DateTime value) {
   final local = value.toLocal();
   final y = local.year.toString().padLeft(4, '0');

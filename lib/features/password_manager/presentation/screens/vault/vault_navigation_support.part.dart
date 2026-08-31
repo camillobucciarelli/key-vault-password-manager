@@ -1,59 +1,5 @@
 part of '../vault_screen.dart';
 
-class _SyncStripActionIcon extends StatelessWidget {
-  const _SyncStripActionIcon({
-    required this.icon,
-    this.highlighted = false,
-    this.spinning = false,
-  });
-
-  final IconData icon;
-  final bool highlighted;
-  final bool spinning;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final foreground = highlighted
-        ? colorScheme.onPrimaryContainer
-        : colorScheme.onSurfaceVariant;
-    final background = highlighted
-        ? colorScheme.primaryContainer.withValues(alpha: isDark ? 0.9 : 0.96)
-        : colorScheme.surfaceContainerHighest.withValues(
-            alpha: isDark ? 0.84 : 0.94,
-          );
-    final borderColor = highlighted
-        ? colorScheme.primary.withValues(alpha: isDark ? 0.28 : 0.36)
-        : colorScheme.outlineVariant.withValues(alpha: isDark ? 0.55 : 0.78);
-
-    final iconWidget = Icon(icon, size: 16, color: foreground);
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOut,
-      width: 32,
-      height: 32,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(11),
-        border: Border.all(color: borderColor),
-      ),
-      child: spinning
-          ? SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 1.8,
-                valueColor: AlwaysStoppedAnimation<Color>(foreground),
-              ),
-            )
-          : iconWidget,
-    );
-  }
-}
-
 /// spec-006 T7/FR-5 (screen 7): `Link AutoFill credential?` sheet — Target /
 /// Entry / Username rows, Reject / Link actions. Drives the existing
 /// pending-association flow (`ConfirmAppleAutofillPendingAssociation` /

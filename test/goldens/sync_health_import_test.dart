@@ -620,7 +620,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Settings'));
+    // 2026-08-31: the list header's `⋮` (tooltip 'Settings') is retired —
+    // the path is the Settings destination's own 'Recycle bin' row.
+    await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Recycle bin'));
     await tester.pumpAndSettle();
@@ -648,7 +650,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Settings'));
+    // 2026-08-31: the list header's `⋮` (tooltip 'Settings') is retired —
+    // the path is the Settings destination's own 'Recycle bin' row.
+    await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Recycle bin'));
     await tester.pumpAndSettle();
