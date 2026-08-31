@@ -48,6 +48,9 @@ class _EntriesCard extends StatefulWidget {
     required this.entries,
     required this.groups,
     required this.currentGroupId,
+    required this.rootGroupId,
+    required this.folderCounts,
+    required this.folderBrowser,
     required this.searchQuery,
     required this.sortBy,
     required this.selectedEntryId,
@@ -69,6 +72,19 @@ class _EntriesCard extends StatefulWidget {
   /// did (FR-006h) — it only needs it to say which records are on loan from a
   /// subfolder (FR-006j).
   final String? currentGroupId;
+
+  /// The vault's root group id; the folder browser treats it as `/`.
+  final String? rootGroupId;
+
+  /// Inclusive per-folder record counts (same numbers the folder tree shows).
+  final Map<String, int> folderCounts;
+
+  /// 2026-08-31 — the 1/2-column layouts browse like a file system: the
+  /// list shows the current folder's subfolders and its own records, and
+  /// tapping a folder descends into it. The 3-column layout keeps the pure
+  /// records list (the folder column is the navigation there).
+  final bool folderBrowser;
+
   final String searchQuery;
   final VaultEntrySort sortBy;
 
@@ -254,7 +270,31 @@ class _EntriesCardState extends State<_EntriesCard> {
   /// selected subtree, already searched and already sorted, and this method
   /// lays it out.
   Widget _buildEntriesList(BuildContext context) {
-    if (widget.entries.isEmpty) {
+    // File-system mode: subfolders of the current folder first, then the
+    // folder's own records. A live search stays flat over the subtree —
+    // folder rows in search results would be noise.
+    final browsing = widget.folderBrowser && widget.searchQuery.isEmpty;
+    final effectiveGroupId = widget.currentGroupId ?? widget.rootGroupId;
+
+    var childFolders = const <VaultGroup>[];
+    var records = widget.entries;
+    if (browsing && effectiveGroupId != null) {
+      childFolders =
+          widget.groups
+              .where(
+                (group) =>
+                    group.parentId == effectiveGroupId && !group.isRecycleBin,
+              )
+              .toList()
+            ..sort(
+              (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+            );
+      records = widget.entries
+          .where((entry) => entry.groupId == effectiveGroupId)
+          .toList(growable: false);
+    }
+
+    if (browsing ? effectiveGroupId == null : widget.entries.isEmpty) {
       final emptyState = _RecordsEmptyState(
         searchQuery: widget.searchQuery,
         onClearSearch: widget.searchQuery.isNotEmpty
@@ -289,10 +329,43 @@ class _EntriesCardState extends State<_EntriesCard> {
       controller: _entriesScrollController,
       padding: EdgeInsets.only(bottom: bottomInset),
       physics: const AlwaysScrollableScrollPhysics(),
-      itemCount: widget.entries.length,
+      itemCount: browsing
+          ? childFolders.length + records.length
+          : widget.entries.length,
       separatorBuilder: (_, _) =>
           const SizedBox(height: _VaultUiTokens.recordListSpacing),
       itemBuilder: (context, index) {
+        if (browsing) {
+          final folderIndex = index;
+          if (folderIndex < childFolders.length) {
+            final folder = childFolders[folderIndex];
+            return _FolderListItem(
+              folder: folder,
+              count: widget.folderCounts[folder.id] ?? 0,
+              onOpen: () => context.read<VaultBloc>().add(
+                SelectVaultFolder(folder.id),
+              ),
+              onAction: (action) => unawaited(
+                _handleFolderAction(
+                  context,
+                  groups: widget.groups,
+                  groupId: folder.id,
+                  action: action,
+                ),
+              ),
+            );
+          }
+          final entry = records[folderIndex - childFolders.length];
+          return _RecordListItem(
+            entry: entry,
+            isSelected: widget.selectedEntryId == entry.id,
+            folderSuffix: null,
+            onOpen: () => _openEntry(entry),
+            onSelectedAction: (action) {
+              _handleEntryAction(context, entry.id, action);
+            },
+          );
+        }
         final entry = widget.entries[index];
         return _RecordListItem(
           entry: entry,
@@ -355,20 +428,22 @@ class _EntriesCardState extends State<_EntriesCard> {
                 },
               );
 
-              if (!widget.showSortControl) return searchField;
-
+              // 2026-08-31: sort and add sit beside the search at EVERY
+              // width — the count line lost its inline sort control and the
+              // narrow list header its buttons.
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Expanded(child: searchField),
                   const SizedBox(width: 8),
-                  _VaultHeaderIconButton(
-                    tooltip: 'Add record',
+                  _SortMenuButton(sortBy: widget.sortBy),
+                  const SizedBox(width: 8),
+                  KvCircleIconButton(
                     glyph: AppGlyph.add,
+                    tooltip: 'Add record',
                     filled: true,
-                    // Beside the search field the standard 36 circle read too
-                    // heavy; 32 sits optically centred on the field's height.
-                    fillSize: 32,
+                    size: 32,
+                    iconSize: 17,
                     onPressed: widget.onAddRecord,
                   ),
                 ],
@@ -376,13 +451,47 @@ class _EntriesCardState extends State<_EntriesCard> {
             },
           ),
           const SizedBox(height: 10),
-          _RecordsCountLine(
-            count: widget.entries.length,
-            inclusiveOfSubfolders: widget.subfolderIds.isNotEmpty,
-            sortBy: widget.sortBy,
-            showSortControl: widget.showSortControl,
-          ),
-          const SizedBox(height: 8),
+          // 2026-08-31: the browser's location header — back, the current
+          // folder's name as the title, and the folder's own `•••` — instead
+          // of an up-row and a name squeezed into the count line.
+          if (widget.folderBrowser && widget.searchQuery.isEmpty)
+            Builder(
+              builder: (context) {
+                final effectiveGroupId =
+                    widget.currentGroupId ?? widget.rootGroupId;
+                final current = widget.groups
+                    .where((group) => group.id == effectiveGroupId)
+                    .firstOrNull;
+                if (current == null) return const SizedBox.shrink();
+                final isRoot = effectiveGroupId == widget.rootGroupId;
+                final parentId = current.parentId ?? widget.rootGroupId;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _BrowserFolderTitle(
+                    name: current.name,
+                    count: widget.folderCounts[effectiveGroupId] ?? 0,
+                    isRoot: isRoot,
+                    onBack: isRoot
+                        ? null
+                        : () => context.read<VaultBloc>().add(
+                            SelectVaultFolder(parentId!),
+                          ),
+                    onAction: (action) => unawaited(
+                      _handleFolderAction(
+                        context,
+                        groups: widget.groups,
+                        groupId: effectiveGroupId!,
+                        action: action,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          // 2026-08-31: no count line anywhere — the search field's own
+          // label carries the count, and the browser's location header
+          // carries the current folder's.
+
           // spec-018 D1/FR-001a: this used to branch on the card's OWN
           // constraints and render a second, router-unaware detail beside
           // the list. That second mechanism is why selection, dismissal and
@@ -537,69 +646,58 @@ void _hideCenteredCopyToast() {
 /// how many records are shown, and in what order.
 ///
 /// The order was already in the state and already applied
-/// (`VaultState.sortBy`, `SetVaultSort`); what was missing was any way to
-/// change it. This adds the control, not the ordering (research R2).
-class _RecordsCountLine extends StatelessWidget {
-  const _RecordsCountLine({
-    required this.count,
-    required this.inclusiveOfSubfolders,
-    required this.sortBy,
-    required this.showSortControl,
-  });
 
-  final int count;
-  final bool inclusiveOfSubfolders;
+/// The sort control: the design's neutral circle button (KvCircleIconButton,
+/// same as every other) anchoring the checked sort menu.
+class _SortMenuButton extends StatelessWidget {
+  const _SortMenuButton({required this.sortBy});
+
   final VaultEntrySort sortBy;
-  final bool showSortControl;
+
+  Future<void> _openMenu(BuildContext context) async {
+    final button = context.findRenderObject()! as RenderBox;
+    final overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final position = RelativeRect.fromRect(
+      Rect.fromPoints(
+        button.localToGlobal(Offset.zero, ancestor: overlay),
+        button.localToGlobal(
+          button.size.bottomRight(Offset.zero),
+          ancestor: overlay,
+        ),
+      ),
+      Offset.zero & overlay.size,
+    );
+    final bloc = context.read<VaultBloc>();
+    final value = await showMenu<VaultEntrySort>(
+      context: context,
+      position: position,
+      initialValue: sortBy,
+      items: [
+        for (final option in VaultEntrySort.values)
+          CheckedPopupMenuItem<VaultEntrySort>(
+            value: option,
+            checked: option == sortBy,
+            child: Text(vaultSortLabel(option)),
+          ),
+      ],
+    );
+    if (value != null) {
+      bloc.add(SetVaultSort(value));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    final label = inclusiveOfSubfolders
-        ? '$count items · incl. subfolders'
-        : '$count items';
-
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTextStyles.meta.copyWith(color: colors.textSecondary),
-          ),
-        ),
-        if (showSortControl)
-        PopupMenuButton<VaultEntrySort>(
-          tooltip: 'Sort records',
-          initialValue: sortBy,
-          onSelected: (value) =>
-              context.read<VaultBloc>().add(SetVaultSort(value)),
-          itemBuilder: (context) => [
-            for (final option in VaultEntrySort.values)
-              CheckedPopupMenuItem<VaultEntrySort>(
-                value: option,
-                checked: option == sortBy,
-                child: Text(vaultSortLabel(option)),
-              ),
-          ],
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              KvIcon(
-                glyph: AppGlyph.sort,
-                size: 15,
-                color: colors.textSecondary,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                vaultSortLabel(sortBy),
-                style: AppTextStyles.meta.copyWith(color: colors.textSecondary),
-              ),
-            ],
-          ),
-        ),
-      ],
+    return KvCircleIconButton(
+      glyph: AppGlyph.sort,
+      tooltip: 'Sort records',
+      // nested: the list card's own fill IS `surface`, so the plain variant
+      // disappeared into it.
+      nested: true,
+      size: 32,
+      iconSize: 17,
+      onPressed: () => unawaited(_openMenu(context)),
     );
   }
 }
@@ -636,4 +734,199 @@ Future<void> _createRecordInCurrentFolder(BuildContext context) async {
       attachmentPaths: payload.attachmentPaths,
     ),
   );
+}
+
+
+/// 2026-08-31 — a folder as a row of the 1/2-column list: same surface,
+/// radius and hover recipe as [_RecordListItem], a folder-glyph avatar, the
+/// inclusive count, and the same `•••` action menu the folder tree carries.
+class _FolderListItem extends StatelessWidget {
+  const _FolderListItem({
+    required this.folder,
+    required this.count,
+    required this.onOpen,
+    required this.onAction,
+  });
+
+  final VaultGroup folder;
+  final int count;
+  final VoidCallback onOpen;
+  final ValueChanged<KvFolderAction> onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return Semantics(
+      button: true,
+      label: 'Folder ${folder.name}',
+      child: _InteractiveItemSurface(
+        radius: AppRadii.row,
+        minHeight: 62,
+        onTap: onOpen,
+        baseColor: colors.surface,
+        hoveredColor: colors.surface,
+        baseBorderColor: Colors.transparent,
+        hoveredBorderColor: colors.selectionBorder.withValues(alpha: 0.5),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: colors.surfaceNested,
+                  shape: BoxShape.circle,
+                ),
+                child: KvIcon(
+                  glyph: AppGlyph.folder,
+                  size: 18,
+                  color: colors.iconNeutral,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  folder.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.rowTitle.copyWith(
+                    color: colors.textPrimary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '$count',
+                style: AppTextStyles.meta.copyWith(color: colors.textTertiary),
+              ),
+              SizedBox(
+                width: 44,
+                height: 44,
+                child: KvContextMenu(
+                  tooltip: 'Folder actions',
+                  icon: KvIcon(
+                    glyph: AppGlyph.more,
+                    size: 17,
+                    color: colors.iconNeutral,
+                  ),
+                  items: [
+                    KvContextMenuItem(
+                      label: 'New folder',
+                      onSelected: () => onAction(KvFolderAction.newFolder),
+                    ),
+                    KvContextMenuItem(
+                      label: 'Rename',
+                      onSelected: () => onAction(KvFolderAction.rename),
+                    ),
+                    KvContextMenuItem(
+                      label: 'Move',
+                      onSelected: () => onAction(KvFolderAction.move),
+                    ),
+                    KvContextMenuItem(
+                      label: 'Delete',
+                      destructive: true,
+                      onSelected: () => onAction(KvFolderAction.delete),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The browser's location header: back to the parent, the current folder's
+/// name as the title, and the folder's own `•••` action menu. The root shows
+/// its name with no back and keeps only the actions that can apply to it.
+class _BrowserFolderTitle extends StatelessWidget {
+  const _BrowserFolderTitle({
+    required this.name,
+    required this.count,
+    required this.isRoot,
+    required this.onBack,
+    required this.onAction,
+  });
+
+  final String name;
+
+  /// The folder's inclusive record count — the same number its row in the
+  /// list shows, on the same line as the name.
+  final int count;
+
+  final bool isRoot;
+  final VoidCallback? onBack;
+  final ValueChanged<KvFolderAction> onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return Row(
+      children: [
+        if (onBack != null) ...[
+          KvCircleIconButton(
+            glyph: AppGlyph.back,
+            tooltip: 'Back',
+            nested: true,
+            size: 32,
+            iconSize: 16,
+            onPressed: onBack,
+          ),
+          const SizedBox(width: 10),
+        ],
+        Expanded(
+          child: Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.panelTitle.copyWith(
+              color: colors.textPrimary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          '$count',
+          style: AppTextStyles.meta.copyWith(color: colors.textTertiary),
+        ),
+        SizedBox(
+          width: 36,
+          height: 36,
+          child: KvContextMenu(
+            tooltip: 'Folder actions',
+            icon: KvIcon(
+              glyph: AppGlyph.more,
+              size: 17,
+              color: colors.iconNeutral,
+            ),
+            items: [
+              KvContextMenuItem(
+                label: 'New folder',
+                onSelected: () => onAction(KvFolderAction.newFolder),
+              ),
+              KvContextMenuItem(
+                label: 'Rename',
+                onSelected: () => onAction(KvFolderAction.rename),
+              ),
+              if (!isRoot) ...[
+                KvContextMenuItem(
+                  label: 'Move',
+                  onSelected: () => onAction(KvFolderAction.move),
+                ),
+                KvContextMenuItem(
+                  label: 'Delete',
+                  destructive: true,
+                  onSelected: () => onAction(KvFolderAction.delete),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }

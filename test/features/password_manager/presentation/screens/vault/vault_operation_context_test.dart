@@ -77,14 +77,14 @@ void main() {
       });
     }
 
-    // spec-019, amended 2026-08-30: `Manage folders` retired — the path is
-    // now `Folders` -> row `•••` -> `New folder`, the sheet closing before
-    // the dialog opens; what this test asserts — that the create callback
-    // completes without leaving a dialog behind — is unchanged.
+    // spec-019, amended 2026-08-31: the Folders sheet is retired — on the
+    // phone the folder rows live in the file-system list, so the path is the
+    // list row's `•••` -> `New folder`; what this test asserts — that the
+    // create callback completes without leaving a dialog behind — is
+    // unchanged.
     testWidgets('folder create callback completes from sheet', (tester) async {
       await pumpVault(tester, 390);
-      await tester.tap(find.text('Folders'));
-      await tester.pumpAndSettle();
+      // The location header's `•••` is the creation entry point.
       await tester.tap(find.byTooltip('Folder actions').first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('New folder'));

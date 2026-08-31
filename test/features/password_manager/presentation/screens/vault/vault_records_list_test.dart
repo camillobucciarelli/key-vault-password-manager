@@ -49,17 +49,15 @@ void main() {
   });
 
   group('FR-006i — the count line', () {
-    testWidgets('says how many records are shown', (tester) async {
+    // 2026-08-31: the count line is gone at every width — the search
+    // field's own label ('Search N items') carries the count.
+    testWidgets('the count lives in the search placeholder alone', (
+      tester,
+    ) async {
       await pumpAt(tester, 1024);
-      await tester.tap(find.text('Devs').first);
-      await tester.pumpAndSettle();
-      expect(find.text('1 items'), findsOneWidget);
-    });
-
-    testWidgets('declares when the count includes subfolders', (tester) async {
-      await pumpAt(tester, 1024);
-      // `All items` is selected by default and the root has a subfolder.
-      expect(find.text('3 items · incl. subfolders'), findsOneWidget);
+      expect(find.text('Search 3 items'), findsOneWidget);
+      expect(find.textContaining('incl. subfolders'), findsNothing);
+      expect(find.textContaining(' items · '), findsNothing);
     });
   });
 
@@ -87,8 +85,9 @@ void main() {
 
       expect(find.text('Title A→Z'), findsOneWidget);
       expect(find.text('Title Z→A'), findsOneWidget);
-      // The active order also labels the closed control, hence two.
-      expect(find.text('Username A→Z'), findsNWidgets(2));
+      // 2026-08-31: the control is a circle button beside the search — the
+      // active order is marked in the menu, no longer written next to it.
+      expect(find.text('Username A→Z'), findsOneWidget);
 
       final checked = tester
           .widgetList<CheckedPopupMenuItem<VaultEntrySort>>(
@@ -110,16 +109,25 @@ void main() {
 
       await tester.tap(find.text('Devs').first);
       await tester.pumpAndSettle();
-      expect(find.text('Title Z→A'), findsOneWidget);
-
       await tester.enterText(find.byType(TextFormField).first, 'Git');
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
-      expect(find.text('Title Z→A'), findsOneWidget);
+
+      // The active order lives in the menu's checked item now.
+      await tester.tap(find.byTooltip('Sort records'));
+      await tester.pumpAndSettle();
+      final checked = tester
+          .widgetList<CheckedPopupMenuItem<VaultEntrySort>>(
+            find.byType(CheckedPopupMenuItem<VaultEntrySort>),
+          )
+          .where((item) => item.checked);
+      expect(checked.single.value, VaultEntrySort.titleDesc);
     });
   });
 
-  group('FR-009a / FR-014a / FR-014b — the phone Sort sheet', () {
+  // 2026-08-31: the phone Sort sheet is retired — one popup control beside
+  // the search field, the same at every width.
+  group('FR-009a / FR-014a / FR-014b — the phone sort control', () {
     testWidgets('opens from the header and offers the same three orders', (
       tester,
     ) async {
@@ -127,14 +135,17 @@ void main() {
       await tester.tap(find.byTooltip('Sort records'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Sort'), findsOneWidget);
-      expect(find.byType(RadioListTile<VaultEntrySort>), findsNWidgets(3));
+      expect(
+        find.byType(CheckedPopupMenuItem<VaultEntrySort>),
+        findsNWidgets(3),
+      );
       final selected = tester
-          .widgetList<RadioListTile<VaultEntrySort>>(
-            find.byType(RadioListTile<VaultEntrySort>),
+          .widgetList<CheckedPopupMenuItem<VaultEntrySort>>(
+            find.byType(CheckedPopupMenuItem<VaultEntrySort>),
           )
-          .where((tile) => tile.value == VaultEntrySort.usernameAsc);
+          .where((item) => item.checked);
       expect(selected, hasLength(1));
+      expect(selected.single.value, VaultEntrySort.usernameAsc);
     });
 
     testWidgets('choosing applies immediately and dismisses', (tester) async {
@@ -144,9 +155,10 @@ void main() {
       await tester.tap(find.text('Title A→Z'));
       await tester.pumpAndSettle();
 
-      expect(find.byType(RadioListTile<VaultEntrySort>), findsNothing);
-      // Title ascending: Banca Sella, Gmail (GitHub is inside Devs but the
-      // default folder is All items, so all three are listed).
+      expect(find.byType(CheckedPopupMenuItem<VaultEntrySort>), findsNothing);
+      // Title ascending. 2026-08-31: the narrow list browses like a file
+      // system, so the root shows its OWN records (GitHub lives inside the
+      // Devs folder row instead of being flattened into the root).
       final titles = tester
           .widgetList<Text>(find.byType(Text))
           .map((text) => text.data)
@@ -159,7 +171,8 @@ void main() {
             }.contains(data),
           )
           .toList();
-      expect(titles, ['Banca Sella', 'GitHub', 'Gmail']);
+      expect(titles, ['Banca Sella', 'Gmail']);
+      expect(find.text('Devs'), findsOneWidget);
     });
 
     testWidgets('carries no filter of any kind (FR-014b)', (tester) async {
@@ -167,11 +180,11 @@ void main() {
       await tester.tap(find.byTooltip('Sort records'));
       await tester.pumpAndSettle();
 
-      // Scoped to the sheet: the chip row is still on screen behind it, and
-      // its `Folders` chip is the folder filter, which is exactly where
+      // Scoped to the menu: the list is still on screen behind it, and the
+      // folder rows there are the folder filter, which is exactly where
       // FR-014b says the folder filter belongs.
       final sheet = find.ancestor(
-        of: find.byType(RadioListTile<VaultEntrySort>).first,
+        of: find.byType(CheckedPopupMenuItem<VaultEntrySort>).first,
         matching: find.byType(Column),
       );
       for (final forbidden in const [

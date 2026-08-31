@@ -99,18 +99,21 @@ void main() {
     });
   }
 
-  testWidgets('vault_1a_phone_folders_sheet_390x844_light.png', (tester) async {
+  // 2026-08-31: the Folders sheet is retired — the phone browses folders in
+  // the list itself; this golden captures the descended state.
+  testWidgets('vault_1a_phone_folder_open_390x844_light.png', (tester) async {
     await pump(tester, size: phone);
-    await tester.tap(find.text('Folders'));
+    await tester.tap(find.text('Devs'));
     await tester.pumpAndSettle();
-    await shoot(tester, 'vault_1a_phone_folders_sheet_390x844_light.png');
+    await shoot(tester, 'vault_1a_phone_folder_open_390x844_light.png');
   });
 
-  testWidgets('vault_1a_phone_sort_sheet_390x844_light.png', (tester) async {
+  // 2026-08-31: the Sort sheet is retired — one popup beside the search.
+  testWidgets('vault_1a_phone_sort_menu_390x844_light.png', (tester) async {
     await pump(tester, size: phone);
     await tester.tap(find.byTooltip('Sort records'));
     await tester.pumpAndSettle();
-    await shoot(tester, 'vault_1a_phone_sort_sheet_390x844_light.png');
+    await shoot(tester, 'vault_1a_phone_sort_menu_390x844_light.png');
   });
 
   // ── Folder row actions: the tree is the management surface (US3) ────────
@@ -123,13 +126,11 @@ void main() {
     await shoot(tester, 'folder_row_menu_wide_1024x768_light.png');
   });
 
-  testWidgets('folder_row_menu_sheet_390x844_light.png', (tester) async {
+  testWidgets('folder_row_menu_list_390x844_light.png', (tester) async {
     await pump(tester, size: phone);
-    await tester.tap(find.text('Folders'));
-    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Folder actions').last);
     await tester.pumpAndSettle();
-    await shoot(tester, 'folder_row_menu_sheet_390x844_light.png');
+    await shoot(tester, 'folder_row_menu_list_390x844_light.png');
   });
 
   // Constitution IV: the inventory is exact. A golden that appears without a
@@ -143,10 +144,10 @@ void main() {
       'vault_1a_sort_menu_1024x768_light.png',
       'vault_1a_phone_390x844_light.png',
       'vault_1a_phone_390x844_dark.png',
-      'vault_1a_phone_folders_sheet_390x844_light.png',
-      'vault_1a_phone_sort_sheet_390x844_light.png',
+      'vault_1a_phone_folder_open_390x844_light.png',
+      'vault_1a_phone_sort_menu_390x844_light.png',
       'folder_row_menu_wide_1024x768_light.png',
-      'folder_row_menu_sheet_390x844_light.png',
+      'folder_row_menu_list_390x844_light.png',
     };
 
     final onDisk = Directory('test/goldens')

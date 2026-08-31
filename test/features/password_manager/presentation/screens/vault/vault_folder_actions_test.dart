@@ -30,13 +30,8 @@ void main() {
     expect(find.text('Manage'), findsNothing);
   });
 
-  testWidgets('the Manage entry point is gone on the phone and its sheet', (
-    tester,
-  ) async {
+  testWidgets('the Manage entry point is gone on the phone', (tester) async {
     await pumpAt(tester, 390);
-    expect(find.text('Manage'), findsNothing);
-    await tester.tap(find.text('Folders'));
-    await tester.pumpAndSettle();
     expect(find.text('Manage'), findsNothing);
   });
 
@@ -86,26 +81,23 @@ void main() {
     expect(find.text('Rename folder'), findsOneWidget);
   });
 
-  testWidgets(
-    'the phone sheet rows carry the same menus, and an action closes the '
-    'sheet before its dialog opens',
-    (tester) async {
-      await pumpAt(tester, 390);
+  // 2026-08-31: the Folders sheet is retired — on the phone the folder rows
+  // live in the list itself, carrying the same `•••` recipe.
+  testWidgets('the phone list folder rows carry the same menus', (
+    tester,
+  ) async {
+    await pumpAt(tester, 390);
+    expect(find.byTooltip('Folder actions'), findsWidgets);
 
-      await tester.tap(find.text('Folders'));
-      await tester.pumpAndSettle();
-      expect(find.byTooltip('Folder actions'), findsWidgets);
+    await tester.tap(find.byTooltip('Folder actions').last);
+    await tester.pumpAndSettle();
+    expect(find.text('New folder'), findsOneWidget);
+    expect(find.text('Rename'), findsOneWidget);
+    expect(find.text('Move'), findsOneWidget);
+    expect(find.text('Delete'), findsOneWidget);
 
-      await tester.tap(find.byTooltip('Folder actions').last);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Rename'));
-      await tester.pumpAndSettle();
-
-      // The sheet is gone and the rename surface is up: the router scope the
-      // dialog needs lives above the sheet, so the sheet pops the action out
-      // and the host runs it.
-      expect(find.text('Folders sheet'), findsNothing);
-      expect(find.text('Rename folder'), findsOneWidget);
-    },
-  );
+    await tester.tap(find.text('Rename'));
+    await tester.pumpAndSettle();
+    expect(find.text('Rename folder'), findsOneWidget);
+  });
 }

@@ -799,24 +799,34 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                                   if (!_effectiveLayout(
                                     context,
                                   ).hasFolderPane) ...[
-                                    _VaultListHeader(
-                                      onAddRecord: () =>
-                                          _createRecordInCurrentFolder(context),
-                                      onOpenSort: () => _showSortSheet(context),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: _VaultNameHeader(
+                                            titleStyle:
+                                                AppTextStyles.screenTitle,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        KvCircleIconButton(
+                                          glyph: AppGlyph.delete,
+                                          tooltip: 'Recycle bin',
+                                          size: 32,
+                                          onPressed: () => unawaited(
+                                            _showRecycleBinDialog(context),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        KvCircleIconButton(
+                                          glyph: AppGlyph.duplicates,
+                                          tooltip: 'Manage duplicates',
+                                          size: 32,
+                                          onPressed: () => unawaited(
+                                            _showDuplicatesDialog(context),
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    const SizedBox(
-                                      height: _VaultUiTokens.panelGap,
-                                    ),
-                                    // spec-019 FR-005 + plan Risks: the chip
-                                    // row stands in wherever the folder column
-                                    // does not fit — the phone, and the
-                                    // 704-940 band whose artboard the design
-                                    // still owes. That band had no folder
-                                    // affordance at all once the list stopped
-                                    // carrying folders, which would have
-                                    // stranded every folder between 704 and
-                                    // 940.
-                                    const _VaultFolderChipRow(),
                                     const SizedBox(
                                       height: _VaultUiTokens.panelGap,
                                     ),
@@ -922,6 +932,8 @@ bool _syncStatusStripBuildWhen(VaultState previous, VaultState current) {
 
 bool _entriesCardBuildWhen(VaultState previous, VaultState current) {
   return previous.visibleEntries != current.visibleEntries ||
+      previous.folderCounts != current.folderCounts ||
+      previous.rootGroupId != current.rootGroupId ||
       previous.groups != current.groups ||
       previous.currentGroupId != current.currentGroupId ||
       previous.folderDescendantIds != current.folderDescendantIds ||
@@ -973,6 +985,11 @@ class _VaultEntriesCardSection extends StatelessWidget {
           entries: state.visibleEntries,
           groups: state.groups,
           currentGroupId: currentGroupId,
+          rootGroupId: state.rootGroupId,
+          folderCounts: state.folderCounts,
+          // 2026-08-31: without the folder column the list IS the file
+          // system — subfolders and records together, tap to descend.
+          folderBrowser: !layout.hasFolderPane,
           searchQuery: state.searchQuery,
           sortBy: state.sortBy,
           subfolderIds: subfolderIds,
@@ -1505,11 +1522,15 @@ String _vaultSyncStatusLabel(VaultState state) {
   return 'Last sync $d day${d == 1 ? '' : 's'} ago';
 }
 
-class _VaultListHeader extends StatelessWidget {
-  const _VaultListHeader({required this.onAddRecord, required this.onOpenSort});
+/// spec-019 T035 / FR-014, amended 2026-08-31 — ONE widget for the vault's
+/// name wherever it appears: the database file name as the title and the
+/// sync status (last sync, sync errors) as the subtitle. The 3-column folder
+/// column and the 1/2-column list header both render this; the item count
+/// lives in the list card's own count line at every width.
+class _VaultNameHeader extends StatelessWidget {
+  const _VaultNameHeader({required this.titleStyle});
 
-  final VoidCallback onAddRecord;
-  final VoidCallback onOpenSort;
+  final TextStyle titleStyle;
 
   @override
   Widget build(BuildContext context) {
@@ -1517,50 +1538,29 @@ class _VaultListHeader extends StatelessWidget {
 
     return BlocBuilder<VaultBloc, VaultState>(
       buildWhen: (previous, current) =>
-          previous.visibleEntries.length != current.visibleEntries.length ||
           previous.databasePath != current.databasePath ||
           previous.isDriveLinked != current.isDriveLinked ||
-          previous.lastSyncAt != current.lastSyncAt,
+          previous.lastSyncAt != current.lastSyncAt ||
+          previous.syncStatus != current.syncStatus ||
+          previous.syncError != current.syncError ||
+          previous.isSyncing != current.isSyncing,
       builder: (context, state) {
-        return Row(
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    path.basename(state.databasePath),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.screenTitle.copyWith(
-                      color: colors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${state.visibleEntries.length} items · '
-                    '${_vaultSyncStatusLabel(state)}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.meta.copyWith(
-                      color: colors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
+            Text(
+              path.basename(state.databasePath),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: titleStyle.copyWith(color: colors.textPrimary),
             ),
-            KvCircleIconButton(
-              glyph: AppGlyph.sort,
-              tooltip: 'Sort records',
-              onPressed: onOpenSort,
-            ),
-            const SizedBox(width: 8),
-            KvCircleIconButton(
-              glyph: AppGlyph.add,
-              tooltip: 'Add record',
-              filled: true,
-              onPressed: onAddRecord,
+            const SizedBox(height: 2),
+            Text(
+              _vaultSyncStatusLabel(state),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.meta.copyWith(color: colors.textSecondary),
             ),
           ],
         );
@@ -1569,54 +1569,6 @@ class _VaultListHeader extends StatelessWidget {
   }
 }
 
-class _VaultHeaderIconButton extends StatelessWidget {
-  const _VaultHeaderIconButton({
-    required this.tooltip,
-    required this.glyph,
-    required this.onPressed,
-    this.filled = false,
-    this.fillSize = 36,
-  });
-
-  final String tooltip;
-  final AppGlyph glyph;
-  final VoidCallback onPressed;
-
-  /// Diameter of the visible filled circle; the 44 px target is unchanged.
-  final double fillSize;
-
-  /// spec-019 C-03-01: the add affordance is an `accent-300` filled button,
-  /// not a bare glyph — it is the header's one primary action and the design
-  /// gives it the only fill in the row. The 44 px target is the button's, not
-  /// the fill's: the visible circle is 36 (PIXEL_SPEC §2).
-  final bool filled;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    return SizedBox(
-      width: 44,
-      height: 44,
-      child: IconButton(
-        tooltip: tooltip,
-        onPressed: onPressed,
-        padding: EdgeInsets.zero,
-        style: filled
-            ? IconButton.styleFrom(
-                backgroundColor: AppColors.accent300,
-                fixedSize: Size.square(fillSize),
-                shape: const CircleBorder(),
-              )
-            : null,
-        icon: KvIcon(
-          glyph: glyph,
-          size: 19,
-          color: filled ? AppColors.accent900 : colors.textPrimary,
-        ),
-      ),
-    );
-  }
-}
 
 /// spec-019 T051 / FR-016 — the KeyVault mark, as artwork.
 ///

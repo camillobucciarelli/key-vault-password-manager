@@ -189,6 +189,9 @@ Future<VaultDone?> _showAttachmentsDialog(
                         title: Text(attachment.name),
                         subtitle: Text(formatBytes(attachment.size)),
                         trailing: PopupMenuButton<_AttachmentAction>(
+                          // Vertical dots everywhere: the adaptive default
+                          // is horizontal on Apple platforms.
+                          icon: const Icon(AppIcons.more),
                           onSelected: (action) async {
                             if (!dialogContext.mounted) {
                               return;

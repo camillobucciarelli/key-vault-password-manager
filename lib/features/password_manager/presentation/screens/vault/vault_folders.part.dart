@@ -23,8 +23,6 @@ class _VaultFolderColumn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
-
     return BlocBuilder<VaultBloc, VaultState>(
       buildWhen: _folderSurfaceBuildWhen,
       builder: (context, state) {
@@ -36,31 +34,9 @@ class _VaultFolderColumn extends StatelessWidget {
               // list card's search field and the detail's header row — the
               // three sections share one visual top.
               padding: const EdgeInsets.fromLTRB(14, 26, 14, 4),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    // FR-001: the column is titled with the database the user
-                    // opened, not with the word "Folders" — which told them
-                    // something they could already see.
-                    path.basename(state.databasePath),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.panelTitle.copyWith(
-                      color: colors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    _vaultSyncStatusLabel(state),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.meta.copyWith(
-                      color: colors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
+              // FR-001, amended 2026-08-31: one widget for the vault's name
+              // and sync status, shared with the 1/2-column list header.
+              child: _VaultNameHeader(titleStyle: AppTextStyles.panelTitle),
             ),
             const SizedBox(height: 6),
             Expanded(
@@ -95,13 +71,9 @@ class _VaultVerticalSpacer extends StatelessWidget {
 /// `All items` plus the tree, in one [KvFolderTree] so the first row obeys the
 /// same selected-row recipe as every other (FR-006k).
 class _VaultFolderTreeSection extends StatelessWidget {
-  const _VaultFolderTreeSection({required this.state, this.forSheet = false});
+  const _VaultFolderTreeSection({required this.state});
 
   final VaultState state;
-
-  /// The phone sheet closes itself once a folder is chosen (FR-005a); the
-  /// column stays put.
-  final bool forSheet;
 
   @override
   Widget build(BuildContext context) {
@@ -141,29 +113,21 @@ class _VaultFolderTreeSection extends StatelessWidget {
       // FR-002a: never null. An unknown or deleted folder falls back to the
       // root, which is `All items`.
       selectedId: state.currentGroupId ?? rootGroupId,
-      onSelect: (id) {
-        context.read<VaultBloc>().add(SelectVaultFolder(id));
-        if (forSheet) {
-          Navigator.of(context).maybePop();
-        }
-      },
+      onSelect: (id) =>
+          context.read<VaultBloc>().add(SelectVaultFolder(id)),
       onToggleExpanded: (id, expanded) => context.read<VaultBloc>().add(
         SetVaultFolderExpanded(id, expanded: expanded),
       ),
       // 2026-08-30: `Manage folders` retired — the tree carries its own row
-      // actions everywhere it appears, same handlers, same dialogs. The sheet
-      // cannot host them itself (the router scope lives above it, not above
-      // the sheet), so it pops the choice out and the caller runs it.
-      onRowAction: forSheet
-          ? (id, action) => Navigator.of(context).pop((id, action))
-          : (id, action) => unawaited(
-              _handleFolderAction(
-                context,
-                groups: state.groups,
-                groupId: id,
-                action: action,
-              ),
-            ),
+      // actions, same handlers, same dialogs.
+      onRowAction: (id, action) => unawaited(
+        _handleFolderAction(
+          context,
+          groups: state.groups,
+          groupId: id,
+          action: action,
+        ),
+      ),
     );
   }
 }
@@ -262,225 +226,6 @@ bool _folderSurfaceBuildWhen(VaultState previous, VaultState current) {
       previous.duplicateGroups != current.duplicateGroups;
 }
 
-/// spec-019 T036 / FR-005 — the phone's folder chips.
-///
-/// First level only. A vault three folders deep must not produce a chip row
-/// three folders long: the deep ones are reached through the `Folders` sheet,
-/// which is what the first chip opens. Chips filter and nothing else — no chip
-/// carries an action (FR-006c).
-class _VaultFolderChipRow extends StatelessWidget {
-  const _VaultFolderChipRow();
-
-  @override
-  Widget build(BuildContext context) {
-    return BlocBuilder<VaultBloc, VaultState>(
-      buildWhen: _folderSurfaceBuildWhen,
-      builder: (context, state) {
-        final rootGroupId = state.rootGroupId;
-        if (rootGroupId == null) {
-          return const SizedBox.shrink();
-        }
-
-        final firstLevel =
-            state.groups
-                .where(
-                  (group) =>
-                      group.parentId == rootGroupId && !group.isRecycleBin,
-                )
-                .toList()
-              ..sort(
-                (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-              );
-
-        final selectedId = state.currentGroupId ?? rootGroupId;
-        // A folder selected from the sheet may be nested; the chip row then
-        // shows no chip as active, and the `Folders` chip carries the name so
-        // the filter is never invisible (FR-005a).
-        final isDeepSelection =
-            selectedId != rootGroupId &&
-            !firstLevel.any((group) => group.id == selectedId);
-        final deepName = isDeepSelection
-            ? state.groups
-                  .where((group) => group.id == selectedId)
-                  .map((group) => group.name)
-                  .firstOrNull
-            : null;
-
-        return SizedBox(
-          key: const ValueKey('vault-folder-chips'),
-          height: KvFilterChip.minTarget,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            children: [
-              KvFilterChip(
-                label: deepName == null ? 'Folders' : 'Folders · $deepName',
-                selected: isDeepSelection,
-                onPressed: () => unawaited(_showFoldersSheet(context)),
-              ),
-              const SizedBox(width: 8),
-              KvFilterChip(
-                label: 'All',
-                count: state.totalCount,
-                selected: selectedId == rootGroupId,
-                onPressed: () =>
-                    context.read<VaultBloc>().add(
-                      SelectVaultFolder(rootGroupId),
-                    ),
-              ),
-              for (final group in firstLevel) ...[
-                const SizedBox(width: 8),
-                KvFilterChip(
-                  label: group.name,
-                  count: state.folderCounts[group.id] ?? 0,
-                  selected: selectedId == group.id,
-                  onPressed: () => context.read<VaultBloc>().add(
-                    SelectVaultFolder(group.id),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// spec-019 T037 / FR-005a — the phone's `Folders` sheet.
-///
-/// The same tree as the desktop column, reading and writing the same expansion
-/// state, carrying the same per-row actions. Choosing a folder filters,
-/// closes, and becomes the active chip.
-Future<void> _showFoldersSheet(BuildContext context) async {
-  final bloc = context.read<VaultBloc>();
-  final action = await KvBottomSheet.show<(String, KvFolderAction)>(
-    context: context,
-    builder: (sheetContext) => BlocProvider<VaultBloc>.value(
-      value: bloc,
-      child: const _VaultFoldersSheet(),
-    ),
-  );
-  // A row action chosen in the sheet runs HERE, after the sheet has closed:
-  // the dialogs it opens need the router scope, which is above this context
-  // and not above the sheet.
-  if (action != null && context.mounted) {
-    await _handleFolderAction(
-      context,
-      groups: bloc.state.groups,
-      groupId: action.$1,
-      action: action.$2,
-    );
-  }
-}
-
-class _VaultFoldersSheet extends StatelessWidget {
-  const _VaultFoldersSheet();
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
-
-    return BlocBuilder<VaultBloc, VaultState>(
-      buildWhen: _folderSurfaceBuildWhen,
-      builder: (context, state) {
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(12, 14, 12, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(8, 0, 4, 8),
-                child: Text(
-                  'Folders',
-                  style: AppTextStyles.sheetTitle.copyWith(
-                    color: colors.textPrimary,
-                  ),
-                ),
-              ),
-              Flexible(
-                child: SingleChildScrollView(
-                  child: _VaultFolderTreeSection(state: state, forSheet: true),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// spec-019 T038 / FR-009a, FR-014a, FR-014b — the phone `Sort` sheet.
-///
-/// One radio group over the three orders the vault already has, dispatching
-/// the same `SetVaultSort` as the desktop control. Applying is immediate and
-/// dismisses. Nothing else belongs here: the folder filter is the chip row,
-/// there is one search and it already covers every field, and a health filter
-/// would be a new capability (FR-020).
-Future<void> _showSortSheet(BuildContext context) async {
-  final bloc = context.read<VaultBloc>();
-  await KvBottomSheet.show<void>(
-    context: context,
-    builder: (sheetContext) => BlocProvider<VaultBloc>.value(
-      value: bloc,
-      child: const _VaultSortSheet(),
-    ),
-  );
-}
-
-class _VaultSortSheet extends StatelessWidget {
-  const _VaultSortSheet();
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
-
-    return BlocSelector<VaultBloc, VaultState, VaultEntrySort>(
-      selector: (state) => state.sortBy,
-      builder: (context, sortBy) {
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(12, 14, 12, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                child: Text(
-                  'Sort',
-                  style: AppTextStyles.sheetTitle.copyWith(
-                    color: colors.textPrimary,
-                  ),
-                ),
-              ),
-              RadioGroup<VaultEntrySort>(
-                groupValue: sortBy,
-                onChanged: (value) {
-                  if (value == null) {
-                    return;
-                  }
-                  context.read<VaultBloc>().add(SetVaultSort(value));
-                  Navigator.of(context).pop();
-                },
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (final option in VaultEntrySort.values)
-                      RadioListTile<VaultEntrySort>(
-                        value: option,
-                        title: Text(vaultSortLabel(option)),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
 
 
 /// Flattens the group tree into the rows [KvFolderTree] renders.

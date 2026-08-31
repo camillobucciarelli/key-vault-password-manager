@@ -136,6 +136,14 @@ class _RecordListItem extends StatelessWidget {
               PopupMenuButton<_EntryAction>(
                 tooltip: 'Record actions',
                 onSelected: onSelectedAction,
+                // Explicit glyph: the default is Icons.adaptive.more, which
+                // renders HORIZONTAL dots on Apple platforms while every
+                // other `•••` in the app is vertical.
+                icon: KvIcon(
+                  glyph: AppGlyph.more,
+                  size: 17,
+                  color: colors.iconNeutral,
+                ),
                 itemBuilder: (context) => const [
                   _RoundedPopupItem(
                     value: _EntryAction.edit,
