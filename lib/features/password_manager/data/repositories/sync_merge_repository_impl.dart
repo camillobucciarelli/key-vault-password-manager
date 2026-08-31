@@ -49,7 +49,6 @@ import '../../domain/repositories/database_registry_repository.dart';
 import '../../domain/repositories/database_security_repository.dart';
 import '../../domain/repositories/database_sync_repository.dart';
 import '../../domain/repositories/sync_merge_repository.dart';
-import '../datasources/local_data_source.dart';
 import '../datasources/secure_data_source.dart';
 import '../datasources/sync_metadata_data_source.dart';
 import '../services/database_path_mutex.dart';
@@ -111,7 +110,6 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
     required DatabaseSecurityRepository securityRepository,
     required DatabaseSyncRepository syncRepository,
     required SecureDataSource secureDataSource,
-    required LocalDataSource localDataSource,
     required DatabasePathMutex mutex,
     required GoogleDriveApiService driveApiService,
     required SyncMetadataDataSource syncMetadataDataSource,
@@ -121,7 +119,6 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
        _security = securityRepository,
        _sync = syncRepository,
        _secure = secureDataSource,
-       _local = localDataSource,
        _mutex = mutex,
        _drive = driveApiService,
        _syncMetadata = syncMetadataDataSource,
@@ -132,7 +129,6 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
   final DatabaseSecurityRepository _security;
   final DatabaseSyncRepository _sync;
   final SecureDataSource _secure;
-  final LocalDataSource _local;
   final KdbxMergeAdapter _adapter;
 
   /// T401: the whole write-verify-converge cycle runs under this — the shared
@@ -491,6 +487,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       }
       if (observedChecksum == localCandidateChecksum) {
         await _finalizeMapping(
+          databaseId: session.databaseId.value,
           mapping: mapping,
           localChecksum: localCandidateChecksum,
           remoteChecksum: observedChecksum,
@@ -533,6 +530,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
         // OBSERVED content, not on our own recomputed checksum — the rule is
         // "the read-back proved the remote holds the merged state".
         await _finalizeMapping(
+          databaseId: session.databaseId.value,
           mapping: mapping,
           localChecksum: localCandidateChecksum,
           remoteChecksum: _checksumOf(redownloaded),
@@ -598,12 +596,16 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
   }
 
   Future<void> _finalizeMapping({
+    required String databaseId,
     required DatabaseSyncMapping mapping,
     required String localChecksum,
     required String remoteChecksum,
     DateTime? modifiedTime,
   }) {
+    // spec 014 FR-6: mappings are keyed by database identifier; the session's
+    // registry id is the authority.
     return _syncMetadata.upsertMapping(
+      databaseId,
       mapping.copyWith(
         lastSyncedLocalChecksum: localChecksum,
         lastSyncedRemoteChecksum: remoteChecksum,
@@ -831,6 +833,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
     // Step 5: the upload applied after all — finalize what the remote holds.
     if (observed == pending.mergedChecksum) {
       await _finalizeMapping(
+        databaseId: record.databaseId,
         mapping: mapping,
         localChecksum: pending.localCommittedChecksum,
         remoteChecksum: observed,
@@ -868,6 +871,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       }
       if (afterWrite == pending.mergedChecksum) {
         await _finalizeMapping(
+          databaseId: record.databaseId,
           mapping: mapping,
           localChecksum: pending.localCommittedChecksum,
           remoteChecksum: afterWrite,
@@ -914,16 +918,11 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
     }
 
     final profile = await _security.getProfile(record.databaseId);
-    var keyFilePath = profile?.keyFilePath;
-    if (keyFilePath == null || keyFilePath.trim().isEmpty) {
-      // FR's "cached fallback ... only for matching active database": the
-      // cached path is process-wide, so it may only be used when the database
-      // being merged IS the active one.
-      final activeId = await _registry.getActive();
-      if (activeId == record.databaseId) {
-        keyFilePath = await _local.getCachedKeyFilePath();
-      }
-    }
+    // spec 014 FR-8 (T014c): the per-database security profile is the ONLY
+    // key-file source; the process-wide cached path is gone. A database
+    // whose profile names no key file merges with password-only
+    // credentials, exactly as it unlocks.
+    final keyFilePath = profile?.keyFilePath;
 
     Uint8List? keyFileBytes;
     if (keyFilePath != null && keyFilePath.trim().isNotEmpty) {

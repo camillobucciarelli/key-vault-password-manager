@@ -984,6 +984,7 @@ void main() {
       final remoteChecksum = md5.convert(remoteBytes).toString();
 
       await metadata.upsertMapping(
+        localFile.path,
         DatabaseSyncMapping(
           databasePath: localFile.path,
           driveFileId: 'remote-1',
@@ -1004,6 +1005,7 @@ void main() {
 
       await expectLater(
         () => DatabaseSyncOrchestrator(
+          resolveDatabaseId: (databasePath) async => databasePath,
           syncMetadataDataSource: metadata,
           googleDriveApiService: drive,
           mutex: RefusingDatabasePathMutex(),
@@ -1018,6 +1020,7 @@ void main() {
 
       final recording = RecordingDatabasePathMutex();
       final result = await DatabaseSyncOrchestrator(
+        resolveDatabaseId: (databasePath) async => databasePath,
         syncMetadataDataSource: metadata,
         googleDriveApiService: drive,
         mutex: recording,
@@ -1046,6 +1049,7 @@ void main() {
       final localFile = File(p.join(tempDir.path, 'vault.kdbx'));
       await localFile.writeAsBytes(const [1, 2, 3], flush: true);
       await metadata.upsertMapping(
+        localFile.path,
         DatabaseSyncMapping(
           databasePath: localFile.path,
           driveFileId: 'remote-1',
@@ -1058,6 +1062,7 @@ void main() {
       );
       final mutex = DatabasePathMutex();
       final orchestrator = DatabaseSyncOrchestrator(
+        resolveDatabaseId: (databasePath) async => databasePath,
         syncMetadataDataSource: metadata,
         googleDriveApiService: _HangingDrive(),
         mutex: mutex,
@@ -1098,6 +1103,9 @@ class _FakePathProvider extends PathProviderPlatform
 
   @override
   Future<String?> getApplicationDocumentsPath() async => basePath;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => basePath;
 }
 
 class _InMemoryMetadata implements SyncMetadataDataSource {
@@ -1108,8 +1116,11 @@ class _InMemoryMetadata implements SyncMetadataDataSource {
       _mappings[databasePath];
 
   @override
-  Future<void> upsertMapping(DatabaseSyncMapping mapping) async {
-    _mappings[mapping.databasePath] = mapping;
+  Future<void> upsertMapping(
+    String databaseId,
+    DatabaseSyncMapping mapping,
+  ) async {
+    _mappings[databaseId] = mapping.copyWith(databaseId: databaseId);
   }
 
   @override

@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:math';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// spec-011 FR-4: the stored master password (the persistent biometric
@@ -13,6 +16,18 @@ abstract class SecureDataSource {
   /// no-op, so no persisted "migrated" flag is needed. The value is never
   /// copied to a per-database entry because it cannot be attributed to one.
   Future<void> deleteLegacyMasterPassword();
+
+  /// spec 014 FR-4: the base64 metadata-file encryption key, or `null` when
+  /// the store answers but holds none. Throws when the secure store is
+  /// unavailable — callers treat that as the FR-5 empty state and never
+  /// fall back to plaintext. No biometric gate: this key only lists
+  /// databases, it never unlocks one.
+  Future<String?> readMetadataKey();
+
+  /// Mints, stores and returns a fresh metadata key. Callers must only
+  /// invoke this when no ciphertext exists yet (spec 014 safety gate 4);
+  /// [EncryptedMetadataStore] is the one enforcing that.
+  Future<String> createMetadataKey();
 }
 
 class SecureDataSourceImpl implements SecureDataSource {
@@ -55,5 +70,23 @@ class SecureDataSourceImpl implements SecureDataSource {
   @override
   Future<void> deleteLegacyMasterPassword() async {
     await secureStorage.delete(key: legacyMasterPasswordKey);
+  }
+
+  /// spec 014 FR-4: single well-known entry; never derived from any secret.
+  static const metadataKeyKey = 'METADATA_ENCRYPTION_KEY';
+
+  @override
+  Future<String?> readMetadataKey() {
+    return secureStorage.read(key: metadataKeyKey);
+  }
+
+  @override
+  Future<String> createMetadataKey() async {
+    final random = Random.secure();
+    final key = base64Encode(
+      List<int>.generate(32, (_) => random.nextInt(256)),
+    );
+    await secureStorage.write(key: metadataKeyKey, value: key);
+    return key;
   }
 }

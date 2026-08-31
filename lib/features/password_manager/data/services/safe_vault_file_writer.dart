@@ -126,45 +126,29 @@ class SafeVaultFileIo {
     }
   }
 
-  /// Whether the documents root of [operatingSystem] is a directory that only
+  /// Whether the managed root of [operatingSystem] is a directory that only
   /// this app can populate.
   ///
-  /// `getApplicationDocumentsDirectory()` is NOT one concept across targets,
-  /// and taking it for an app-private container is what made the first cut of
-  /// this gate a HIGH regression:
-  /// - **iOS / Android** — the per-app container. App-private: a `.kdbx`
-  ///   there is managed storage written by `MobileFileStorage`, so an entry
-  ///   that is a symlink can only have been planted (#45/#46).
-  /// - **macOS** — `~/Documents`, shared with every other app and the
-  ///   picker's default location. UNLESS the app sandbox is on, where it
-  ///   becomes `~/Library/Containers/<id>/Data/Documents`; a `Containers`
-  ///   segment DIRECTLY under a `Library` one is the marker for that. The
-  ///   pair is required, not just `Containers`: a user whose home happens to
-  ///   hold a directory named `Containers` would otherwise get a perimeter
-  ///   over their real `~/Documents` — the same bug, for that one user.
-  ///   Matching is case-sensitive on purpose: `path_provider` returns the
-  ///   canonical spelling of a path the OS itself creates, so a fold would
-  ///   only widen the marker for no gain.
-  /// - **Linux** — `xdg.getUserDirectory('DOCUMENTS')`, i.e. `~/Documents`.
-  /// - **Windows** — `WindowsKnownFolder.Documents`, i.e.
-  ///   `C:\Users\<user>\Documents`.
+  /// Since spec 014 moved the desktop managed root off `~/Documents` and into
+  /// the application data directory (`ManagedStorageRoot`), the root is
+  /// app-owned on EVERY platform:
+  /// - **iOS / Android** — the per-app container, as before (#45/#46).
+  /// - **macOS / Windows / Linux** — Application Support, `%APPDATA%` and
+  ///   `~/.local/share` respectively. These are app-owned locations: a
+  ///   symlink there can only have been planted, exactly as on mobile.
   ///
-  /// On the last three a `~/Documents/vault.kdbx -> ~/Dropbox/vault.kdbx` is
-  /// an ordinary, extremely plausible user setup that MUST keep being written
-  /// through (HIGH-2), so those platforms get no perimeter at all.
+  /// This RETIRES the HIGH-2 carve-out that exempted desktop from the
+  /// perimeter. That carve-out existed only because the root used to be the
+  /// user's real `~/Documents`, where `vault.kdbx -> ~/Dropbox/vault.kdbx`
+  /// is an ordinary setup that must be written through. Such a vault now
+  /// lives OUTSIDE the managed root, so it still gets link-following
+  /// write-through from the outside-perimeter branch — the carve-out is no
+  /// longer needed to protect it. The [root] parameter is kept so the seam
+  /// contract and its tests stay stable.
   @visibleForTesting
+  // ignore: avoid_unused_constructor_parameters
   static bool isAppPrivateDocumentsRoot(String root, String operatingSystem) {
-    switch (operatingSystem) {
-      case 'ios':
-      case 'android':
-        return true;
-      case 'macos':
-        final segments = p.split(root);
-        final marker = segments.indexOf('Containers');
-        return marker > 0 && segments[marker - 1] == 'Library';
-      default:
-        return false;
-    }
+    return true;
   }
 
   /// Follows a symlink AT THE LEAF of [path] and returns what it points at.
@@ -325,7 +309,12 @@ class SafeVaultFileWriter {
     String? operation,
   ) async {
     final resolved = _resolveTarget(targetPath, root);
-    final mode = await _io.permissionBits(resolved);
+    // spec 014 FR-7 (T012): the backup's mode floor is explicit, not
+    // inherited — a backup is never looser than owner-only, even when the
+    // source vault predates the 0600 enforcement. Group/other bits are
+    // stripped; owner bits are preserved.
+    final observedMode = await _io.permissionBits(resolved);
+    final mode = observedMode == null ? null : (observedMode & ~0x3F);
     final source = await _io.readBytes(resolved);
     // The backup is named next to the CALLER's path, deliberately NOT next to
     // the resolved one — unlike the temp, which must be a sibling of the

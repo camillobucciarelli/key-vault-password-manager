@@ -947,7 +947,10 @@ void main() {
         notes: '',
         customFields: [
           // Same as primary's URL after normalization — must not duplicate.
-          const VaultCustomField(key: 'KP2A_URL_1', value: 'http://github.com/'),
+          const VaultCustomField(
+            key: 'KP2A_URL_1',
+            value: 'http://github.com/',
+          ),
           const VaultCustomField(key: 'KP2A_URL_2', value: 'https://b.com'),
         ],
       );
@@ -971,7 +974,11 @@ void main() {
           .toList();
       expect(
         urlValues,
-        unorderedEquals(['https://a.com', 'https://gitlab.com', 'https://b.com']),
+        unorderedEquals([
+          'https://a.com',
+          'https://gitlab.com',
+          'https://b.com',
+        ]),
       );
     });
 

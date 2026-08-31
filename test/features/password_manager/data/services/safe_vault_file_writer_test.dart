@@ -968,11 +968,16 @@ void main() {
   // most likely desktop setup.
   // ===========================================================================
   group('FINDING-1 the perimeter is app-private on every platform', () {
-    test('per-platform classification of a documents root', () {
+    test('per-platform classification of a managed root', () {
+      // Spec 014 moved the desktop managed root into the application data
+      // directory, so the root is app-owned EVERYWHERE and the HIGH-2
+      // desktop carve-out is retired. The write-through guarantee for a
+      // user's cloud-symlinked vault now comes from that vault living
+      // OUTSIDE the managed root (see DESKTOP REPRO below), not from an
+      // exemption of the whole platform.
       bool classify(String root, String os) =>
           SafeVaultFileIo.isAppPrivateDocumentsRoot(root, os);
 
-      // Per-app containers: app-private.
       expect(
         classify('/var/mobile/Containers/Data/App/X/Documents', 'ios'),
         isTrue,
@@ -981,72 +986,55 @@ void main() {
         classify('/data/user/0/com.example/app_flutter', 'android'),
         isTrue,
       );
-      // macOS: only under the sandbox container.
       expect(
         classify('/Users/u/Library/Containers/com.x/Data/Documents', 'macos'),
         isTrue,
       );
-      expect(classify('/Users/u/Documents', 'macos'), isFalse);
-      // LOW-1: the marker is the `Library/Containers` PAIR. A home that
-      // happens to hold a directory named `Containers` must not switch the
-      // perimeter on over the user's real ~/Documents.
-      expect(classify('/Users/Containers/Documents', 'macos'), isFalse);
-      expect(classify('/Containers/x/Documents', 'macos'), isFalse);
-      // Linux `xdg DOCUMENTS` and the Windows known folder are the USER's.
-      expect(classify('/home/u/Documents', 'linux'), isFalse);
-      expect(classify(r'C:\Users\u\Documents', 'windows'), isFalse);
+      expect(
+        classify('/Users/u/Library/Application Support/com.x', 'macos'),
+        isTrue,
+      );
+      expect(classify('/home/u/.local/share/com.x', 'linux'), isTrue);
+      expect(classify(r'C:\Users\u\AppData\Roaming\com.x', 'windows'), isTrue);
     });
 
     test('MEDIUM-1 composition: the PRODUCTION seam applies the '
         'classification, not just the pure function', () async {
       // Every other test here replaces `appDirectoryRoot()` with a fake, so
-      // dropping the classification INSIDE it — i.e. reintroducing FINDING-1
-      // verbatim — survived the whole suite. This is the only test that runs
-      // the real seam over a real path_provider answer.
+      // dropping the classification INSIDE it survived the whole suite. This
+      // is the only test that runs the real seam over a real path_provider
+      // answer. Since spec 014 the managed root is app-owned on every
+      // platform, so the seam must hand back a perimeter wherever
+      // path_provider resolves at all; "no perimeter" remains only the
+      // no-plugin/throw case, covered above.
       final original = PathProviderPlatform.instance;
       addTearDown(() => PathProviderPlatform.instance = original);
 
-      // Shape of the USER's documents directory: what Linux, Windows and
-      // unsandboxed macOS actually return.
-      final userDocuments = await Directory(
-        p.join(tempDir.path, 'home', 'Documents'),
+      final managedRoot = await Directory(
+        p.join(tempDir.path, 'appsupport', 'com.x'),
       ).create(recursive: true);
-      PathProviderPlatform.instance = _FixedPathProvider(userDocuments.path);
+      PathProviderPlatform.instance = _FixedPathProvider(managedRoot.path);
 
       expect(
         await const SafeVaultFileIo().appDirectoryRoot(),
-        isNull,
+        managedRoot.path,
         reason:
-            'the production seam handed back a USER directory as the '
-            'app-private perimeter — FINDING-1, on ${Platform.operatingSystem}',
-      );
-
-      // ...and the positive half, on the one host that can express it.
-      final container = await Directory(
-        p.join(
-          tempDir.path,
-          'Library',
-          'Containers',
-          'com.x',
-          'Data',
-          'Documents',
-        ),
-      ).create(recursive: true);
-      PathProviderPlatform.instance = _FixedPathProvider(container.path);
-
-      expect(
-        await const SafeVaultFileIo().appDirectoryRoot(),
-        Platform.isMacOS ? container.path : isNull,
-        reason:
-            'a sandboxed macOS container must be a perimeter; every other '
-            'host has no documents-based perimeter at all',
+            'the managed root is app-owned on every platform since '
+            'spec 014; the seam must gate symlink resolution on it',
       );
     });
 
     test('DESKTOP REPRO: ~/Documents/vault.kdbx -> ~/Dropbox/vault.kdbx is '
         'still written THROUGH', () async {
       // The regression the tester reproduced: followed=false, cloud bytes
-      // frozen, app reporting a successful save.
+      // frozen, app reporting a successful save. Since spec 014 the managed
+      // root is the application data directory, so the user's cloud-linked
+      // vault in ~/Documents sits OUTSIDE the perimeter and must still be
+      // followed — the invariant is preserved by geometry now, not by a
+      // platform carve-out.
+      final managedRoot = await Directory(
+        p.join(tempDir.path, 'home', '.local', 'share', 'com.x'),
+      ).create(recursive: true);
       final documents = await Directory(
         p.join(tempDir.path, 'home', 'Documents'),
       ).create(recursive: true);
@@ -1059,7 +1047,7 @@ void main() {
       await Link(linkPath).create(cloudVault.path);
 
       final writer = SafeVaultFileWriter(
-        io: _ClassifyingIo(documents.path, 'linux'),
+        io: _ClassifyingIo(managedRoot.path, 'linux'),
       );
       await writer.write(
         targetPath: linkPath,
@@ -1565,6 +1553,9 @@ class _FixedPathProvider extends PathProviderPlatform
 
   @override
   Future<String?> getApplicationDocumentsPath() async => basePath;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => basePath;
 }
 
 /// Reports a fixed app-private perimeter; `null` stands in for "no

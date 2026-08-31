@@ -110,7 +110,12 @@ void main() {
       );
 
       expect(p.isWithin(databasesDir.path, result.path), isTrue);
-      expect(await managedDatabaseFiles(), ['good.kdbx']);
+      // spec 014 FR-3: the at-rest name is opaque — 32 lowercase hex chars,
+      // no extension, unrelated to the human-readable name.
+      final files = await managedDatabaseFiles();
+      expect(files, hasLength(1));
+      expect(files.single, matches(RegExp(r'^[0-9a-f]{32}$')));
+      expect(result.fileName, 'good.kdbx');
     });
   });
 }
@@ -123,4 +128,7 @@ class _FakePathProvider extends PathProviderPlatform
 
   @override
   Future<String?> getApplicationDocumentsPath() async => basePath;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => basePath;
 }

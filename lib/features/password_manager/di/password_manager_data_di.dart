@@ -1,5 +1,7 @@
 import 'package:get_it/get_it.dart';
 
+import '../../../core/utils/portable_path.dart';
+
 import '../data/datasources/biometric_data_source.dart';
 import '../data/datasources/database_registry_local_data_source.dart';
 import '../data/datasources/database_security_local_data_source.dart';
@@ -68,7 +70,6 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
       securityRepository: sl(),
       syncRepository: sl(),
       secureDataSource: sl(),
-      localDataSource: sl(),
       // spec 008 T401: the write-verify-converge cycle writes the local vault
       // and uploads to Drive, so `commit` now needs the same shared writer
       // lock, upload client and sync-metadata store every other database
@@ -85,12 +86,17 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
     ),
   );
 
-  sl.registerLazySingleton<LocalDataSource>(() => LocalDataSourceImpl());
+  sl.registerLazySingleton<LocalDataSource>(
+    () => LocalDataSourceImpl(secureDataSource: sl()),
+  );
   sl.registerLazySingleton<DatabaseRegistryLocalDataSource>(
-    () => DatabaseRegistryLocalDataSourceImpl(sharedPreferences: sl()),
+    () => DatabaseRegistryLocalDataSourceImpl(
+      sharedPreferences: sl(),
+      secureDataSource: sl(),
+    ),
   );
   sl.registerLazySingleton<DatabaseSecurityLocalDataSource>(
-    () => DatabaseSecurityLocalDataSourceImpl(),
+    () => DatabaseSecurityLocalDataSourceImpl(secureDataSource: sl()),
   );
   sl.registerLazySingleton<SecureDataSource>(
     () => SecureDataSourceImpl(secureStorage: sl()),
@@ -102,7 +108,7 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
     () => GoogleTokenDataSourceImpl(secureStorage: sl()),
   );
   sl.registerLazySingleton<SyncMetadataDataSource>(
-    () => SyncMetadataDataSourceImpl(),
+    () => SyncMetadataDataSourceImpl(secureDataSource: sl()),
   );
 
   sl.registerLazySingleton(() => VaultAutofillMatcher());
@@ -169,6 +175,20 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
     () => DatabaseSyncOrchestrator(
       syncMetadataDataSource: sl(),
       googleDriveApiService: sl(),
+      // spec 014 FR-6: resolve a database path to its registry identifier.
+      resolveDatabaseId: (databasePath) async {
+        final records = await sl<DatabaseRegistryLocalDataSource>()
+            .getRecords();
+        final resolved = PortablePath.resolveForComparison(databasePath);
+        for (final record in records) {
+          final canonical = record['canonicalPath'];
+          if (canonical is! String) continue;
+          if (PortablePath.resolveForComparison(canonical) == resolved) {
+            return record['databaseId'] as String?;
+          }
+        }
+        return null;
+      },
       mutex: sl(),
       fileHashRecorder: sl(),
     ),

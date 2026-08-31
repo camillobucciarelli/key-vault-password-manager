@@ -23,7 +23,9 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final service = NavigationFixtureVaultKdbxService();
-    await tester.pumpWidget(await pumpableVaultShell(vaultKdbxService: service));
+    await tester.pumpWidget(
+      await pumpableVaultShell(vaultKdbxService: service),
+    );
     await tester.pumpAndSettle();
     return service;
   }
@@ -164,11 +166,7 @@ void main() {
           .map((text) => text.data)
           .whereType<String>()
           .where(
-            (data) => const {
-              'Banca Sella',
-              'GitHub',
-              'Gmail',
-            }.contains(data),
+            (data) => const {'Banca Sella', 'GitHub', 'Gmail'}.contains(data),
           )
           .toList();
       expect(titles, ['Banca Sella', 'Gmail']);
@@ -259,12 +257,7 @@ void main() {
         await tester.tap(find.byTooltip('Record actions').first);
         await tester.pumpAndSettle();
 
-        for (final action in const [
-          'Edit',
-          'Move',
-          'Attachments',
-          'Delete',
-        ]) {
+        for (final action in const ['Edit', 'Move', 'Attachments', 'Delete']) {
           expect(find.text(action), findsWidgets, reason: action);
         }
       });

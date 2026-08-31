@@ -3,7 +3,9 @@ import 'dart:io';
 
 import 'package:equatable/equatable.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
+import '../../../../core/utils/managed_storage_root.dart';
+import 'metadata_cipher.dart';
+import 'secure_data_source.dart';
 
 import '../../../../core/utils/portable_path.dart';
 import '../../domain/models/database_sync_mapping.dart';
@@ -117,9 +119,11 @@ class PendingMergeUpload extends Equatable {
 }
 
 abstract class SyncMetadataDataSource {
-  Future<DatabaseSyncMapping?> getMapping(String databasePath);
-  Future<void> upsertMapping(DatabaseSyncMapping mapping);
-  Future<void> removeMapping(String databasePath);
+  // spec 014 FR-6: mappings are keyed by database identifier, not path. The
+  // path in the mapping payload is location data, not identity.
+  Future<DatabaseSyncMapping?> getMapping(String databaseId);
+  Future<void> upsertMapping(String databaseId, DatabaseSyncMapping mapping);
+  Future<void> removeMapping(String databaseId);
 
   /// The [PendingMergeUpload] recorded for [databasePath], if a dispatch was
   /// started and never finalized.
@@ -152,17 +156,20 @@ abstract class SyncMetadataDataSource {
 }
 
 class SyncMetadataDataSourceImpl implements SyncMetadataDataSource {
-  SyncMetadataDataSourceImpl();
+  SyncMetadataDataSourceImpl({required SecureDataSource secureDataSource})
+    : _store = EncryptedMetadataStore(secureDataSource: secureDataSource);
+
+  final EncryptedMetadataStore _store;
 
   static const _syncSubdirectory = 'metadata';
   static const _syncFileName = 'sync_mappings.json';
   static const _pendingUploadsFileName = 'pending_uploads.json';
 
   @override
-  Future<DatabaseSyncMapping?> getMapping(String databasePath) async {
+  Future<DatabaseSyncMapping?> getMapping(String databaseId) async {
     final mappings = await getAllMappings();
     for (final mapping in mappings) {
-      if (mapping.databasePath == databasePath) {
+      if (mapping.databaseId == databaseId) {
         return mapping;
       }
     }
@@ -170,30 +177,37 @@ class SyncMetadataDataSourceImpl implements SyncMetadataDataSource {
   }
 
   @override
-  Future<void> upsertMapping(DatabaseSyncMapping mapping) async {
+  Future<void> upsertMapping(
+    String databaseId,
+    DatabaseSyncMapping mapping,
+  ) async {
+    if (databaseId.trim().isEmpty) {
+      throw ArgumentError('databaseId cannot be empty.');
+    }
+    final stamped = mapping.copyWith(databaseId: databaseId);
     final mappings = await getAllMappings();
     final next = <DatabaseSyncMapping>[];
     var updated = false;
     for (final item in mappings) {
-      if (item.databasePath == mapping.databasePath) {
-        next.add(mapping);
+      if (item.databaseId == databaseId) {
+        next.add(stamped);
         updated = true;
       } else {
         next.add(item);
       }
     }
     if (!updated) {
-      next.add(mapping);
+      next.add(stamped);
     }
 
     await _saveMappings(next);
   }
 
   @override
-  Future<void> removeMapping(String databasePath) async {
+  Future<void> removeMapping(String databaseId) async {
     final mappings = await getAllMappings();
     final next = mappings
-        .where((mapping) => mapping.databasePath != databasePath)
+        .where((mapping) => mapping.databaseId != databaseId)
         .toList(growable: false);
     await _saveMappings(next);
   }
@@ -281,12 +295,8 @@ class SyncMetadataDataSourceImpl implements SyncMetadataDataSource {
   @override
   Future<List<DatabaseSyncMapping>> getAllMappings() async {
     final file = await _syncMappingsFile();
-    if (!await file.exists()) {
-      return const [];
-    }
-
-    final raw = await file.readAsString();
-    if (raw.trim().isEmpty) {
+    final raw = await _store.readString(file);
+    if (raw == null || raw.trim().isEmpty) {
       return const [];
     }
 
@@ -334,7 +344,7 @@ class SyncMetadataDataSourceImpl implements SyncMetadataDataSource {
           .toList(),
     );
     final file = await _syncMappingsFile();
-    await file.writeAsString(encoded, flush: true);
+    await _store.writeString(file, encoded);
   }
 
   @override
@@ -369,11 +379,8 @@ class SyncMetadataDataSourceImpl implements SyncMetadataDataSource {
 
   Future<List<PendingMergeUpload>> _allPendingUploads() async {
     final file = await _metadataFile(_pendingUploadsFileName);
-    if (!await file.exists()) {
-      return const [];
-    }
-    final raw = await file.readAsString();
-    if (raw.trim().isEmpty) {
+    final raw = await _store.readString(file);
+    if (raw == null || raw.trim().isEmpty) {
       return const [];
     }
     final decoded = jsonDecode(raw);
@@ -424,13 +431,13 @@ class SyncMetadataDataSourceImpl implements SyncMetadataDataSource {
           ..['backupPath'] = encodePath(record.backupPath),
     ]);
     final file = await _metadataFile(_pendingUploadsFileName);
-    await file.writeAsString(encoded, flush: true);
+    await _store.writeString(file, encoded);
   }
 
   Future<File> _syncMappingsFile() => _metadataFile(_syncFileName);
 
   Future<File> _metadataFile(String name) async {
-    final root = await getApplicationDocumentsDirectory();
+    final root = await ManagedStorageRoot.resolveDirectory();
     final directory = Directory(p.join(root.path, _syncSubdirectory));
     if (!await directory.exists()) {
       await directory.create(recursive: true);

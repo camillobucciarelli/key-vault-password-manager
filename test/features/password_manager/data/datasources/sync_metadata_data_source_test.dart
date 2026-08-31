@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'in_memory_secure_data_source.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/data/datasources/sync_metadata_data_source.dart';
@@ -13,6 +14,9 @@ class _FakePathProvider extends PathProviderPlatform
 
   @override
   Future<String?> getApplicationDocumentsPath() async => basePath;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => basePath;
 }
 
 void main() {
@@ -30,12 +34,16 @@ void main() {
   });
 
   group('SyncMetadataDataSource', () {
-    test('moveMappingPath updates key from old to new path', () async {
-      final dataSource = SyncMetadataDataSourceImpl();
+    test('moveMappingPath updates the path payload; the id key is stable '
+        '(spec 014 FR-6)', () async {
+      final dataSource = SyncMetadataDataSourceImpl(
+        secureDataSource: InMemorySecureDataSource(),
+      );
 
       const oldPath = '/tmp/old.kdbx';
       const newPath = '/tmp/new.kdbx';
       await dataSource.upsertMapping(
+        'db-1',
         const DatabaseSyncMapping(
           databasePath: oldPath,
           driveFileId: 'drive-id',
@@ -48,13 +56,10 @@ void main() {
         toDatabasePath: newPath,
       );
 
-      final oldMapping = await dataSource.getMapping(oldPath);
-      final newMapping = await dataSource.getMapping(newPath);
-
-      expect(oldMapping, isNull);
-      expect(newMapping, isNotNull);
-      expect(newMapping!.databasePath, newPath);
-      expect(newMapping.driveFileId, 'drive-id');
+      final mapping = await dataSource.getMapping('db-1');
+      expect(mapping, isNotNull);
+      expect(mapping!.databasePath, newPath);
+      expect(mapping.driveFileId, 'drive-id');
     });
   });
 }

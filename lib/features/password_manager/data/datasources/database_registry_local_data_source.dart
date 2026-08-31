@@ -3,7 +3,9 @@ import 'dart:io';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
+import '../../../../core/utils/managed_storage_root.dart';
+import 'metadata_cipher.dart';
+import 'secure_data_source.dart';
 
 abstract class DatabaseRegistryLocalDataSource {
   Future<List<Map<String, dynamic>>> getRecords();
@@ -14,7 +16,12 @@ abstract class DatabaseRegistryLocalDataSource {
 
 class DatabaseRegistryLocalDataSourceImpl
     implements DatabaseRegistryLocalDataSource {
-  DatabaseRegistryLocalDataSourceImpl({required this.sharedPreferences});
+  DatabaseRegistryLocalDataSourceImpl({
+    required this.sharedPreferences,
+    required SecureDataSource secureDataSource,
+  }) : _store = EncryptedMetadataStore(secureDataSource: secureDataSource);
+
+  final EncryptedMetadataStore _store;
 
   static const _activeDatabaseIdKey = 'DATABASE_REGISTRY_ACTIVE_ID';
   static const _registrySubdirectory = 'metadata';
@@ -25,12 +32,10 @@ class DatabaseRegistryLocalDataSourceImpl
   @override
   Future<List<Map<String, dynamic>>> getRecords() async {
     final file = await _recordsFile();
-    if (!await file.exists()) {
-      return const [];
-    }
-
-    final raw = await file.readAsString();
-    if (raw.trim().isEmpty) {
+    // spec 014 FR-4/FR-5: encrypted at rest; unreadable (absent file,
+    // unavailable store, missing key, tampered bytes) reads as empty.
+    final raw = await _store.readString(file);
+    if (raw == null || raw.trim().isEmpty) {
       return const [];
     }
 
@@ -49,7 +54,7 @@ class DatabaseRegistryLocalDataSourceImpl
   Future<void> saveRecords(List<Map<String, dynamic>> records) async {
     final encoded = jsonEncode(records);
     final file = await _recordsFile();
-    await file.writeAsString(encoded, flush: true);
+    await _store.writeString(file, encoded);
   }
 
   @override
@@ -71,7 +76,7 @@ class DatabaseRegistryLocalDataSourceImpl
   }
 
   Future<File> _recordsFile() async {
-    final root = await getApplicationDocumentsDirectory();
+    final root = await ManagedStorageRoot.resolveDirectory();
     final directory = Directory(p.join(root.path, _registrySubdirectory));
     if (!await directory.exists()) {
       await directory.create(recursive: true);

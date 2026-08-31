@@ -107,7 +107,6 @@ Future<void> _openBrowserAutofillSettings(BuildContext context) async {
 // status card and went with it. The Sync destination's `SyncStatusHero`
 // carries the same state, in the destination whose subject it is.
 
-
 enum _ChildGroupAction { rename, move, delete }
 
 Future<void> _handleChildGroupAction(

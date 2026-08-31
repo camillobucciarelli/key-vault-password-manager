@@ -18,12 +18,14 @@ class DatabaseSyncOrchestrator {
   DatabaseSyncOrchestrator({
     required SyncMetadataDataSource syncMetadataDataSource,
     required GoogleDriveApiService googleDriveApiService,
+    required Future<String?> Function(String databasePath) resolveDatabaseId,
     DatabasePathMutex? mutex,
     SafeVaultFileWriter? safeWriter,
     DatabaseFileHashRecorder? fileHashRecorder,
     this.driveCallTimeout = const Duration(seconds: 30),
   }) : _syncMetadataDataSource = syncMetadataDataSource,
        _googleDriveApiService = googleDriveApiService,
+       _resolveDatabaseId = resolveDatabaseId,
        _mutex = mutex ?? DatabasePathMutex(),
        _safeWriter = safeWriter ?? SafeVaultFileWriter(),
        _fileHashRecorder = fileHashRecorder;
@@ -39,6 +41,11 @@ class DatabaseSyncOrchestrator {
   final Duration driveCallTimeout;
 
   final SyncMetadataDataSource _syncMetadataDataSource;
+
+  /// spec 014 FR-6: mappings are keyed by registry identifier. This resolves
+  /// a database path to its identifier; `null` means "not registered", which
+  /// reads as "no mapping" and refuses a new link.
+  final Future<String?> Function(String databasePath) _resolveDatabaseId;
   final GoogleDriveApiService _googleDriveApiService;
 
   /// spec 008 T105: `syncNow` (checksum read, replacement writes and the
@@ -114,8 +121,27 @@ class DatabaseSyncOrchestrator {
       );
     }
 
-    await _syncMetadataDataSource.upsertMapping(mapping);
+    await _upsertMappingKeyed(mapping);
     return mapping;
+  }
+
+  Future<DatabaseSyncMapping?> _mappingForPath(String databasePath) async {
+    final id = await _resolveDatabaseId(databasePath);
+    if (id == null || id.trim().isEmpty) {
+      return null;
+    }
+    return _syncMetadataDataSource.getMapping(id);
+  }
+
+  Future<void> _upsertMappingKeyed(DatabaseSyncMapping mapping) async {
+    final id =
+        mapping.databaseId ?? await _resolveDatabaseId(mapping.databasePath);
+    if (id == null || id.trim().isEmpty) {
+      throw Exception(
+        'Database is not registered; cannot persist a sync mapping.',
+      );
+    }
+    await _syncMetadataDataSource.upsertMapping(id, mapping);
   }
 
   Future<SyncNowResult> syncNow(
@@ -131,7 +157,7 @@ class DatabaseSyncOrchestrator {
     String databasePath, {
     SyncConflictResolution? resolution,
   }) async {
-    final mapping = await _syncMetadataDataSource.getMapping(databasePath);
+    final mapping = await _mappingForPath(databasePath);
     if (mapping == null) {
       throw Exception('Current database is not linked to Google Drive.');
     }
@@ -161,7 +187,7 @@ class DatabaseSyncOrchestrator {
     if (firstSyncWithoutBaseline) {
       final checksumsMatch = localChecksum == remoteChecksum;
       if (checksumsMatch) {
-        await _syncMetadataDataSource.upsertMapping(
+        await _upsertMappingKeyed(
           mapping.copyWith(
             lastSyncedLocalChecksum: localChecksum,
             lastSyncedRemoteChecksum: remoteChecksum,
@@ -214,7 +240,7 @@ class DatabaseSyncOrchestrator {
             bytes: localBytes,
           ),
         );
-        await _syncMetadataDataSource.upsertMapping(
+        await _upsertMappingKeyed(
           mapping.copyWith(
             lastSyncedLocalChecksum: localChecksum,
             lastSyncedRemoteChecksum: updated.md5Checksum ?? localChecksum,
@@ -232,7 +258,7 @@ class DatabaseSyncOrchestrator {
       await _replaceLocalDatabase(databasePath, downloaded);
       final refreshedLocal = md5.convert(downloaded).toString();
 
-      await _syncMetadataDataSource.upsertMapping(
+      await _upsertMappingKeyed(
         mapping.copyWith(
           lastSyncedLocalChecksum: refreshedLocal,
           lastSyncedRemoteChecksum: remoteChecksum,
@@ -291,7 +317,7 @@ class DatabaseSyncOrchestrator {
             bytes: localBytes,
           ),
         );
-        await _syncMetadataDataSource.upsertMapping(
+        await _upsertMappingKeyed(
           mapping.copyWith(
             lastSyncedLocalChecksum: localChecksum,
             lastSyncedRemoteChecksum: updated.md5Checksum ?? localChecksum,
@@ -309,7 +335,7 @@ class DatabaseSyncOrchestrator {
       await _replaceLocalDatabase(databasePath, downloaded);
       final refreshedLocal = md5.convert(downloaded).toString();
 
-      await _syncMetadataDataSource.upsertMapping(
+      await _upsertMappingKeyed(
         mapping.copyWith(
           lastSyncedLocalChecksum: refreshedLocal,
           lastSyncedRemoteChecksum: remoteChecksum,
@@ -328,7 +354,7 @@ class DatabaseSyncOrchestrator {
           bytes: localBytes,
         ),
       );
-      await _syncMetadataDataSource.upsertMapping(
+      await _upsertMappingKeyed(
         mapping.copyWith(
           lastSyncedLocalChecksum: localChecksum,
           lastSyncedRemoteChecksum: updated.md5Checksum ?? localChecksum,
@@ -347,7 +373,7 @@ class DatabaseSyncOrchestrator {
       await _replaceLocalDatabase(databasePath, downloaded);
       final refreshedLocal = md5.convert(downloaded).toString();
 
-      await _syncMetadataDataSource.upsertMapping(
+      await _upsertMappingKeyed(
         mapping.copyWith(
           lastSyncedLocalChecksum: refreshedLocal,
           lastSyncedRemoteChecksum: remoteChecksum,
@@ -359,7 +385,7 @@ class DatabaseSyncOrchestrator {
       return const SyncNowSuccess();
     }
 
-    await _syncMetadataDataSource.upsertMapping(
+    await _upsertMappingKeyed(
       mapping.copyWith(lastSyncAt: DateTime.now(), clearError: true),
     );
     return const SyncNowSuccess();
@@ -374,17 +400,19 @@ class DatabaseSyncOrchestrator {
   }
 
   Future<void> setAutoSync(String databasePath, bool enabled) async {
-    final mapping = await _syncMetadataDataSource.getMapping(databasePath);
+    final mapping = await _mappingForPath(databasePath);
     if (mapping == null) {
       throw Exception('Current database is not linked to Google Drive.');
     }
-    await _syncMetadataDataSource.upsertMapping(
-      mapping.copyWith(autoSyncEnabled: enabled),
-    );
+    await _upsertMappingKeyed(mapping.copyWith(autoSyncEnabled: enabled));
   }
 
-  Future<void> removeMapping(String databasePath) {
-    return _syncMetadataDataSource.removeMapping(databasePath);
+  Future<void> removeMapping(String databasePath) async {
+    final id = await _resolveDatabaseId(databasePath);
+    if (id == null || id.trim().isEmpty) {
+      return;
+    }
+    return _syncMetadataDataSource.removeMapping(id);
   }
 
   Future<DatabaseSyncMappingPathMove> moveMappingPath({
@@ -402,7 +430,7 @@ class DatabaseSyncOrchestrator {
   }
 
   Future<DatabaseSyncMapping?> getMapping(String databasePath) {
-    return _syncMetadataDataSource.getMapping(databasePath);
+    return _mappingForPath(databasePath);
   }
 
   Future<List<DatabaseSyncMapping>> getAllMappings() {

@@ -416,9 +416,7 @@ class VaultKdbxService {
       var nextUrlIndex = 1;
       for (final url in urlsOf(secondary)) {
         if (!primaryUrls.add(normalizeUrlForCompare(url))) continue;
-        while (primary.getString(
-              KdbxKey('$kp2aUrlKeyPrefix$nextUrlIndex'),
-            ) !=
+        while (primary.getString(KdbxKey('$kp2aUrlKeyPrefix$nextUrlIndex')) !=
             null) {
           nextUrlIndex++;
         }

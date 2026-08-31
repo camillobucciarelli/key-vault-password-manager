@@ -66,7 +66,8 @@ VaultBloc buildTestVaultBloc({
     vaultCsvImportService: VaultCsvImportService(),
     vaultDuplicateService: duplicateService ?? VaultDuplicateService(),
     databaseSyncRepository: FakeSyncRepository(),
-    appleAutofillV2Coordinator: autofill ?? const NoopAppleAutofillV2Coordinator(),
+    appleAutofillV2Coordinator:
+        autofill ?? const NoopAppleAutofillV2Coordinator(),
     vaultHealthService: healthService ?? const VaultHealthService(),
     folderExpansionPreferences: folderExpansionPreferences,
   );
@@ -184,8 +185,7 @@ class FakeVaultKdbxService implements VaultKdbxService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class FakeSyncRepository implements DatabaseSyncRepository {
@@ -196,8 +196,7 @@ class FakeSyncRepository implements DatabaseSyncRepository {
   Future<bool> isConnected() async => false;
 
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class RecordingAutofillCoordinator
@@ -231,7 +230,12 @@ class RecordingAutofillCoordinator
 VaultSnapshot nestedSnapshot({String currentGroupId = 'root'}) {
   final entries = <VaultEntry>[
     testEntry(id: 'e-root', groupId: 'root', title: 'Aurora', username: 'ada'),
-    testEntry(id: 'e-work', groupId: 'work', title: 'Borealis', username: 'ben'),
+    testEntry(
+      id: 'e-work',
+      groupId: 'work',
+      title: 'Borealis',
+      username: 'ben',
+    ),
     testEntry(
       id: 'e-client',
       groupId: 'clients',
@@ -253,7 +257,12 @@ VaultSnapshot nestedSnapshot({String currentGroupId = 'root'}) {
       VaultGroup(id: 'work', name: 'Work', parentId: 'root'),
       VaultGroup(id: 'clients', name: 'Clients', parentId: 'work'),
       VaultGroup(id: 'personal', name: 'Personal', parentId: 'root'),
-      VaultGroup(id: 'bin', name: 'Recycle Bin', parentId: 'root', isRecycleBin: true),
+      VaultGroup(
+        id: 'bin',
+        name: 'Recycle Bin',
+        parentId: 'root',
+        isRecycleBin: true,
+      ),
     ],
     entries: entries,
     allEntries: entries,

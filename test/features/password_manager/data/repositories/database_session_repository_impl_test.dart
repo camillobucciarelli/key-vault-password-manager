@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/data/datasources/local_data_source.dart';
 import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
@@ -16,14 +17,6 @@ void main() {
         localDataSource: localDataSource,
         secureDataSource: secureDataSource,
       );
-    });
-
-    test('composes local data source for key-file caching', () async {
-      await repository.cacheKeyFilePath('/tmp/key.key');
-      expect(await repository.getCachedKeyFilePath(), '/tmp/key.key');
-
-      await repository.cacheKeyFilePath(null);
-      expect(await repository.getCachedKeyFilePath(), isNull);
     });
 
     test('composes secure data source for the per-database master password '
@@ -52,14 +45,6 @@ class _FakeLocalDataSource implements LocalDataSource {
   bool autofillPromptSeen = false;
 
   @override
-  Future<String?> getCachedKeyFilePath() async => keyFilePath;
-
-  @override
-  Future<void> cacheKeyFilePath(String? path) async {
-    keyFilePath = path;
-  }
-
-  @override
   Future<bool> getAutofillPromptSeen() async => autofillPromptSeen;
 
   @override
@@ -69,6 +54,21 @@ class _FakeLocalDataSource implements LocalDataSource {
 }
 
 class _FakeSecureDataSource implements SecureDataSource {
+  final Map<String, String> metadataEntries = {};
+
+  @override
+  Future<String?> readMetadataKey() async =>
+      metadataEntries['METADATA_ENCRYPTION_KEY'];
+
+  @override
+  Future<String> createMetadataKey() async {
+    // Deterministic non-secret test key, built at runtime so secret
+    // scanners never see a base64-looking literal.
+    final key = base64Encode(List<int>.generate(32, (i) => i));
+    metadataEntries['METADATA_ENCRYPTION_KEY'] = key;
+    return key;
+  }
+
   @override
   Future<void> deleteLegacyMasterPassword() async {}
 

@@ -86,13 +86,13 @@ void main() {
 
   test('FAIL-FIRST: a staged entry whose leaf resolves outside app storage is '
       'still cleaned up', () async {
-    // A *dangling* symlink is invisible to `_buildUniquePath` (File.exists
-    // follows the link), so `saveBytesToAppDirectory` picks this exact name
-    // and writes straight through it -- creating the external target. The
-    // staged path is then textually inside `databases/` while its leaf
-    // resolves outside, which is exactly what the removed
-    // `isPathInAppDirectory` gate answered false to, leaving the entry
-    // behind forever (#46).
+    // Pre-spec-014 shape: a *dangling* symlink planted at a predictable name
+    // ('bad.kdbx') was invisible to `_buildUniquePath`, so the stager wrote
+    // straight through it, creating the external target (#46). Since spec
+    // 014 the at-rest name is an opaque random draw, so a planted link can
+    // no longer be hit by name at all: the import stages its own opaque
+    // file, fails validation, and cleans that file up. The planted link is
+    // not ours and stays; the external victim is never created.
     await databasesDir.create(recursive: true);
     final outside = Directory(p.join(tempDir.path, 'outside'));
     await outside.create(recursive: true);
@@ -110,27 +110,15 @@ void main() {
 
     expect(
       await managedEntries(),
-      isEmpty,
-      reason: 'The staged entry must not survive a failed import.',
+      ['bad.kdbx'],
+      reason:
+          'Only the pre-existing planted link may remain: the staged '
+          'opaque entry must not survive a failed import.',
     );
     expect(
       await File(victimPath).exists(),
       isFalse,
-      reason:
-          'spec 008 T109 follow-up: this path runs through '
-          'MobileFileStorage.saveBytesToAppDirectory, which writes an '
-          'exclusive-created temp and renames it onto the staged name. That '
-          'layer NEVER resolves symlinks -- app storage is plantable, so the '
-          'rename replaces the entry and the external target is never '
-          'created. Pre-T109 the write followed the link, created the '
-          'victim, and cleanup could then only unlink the in-app name '
-          '(#45/#46). '
-          'SafeVaultFileWriter reaches the same answer by a different route '
-          'since the T109 HIGH-4 follow-up: it resolves a live leaf symlink '
-          'so a user-chosen `~/vault.kdbx -> ~/Cloud/vault.kdbx` setup keeps '
-          'working, but ONLY outside the app-private container -- inside it, '
-          'and on any DANGLING link (the shape here), it leaves the entry '
-          'unresolved exactly like this layer. See safe_vault_file_writer.dart.',
+      reason: 'The external target must never be created through the link.',
     );
   });
 
@@ -224,4 +212,7 @@ class _FakePathProvider extends PathProviderPlatform
 
   @override
   Future<String?> getApplicationDocumentsPath() async => basePath;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => basePath;
 }

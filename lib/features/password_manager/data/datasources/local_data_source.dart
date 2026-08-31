@@ -2,51 +2,24 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
-
-import '../../../../core/utils/portable_path.dart';
+import '../../../../core/utils/managed_storage_root.dart';
+import 'metadata_cipher.dart';
+import 'secure_data_source.dart';
 
 abstract class LocalDataSource {
-  Future<String?> getCachedKeyFilePath();
-  Future<void> cacheKeyFilePath(String? path);
   Future<bool> getAutofillPromptSeen();
   Future<void> setAutofillPromptSeen(bool seen);
 }
 
 class LocalDataSourceImpl implements LocalDataSource {
-  static const keyFilePathKey = 'cachedKeyFilePath';
   static const autofillPromptSeenKey = 'autofillPromptSeen';
   static const _localStateSubdirectory = 'metadata';
   static const _localStateFileName = 'local_state.json';
 
-  LocalDataSourceImpl();
+  LocalDataSourceImpl({required SecureDataSource secureDataSource})
+    : _store = EncryptedMetadataStore(secureDataSource: secureDataSource);
 
-  @override
-  Future<String?> getCachedKeyFilePath() async {
-    final data = await _readState();
-    final value = data[keyFilePathKey] as String?;
-    if (value == null || value.trim().isEmpty) {
-      return null;
-    }
-    // Unlock-time fallback when no security profile exists, so it has to
-    // survive an app-container relocation just like the profile's keyFilePath.
-    return PortablePath.decode(value, await PortablePath.documentsRoot());
-  }
-
-  @override
-  Future<void> cacheKeyFilePath(String? path) async {
-    final data = await _readState();
-    if (path == null || path.trim().isEmpty) {
-      data.remove(keyFilePathKey);
-      await _writeState(data);
-      return;
-    }
-    data[keyFilePathKey] = PortablePath.encode(
-      path,
-      await PortablePath.documentsRoot(),
-    );
-    await _writeState(data);
-  }
+  final EncryptedMetadataStore _store;
 
   @override
   Future<bool> getAutofillPromptSeen() async {
@@ -63,12 +36,8 @@ class LocalDataSourceImpl implements LocalDataSource {
 
   Future<Map<String, dynamic>> _readState() async {
     final file = await _stateFile();
-    if (!await file.exists()) {
-      return <String, dynamic>{};
-    }
-
-    final raw = await file.readAsString();
-    if (raw.trim().isEmpty) {
+    final raw = await _store.readString(file);
+    if (raw == null || raw.trim().isEmpty) {
       return <String, dynamic>{};
     }
 
@@ -81,11 +50,11 @@ class LocalDataSourceImpl implements LocalDataSource {
 
   Future<void> _writeState(Map<String, dynamic> state) async {
     final file = await _stateFile();
-    await file.writeAsString(jsonEncode(state), flush: true);
+    await _store.writeString(file, jsonEncode(state));
   }
 
   Future<File> _stateFile() async {
-    final root = await getApplicationDocumentsDirectory();
+    final root = await ManagedStorageRoot.resolveDirectory();
     final directory = Directory(p.join(root.path, _localStateSubdirectory));
     if (!await directory.exists()) {
       await directory.create(recursive: true);

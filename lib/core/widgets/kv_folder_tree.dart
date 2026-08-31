@@ -254,8 +254,7 @@ class _KvFolderRowState extends State<_KvFolderRow> {
                   color: Colors.transparent,
                   child: InkWell(
                     onTap: onSelect,
-                    onHover: (hovered) =>
-                        setState(() => _hovered = hovered),
+                    onHover: (hovered) => setState(() => _hovered = hovered),
                     // The hover state paints the border above — a solid
                     // hoverColor wash here would fight the records recipe.
                     hoverColor: Colors.transparent,

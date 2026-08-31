@@ -1,0 +1,5 @@
+# Spec 014 test fakes: deterministic base64 test key literal (removed from
+# HEAD, these fingerprints cover the historical commit it appeared in).
+c5ed2192a339013701a3b0b0ebf63772ae37740f:test/features/password_manager/presentation/coordinators/database_session_coordinator_test.dart:generic-api-key:1607
+c5ed2192a339013701a3b0b0ebf63772ae37740f:test/features/password_manager/presentation/coordinators/vault_session_coordinator_test.dart:generic-api-key:894
+c5ed2192a339013701a3b0b0ebf63772ae37740f:test/features/password_manager/data/repositories/database_session_repository_impl_test.dart:generic-api-key:64

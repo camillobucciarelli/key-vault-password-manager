@@ -70,6 +70,7 @@ void main() {
         )
         ..downloadResult = Uint8List.fromList(remoteBytes);
       await metadata.upsertMapping(
+        databasePath,
         DatabaseSyncMapping(
           databasePath: databasePath,
           driveFileId: 'remote-1',
@@ -82,6 +83,7 @@ void main() {
         ),
       );
       final orchestrator = DatabaseSyncOrchestrator(
+        resolveDatabaseId: (databasePath) async => databasePath,
         syncMetadataDataSource: metadata,
         googleDriveApiService: drive,
         mutex: mutex,
@@ -147,8 +149,11 @@ class _InMemoryMetadata implements SyncMetadataDataSource {
       _mappings[databasePath];
 
   @override
-  Future<void> upsertMapping(DatabaseSyncMapping mapping) async {
-    _mappings[mapping.databasePath] = mapping;
+  Future<void> upsertMapping(
+    String databaseId,
+    DatabaseSyncMapping mapping,
+  ) async {
+    _mappings[databaseId] = mapping.copyWith(databaseId: databaseId);
   }
 
   @override

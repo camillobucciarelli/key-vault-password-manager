@@ -14,14 +14,6 @@ class DatabaseSessionRepositoryImpl implements DatabaseSessionRepository {
   final SecureDataSource secureDataSource;
 
   @override
-  Future<String?> getCachedKeyFilePath() =>
-      localDataSource.getCachedKeyFilePath();
-
-  @override
-  Future<void> cacheKeyFilePath(String? path) =>
-      localDataSource.cacheKeyFilePath(path);
-
-  @override
   Future<void> saveMasterPassword(String databaseId, String password) =>
       secureDataSource.saveMasterPassword(databaseId, password);
 

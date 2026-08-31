@@ -4,6 +4,7 @@ import 'package:equatable/equatable.dart';
 
 class DatabaseSyncMapping extends Equatable {
   const DatabaseSyncMapping({
+    this.databaseId,
     required this.databasePath,
     required this.driveFileId,
     required this.driveFileName,
@@ -14,6 +15,10 @@ class DatabaseSyncMapping extends Equatable {
     this.autoSyncEnabled = true,
     this.lastError,
   });
+
+  /// spec 014 FR-6: the registry identifier this mapping is keyed by.
+  /// Nullable only because pre-keying constructions stamp it at upsert time.
+  final String? databaseId;
 
   final String databasePath;
   final String driveFileId;
@@ -26,6 +31,7 @@ class DatabaseSyncMapping extends Equatable {
   final String? lastError;
 
   DatabaseSyncMapping copyWith({
+    String? databaseId,
     String? databasePath,
     String? driveFileId,
     String? driveFileName,
@@ -38,6 +44,7 @@ class DatabaseSyncMapping extends Equatable {
     bool clearError = false,
   }) {
     return DatabaseSyncMapping(
+      databaseId: databaseId ?? this.databaseId,
       databasePath: databasePath ?? this.databasePath,
       driveFileId: driveFileId ?? this.driveFileId,
       driveFileName: driveFileName ?? this.driveFileName,
@@ -55,6 +62,7 @@ class DatabaseSyncMapping extends Equatable {
 
   Map<String, dynamic> toMap() {
     return {
+      'databaseId': databaseId,
       'databasePath': databasePath,
       'driveFileId': driveFileId,
       'driveFileName': driveFileName,
@@ -71,6 +79,7 @@ class DatabaseSyncMapping extends Equatable {
 
   factory DatabaseSyncMapping.fromMap(Map<String, dynamic> map) {
     return DatabaseSyncMapping(
+      databaseId: map['databaseId'] as String?,
       databasePath: map['databasePath'] as String,
       driveFileId: map['driveFileId'] as String,
       driveFileName: map['driveFileName'] as String,
@@ -99,6 +108,7 @@ class DatabaseSyncMapping extends Equatable {
 
   @override
   List<Object?> get props => [
+    databaseId,
     databasePath,
     driveFileId,
     driveFileName,

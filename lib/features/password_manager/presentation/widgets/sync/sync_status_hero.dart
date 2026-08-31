@@ -303,11 +303,7 @@ class SyncStatusHero extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          _providerTile(
-            context,
-            provider,
-            statusLabel: 'Connected',
-          ),
+          _providerTile(context, provider, statusLabel: 'Connected'),
           const SizedBox(height: 14),
           Text(
             'LINK A FILE',
@@ -384,7 +380,11 @@ class SyncStatusHero extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadii.iconSquare),
         ),
         alignment: Alignment.center,
-        child: KvIcon(glyph: provider.glyph, size: 19, color: colors.actionText),
+        child: KvIcon(
+          glyph: provider.glyph,
+          size: 19,
+          color: colors.actionText,
+        ),
       ),
       trailing: statusLabel == null
           ? null

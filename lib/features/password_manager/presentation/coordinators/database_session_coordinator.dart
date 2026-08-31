@@ -411,8 +411,23 @@ class DatabaseSessionCoordinator {
   }
 
   Future<bool> hasManagedDatabaseNamed(String fileName) async {
-    final path = await databaseFileRepository.managedDatabasePath(fileName);
-    return databaseFileRepository.fileExists(path);
+    // spec 014 FR-3: on-disk names are opaque, so "a database with this
+    // name" is a registry question, not a filesystem one.
+    return await _findRecordByDisplayName(fileName) != null;
+  }
+
+  Future<DatabaseRecord?> _findRecordByDisplayName(String displayName) async {
+    final trimmed = displayName.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+    final records = await databaseRegistryRepository.list();
+    for (final record in records) {
+      if (record.displayName == trimmed) {
+        return record;
+      }
+    }
+    return null;
   }
 
   Future<DatabaseSelectionSessionResult> selectDriveDatabase({
@@ -502,9 +517,23 @@ class DatabaseSessionCoordinator {
       targetPath = duplicateRecord.canonicalPath;
     } else if (decision != DatabaseDuplicateResolution.keepBoth &&
         overwriteExisting) {
-      targetPath = await databaseFileRepository.managedDatabasePath(
-        staged.preferredFileName,
-      );
+      // spec 014 FR-3: the overwrite target is the registry record carrying
+      // this display name; the on-disk name is opaque and never derived
+      // from it. An unresolvable target must fail loudly — degrading to a
+      // new-database commit would hand the user a silent duplicate after
+      // they explicitly chose "overwrite".
+      final match = await _findRecordByDisplayName(staged.preferredFileName);
+      if (match == null) {
+        await databaseFileRepository.discardStagedDatabase(staged);
+        return DatabaseSelectionSessionResult(
+          status: DatabaseSessionStatus.error,
+          message:
+              'Could not find the existing database to replace. '
+              'Nothing was changed.',
+          items: await _loadSelectionItems(),
+        );
+      }
+      targetPath = match.canonicalPath;
     }
 
     final originalRecord = targetPath == null
@@ -519,8 +548,6 @@ class DatabaseSessionCoordinator {
             recordToReplace.databaseId,
           );
     final originalActive = await getActiveDatabaseUseCase();
-    final originalKeyFilePath = await databaseSessionRepository
-        .getCachedKeyFilePath();
     // spec-011 FR-3/Slice 2: the keystore is no longer the session
     // transport, so rollback only restores the in-memory session secret.
     final originalSessionSecret = sessionSecretHolder.hasSecret
@@ -536,7 +563,7 @@ class DatabaseSessionCoordinator {
                 DatabaseRecord(
                   databaseId: _generateDatabaseId(),
                   canonicalPath: commit.databasePath,
-                  displayName: p.basename(commit.databasePath),
+                  displayName: staged.preferredFileName,
                   sourceType: staged.imported.sourceType,
                   sourceRef: staged.imported.sourceRef,
                   fileHash: staged.imported.fileHash,
@@ -546,7 +573,7 @@ class DatabaseSessionCoordinator {
                 ))
             .copyWith(
               canonicalPath: commit.databasePath,
-              displayName: p.basename(commit.databasePath),
+              displayName: staged.preferredFileName,
               sourceType: staged.imported.sourceType,
               sourceRef: staged.imported.sourceRef,
               fileHash: staged.imported.fileHash,
@@ -617,10 +644,11 @@ class DatabaseSessionCoordinator {
         }
       } catch (_) {}
       try {
-        await databaseSessionRepository.cacheKeyFilePath(originalKeyFilePath);
         // spec-011 FR-3/Slice 2: rollback restores only the in-memory
         // session secret; the per-database biometric credential was never
-        // touched by this transaction.
+        // touched by this transaction. spec 014 FR-8: there is no global
+        // cached key path to restore — the security profile is the only
+        // key-file source and was restored above.
         if (originalSessionSecret == null) {
           sessionSecretHolder.clear();
         } else {
@@ -658,7 +686,11 @@ class DatabaseSessionCoordinator {
 
     final imported = DatabaseImportResult(
       path: created.databasePath,
-      fileName: p.basename(created.databasePath),
+      // spec 014 FR-3: the on-disk name is opaque; the display name is the
+      // one the user typed.
+      fileName: databaseFileName.trim().isEmpty
+          ? 'new_database.kdbx'
+          : databaseFileName.trim(),
       fileHash: created.fileHash,
       sourceType: DatabaseSourceType.created,
     );
@@ -685,7 +717,6 @@ class DatabaseSessionCoordinator {
           );
         }
       }
-      await databaseSessionRepository.cacheKeyFilePath(created.keyFilePath);
     }
 
     return DatabaseSelectionSessionResult(
@@ -739,7 +770,6 @@ class DatabaseSessionCoordinator {
     if (activeRecord != null &&
         _containsPath([activeRecord.canonicalPath], trimmed)) {
       sessionSecretHolder.clear();
-      await databaseSessionRepository.cacheKeyFilePath(null);
       await databaseRegistryRepository.setActive(null);
     }
 
@@ -790,32 +820,15 @@ class DatabaseSessionCoordinator {
       profileKeyFileWasMissing = true;
     }
 
-    final cachedKeyFilePath = _normalizeKeyFilePath(
-      await databaseSessionRepository.getCachedKeyFilePath(),
-    );
-    var cachedKeyFileWasMissing = false;
-    if (keyFilePath == null && record == null && cachedKeyFilePath != null) {
-      if (await databaseFileRepository.keyFileExists(cachedKeyFilePath)) {
-        keyFilePath = cachedKeyFilePath;
-      } else {
-        cachedKeyFileWasMissing = true;
-      }
-    }
-
-    final selectedKeyFileNeedsSync =
-        record != null && !_sameKeyFilePath(cachedKeyFilePath, keyFilePath);
-
-    if (profileKeyFileWasMissing ||
-        cachedKeyFileWasMissing ||
-        selectedKeyFileNeedsSync) {
-      await databaseSessionRepository.cacheKeyFilePath(keyFilePath);
-      if (record != null && profileKeyFileWasMissing) {
-        await _saveSecurityProfile(
-          path: record.canonicalPath,
-          keyFilePath: keyFilePath,
-          biometricProtectionEnabled: null,
-        );
-      }
+    // spec 014 FR-8: the per-database security profile is the only key-file
+    // source; the global cached-path fallback is gone. A database with no
+    // profile key simply has no pre-selected key file.
+    if (record != null && profileKeyFileWasMissing) {
+      await _saveSecurityProfile(
+        path: record.canonicalPath,
+        keyFilePath: null,
+        biometricProtectionEnabled: null,
+      );
     }
 
     final biometricRequired = profile?.biometricProtectionEnabled ?? false;
@@ -839,7 +852,6 @@ class DatabaseSessionCoordinator {
     final persistedKeyFilePath = await databaseFileRepository
         .ensureManagedKeyFilePath(normalizedKeyFilePath);
 
-    await databaseSessionRepository.cacheKeyFilePath(persistedKeyFilePath);
     final record = await _findRecordByPath(databasePath);
     if (record == null) {
       return;
@@ -902,7 +914,6 @@ class DatabaseSessionCoordinator {
       rethrow;
     }
     sessionSecretHolder.set(password);
-    await databaseSessionRepository.cacheKeyFilePath(persistedKeyFilePath);
     // spec-011 FR-3: persist the biometric credential only when biometric
     // protection is enabled for this database, under its own key (FR-4).
     final record = await _findRecordByPath(databasePath);
@@ -984,7 +995,6 @@ class DatabaseSessionCoordinator {
   /// solely by FR-5 (flag turned off, database removed/unregistered).
   Future<void> _clearSessionCredentials() async {
     sessionSecretHolder.clear();
-    await databaseSessionRepository.cacheKeyFilePath(null);
     await appleAutofillV2Coordinator.clearCredentials();
   }
 
@@ -1282,14 +1292,5 @@ class DatabaseSessionCoordinator {
       return null;
     }
     return trimmed;
-  }
-
-  bool _sameKeyFilePath(String? left, String? right) {
-    final normalizedLeft = _normalizeKeyFilePath(left);
-    final normalizedRight = _normalizeKeyFilePath(right);
-    if (normalizedLeft == null || normalizedRight == null) {
-      return normalizedLeft == normalizedRight;
-    }
-    return p.equals(p.normalize(normalizedLeft), p.normalize(normalizedRight));
   }
 }

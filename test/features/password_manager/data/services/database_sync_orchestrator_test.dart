@@ -25,6 +25,8 @@ void main() {
     orchestrator = DatabaseSyncOrchestrator(
       syncMetadataDataSource: metadata,
       googleDriveApiService: driveApi,
+      // Identity resolver: tests address mappings by path.
+      resolveDatabaseId: (databasePath) async => databasePath,
     );
   });
 
@@ -39,6 +41,7 @@ void main() {
       final checksum = md5.convert(localBytes).toString();
 
       await metadata.upsertMapping(
+        localFile.path,
         DatabaseSyncMapping(
           databasePath: localFile.path,
           driveFileId: remoteFileId,
@@ -79,6 +82,7 @@ void main() {
       const remoteFileId = 'remote-file-2';
 
       await metadata.upsertMapping(
+        localFile.path,
         DatabaseSyncMapping(
           databasePath: localFile.path,
           driveFileId: remoteFileId,
@@ -114,6 +118,7 @@ void main() {
     final checksum = md5.convert(localBytes).toString();
 
     await metadata.upsertMapping(
+      localFile.path,
       DatabaseSyncMapping(
         databasePath: localFile.path,
         driveFileId: remoteFileId,
@@ -148,36 +153,35 @@ void main() {
       driveFileId: 'source-remote-id',
       driveFileName: 'source.kdbx',
     );
-    await metadata.upsertMapping(source);
-    await metadata.upsertMapping(destination);
+    await metadata.upsertMapping(source.databasePath, source);
+    await metadata.upsertMapping(destination.databasePath, destination);
 
     final move = await metadata.moveMappingPath(
       fromDatabasePath: source.databasePath,
       toDatabasePath: destination.databasePath,
     );
 
-    // Forward move replaced the destination with the (renamed) source and
-    // left no trace at the old source path.
-    expect(await metadata.getMapping(source.databasePath), isNull);
-    expect(
-      (await metadata.getMapping(destination.databasePath))?.driveFileId,
-      'source-remote-id',
-    );
+    // spec 014 FR-6: the id key is stable — the move updates the source
+    // mapping's PATH payload and drops the mapping that occupied the
+    // destination path.
+    final moved = await metadata.getMapping(source.databasePath);
+    expect(moved?.driveFileId, 'source-remote-id');
+    expect(moved?.databasePath, destination.databasePath);
+    expect(await metadata.getMapping(destination.databasePath), isNull);
 
     await metadata.restoreMappingPathMove(move);
 
-    // Restore is byte-for-byte, not a blind reverse move: the destination's
-    // ORIGINAL mapping is back, not the moved source.
+    // Restore is byte-for-byte: both original mappings are back under their
+    // own ids, with their original paths.
     expect(
-      (await metadata.getMapping(source.databasePath))?.driveFileId,
-      'source-remote-id',
+      (await metadata.getMapping(source.databasePath))?.databasePath,
+      source.databasePath,
     );
     expect(
       (await metadata.getMapping(destination.databasePath))?.driveFileId,
       'destination-remote-id',
     );
   });
-
   test('sync invalidation failure blocks remote replacement', () async {
     final harness = await _createHashSyncHarness(failUpsertOnCall: 1);
     addTearDown(() => harness.localFile.parent.delete(recursive: true));
@@ -273,6 +277,7 @@ Future<_HashSyncHarness> _createHashSyncHarness({
   final localMetadata = _InMemorySyncMetadataDataSource();
   final driveService = _FakeGoogleDriveApiService();
   await localMetadata.upsertMapping(
+    localFile.path,
     DatabaseSyncMapping(
       databasePath: localFile.path,
       driveFileId: remoteFileId,
@@ -295,6 +300,7 @@ Future<_HashSyncHarness> _createHashSyncHarness({
     remoteHash: remoteHash,
     registry: registry,
     orchestrator: DatabaseSyncOrchestrator(
+      resolveDatabaseId: (databasePath) async => databasePath,
       syncMetadataDataSource: localMetadata,
       googleDriveApiService: driveService,
       safeWriter: safeWriter,
@@ -366,6 +372,9 @@ Future<File> _createTempDatabase(Uint8List bytes) async {
 }
 
 class _InMemorySyncMetadataDataSource implements SyncMetadataDataSource {
+  /// Keyed by database identifier (spec 014 FR-6). The orchestrator under
+  /// test is wired with an identity resolver (id := path), so tests keep
+  /// addressing mappings by path.
   final Map<String, DatabaseSyncMapping> _mappings = {};
   final Map<String, PendingMergeUpload> _pendingUploads = {};
 
@@ -390,13 +399,13 @@ class _InMemorySyncMetadataDataSource implements SyncMetadataDataSource {
   }
 
   @override
-  Future<DatabaseSyncMapping?> getMapping(String databasePath) async {
-    return _mappings[databasePath];
+  Future<DatabaseSyncMapping?> getMapping(String databaseId) async {
+    return _mappings[databaseId];
   }
 
   @override
-  Future<void> removeMapping(String databasePath) async {
-    _mappings.remove(databasePath);
+  Future<void> removeMapping(String databaseId) async {
+    _mappings.remove(databaseId);
   }
 
   @override
@@ -404,39 +413,57 @@ class _InMemorySyncMetadataDataSource implements SyncMetadataDataSource {
     required String fromDatabasePath,
     required String toDatabasePath,
   }) async {
+    DatabaseSyncMapping? at(String path) {
+      for (final mapping in _mappings.values) {
+        if (mapping.databasePath == path) return mapping;
+      }
+      return null;
+    }
+
     final move = DatabaseSyncMappingPathMove(
       fromDatabasePath: fromDatabasePath,
       toDatabasePath: toDatabasePath,
-      sourceBefore: _mappings[fromDatabasePath],
-      destinationBefore: _mappings[toDatabasePath],
+      sourceBefore: at(fromDatabasePath),
+      destinationBefore: at(toDatabasePath),
     );
-    if (fromDatabasePath == toDatabasePath) {
+    if (fromDatabasePath == toDatabasePath || move.sourceBefore == null) {
       return move;
     }
-    final existing = _mappings.remove(fromDatabasePath);
-    if (existing == null) {
-      return move;
+    // The id key is stable; only the path payload moves. A mapping that
+    // occupied the destination path is dropped, as in the real impl.
+    _mappings.removeWhere(
+      (_, mapping) => mapping.databasePath == toDatabasePath,
+    );
+    for (final entry in _mappings.entries.toList()) {
+      if (entry.value.databasePath == fromDatabasePath) {
+        _mappings[entry.key] = entry.value.copyWith(
+          databasePath: toDatabasePath,
+        );
+      }
     }
-    _mappings[toDatabasePath] = existing.copyWith(databasePath: toDatabasePath);
     return move;
   }
 
   @override
   Future<void> restoreMappingPathMove(DatabaseSyncMappingPathMove move) async {
-    _mappings
-      ..remove(move.fromDatabasePath)
-      ..remove(move.toDatabasePath);
-    if (move.sourceBefore != null) {
-      _mappings[move.fromDatabasePath] = move.sourceBefore!;
-    }
-    if (move.destinationBefore != null) {
-      _mappings[move.toDatabasePath] = move.destinationBefore!;
+    _mappings.removeWhere(
+      (_, mapping) =>
+          mapping.databasePath == move.fromDatabasePath ||
+          mapping.databasePath == move.toDatabasePath,
+    );
+    for (final before in [move.sourceBefore, move.destinationBefore]) {
+      if (before != null) {
+        _mappings[before.databaseId ?? before.databasePath] = before;
+      }
     }
   }
 
   @override
-  Future<void> upsertMapping(DatabaseSyncMapping mapping) async {
-    _mappings[mapping.databasePath] = mapping;
+  Future<void> upsertMapping(
+    String databaseId,
+    DatabaseSyncMapping mapping,
+  ) async {
+    _mappings[databaseId] = mapping.copyWith(databaseId: databaseId);
   }
 }
 

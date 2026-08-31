@@ -159,10 +159,15 @@ class DatabaseSelectionScreen extends StatelessWidget {
       return;
     }
 
-    // macOS's save panel appends the allowed extension itself, so passing
-    // "config.kdbx" showed "config.kdbx.kdbx". The resolvedPath guard below
-    // still restores ".kdbx" on platforms that don't append it.
-    final defaultName = p.basenameWithoutExtension(path);
+    // spec 014 FR-3: the on-disk name is opaque, so export suggests the
+    // human-readable registry name. Passed WITHOUT the extension: macOS's
+    // save panel appends the allowed extension itself (passing "config.kdbx"
+    // showed "config.kdbx.kdbx"); the resolvedPath guard below still
+    // restores ".kdbx" on platforms that don't append it.
+    final displayName = item.displayName.trim();
+    final defaultName = displayName.isEmpty
+        ? 'database'
+        : p.basenameWithoutExtension(displayName);
     final savePath = await FilePicker.saveFile(
       dialogTitle: 'Export database backup',
       fileName: defaultName,

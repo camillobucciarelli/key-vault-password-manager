@@ -102,36 +102,44 @@ void main() {
     await Future<void>.delayed(Duration.zero);
   }
 
-  test('a search that hides three records changes none of the three readers', () async {
-    await initialize();
-    expect(duplicates.seen, isNotEmpty, reason: 'duplicates never ran');
-    expect(health.seen, isNotEmpty, reason: 'health never ran');
-    expect(autofill.seen, isNotEmpty, reason: 'autofill never published');
+  test(
+    'a search that hides three records changes none of the three readers',
+    () async {
+      await initialize();
+      expect(duplicates.seen, isNotEmpty, reason: 'duplicates never ran');
+      expect(health.seen, isNotEmpty, reason: 'health never ran');
+      expect(autofill.seen, isNotEmpty, reason: 'autofill never published');
 
-    final duplicatesBefore = duplicates.seen.last;
-    final healthBefore = health.seen.last;
-    final autofillBefore = autofill.seen.last;
+      final duplicatesBefore = duplicates.seen.last;
+      final healthBefore = health.seen.last;
+      final autofillBefore = autofill.seen.last;
 
-    bloc.add(const UpdateVaultSearchQuery('Aurora'));
-    await bloc.stream.firstWhere((s) => s.visibleEntries.length == 1);
+      bloc.add(const UpdateVaultSearchQuery('Aurora'));
+      await bloc.stream.firstWhere((s) => s.visibleEntries.length == 1);
 
-    // The premise: the search really did narrow the visible set.
-    expect(bloc.state.visibleEntries.single.title, 'Aurora');
-    expect(bloc.state.allEntries.length, 4);
+      // The premise: the search really did narrow the visible set.
+      expect(bloc.state.visibleEntries.single.title, 'Aurora');
+      expect(bloc.state.allEntries.length, 4);
 
-    // …and none of the three readers moved with it.
-    expect(duplicates.seen.last, duplicatesBefore);
-    expect(health.seen.last, healthBefore);
-    expect(autofill.seen.last, autofillBefore);
-  });
+      // …and none of the three readers moved with it.
+      expect(duplicates.seen.last, duplicatesBefore);
+      expect(health.seen.last, healthBefore);
+      expect(autofill.seen.last, autofillBefore);
+    },
+  );
 
-  test('the duplicate service is handed the whole vault, not the visible list', () async {
-    await initialize();
-    expect(
-      duplicates.seen.last.map((e) => e.id).toSet(),
-      {'1', '2', '3', '4'},
-    );
-  });
+  test(
+    'the duplicate service is handed the whole vault, not the visible list',
+    () async {
+      await initialize();
+      expect(duplicates.seen.last.map((e) => e.id).toSet(), {
+        '1',
+        '2',
+        '3',
+        '4',
+      });
+    },
+  );
 
   test('the health report is built over the whole vault', () async {
     await initialize();
@@ -155,8 +163,7 @@ class _SpyDuplicateService implements VaultDuplicateService {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _SpyHealthService extends VaultHealthService {
@@ -219,8 +226,7 @@ class _FakeKdbx implements VaultKdbxService {
   }) async => const [];
 
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeSyncRepo implements DatabaseSyncRepository {
@@ -231,6 +237,5 @@ class _FakeSyncRepo implements DatabaseSyncRepository {
   Future<bool> isConnected() async => false;
 
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      super.noSuchMethod(invocation);
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

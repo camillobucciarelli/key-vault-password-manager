@@ -1,4 +1,5 @@
 import 'dart:io';
+import '../../data/datasources/in_memory_secure_data_source.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/data/datasources/database_registry_local_data_source.dart';
@@ -34,6 +35,9 @@ class _MutablePathProvider extends PathProviderPlatform
 
   @override
   Future<String?> getApplicationDocumentsPath() async => basePath;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => basePath;
 }
 
 class _Unused
@@ -55,7 +59,10 @@ void main() {
   late Directory newDocs;
   late _MutablePathProvider pathProvider;
 
+  late InMemorySecureDataSource secure;
+
   setUp(() async {
+    secure = InMemorySecureDataSource();
     containerRoot = await Directory.systemTemp.createTemp('keyfile_e2e_');
     oldDocs = await Directory(
       p.join(containerRoot.path, 'UUID-A', 'Documents'),
@@ -81,14 +88,17 @@ void main() {
         syncRepository: unused,
       ),
       sessionSecretHolder: SessionSecretHolder(),
-      localDataSource: LocalDataSourceImpl(),
+      localDataSource: LocalDataSourceImpl(secureDataSource: secure),
       databaseRegistryRepository: DatabaseRegistryRepositoryImpl(
         localDataSource: DatabaseRegistryLocalDataSourceImpl(
           sharedPreferences: await SharedPreferences.getInstance(),
+          secureDataSource: secure,
         ),
       ),
       databaseSecurityRepository: DatabaseSecurityRepositoryImpl(
-        localDataSource: DatabaseSecurityLocalDataSourceImpl(),
+        localDataSource: DatabaseSecurityLocalDataSourceImpl(
+          secureDataSource: secure,
+        ),
       ),
       secureDataSource: unused,
       databaseSyncRepository: unused,
@@ -123,15 +133,30 @@ void main() {
     pathProvider.basePath = newDocs.path;
   }
 
-  test('getSelectedKeyFilePath survives relocation (cache fallback, '
-      'vault_session_coordinator.dart:69)', () async {
+  test('getSelectedKeyFilePath resolves the ACTIVE database profile and '
+      'survives relocation (spec 014 FR-8)', () async {
     final keysDir = await Directory(
       p.join(oldDocs.path, 'keys'),
     ).create(recursive: true);
     final keyFile = File(p.join(keysDir.path, 'vault.keyx'));
     await keyFile.writeAsString('key-material');
 
-    await LocalDataSourceImpl().cacheKeyFilePath(keyFile.path);
+    final now = DateTime.utc(2024, 1, 1);
+    final coordinator = await buildCoordinator();
+    await coordinator.databaseRegistryRepository.upsert(
+      DatabaseRecord(
+        databaseId: 'db-1',
+        canonicalPath: p.join(oldDocs.path, 'databases', 'v.kdbx'),
+        displayName: 'Vault',
+        sourceType: DatabaseSourceType.local,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    await coordinator.databaseRegistryRepository.setActive('db-1');
+    await coordinator.databaseSecurityRepository.saveProfile(
+      DatabaseSecurityProfile(databaseId: 'db-1', keyFilePath: keyFile.path),
+    );
 
     await relocate();
 
@@ -145,23 +170,44 @@ void main() {
     );
   });
 
-  test('getPersistedKeyFilePath falls back to the cache for an unregistered '
-      'database and still resolves after relocation '
-      '(vault_session_coordinator.dart:73-76)', () async {
+  test('an unregistered database resolves NO key file — it never borrows '
+      'another database\'s (spec 014 FR-8, T014d)', () async {
     final keysDir = await Directory(
       p.join(oldDocs.path, 'keys'),
     ).create(recursive: true);
-    final keyFile = File(p.join(keysDir.path, 'vault.keyx'));
-    await keyFile.writeAsString('key-material');
-    await LocalDataSourceImpl().cacheKeyFilePath(keyFile.path);
+    final otherKey = File(p.join(keysDir.path, 'other.keyx'));
+    await otherKey.writeAsString('key-material');
 
-    await relocate();
-
-    final resolved = await (await buildCoordinator()).getPersistedKeyFilePath(
-      p.join(newDocs.path, 'databases', 'not-registered.kdbx'),
+    final now = DateTime.utc(2024, 1, 1);
+    final coordinator = await buildCoordinator();
+    await coordinator.databaseRegistryRepository.upsert(
+      DatabaseRecord(
+        databaseId: 'db-other',
+        canonicalPath: p.join(oldDocs.path, 'databases', 'other.kdbx'),
+        displayName: 'Other',
+        sourceType: DatabaseSourceType.local,
+        createdAt: now,
+        updatedAt: now,
+      ),
     );
-    expect(resolved, p.join(newDocs.path, 'keys', 'vault.keyx'));
-    expect(await File(resolved!).exists(), isTrue);
+    await coordinator.databaseRegistryRepository.setActive('db-other');
+    await coordinator.databaseSecurityRepository.saveProfile(
+      DatabaseSecurityProfile(
+        databaseId: 'db-other',
+        keyFilePath: otherKey.path,
+      ),
+    );
+
+    final resolved = await coordinator.getPersistedKeyFilePath(
+      p.join(oldDocs.path, 'databases', 'not-registered.kdbx'),
+    );
+    expect(
+      resolved,
+      isNull,
+      reason:
+          'no profile key means no key — the global cached fallback that '
+          'could attach the wrong key to the wrong database is gone',
+    );
   });
 
   test('getPersistedKeyFilePath prefers the security profile and that also '

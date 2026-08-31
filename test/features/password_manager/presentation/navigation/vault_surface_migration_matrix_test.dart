@@ -208,10 +208,7 @@ void main() {
     final shared = counts.entries.where((e) => e.value > 1).toList();
     expect(
       shared.map((e) => e.key.toString()).toSet(),
-      {
-        'ConfirmationSurface<VaultDone>',
-        'EntrySurface<VaultDone>',
-      },
+      {'ConfirmationSurface<VaultDone>', 'EntrySurface<VaultDone>'},
       reason:
           'unexpected surface-family sharing; verify against FR-6 before merging rows',
     );

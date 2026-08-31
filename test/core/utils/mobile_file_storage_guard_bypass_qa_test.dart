@@ -29,6 +29,9 @@ class _FixedPathProvider extends PathProviderPlatform
 
   @override
   Future<String?> getApplicationDocumentsPath() async => basePath;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => basePath;
 }
 
 void main() {
@@ -264,9 +267,11 @@ void main() {
           fileName: 'v.keyx',
           subdirectory: sub,
         );
+        // spec 014 FR-3: the at-rest name is opaque, so the resolved
+        // spelling is derived from what was actually saved.
         final resolvedSpelling = p.join(
           Directory(appSub().path).resolveSymbolicLinksSync(),
-          'v.keyx',
+          p.basename(saved),
         );
         expect(resolvedSpelling, isNot(saved));
         expect(

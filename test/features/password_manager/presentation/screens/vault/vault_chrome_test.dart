@@ -110,7 +110,8 @@ void main() {
       expect(
         fills,
         isNotEmpty,
-        reason: 'the current destination is signalled by a fill, not only by '
+        reason:
+            'the current destination is signalled by a fill, not only by '
             'a colour change on the glyph (C-03-14)',
       );
     });

@@ -28,6 +28,12 @@ dependencies:
   oauth2: ^2.0.5
   path: ^1.9.1
   path_provider: ^2.1.6
+  # Already resolved transitively via `kdbx` at the same version; declared
+  # explicitly because spec 014's metadata cipher (AES-256-GCM over the
+  # registry/security/sync metadata files) imports it directly — code in
+  # `lib/` must not import a package it does not declare. Same pattern and
+  # justification as `xml` below.
+  pointycastle: ^4.0.0
   shared_preferences: ^2.5.5
   stream_transform: ^2.1.1
   url_launcher: ^6.3.2

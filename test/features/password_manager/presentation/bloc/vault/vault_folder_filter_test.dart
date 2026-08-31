@@ -35,19 +35,17 @@ void main() {
     test('All items — the root — shows the whole vault', () async {
       await ready();
       expect(bloc.state.currentGroupId, 'root');
-      expect(idsOf(bloc.state), {
-        'e-root',
-        'e-work',
-        'e-client',
-        'e-personal',
-      });
+      expect(idsOf(bloc.state), {'e-root', 'e-work', 'e-client', 'e-personal'});
     });
 
-    test('a folder with children shows its subtree, not just its own records', () async {
-      await ready();
-      final state = await select('work');
-      expect(idsOf(state), {'e-work', 'e-client'});
-    });
+    test(
+      'a folder with children shows its subtree, not just its own records',
+      () async {
+        await ready();
+        final state = await select('work');
+        expect(idsOf(state), {'e-work', 'e-client'});
+      },
+    );
 
     test('a leaf folder shows only its own records', () async {
       await ready();
@@ -55,14 +53,17 @@ void main() {
       expect(idsOf(await select('personal')), {'e-personal'});
     });
 
-    test('an unknown folder id is ignored rather than emptying the list', () async {
-      await ready();
-      final before = idsOf(bloc.state);
-      bloc.add(const SelectVaultFolder('does-not-exist'));
-      await Future<void>.delayed(Duration.zero);
-      expect(bloc.state.currentGroupId, 'root');
-      expect(idsOf(bloc.state), before);
-    });
+    test(
+      'an unknown folder id is ignored rather than emptying the list',
+      () async {
+        await ready();
+        final before = idsOf(bloc.state);
+        bloc.add(const SelectVaultFolder('does-not-exist'));
+        await Future<void>.delayed(Duration.zero);
+        expect(bloc.state.currentGroupId, 'root');
+        expect(idsOf(bloc.state), before);
+      },
+    );
   });
 
   group('counts (FR-006i, FR-002a)', () {
@@ -73,11 +74,14 @@ void main() {
       expect(bloc.state.folderCounts['personal'], 1);
     });
 
-    test('All items equals the whole vault and the root count is the same number', () async {
-      await ready();
-      expect(bloc.state.totalCount, 4);
-      expect(bloc.state.folderCounts['root'], 4);
-    });
+    test(
+      'All items equals the whole vault and the root count is the same number',
+      () async {
+        await ready();
+        expect(bloc.state.totalCount, 4);
+        expect(bloc.state.folderCounts['root'], 4);
+      },
+    );
 
     test('the recycle bin is in neither the counts nor the subtree', () async {
       await ready();
@@ -103,25 +107,26 @@ void main() {
       expect(idsOf(state), {'e-client'});
     });
 
-    test('a search that matches nothing inside the folder shows nothing', () async {
-      await ready();
-      await select('personal');
-      bloc.add(const UpdateVaultSearchQuery('Cirrus'));
-      await bloc.stream.firstWhere((s) => s.searchQuery == 'Cirrus');
-      expect(bloc.state.visibleEntries, isEmpty);
-    });
+    test(
+      'a search that matches nothing inside the folder shows nothing',
+      () async {
+        await ready();
+        await select('personal');
+        bloc.add(const UpdateVaultSearchQuery('Cirrus'));
+        await bloc.stream.firstWhere((s) => s.searchQuery == 'Cirrus');
+        expect(bloc.state.visibleEntries, isEmpty);
+      },
+    );
 
     test('sort reorders inside the folder without widening it', () async {
       await ready();
       await select('work');
       bloc.add(const SetVaultSort(VaultEntrySort.titleDesc));
-      await bloc.stream.firstWhere(
-        (s) => s.sortBy == VaultEntrySort.titleDesc,
-      );
-      expect(
-        bloc.state.visibleEntries.map((e) => e.title).toList(),
-        ['Cirrus', 'Borealis'],
-      );
+      await bloc.stream.firstWhere((s) => s.sortBy == VaultEntrySort.titleDesc);
+      expect(bloc.state.visibleEntries.map((e) => e.title).toList(), [
+        'Cirrus',
+        'Borealis',
+      ]);
     });
 
     test('clearing the search keeps the folder', () async {
@@ -149,25 +154,28 @@ void main() {
   // when `currentGroupId` is null — no entry, no error message. Representing
   // `All items` as null would therefore have made the add button dead in the
   // default state, and dead in a way nothing reports.
-  test('with All items selected, adding a record still reaches the vault', () async {
-    await ready();
-    expect(bloc.state.currentGroupId, isNotNull);
+  test(
+    'with All items selected, adding a record still reaches the vault',
+    () async {
+      await ready();
+      expect(bloc.state.currentGroupId, isNotNull);
 
-    bloc.add(
-      const CreateVaultEntry(
-        title: 'New record',
-        username: 'someone',
-        password: 'secret',
-        url: '',
-        notes: '',
-      ),
-    );
-    await bloc.stream.firstWhere((s) => s.allEntries.length == 5);
+      bloc.add(
+        const CreateVaultEntry(
+          title: 'New record',
+          username: 'someone',
+          password: 'secret',
+          url: '',
+          notes: '',
+        ),
+      );
+      await bloc.stream.firstWhere((s) => s.allEntries.length == 5);
 
-    expect(kdbx.createdInGroupIds, ['root']);
-    expect(
-      bloc.state.visibleEntries.map((e) => e.title),
-      contains('New record'),
-    );
-  });
+      expect(kdbx.createdInGroupIds, ['root']);
+      expect(
+        bloc.state.visibleEntries.map((e) => e.title),
+        contains('New record'),
+      );
+    },
+  );
 }

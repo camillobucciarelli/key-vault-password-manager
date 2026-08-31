@@ -1,9 +1,10 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:password_manager/features/password_manager/data/datasources/database_registry_local_data_source.dart';
 import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
 import 'package:password_manager/features/password_manager/data/services/legacy_database_registry_migration.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
@@ -25,6 +26,10 @@ void main() {
   );
 
   final deletedKeys = <String>[];
+  // Stateful keystore mock: spec 014's encrypted metadata needs reads to
+  // return what was written, or every registry read decrypts with no key
+  // and comes back empty.
+  final storedValues = <String, String>{};
   late Directory documentsDirectory;
 
   setUp(() async {
@@ -33,12 +38,27 @@ void main() {
     );
     PathProviderPlatform.instance = _FakePathProvider(documentsDirectory.path);
     deletedKeys.clear();
+    storedValues.clear();
     SharedPreferences.setMockInitialValues({});
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(secureStorageChannel, (call) async {
-          if (call.method == 'delete') {
-            final arguments = call.arguments as Map<Object?, Object?>;
-            deletedKeys.add(arguments['key']! as String);
+          final arguments = call.arguments as Map<Object?, Object?>?;
+          switch (call.method) {
+            case 'delete':
+              final key = arguments!['key']! as String;
+              deletedKeys.add(key);
+              storedValues.remove(key);
+              return null;
+            case 'write':
+              storedValues[arguments!['key']! as String] =
+                  arguments['value']! as String;
+              return null;
+            case 'read':
+              return storedValues[arguments!['key']! as String];
+            case 'readAll':
+              return Map<String, String>.from(storedValues);
+            case 'containsKey':
+              return storedValues.containsKey(arguments!['key']! as String);
           }
           return null;
         });
@@ -89,30 +109,28 @@ void main() {
     () async {
       final database = File('${documentsDirectory.path}/vault.kdbx');
       await database.writeAsBytes([1, 2, 3], flush: true);
-      final metadataDirectory = Directory(
-        '${documentsDirectory.path}/metadata',
-      );
-      await metadataDirectory.create();
+      // Seed through the encrypted data source (spec 014 FR-4): a plaintext
+      // registry file is unreadable by design since FR-9.
       final now = DateTime.utc(2026).toIso8601String();
-      await File(
-        '${metadataDirectory.path}/database_registry_records.json',
-      ).writeAsString(
-        jsonEncode([
-          {
-            'databaseId': 'db-1',
-            'canonicalPath': database.path,
-            'displayName': 'vault.kdbx',
-            'sourceType': 'local',
-            'sourceRef': null,
-            'fileHash': null,
-            'createdAt': now,
-            'updatedAt': now,
-            'lastOpenedAt': null,
-            'isFavorite': false,
-          },
-        ]),
-        flush: true,
-      );
+      await DatabaseRegistryLocalDataSourceImpl(
+        sharedPreferences: await SharedPreferences.getInstance(),
+        secureDataSource: SecureDataSourceImpl(
+          secureStorage: const FlutterSecureStorage(),
+        ),
+      ).saveRecords([
+        {
+          'databaseId': 'db-1',
+          'canonicalPath': database.path,
+          'displayName': 'vault.kdbx',
+          'sourceType': 'local',
+          'sourceRef': null,
+          'fileHash': null,
+          'createdAt': now,
+          'updatedAt': now,
+          'lastOpenedAt': null,
+          'isFavorite': false,
+        },
+      ]);
 
       await di.init();
 
@@ -165,4 +183,7 @@ class _FakePathProvider extends PathProviderPlatform
 
   @override
   Future<String?> getApplicationDocumentsPath() async => documentsPath;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => documentsPath;
 }

@@ -149,9 +149,7 @@ class RevealedPasswordRow extends StatelessWidget {
                           // Saturated accent, not attentionText: accent900
                           // read as a grey bar on the light tint
                           // (2026-08-31).
-                          decoration: BoxDecoration(
-                            color: AppColors.accent500,
-                          ),
+                          decoration: BoxDecoration(color: AppColors.accent500),
                         ),
                       ),
                     ),
