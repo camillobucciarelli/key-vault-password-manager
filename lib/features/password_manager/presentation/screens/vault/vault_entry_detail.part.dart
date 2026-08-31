@@ -193,8 +193,7 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
 
     final extraUrls = entry.customFields
         .where(
-          (field) =>
-              isUrlFieldKey(field.key) && field.value.trim().isNotEmpty,
+          (field) => isUrlFieldKey(field.key) && field.value.trim().isNotEmpty,
         )
         .map((field) => field.value.trim())
         .toList(growable: false);
@@ -445,32 +444,37 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                       ),
               ),
             ],
-            if (entry.attachments.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Text(
-                'More',
-                style: AppTextStyles.labelUpper.copyWith(
-                  color: colors.textSecondary,
-                ),
+            // spec-020 (C-04-04): attachments are a permanent section with
+            // their count — shown at zero too, so the first one can always be
+            // added from here. The header overflow no longer offers them.
+            const SizedBox(height: 16),
+            Text(
+              'Attachments',
+              style: AppTextStyles.labelUpper.copyWith(
+                color: colors.textSecondary,
               ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _MoreChip(
-                    icon: AppGlyph.attachment,
-                    label:
-                        '${entry.attachments.length} attachment${entry.attachments.length == 1 ? '' : 's'}',
-                    onTap: widget.onSelectedAction == null
-                        ? null
-                        : () => widget.onSelectedAction!(
-                            _EntryAction.attachments,
-                          ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${entry.attachments.length} attachment${entry.attachments.length == 1 ? '' : 's'}',
+                    style: AppTextStyles.secondary.copyWith(
+                      color: colors.textPrimary,
+                    ),
                   ),
-                ],
-              ),
-            ],
+                ),
+                _MoreChip(
+                  icon: AppGlyph.attachment,
+                  label: 'Manage',
+                  onTap: widget.onSelectedAction == null
+                      ? null
+                      : () =>
+                            widget.onSelectedAction!(_EntryAction.attachments),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -537,25 +541,6 @@ class _DetailHeader extends StatelessWidget {
                 _RoundedPopupItem(
                   value: _EntryAction.move,
                   child: _MenuItemContent(icon: AppIcons.move, label: 'Move'),
-                ),
-                // spec-019 C-04-04 is NOT fixed here, deliberately.
-                //
-                // The finding is real — `Attachments` is both this menu item
-                // and a chip in the body — but removing it costs more than it
-                // buys today. The body chip renders only when the record
-                // already HAS an attachment, so this menu item is the only way
-                // to add the first one; and spec 018's mobile characterisation
-                // pins the item at every width (FR-011), a guarantee that must
-                // be re-negotiated in the open rather than silently broken.
-                //
-                // Closing it properly means making the section permanent with
-                // its count, which is a journey-04 change. Left to spec 020.
-                _RoundedPopupItem(
-                  value: _EntryAction.attachments,
-                  child: _MenuItemContent(
-                    icon: AppIcons.attachment,
-                    label: 'Attachments',
-                  ),
                 ),
                 _RoundedPopupItem(
                   value: _EntryAction.duplicate,

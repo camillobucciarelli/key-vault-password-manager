@@ -388,6 +388,11 @@ verified by manual use.
 - **FR-011**: The set of record actions offered MUST be identical across
   layouts. A record action available on mobile MUST be available on desktop and
   vice versa.
+  *Amended by spec 020 (2026-08-31): `Attachments` is no longer a record
+  action in the detail header overflow at any width. It is a permanent section
+  of the detail body with its count and a `Manage` action, identical across
+  layouts. The record-row `•••` menu is unchanged. The layout-parity guarantee
+  itself stands.*
 - **FR-011a**: At wide widths no record surface may be presented as a dialog
   stacked on another dialog; per the adopted design, what is a screen on
   mobile is a pane on tablet and desktop. (Design: HANDOFF §Structure and

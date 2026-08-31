@@ -269,7 +269,7 @@ column wrapped `mail.google.com` mid-word. A record that stores a bare domain
 
 ### C-04-04 · `Attachments` is in the overflow menu as well as a section
 
-**Still open — attempted and reverted, deliberately.** Removing the menu item
+**Resolved by spec 020 (2026-08-31)** — the section is permanent with its count and a `Manage` action, the overflow item is gone, spec 018 FR-011 amended in writing. History of the first attempt, kept for the reasoning: removing the menu item
 was tried and backed out for two reasons, both found by the tests:
 
 1. The body chip renders only when the record **already has** an attachment, so

@@ -70,7 +70,10 @@ void main() {
   ) async {
     await pumpAt(tester, 1024);
     await openGmail(tester);
-    expect(inDetail(find.byKey(const ValueKey('entry-detail-body'))), findsOneWidget);
+    expect(
+      inDetail(find.byKey(const ValueKey('entry-detail-body'))),
+      findsOneWidget,
+    );
 
     await tester.tap(inDetail(find.byTooltip('Record actions')));
     await tester.pumpAndSettle();
@@ -165,7 +168,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      for (final label in ['Move', 'Attachments', 'Delete']) {
+      // FR-011 as amended by spec 020: `Attachments` left the overflow for
+      // a permanent body section with `Manage`.
+      expect(find.text('Manage'), findsWidgets);
+      for (final label in ['Move', 'Delete']) {
         expect(
           find.text(label),
           findsWidgets,
@@ -266,7 +272,8 @@ void main() {
     expect(
       find.byKey(const ValueKey('vault-folder-pane')),
       findsOneWidget,
-      reason: 'every way out of the editor is a way out of the generator '
+      reason:
+          'every way out of the editor is a way out of the generator '
           'column — not only Use',
     );
   });

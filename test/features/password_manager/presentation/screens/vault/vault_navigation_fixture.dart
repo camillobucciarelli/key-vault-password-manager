@@ -10,6 +10,7 @@
 // confirmed by the user and then silently dropped. A test that only checks
 // the UI settled would pass against that bug.
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_attachment.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_group.dart';
@@ -69,6 +70,11 @@ class NavigationFixtureVaultKdbxService implements VaultKdbxService {
     id: 'entry-github',
     groupId: folderId,
     title: 'GitHub',
+    // spec-020: one record with attachments, so the count is exercised.
+    attachments: [
+      VaultAttachment(key: 'ssh', name: 'id_ed25519.pub', size: 98),
+      VaultAttachment(key: 'recovery', name: 'recovery-codes.txt', size: 512),
+    ],
     username: 'dev',
     password: 'Sample-Pass-2b!x',
     url: 'github.com',
