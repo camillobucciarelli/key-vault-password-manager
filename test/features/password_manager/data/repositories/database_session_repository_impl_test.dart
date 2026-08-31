@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/data/datasources/local_data_source.dart';
 import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
@@ -61,7 +62,9 @@ class _FakeSecureDataSource implements SecureDataSource {
 
   @override
   Future<String> createMetadataKey() async {
-    const key = 'dGVzdC1tZXRhZGF0YS1rZXktMzItYnl0ZXMtLS0tLS0=';
+    // Deterministic non-secret test key, built at runtime so secret
+    // scanners never see a base64-looking literal.
+    final key = base64Encode(List<int>.generate(32, (i) => i));
     metadataEntries['METADATA_ENCRYPTION_KEY'] = key;
     return key;
   }

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -891,7 +892,9 @@ class _FakeSecureDataSource implements SecureDataSource {
 
   @override
   Future<String> createMetadataKey() async {
-    const key = 'dGVzdC1tZXRhZGF0YS1rZXktMzItYnl0ZXMtLS0tLS0=';
+    // Deterministic non-secret test key, built at runtime so secret
+    // scanners never see a base64-looking literal.
+    final key = base64Encode(List<int>.generate(32, (i) => i));
     metadataEntries['METADATA_ENCRYPTION_KEY'] = key;
     return key;
   }

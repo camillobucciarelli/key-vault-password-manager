@@ -74,7 +74,7 @@ void main() {
           .where((line) => !line.trimLeft().startsWith('//'))
           .join('\n');
       if (code.contains('getApplicationDocumentsDirectory(')) {
-        matches.add(entity.path);
+        matches.add(entity.path.replaceAll(r'\', '/'));
       }
     }
     expect(
@@ -96,7 +96,7 @@ void main() {
           .where((line) => !line.trimLeft().startsWith('//'))
           .join('\n');
       if (code.contains('getApplicationSupportDirectory(')) {
-        matches.add(entity.path);
+        matches.add(entity.path.replaceAll(r'\', '/'));
       }
     }
     expect(matches, ['lib/core/utils/managed_storage_root.dart']);
