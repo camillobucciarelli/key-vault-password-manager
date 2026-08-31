@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-29
 
-**Status**: Draft
+**Status**: Done — merged in PR #179, manual walk closed 2026-08-31
 
 **Input**: User description: "Bring vault journey 03 (list, folders, search) to the adopted navigation model 1a, and correct the shell chrome, per specs/_design/CONFORMANCE_AUDIT.md findings C-SH-03 and C-03-01..C-03-14."
 
