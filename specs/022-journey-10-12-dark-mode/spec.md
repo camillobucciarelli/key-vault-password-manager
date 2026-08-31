@@ -1,38 +1,38 @@
-# 022 — Pixel pass on journeys 10–12 and dark mode
+# 022 — Dark mode verification
 
-**Status**: Draft — blocked on screenshots · **Kind**: Conformance / Design fidelity
-**Created**: 2026-08-29
+**Status**: Done — 2026-08-31, every journey rendered in dark and reviewed; one finding (F-001) fixed · **Kind**: Conformance / Design fidelity
+**Created**: 2026-08-29 · **Rescoped**: 2026-08-31
 **Depends on**: 019 (the shell chrome these screens sit inside)
 **Source**: `specs/_design/CONFORMANCE_AUDIT.md` — proposed remediation table
 
-## Why this is a draft
+## What can be verified today
 
-Journeys 10, 11, 12 and 14 have **not** been pixel-audited, for the same reason
-as 021: the audit is code-verified for journey 03 and the shell, and everything
-else was marked `[visual]` rather than guessed at.
+No dark artboard has ever been compared against a dark screen. Two things
+exist already and make a pass possible without new screenshots:
 
-**What unblocks this spec**: screenshots of each screen — light and dark, phone
-and desktop.
+- the dark token mapping (`HANDOFF.md` §Dark theme) — already pinned by
+  `test/core/theme/app_theme_test.dart` (semantic roles + contrast);
+- the `14 Dark mode` artboard with six key screens: vault list, entry detail
+  with reveal + TOTP, health, field diff, settings with the theme selector,
+  extension popup.
+
+Everything else is checked against the handoff's dark rule: surfaces move up
+one ramp step, tinted backgrounds go to the `800` step with text at `100–200`,
+pastel accents identical to light, shadow `0 12px 32px rgba(0,0,0,.5)`.
 
 ## Scope
 
-- **10** — Security and master password
-- **11** — Autofill (Apple, Android)
-- **12** — Desktop browser extension
-- **14** — Whatever the catalogue's last journey covers (confirm against
-  `00 Catalogo & Piano` before starting; the audit lists it among the
-  unaudited but never names it)
+Dark mode only. The pixel pass on journeys 10, 11, 12 and 14 that this spec
+originally carried is dropped: those screens stay as they are (decision of
+2026-08-31).
 
 ### Dark mode as its own axis
 
-Every journey's dark variant is collected here rather than spread across 020,
-021 and 022. Dark is not "light with swapped tokens" in this design: the
-surface/ground inversion changes which elevation reads as a card, and the
-audit never checked a single dark artboard against a single dark screen.
-
-If the dark pass turns out to be large, split it into its own spec at that
-point — do not let it ride along half-done.
+Every journey's dark variant is collected here. Dark is not "light with
+swapped tokens" in this design: the surface/ground inversion changes which
+elevation reads as a card, and the audit never checked a single dark artboard
+against a single dark screen.
 
 ## Non-goals
 
-Behaviour, and any journey covered by 020 or 021.
+Behaviour, and light-mode fidelity of any journey.

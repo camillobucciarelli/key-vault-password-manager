@@ -66,7 +66,11 @@ void main() {
     for (final width in [390.0, 708.0]) {
       testWidgets('Attachments closes at $width', (tester) async {
         await pumpVault(tester, width);
-        await openEntryAction(tester, 'Attachments');
+        // spec-020: the dialog opens from the body section's `Manage`.
+        await tester.tap(find.text('GitHub').first);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Manage').last);
+        await tester.pumpAndSettle();
 
         expect(find.widgetWithText(AlertDialog, 'Attachments'), findsOneWidget);
         await tester.tap(find.text('Close').last);

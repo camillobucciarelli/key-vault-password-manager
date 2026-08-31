@@ -181,7 +181,7 @@ tree went.
 - [x] T057 [P] Confirm no hard-coded hex, font family, radius or duration entered the new files, and that every metric traces to `PIXEL_SPEC` through a token (Constitution III). FR-020's "no new capability" is checked here too, by reviewing the diff for any event, service call or field the vault did not already have
 - [x] T058 Close the audit ledger: mark `C-SH-03` and `C-03-01`…`C-03-14` resolved in `specs/_design/CONFORMANCE_AUDIT.md`, each naming the task that closed it, and re-record any finding that turned out to be wrong rather than quietly dropping it (SC-001)
 - [x] T059 Run `fvm flutter analyze` and `fvm flutter test`, then `fvm flutter test test/goldens --test-randomize-ordering-seed=$RANDOM`, and report the counts against the T002 baseline (Constitution IX, SC-006)
-- [ ] T060 Walk `quickstart.md` manually on macOS at ≥ 941, in the 704–940 band and at phone width, including the action-inventory walk. This walk is the **only** verification of the interaction-count half of SC-003 and SC-004 — the tests pin the labels and the behaviour, not how many taps a path takes
+- [x] T060 Walk `quickstart.md` manually on macOS at ≥ 941, in the 704–940 band and at phone width, including the action-inventory walk. This walk is the **only** verification of the interaction-count half of SC-003 and SC-004 — the tests pin the labels and the behaviour, not how many taps a path takes. Walked by hand on the running desktop build and closed 2026-08-31 (PR #179 merged)
 - [x] T061 Tick every box in this file in the change that lands the work and run `PROJECT_NUMBER=2 tool/sync_spec_project.sh`, reporting the board state
 
 ---
