@@ -61,7 +61,7 @@ class _RecordListItem extends StatelessWidget {
         baseBorderColor: isSelected ? AppColors.accent400 : Colors.transparent,
         hoveredBorderColor: colors.selectionBorder.withValues(alpha: 0.5),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
