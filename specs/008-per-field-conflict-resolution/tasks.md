@@ -197,7 +197,7 @@ flutter test test/features/password_manager/data/services/sync_merge_convergence
       acquisition; independent databases concurrent only when proven distinct.
 - [x] **T105 Route all writers** — patch `VaultKdbxService`, import service,
       orchestrator, database/session settings flows and exports. No bypass.
-- [ ] **T106 Rename transaction** — lock old+new canonical paths in deterministic
+- [x] **T106 Rename transaction** — lock old+new canonical paths in deterministic
       order through rename, registry/security/sync mapping updates and rollback.
 - [x] **T107 Alias/deadlock tests** — relative/absolute, separators, `.`/`..`,
       symlink path/parent, case aliases on relevant filesystem, hard links where
@@ -869,7 +869,7 @@ time under a wall clock does not do.
       exists in this codebase for Drive and `DriveRemoteFile` carries no token
       field, so the token-refetch clause is correctly vacuous here. No new
       code written for this task.*
-- [ ] **T403 Atomic commit integration** — candidate semantic validation, verified
+- [x] **T403 Atomic commit integration** — candidate semantic validation, verified
       collision-safe backup, target temp/replace and mapping transaction.
 - [x] **T404 Persist `_PendingMergeUpload` before dispatch** — merged/local
       checksums, expected old remote checksum, remote file ID, private backup/
@@ -882,33 +882,38 @@ time under a wall clock does not do.
       Absence of a rejection is not evidence that nothing was overwritten.
 - [x] **T406 Ambiguous transport outcome** — timeout/disconnect after dispatch
       persists `outcomeAmbiguous`; do not retry blindly or mark synced/failed.
-- [ ] **T407 Recovery local guard** — under per-database mutex, hash current local
+- [x] **T407 Recovery local guard** — under per-database mutex, hash current local
       bytes and compare persisted `localCommittedChecksum` before remote client
       call or any vault mutation. Mismatch -> `staleRecoveryLocal`; no upload,
       retry, finalization or success mapping update; retain backup/evidence and
       require fresh conflict.
-- [ ] **T408 Matching-local remote triage** — only after T407 match, refetch:
+- [x] **T408 Matching-local remote triage** — only after T407 match, refetch:
       merged checksum -> finalize; unchanged expected-old checksum -> safely
       re-enter FR-7 from step 3 (re-sending the token only on a
       `conditionalWrite` adapter; on any other adapter the step-3 re-read plus
       the step-5 verification carry the safety); third state -> new conflict
       while retaining local+backup. On a `versionHistory` adapter the overwritten
       revision is additionally fetched and offered as the remote side.
-- [ ] **T409 Restart recovery tests** — recreate process/data repository with
+- [x] **T409 Restart recovery tests** — recreate process/data repository with
       pending record. Cover local mismatch first and assert zero remote calls/
       mutation, then matching-local applied/not-applied/third-state branches before
       normal auto-sync.
-- [ ] **T410 Upload tests** — apparent success verified and unverified,
+- [x] **T410 Upload tests** — apparent success verified and unverified,
       timeout-applied, timeout-not-applied, timeout-third-state, retry timeout,
       **non-executable step-5 read-back**, divergence-then-converge, semantic
       short-circuit, retry-budget exhaustion, and conditional reject (on a
       `conditionalWrite` fake adapter only). Mapping never claims synced
       prematurely and never on an unverified apparent success.
-- [ ] **T412 Capability parity** — coordinator, use cases and merge adapter
+      Gate 4 note: the conditional-reject case is vacuous here — no
+      `conditionalWrite` adapter exists in the codebase and Drive sends no
+      token (plan §Remote concurrency capabilities); T412's parity test keeps
+      it that way. Every other branch is covered in
+      `sync_merge_repository_impl_test.dart` group `Gate 4`.
+- [x] **T412 Capability parity** — coordinator, use cases and merge adapter
       produce identical decisions against a CAS adapter, a `versionHistory`
       adapter and a bare `get`/`put` adapter. Only the reported guarantee tier
       differs; no domain or presentation code branches on a capability.
-- [ ] **T411 Upload-failure reopen** — local merged file and dated backup remain;
+- [x] **T411 Upload-failure reopen** — local merged file and dated backup remain;
       reopen with password+key file succeeds.
 
 **Gate 4 exit**: stale, backup, atomicity, definite/ambiguous upload and restart
@@ -916,28 +921,28 @@ recovery tests pass.
 
 ## Phase 5 — Coordinator, BLoC, lock and auto-sync
 
-- [ ] **T501 `presentation/coordinators/sync_merge_coordinator.dart`** — depend on
+- [x] **T501 `presentation/coordinators/sync_merge_coordinator.dart`** — depend on
       domain command use cases only; hold opaque session ID, redacted decisions
       and sequencing. No data imports, credential resolution, plaintext,
       plaintext handles, KDBX/private store, paths/checksums/tokens/UUIDs.
-- [ ] **T502 Coordinator tests** — enforce import/dependency boundary and verify
+- [x] **T502 Coordinator tests** — enforce import/dependency boundary and verify
       sequencing for review/update/commit/cancel/recovery using fake use cases.
-- [ ] **T503 Field widget boundary** — widget invokes
+- [x] **T503 Field widget boundary** — widget invokes
       `LoadSyncMergeFieldDisplayUseCase` directly; result never traverses
       coordinator/BLoC/state and clears on dispose/lock.
-- [ ] **T504 `vault_event.dart`/`vault_state.dart`** — opaque IDs, redacted
+- [x] **T504 `vault_event.dart`/`vault_state.dart`** — opaque IDs, redacted
       decisions/counts/phases/outcome codes only.
-- [ ] **T505 `vault_bloc.dart`** — forward command events to coordinator; no
+- [x] **T505 `vault_bloc.dart`** — forward command events to coordinator; no
       download/open/diff/write/upload workflow.
-- [ ] **T506 Lock/session integration** — invalidate use case before credentials
+- [x] **T506 Lock/session integration** — invalidate use case before credentials
       clear; data implementation aborts pre-boundary or completes durable recovery
       bookkeeping post-boundary. Database switch invalidates late callbacks.
-- [ ] **T507 Auto-sync interaction** — pending upload recovery runs before normal
+- [x] **T507 Auto-sync interaction** — pending upload recovery runs before normal
       auto-sync; conflicts remain persistent status, never modal while editing.
-- [ ] **T508 Secret tests** — known password, key path/bytes, protected custom
+- [x] **T508 Secret tests** — known password, key path/bytes, protected custom
       value, attachment bytes and field display absent from coordinator, events,
       state, props, serialization and logs.
-- [ ] **T509 Concurrency tests** — edit/save/manual sync/auto-sync/merge/rename and
+- [x] **T509 Concurrency tests** — edit/save/manual sync/auto-sync/merge/rename and
       restart recovery serialize through shared path mutex. Restart local-check
       executes before remote client call or mutation.
 
@@ -945,14 +950,14 @@ recovery tests pass.
 
 ## Phase 6 — UI and exact golden inventory
 
-- [ ] **T601 Wire vault parts** only after Gates 0–5 green.
-- [ ] **T602 Review** — automatic record/field union sections, real conflicts,
+- [x] **T601 Wire vault parts** only after Gates 0–5 green.
+- [x] **T602 Review** — automatic record/field union sections, real conflicts,
       deletion evidence, **Prefer local/Prefer remote**, “unique data preserved”,
       “nothing written yet”.
       **FR-3a copy duty**: an engaged credential block is one row, and
       `MergeFieldCategory` cannot say so, so the row's copy must state in words
       that answering it also moves the entry's other credential fields.
-- [ ] **T603 Field diff** — widget-local transient display, protected masked,
+- [x] **T603 Field diff** — widget-local transient display, protected masked,
       present/missing labels non-selectable for one-sided data, explicit deletion
       choice only with evidence.
       **Gate condition (F6), required in the same commit that adds the field
@@ -965,18 +970,18 @@ recovery tests pass.
       `.value`/`.label`, and (b) any retention of a `MergeFieldDisplay` outside a
       `State` whose `dispose()` disposes it. Adding the widget without that test
       re-opens the hole the allowlist appears to close.
-- [ ] **T604 Ready/progress/recovery** — safety gates listed; cancellation hidden
+- [x] **T604 Ready/progress/recovery** — safety gates listed; cancellation hidden
       after atomic boundary; ambiguous upload has recovery status, never success.
-- [ ] **T605 Scale** — generate 250 conflicts in memory, shortcuts-only. Binary
+- [x] **T605 Scale** — generate 250 conflicts in memory, shortcuts-only. Binary
       fixture only if Gate 0 proves format-specific need.
-- [ ] **T606 Golden case table** — exactly 12 entries and exact filenames/states/
+- [x] **T606 Golden case table** — exactly 12 entries and exact filenames/states/
       dimensions/themes from `spec.md`; test asserts `cases.length == 12` before
       executing all cases.
-- [ ] **T607 Layout/semantics matrix** — implement all 12 exact test names from
+- [x] **T607 Layout/semantics matrix** — implement all 12 exact test names from
       `spec.md`: review/field/ready × 390×844/1024×768 × light/dark. Assert matrix
       length 12, unique names, no `tester.takeException()`/overflow and required
       semantic roles for every row.
-- [ ] **T608 Named dynamic widget assertions** —
+- [x] **T608 Named dynamic widget assertions** —
       `merge progress hides cancel after atomic boundary`;
       `field plaintext is absent after widget dispose and lock`;
       `background conflict remains status and opens no modal`;
@@ -987,8 +992,8 @@ named widget assertions pass.
 
 ## Phase 7 — Final verification
 
-- [ ] **T701** Format focused Dart changes and run `flutter analyze`.
-- [ ] **T702** Run focused tests below; full `flutter test` before release only.
+- [x] **T701** Format focused Dart changes and run `flutter analyze`.
+- [x] **T702** Run focused tests below; full `flutter test` before release only.
 - [ ] **T703** Run/attach each shipped platform harness artifact; keep failed or
       missing platform feature-disabled.
 - [ ] **T704** Manual two-client pass: one-sided records/fields/attachments,

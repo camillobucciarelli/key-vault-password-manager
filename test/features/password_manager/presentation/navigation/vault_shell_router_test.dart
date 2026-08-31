@@ -112,6 +112,11 @@ void main() {
     test('Confirmations: sheet / sheet over root window', () {
       expectAlwaysSheet(ConfirmationSurface<VaultDone>(builder: _noop));
     });
+    test('Confirmations with dialogOnWide: sheet / dialog', () {
+      expectSheetThenBareDialog(
+        ConfirmationSurface<VaultDone>(builder: _noop, dialogOnWide: true),
+      );
+    });
   });
 
   group('Redacted DTO diagnostics', () {

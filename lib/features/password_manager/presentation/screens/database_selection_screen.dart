@@ -8,11 +8,13 @@ import 'package:path/path.dart' as p;
 
 import '../../../../../core/navigation/app_navigation.dart';
 import '../../../../../core/responsive/breakpoints.dart';
-import '../../../../../core/theme/app_icons.dart';
+import '../../../../../core/theme/app_glyph.dart';
 import '../../../../../core/theme/app_text_styles.dart';
 import '../../../../../core/theme/keyvault_colors.dart';
 import '../../../../../core/utils/mobile_file_storage.dart';
+import '../../../../../core/theme/app_radii.dart';
 import '../../../../../core/widgets/kv_bottom_sheet.dart';
+import '../../../../../core/widgets/kv_icon.dart';
 import '../../../../../core/widgets/kv_pill_button.dart';
 import '../../../../../injection_container.dart' as di;
 import '../../domain/errors/database_access_failure.dart';
@@ -157,7 +159,10 @@ class DatabaseSelectionScreen extends StatelessWidget {
       return;
     }
 
-    final defaultName = p.basename(path);
+    // macOS's save panel appends the allowed extension itself, so passing
+    // "config.kdbx" showed "config.kdbx.kdbx". The resolvedPath guard below
+    // still restores ".kdbx" on platforms that don't append it.
+    final defaultName = p.basenameWithoutExtension(path);
     final savePath = await FilePicker.saveFile(
       dialogTitle: 'Export database backup',
       fileName: defaultName,
@@ -327,51 +332,11 @@ class DatabaseSelectionScreen extends StatelessWidget {
     BuildContext context,
     String fileName,
   ) {
-    return KvBottomSheet.show<bool>(
-      context: context,
-      barrierAlpha: 0.3,
-      builder: (sheetContext) {
-        final colors = Theme.of(sheetContext).extension<KeyVaultColors>()!;
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 26),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Delete file?',
-                style: AppTextStyles.sheetTitle.copyWith(
-                  color: colors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'This will try to permanently delete "$fileName" from disk.',
-                style: AppTextStyles.body.copyWith(color: colors.textSecondary),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextButton(
-                      onPressed: () => Navigator.of(sheetContext).pop(false),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: KvPillButton(
-                      compact: true,
-                      label: 'Delete file',
-                      onPressed: () => Navigator.of(sheetContext).pop(true),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
+    return _showConfirmSheetOrDialog(
+      context,
+      title: 'Delete file?',
+      body: 'This will try to permanently delete "$fileName" from disk.',
+      confirmLabel: 'Delete file',
     );
   }
 
@@ -379,6 +344,44 @@ class DatabaseSelectionScreen extends StatelessWidget {
     BuildContext context,
     String fileName,
   ) {
+    return _showConfirmSheetOrDialog(
+      context,
+      title: 'Replace existing database?',
+      body:
+          'A database named "$fileName" already exists in app storage. Do you want to replace it?',
+      confirmLabel: 'Replace',
+    );
+  }
+
+  /// 2026-08-31 (user-directed): on desktop widths a title/body confirmation
+  /// is a modal `AlertDialog`, matching the vault's `confirm` presentation;
+  /// the bottom sheet remains the phone presentation.
+  Future<bool?> _showConfirmSheetOrDialog(
+    BuildContext context, {
+    required String title,
+    required String body,
+    required String confirmLabel,
+  }) {
+    final isWide = MediaQuery.sizeOf(context).width >= Breakpoints.mobile;
+    if (isWide) {
+      return showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(title),
+          content: Text(body),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(confirmLabel),
+            ),
+          ],
+        ),
+      );
+    }
     return KvBottomSheet.show<bool>(
       context: context,
       barrierAlpha: 0.3,
@@ -391,14 +394,14 @@ class DatabaseSelectionScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Replace existing database?',
+                title,
                 style: AppTextStyles.sheetTitle.copyWith(
                   color: colors.textPrimary,
                 ),
               ),
               const SizedBox(height: 8),
               Text(
-                'A database named "$fileName" already exists in app storage. Do you want to replace it?',
+                body,
                 style: AppTextStyles.body.copyWith(color: colors.textSecondary),
               ),
               const SizedBox(height: 16),
@@ -414,7 +417,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
                   Expanded(
                     child: KvPillButton(
                       compact: true,
-                      label: 'Replace',
+                      label: confirmLabel,
                       onPressed: () => Navigator.of(sheetContext).pop(true),
                     ),
                   ),
@@ -516,9 +519,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
             final viewportWidth = MediaQuery.sizeOf(context).width;
             final isTablet = viewportWidth >= Breakpoints.mobile;
 
-            final header = _RecentHeader(
-              onAdd: () => _onCreateDatabase(context),
-            );
+            const header = _RecentHeader();
             final list = RecentDatabasesSection(
               items: state.items,
               onOpen: (item) => _onOpenRecentDatabase(context, item),
@@ -527,6 +528,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
               onLocate: (item) => _onLocateDatabase(context, item),
             );
             final addSection = _AddSection(
+              onCreate: () => _onCreateDatabase(context),
               onOpenExisting: () => _onSelectExistingDatabase(context),
               onOpenFromDrive: () => _openFromGoogleDrive(context),
             );
@@ -580,9 +582,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
 }
 
 class _RecentHeader extends StatelessWidget {
-  const _RecentHeader({required this.onAdd});
-
-  final VoidCallback onAdd;
+  const _RecentHeader();
 
   @override
   Widget build(BuildContext context) {
@@ -612,22 +612,6 @@ class _RecentHeader extends StatelessWidget {
             ),
           ),
         ),
-        SizedBox(
-          width: 40,
-          height: 40,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: colors.actionFill,
-              shape: BoxShape.circle,
-            ),
-            child: IconButton(
-              onPressed: onAdd,
-              icon: Icon(AppIcons.add, color: colors.actionText),
-              padding: EdgeInsets.zero,
-              tooltip: 'Create new database',
-            ),
-          ),
-        ),
       ],
     );
   }
@@ -635,10 +619,12 @@ class _RecentHeader extends StatelessWidget {
 
 class _AddSection extends StatelessWidget {
   const _AddSection({
+    required this.onCreate,
     required this.onOpenExisting,
     required this.onOpenFromDrive,
   });
 
+  final VoidCallback onCreate;
   final VoidCallback onOpenExisting;
   final VoidCallback onOpenFromDrive;
 
@@ -647,18 +633,18 @@ class _AddSection extends StatelessWidget {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
 
     Widget row({
-      required IconData icon,
+      required AppGlyph icon,
       required String label,
       required VoidCallback onTap,
     }) {
       return InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadii.rowNested),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Row(
             children: [
-              Icon(icon, size: 18, color: colors.iconNeutral),
+              KvIcon(glyph: icon, size: 18, color: colors.iconNeutral),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -668,7 +654,11 @@ class _AddSection extends StatelessWidget {
                   ),
                 ),
               ),
-              Icon(AppIcons.chevronRight, size: 17, color: colors.iconNeutral),
+              KvIcon(
+                glyph: AppGlyph.chevronRight,
+                size: 17,
+                color: colors.iconNeutral,
+              ),
             ],
           ),
         ),
@@ -678,20 +668,14 @@ class _AddSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          'Add',
-          style: AppTextStyles.panelTitleLarge.copyWith(
-            color: colors.textPrimary,
-          ),
-        ),
-        const SizedBox(height: 8),
+        row(icon: AppGlyph.add, label: 'Create new database', onTap: onCreate),
         row(
-          icon: AppIcons.folderOpen,
+          icon: AppGlyph.folderOpen,
           label: 'Open existing database',
           onTap: onOpenExisting,
         ),
         row(
-          icon: AppIcons.cloud,
+          icon: AppGlyph.cloud,
           label: 'Open from Google Drive',
           onTap: onOpenFromDrive,
         ),

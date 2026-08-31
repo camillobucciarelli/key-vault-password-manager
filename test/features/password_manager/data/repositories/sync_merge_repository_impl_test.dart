@@ -24,6 +24,7 @@
 //   * **T309** the candidate reopens with the original credentials — password
 //     only and password + key file — with a matching semantic manifest and
 //     unrelated metadata, history, icons and settings intact.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -44,6 +45,7 @@ import 'package:password_manager/features/password_manager/data/services/databas
 import 'package:password_manager/features/password_manager/data/services/google_drive_api_service.dart';
 import 'package:password_manager/features/password_manager/data/services/kdbx_merge_adapter.dart';
 import 'package:password_manager/features/password_manager/data/services/kdbx_semantic_manifest.dart';
+import 'package:password_manager/features/password_manager/data/services/safe_vault_file_writer.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_security_profile.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
@@ -2050,6 +2052,480 @@ void main() {
       );
     });
   });
+
+  // =========================================================================
+  // Gate 4 — T403 atomic commit composition, T407-T410 restart recovery,
+  // T411 upload-failure reopen, T412 capability parity.
+  // =========================================================================
+  group('Gate 4', () {
+    late Directory g4Temp;
+    setUp(() async {
+      g4Temp = await Directory.systemTemp.createTemp('sync-merge-gate4-');
+    });
+    tearDown(() async {
+      if (g4Temp.existsSync()) await g4Temp.delete(recursive: true);
+    });
+
+    group('T403 atomic commit', () {
+      test('SC-15d: a backup failure aborts before any remote write and '
+          'leaves the local file, the pending record and the mapping '
+          'untouched', () async {
+        final fixture = await _t401Fixture(g4Temp);
+        final harness = await _Harness.build(
+          g4Temp,
+          fixture: fixture,
+          safeWriter: _BackupRefusingWriter(),
+        );
+        final summary = await harness.repository.startReview(
+          harness.databaseId,
+        );
+
+        final outcome = await harness.repository.commit(summary.sessionId);
+
+        expect(
+          outcome,
+          isA<MergeRejected>()
+              .having((r) => r.code, 'code', MergeFailureCode.backupFailed)
+              .having((r) => r.localCommitCompleted, 'local', isFalse),
+        );
+        expect(harness.drive.updateCalls, isEmpty);
+        expect(harness.syncMetadata.pendingUploadCalls, isEmpty);
+        expect(harness.syncMetadata.upsertCalls, isEmpty);
+        expect(
+          await File(harness.databasePath).readAsBytes(),
+          fixture.localBytes,
+        );
+      });
+
+      test('the dated backup holds the pre-merge bytes, the local file holds '
+          'the candidate, and the mapping is finalized exactly once, after '
+          'the read-back, with the committed checksums', () async {
+        final fixture = await _t401Fixture(g4Temp);
+        final harness = await _Harness.build(g4Temp, fixture: fixture);
+        final summary = await harness.repository.startReview(
+          harness.databaseId,
+        );
+
+        final outcome = await harness.repository.commit(summary.sessionId);
+
+        expect(outcome, isA<MergeApplied>());
+        final record = harness.syncMetadata.pendingUploadCalls.first;
+        final backup = File(record.backupPath!);
+        expect(await backup.exists(), isTrue);
+        expect(await backup.readAsBytes(), fixture.localBytes);
+        final local = await File(harness.databasePath).readAsBytes();
+        expect(md5.convert(local).toString(), record.localCommittedChecksum);
+        final mapping = harness.syncMetadata.upsertCalls.single;
+        expect(mapping.lastSyncedLocalChecksum, record.localCommittedChecksum);
+        expect(mapping.lastSyncedRemoteChecksum, harness.remote.checksum());
+      });
+    });
+
+    group('T407-T410 restart recovery', () {
+      test('no pending record answers none and touches nothing', () async {
+        final harness = await _Harness.build(
+          g4Temp,
+          fixture: await _t401Fixture(g4Temp),
+        );
+        final restarted = harness.restart();
+
+        final outcome = await restarted.recoverPending(harness.databaseId);
+
+        expect(outcome.disposition, MergeRecoveryDisposition.none);
+        expect(harness.drive.getMetadataCalls, 0);
+        expect(harness.drive.updateCalls, isEmpty);
+      });
+
+      test('T407 a local file that moved after the commit is '
+          'staleRecoveryLocal: zero remote calls, no mutation, record and '
+          'backup retained', () async {
+        final fixture = await _t401Fixture(g4Temp);
+        final harness = await _ambiguousCommit(g4Temp, fixture);
+        // Something else wrote the database between the crash and this
+        // restart: the committed bytes are gone.
+        await File(harness.databasePath).writeAsBytes(fixture.localBytes);
+        final metadataCallsBefore = harness.drive.getMetadataCalls;
+        final uploadsBefore = harness.drive.updateCalls.length;
+        final recordBefore = await harness.syncMetadata.getPendingUpload(
+          harness.databasePath,
+        );
+
+        final outcome = await harness.restart().recoverPending(
+          harness.databaseId,
+        );
+
+        expect(
+          outcome.disposition,
+          MergeRecoveryDisposition.staleRecoveryLocal,
+        );
+        expect(harness.drive.getMetadataCalls, metadataCallsBefore);
+        expect(harness.drive.updateCalls.length, uploadsBefore);
+        expect(harness.syncMetadata.upsertCalls, isEmpty);
+        expect(
+          await File(harness.databasePath).readAsBytes(),
+          fixture.localBytes,
+        );
+        final recordAfter = await harness.syncMetadata.getPendingUpload(
+          harness.databasePath,
+        );
+        expect(recordAfter, recordBefore);
+        expect(await File(recordAfter!.backupPath!).exists(), isTrue);
+      });
+
+      test('T408 timeout-applied: the remote already holds the merge, so '
+          'recovery finalizes without a second upload', () async {
+        final fixture = await _t401Fixture(g4Temp);
+        final harness = await _ambiguousCommit(
+          g4Temp,
+          fixture,
+          applyRemote: (remote, uploaded) => remote.content = uploaded,
+        );
+        final uploadsBefore = harness.drive.updateCalls.length;
+
+        final outcome = await harness.restart().recoverPending(
+          harness.databaseId,
+        );
+
+        expect(outcome.disposition, MergeRecoveryDisposition.finalizedApplied);
+        expect(harness.drive.updateCalls.length, uploadsBefore);
+        final record = harness.syncMetadata.pendingUploadCalls.first;
+        final mapping = harness.syncMetadata.upsertCalls.single;
+        expect(mapping.lastSyncedRemoteChecksum, record.mergedChecksum);
+        expect(mapping.lastSyncedLocalChecksum, record.localCommittedChecksum);
+        expect(
+          await harness.syncMetadata.getPendingUpload(harness.databasePath),
+          isNull,
+        );
+        // Recovery is idempotent once finalized: nothing is left to triage.
+        final again = await harness.restart().recoverPending(
+          harness.databaseId,
+        );
+        expect(again.disposition, MergeRecoveryDisposition.none);
+      });
+
+      test('T408 timeout-not-applied: the remote still holds the expected '
+          'old content, so recovery re-puts the committed local bytes and '
+          'finalizes on the verified read-back', () async {
+        final fixture = await _t401Fixture(g4Temp);
+        final harness = await _ambiguousCommit(g4Temp, fixture);
+        final uploadsBefore = harness.drive.updateCalls.length;
+        final localBytes = await File(harness.databasePath).readAsBytes();
+
+        final outcome = await harness.restart().recoverPending(
+          harness.databaseId,
+        );
+
+        expect(
+          outcome.disposition,
+          MergeRecoveryDisposition.retriedAndFinalized,
+        );
+        expect(harness.drive.updateCalls.length, uploadsBefore + 1);
+        expect(harness.drive.updateCalls.last, localBytes);
+        expect(harness.remote.content, localBytes);
+        final mapping = harness.syncMetadata.upsertCalls.single;
+        expect(mapping.lastSyncedRemoteChecksum, harness.remote.checksum());
+        expect(
+          await harness.syncMetadata.getPendingUpload(harness.databasePath),
+          isNull,
+        );
+      });
+
+      test('T408 timeout-third-state: the remote changed independently, so '
+          'recovery hands off to a new conflict — no upload, local merge and '
+          'backup retained, mapping untouched', () async {
+        final fixture = await _t401Fixture(g4Temp);
+        final harness = await _ambiguousCommit(
+          g4Temp,
+          fixture,
+          // A third device landed something that is neither the old remote
+          // nor our merge.
+          applyRemote: (remote, _) => remote.content = fixture.localBytes,
+        );
+        final uploadsBefore = harness.drive.updateCalls.length;
+        final mergedLocal = await File(harness.databasePath).readAsBytes();
+        final record = (await harness.syncMetadata.getPendingUpload(
+          harness.databasePath,
+        ))!;
+
+        final outcome = await harness.restart().recoverPending(
+          harness.databaseId,
+        );
+
+        expect(outcome.disposition, MergeRecoveryDisposition.needsNewConflict);
+        expect(harness.drive.updateCalls.length, uploadsBefore);
+        expect(harness.syncMetadata.upsertCalls, isEmpty);
+        expect(await File(harness.databasePath).readAsBytes(), mergedLocal);
+        expect(await File(record.backupPath!).exists(), isTrue);
+        // The handoff IS the resolution of this record.
+        expect(
+          await harness.syncMetadata.getPendingUpload(harness.databasePath),
+          isNull,
+        );
+      });
+
+      test('T410 retry timeout: the recovery re-put itself times out, so the '
+          'record stays ambiguous and nothing is finalized', () async {
+        final fixture = await _t401Fixture(g4Temp);
+        final harness = await _ambiguousCommit(g4Temp, fixture);
+        harness.remote.updateFileError = Exception('timeout again');
+
+        final outcome = await harness.restart().recoverPending(
+          harness.databaseId,
+        );
+
+        expect(outcome.disposition, MergeRecoveryDisposition.stillAmbiguous);
+        expect(harness.syncMetadata.upsertCalls, isEmpty);
+        final record = await harness.syncMetadata.getPendingUpload(
+          harness.databasePath,
+        );
+        expect(record, isNotNull);
+        expect(record!.outcomeAmbiguous, isTrue);
+      });
+
+      test('T410 a recovery re-put whose read-back returns no checksum is '
+          'ambiguous, not finalized', () async {
+        final fixture = await _t401Fixture(g4Temp);
+        final harness = await _ambiguousCommit(g4Temp, fixture);
+        harness.remote.suppressChecksumOnUpdate = true;
+
+        final outcome = await harness.restart().recoverPending(
+          harness.databaseId,
+        );
+
+        expect(outcome.disposition, MergeRecoveryDisposition.stillAmbiguous);
+        expect(harness.syncMetadata.upsertCalls, isEmpty);
+        expect(
+          await harness.syncMetadata.getPendingUpload(harness.databasePath),
+          isNotNull,
+        );
+      });
+
+      test('T410 a recovery re-put that races into a third state hands off '
+          'instead of claiming synced', () async {
+        final fixture = await _t401Fixture(g4Temp);
+        final harness = await _ambiguousCommit(g4Temp, fixture);
+        harness.remote.onUpload = (_) async => fixture.localBytes;
+
+        final outcome = await harness.restart().recoverPending(
+          harness.databaseId,
+        );
+
+        expect(outcome.disposition, MergeRecoveryDisposition.needsNewConflict);
+        expect(harness.syncMetadata.upsertCalls, isEmpty);
+      });
+
+      test('a metadata fetch failure during recovery stays ambiguous and '
+          'uploads nothing', () async {
+        final fixture = await _t401Fixture(g4Temp);
+        final harness = await _ambiguousCommit(g4Temp, fixture);
+        harness.remote.getMetadataError = Exception('offline');
+        final uploadsBefore = harness.drive.updateCalls.length;
+
+        final outcome = await harness.restart().recoverPending(
+          harness.databaseId,
+        );
+
+        expect(outcome.disposition, MergeRecoveryDisposition.stillAmbiguous);
+        expect(harness.drive.updateCalls.length, uploadsBefore);
+        expect(harness.syncMetadata.upsertCalls, isEmpty);
+      });
+
+      test('the local guard runs under the database mutex: a held lock '
+          'blocks recovery until released', () async {
+        final fixture = await _t401Fixture(g4Temp);
+        final harness = await _ambiguousCommit(g4Temp, fixture);
+        final release = Completer<void>();
+        final acquired = Completer<void>();
+        final held = harness.mutex.withDatabaseLock([harness.databasePath], () {
+          acquired.complete();
+          return release.future;
+        });
+        await acquired.future;
+
+        var recovered = false;
+        final recovery = harness
+            .restart()
+            .recoverPending(harness.databaseId)
+            .then((o) {
+              recovered = true;
+              return o;
+            });
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        expect(recovered, isFalse);
+
+        release.complete();
+        await held;
+        final outcome = await recovery;
+        expect(
+          outcome.disposition,
+          MergeRecoveryDisposition.retriedAndFinalized,
+        );
+      });
+    });
+
+    group('T509 serialization', () {
+      test('commit, restart recovery and an external writer on the same '
+          'database never overlap inside the shared mutex', () async {
+        final fixture = await _t401Fixture(g4Temp);
+        final mutex = _DepthMutex();
+        final harness = await _ambiguousCommit(g4Temp, fixture);
+        final restarted = SyncMergeRepositoryImpl(
+          registryRepository: harness.registry,
+          securityRepository: harness.security,
+          syncRepository: harness.sync,
+          secureDataSource: harness.secure,
+          localDataSource: _FakeLocalDataSource(),
+          mutex: mutex,
+          driveApiService: harness.drive,
+          syncMetadataDataSource: harness.syncMetadata,
+        );
+
+        // Three writers race for the same path through the same mutex.
+        final review = restarted.startReview(harness.databaseId);
+        final external = mutex.withDatabaseLock(
+          [harness.databasePath],
+          () async {
+            await Future<void>.delayed(const Duration(milliseconds: 5));
+            return 'external';
+          },
+        );
+        final recovery = restarted.recoverPending(harness.databaseId);
+        await Future.wait([external, recovery]);
+        final summary = await review;
+        await restarted.commit(summary.sessionId);
+
+        expect(mutex.maxDepth, 1);
+        expect(mutex.entries, greaterThanOrEqualTo(3));
+        // (The local-check-before-remote-call order is asserted by the T407
+        // test above: zero metadata calls on a stale local.)
+      });
+    });
+
+    group('T411 upload-failure reopen', () {
+      for (final withKeyFile in [false, true]) {
+        test('after an upload failure the local merged file and the dated '
+            'backup remain and reopen with password'
+            '${withKeyFile ? ' + key file' : ''}', () async {
+          final harness = await _Harness.build(
+            g4Temp,
+            withKeyFile: withKeyFile,
+          );
+          final summary = await harness.repository.startReview(
+            harness.databaseId,
+          );
+          await harness.applyShortcut(summary, MergeShortcut.preferLocal);
+          harness.remote.updateFileError = Exception('network boom');
+
+          final outcome = await harness.repository.commit(summary.sessionId);
+
+          expect(
+            outcome,
+            isA<MergeRejected>()
+                .having(
+                  (r) => r.code,
+                  'code',
+                  MergeFailureCode.uploadOutcomeAmbiguous,
+                )
+                .having((r) => r.localCommitCompleted, 'local', isTrue),
+          );
+          expect(harness.syncMetadata.upsertCalls, isEmpty);
+          final credentials = await harness.buildCredentials();
+          final merged = await KdbxFormat().read(
+            await File(harness.databasePath).readAsBytes(),
+            credentials,
+          );
+          // Prefer local + all one-sided data: the local-only record survives.
+          expect(_entry(merged, _localOnlyEntryUuid), isNotNull);
+          expect(_entry(merged, _remoteOnlyEntryUuid), isNotNull);
+          final record = harness.syncMetadata.pendingUploadCalls.first;
+          final backup = await KdbxFormat().read(
+            await File(record.backupPath!).readAsBytes(),
+            credentials,
+          );
+          expect(_entry(backup, _remoteOnlyEntryUuid), isNull);
+        });
+      }
+    });
+
+    group('T412 capability parity', () {
+      // Three "adapters" that differ only in what they COULD offer. The
+      // repository must not notice: same decisions, same outcome, same calls.
+      final adapters =
+          <String, _FakeGoogleDriveApiService Function(_FakeRemoteDrive)>{
+            'bare get/put': _FakeGoogleDriveApiService.new,
+            'versionHistory': _VersionHistoryFakeDrive.new,
+            'conditionalWrite': _ConditionalWriteFakeDrive.new,
+          };
+
+      test('identical decisions and commit outcome across all three '
+          'adapter tiers', () async {
+        final decisionsByTier = <String, List<Object?>>{};
+        final outcomesByTier = <String, MergeCommitOutcome>{};
+        for (final entry in adapters.entries) {
+          final harness = await _Harness.build(
+            g4Temp,
+            driveFactory: entry.value,
+          );
+          final summary = await harness.repository.startReview(
+            harness.databaseId,
+          );
+          final ready = await harness.applyShortcut(
+            summary,
+            MergeShortcut.preferLocal,
+          );
+          decisionsByTier[entry.key] = ready.decisions
+              .map(
+                (d) => [
+                  d.ordinal,
+                  d.kind,
+                  d.category,
+                  d.presence,
+                  d.choice,
+                  d.isDefault,
+                  d.timestampRelation,
+                ],
+              )
+              .toList();
+          outcomesByTier[entry.key] = await harness.repository.commit(
+            summary.sessionId,
+          );
+          expect(harness.drive.updateCalls, hasLength(1), reason: entry.key);
+        }
+        final reference = decisionsByTier['bare get/put'];
+        for (final tier in adapters.keys) {
+          expect(decisionsByTier[tier], reference, reason: tier);
+          expect(outcomesByTier[tier], isA<MergeApplied>(), reason: tier);
+          expect(outcomesByTier[tier], outcomesByTier['bare get/put']);
+        }
+      });
+
+      test('no domain or presentation source branches on a capability', () {
+        final roots = [
+          'lib/features/password_manager/domain',
+          'lib/features/password_manager/presentation',
+        ];
+        final offenders = <String>[];
+        for (final root in roots) {
+          final dir = Directory(root);
+          if (!dir.existsSync()) continue;
+          for (final file in dir.listSync(recursive: true).whereType<File>()) {
+            if (!file.path.endsWith('.dart')) continue;
+            final code = file
+                .readAsLinesSync()
+                .where((l) => !l.trimLeft().startsWith('//'))
+                .join('\n');
+            if (RegExp(
+              r'\b(conditionalWrite|versionHistory|hasCapability)\b',
+            ).hasMatch(code)) {
+              offenders.add(file.path);
+            }
+          }
+        }
+        expect(offenders, isEmpty);
+      });
+    });
+  });
 }
 
 // ===========================================================================
@@ -2312,9 +2788,28 @@ class _Harness {
     required this.remote,
     required this.drive,
     required this.syncMetadata,
+    required this.mutex,
+    required this.registry,
+    required this.security,
   });
 
   final SyncMergeRepositoryImpl repository;
+  final DatabasePathMutex mutex;
+  final _FakeRegistryRepository registry;
+  final _FakeSecurityRepository security;
+
+  /// A process restart: a brand-new repository with no in-memory session,
+  /// over the same persisted state (files, mapping, pending record).
+  SyncMergeRepositoryImpl restart() => SyncMergeRepositoryImpl(
+    registryRepository: registry,
+    securityRepository: security,
+    syncRepository: sync,
+    secureDataSource: secure,
+    localDataSource: _FakeLocalDataSource(),
+    mutex: mutex,
+    driveApiService: drive,
+    syncMetadataDataSource: syncMetadata,
+  );
   final MergeDatabaseId databaseId;
   final String databasePath;
   final String keyFilePath;
@@ -2424,6 +2919,8 @@ class _Harness {
     bool mirrored = false,
     bool withoutRemoteMapping = false,
     _FixturePair? fixture,
+    SafeVaultFileWriter? safeWriter,
+    _FakeGoogleDriveApiService Function(_FakeRemoteDrive)? driveFactory,
   }) async {
     final built =
         fixture ??
@@ -2455,35 +2952,39 @@ class _Harness {
       remote: remote,
     );
     final secure = _FakeSecureDataSource(_password);
-    final drive = _FakeGoogleDriveApiService(remote);
+    final drive = (driveFactory ?? _FakeGoogleDriveApiService.new)(remote);
     final syncMetadata = _FakeSyncMetadataDataSource();
+    final mutex = DatabasePathMutex();
+    final registry = _FakeRegistryRepository(
+      DatabaseRecord(
+        databaseId: _databaseId,
+        canonicalPath: databasePath,
+        displayName: 'Fixture',
+        sourceType: DatabaseSourceType.drive,
+        createdAt: DateTime.utc(2026),
+        updatedAt: DateTime.utc(2026),
+      ),
+    );
+    final security = _FakeSecurityRepository(
+      withKeyFile
+          ? DatabaseSecurityProfile(
+              databaseId: _databaseId,
+              keyFilePath: keyFilePath,
+            )
+          : null,
+    );
 
     return _Harness(
       repository: SyncMergeRepositoryImpl(
-        registryRepository: _FakeRegistryRepository(
-          DatabaseRecord(
-            databaseId: _databaseId,
-            canonicalPath: databasePath,
-            displayName: 'Fixture',
-            sourceType: DatabaseSourceType.drive,
-            createdAt: DateTime.utc(2026),
-            updatedAt: DateTime.utc(2026),
-          ),
-        ),
-        securityRepository: _FakeSecurityRepository(
-          withKeyFile
-              ? DatabaseSecurityProfile(
-                  databaseId: _databaseId,
-                  keyFilePath: keyFilePath,
-                )
-              : null,
-        ),
+        registryRepository: registry,
+        securityRepository: security,
         syncRepository: sync,
         secureDataSource: secure,
         localDataSource: _FakeLocalDataSource(),
-        mutex: DatabasePathMutex(),
+        mutex: mutex,
         driveApiService: drive,
         syncMetadataDataSource: syncMetadata,
+        safeWriter: safeWriter,
       ),
       databaseId: MergeDatabaseId(_databaseId),
       databasePath: databasePath,
@@ -2497,6 +2998,9 @@ class _Harness {
       remote: remote,
       drive: drive,
       syncMetadata: syncMetadata,
+      mutex: mutex,
+      registry: registry,
+      security: security,
     );
   }
 }
@@ -2804,4 +3308,112 @@ class _FakeLocalDataSource implements LocalDataSource {
   @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw UnimplementedError('${invocation.memberName} is not part of T302');
+}
+
+/// Gate 4: a commit whose upload is interrupted after (or at) dispatch, so a
+/// pending record is left behind for restart recovery. [applyRemote], when
+/// given, runs on the remote before the transport failure — it decides what the
+/// server actually ended up holding.
+Future<_Harness> _ambiguousCommit(
+  Directory temp,
+  _FixturePair fixture, {
+  void Function(_FakeRemoteDrive remote, Uint8List uploaded)? applyRemote,
+}) async {
+  final harness = await _Harness.build(temp, fixture: fixture);
+  final summary = await harness.repository.startReview(harness.databaseId);
+  if (applyRemote == null) {
+    harness.remote.updateFileError = Exception('timeout');
+  } else {
+    harness.remote.onUpload = (uploaded) async {
+      applyRemote(harness.remote, uploaded);
+      throw Exception('timeout after dispatch');
+    };
+  }
+  final outcome = await harness.repository.commit(summary.sessionId);
+  expect(
+    outcome,
+    isA<MergeRejected>().having(
+      (r) => r.code,
+      'code',
+      MergeFailureCode.uploadOutcomeAmbiguous,
+    ),
+  );
+  expect(
+    await harness.syncMetadata.getPendingUpload(harness.databasePath),
+    isNotNull,
+  );
+  harness.remote.updateFileError = null;
+  harness.remote.onUpload = null;
+  return harness;
+}
+
+/// T403 / SC-15d: a writer whose backup step fails before anything is written.
+class _BackupRefusingWriter extends SafeVaultFileWriter {
+  @override
+  Future<SafeVaultFileWriteResult> write({
+    required String targetPath,
+    required Uint8List bytes,
+    bool backupExistingTarget = false,
+    String? operation,
+  }) async {
+    throw const SafeVaultBackupUnavailableException(
+      operation: 'merge commit',
+      osReason: 'fixture refuses backups',
+    );
+  }
+}
+
+/// T412: an adapter that COULD serve revisions. Nothing asks it to.
+class _VersionHistoryFakeDrive extends _FakeGoogleDriveApiService {
+  _VersionHistoryFakeDrive(super.remote);
+
+  int revisionCalls = 0;
+
+  Future<List<Uint8List>> listRevisions(String fileId) async {
+    revisionCalls++;
+    return [remote.content];
+  }
+}
+
+/// T412: an adapter that COULD enforce a precondition. Nothing sends one.
+class _ConditionalWriteFakeDrive extends _FakeGoogleDriveApiService {
+  _ConditionalWriteFakeDrive(super.remote);
+
+  int conditionalCalls = 0;
+
+  Future<DriveRemoteFile> updateFileIfMatch({
+    required String fileId,
+    required Uint8List bytes,
+    required String expectedToken,
+  }) async {
+    conditionalCalls++;
+    if (expectedToken != remote.checksum()) {
+      throw StateError('precondition failed');
+    }
+    return updateFile(fileId: fileId, bytes: bytes);
+  }
+}
+
+/// T509: records how deeply the lock is nested and how often it is entered.
+class _DepthMutex extends DatabasePathMutex {
+  int _depth = 0;
+  int maxDepth = 0;
+  int entries = 0;
+
+  @override
+  Future<T> withDatabaseLock<T>(
+    Iterable<String> paths,
+    Future<T> Function() action,
+  ) {
+    return super.withDatabaseLock(paths, () async {
+      entries++;
+      _depth++;
+      if (_depth > maxDepth) maxDepth = _depth;
+      try {
+        return await action();
+      } finally {
+        _depth--;
+      }
+    });
+  }
 }

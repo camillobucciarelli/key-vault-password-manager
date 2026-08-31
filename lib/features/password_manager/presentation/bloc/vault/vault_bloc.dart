@@ -14,6 +14,9 @@ import '../../../data/services/vault_kdbx_service.dart';
 import '../../../domain/errors/google_authorization_required_exception.dart';
 import '../../../domain/models/database_sync_status.dart';
 import '../../../domain/models/sync_conflict.dart';
+import '../../../domain/models/sync_merge_models.dart';
+import '../../../domain/repositories/sync_merge_repository.dart'
+    show SyncMergeFailure;
 import '../../../domain/models/vault_custom_field.dart';
 import '../../../domain/repositories/database_sync_repository.dart';
 import '../../../domain/models/vault_entry.dart';
@@ -24,6 +27,7 @@ import '../../../domain/services/vault_health_service.dart';
 import '../../coordinators/android_autofill_save_coordinator.dart';
 import '../../coordinators/apple_autofill_v2_coordinator.dart';
 import '../../coordinators/session_secret_holder.dart';
+import '../../coordinators/sync_merge_coordinator.dart';
 import 'vault_event.dart';
 import 'vault_state.dart';
 
@@ -50,6 +54,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     this.androidAutofillSaveCoordinator,
     this.vaultHealthService = const VaultHealthService(),
     this.folderExpansionPreferences,
+    this.syncMergeCoordinator,
+    this.resolveDatabaseId,
     this.now = DateTime.now,
   }) : super(VaultState.initial(databasePath: databasePath)) {
     on<InitializeVault>(_onInitializeVault);
@@ -100,6 +106,12 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<ToggleCurrentDatabaseAutoSync>(_onToggleCurrentDatabaseAutoSync);
     on<ClearVaultSyncFeedback>(_onClearVaultSyncFeedback);
     on<BackgroundDriveSync>(_onBackgroundDriveSync);
+    on<StartSyncMergeReview>(_onStartSyncMergeReview);
+    on<UpdateSyncMergeDecision>(_onUpdateSyncMergeDecision);
+    on<ApplySyncMergeShortcut>(_onApplySyncMergeShortcut);
+    on<CommitSyncMerge>(_onCommitSyncMerge);
+    on<CancelSyncMerge>(_onCancelSyncMerge);
+    on<ClearSyncMergeOutcome>(_onClearSyncMergeOutcome);
     on<RefreshAppleAutofillPendingAssociations>(
       _onRefreshAppleAutofillPendingAssociations,
     );
@@ -143,6 +155,14 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   final VaultCsvImportService vaultCsvImportService;
   final VaultDuplicateService vaultDuplicateService;
   final DatabaseSyncRepository databaseSyncRepository;
+
+  /// spec-008 T505: every merge command is forwarded here. Null in hosts and
+  /// tests that never merge — the events then report a precondition failure.
+  final SyncMergeCoordinator? syncMergeCoordinator;
+
+  /// Maps the open database path to its registry id, the only identity the
+  /// merge port accepts. Kept as a callback so this BLoC holds no registry.
+  final Future<String?> Function(String databasePath)? resolveDatabaseId;
   final AppleAutofillV2CoordinatorContract appleAutofillV2Coordinator;
   final VaultHealthService vaultHealthService;
 
@@ -367,10 +387,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           entries: state.allEntries,
           searchQuery: state.searchQuery,
           sortBy: state.sortBy,
-          folderIds: _folderFilterIds(
-            event.groupId,
-            state.folderDescendantIds,
-          ),
+          folderIds: _folderFilterIds(event.groupId, state.folderDescendantIds),
         ),
         clearError: true,
       ),
@@ -431,10 +448,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           entries: state.allEntries,
           searchQuery: state.searchQuery,
           sortBy: state.sortBy,
-          folderIds: _folderFilterIds(
-            event.groupId,
-            state.folderDescendantIds,
-          ),
+          folderIds: _folderFilterIds(event.groupId, state.folderDescendantIds),
         ),
         clearError: true,
       ),
@@ -502,8 +516,6 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     }
     _safeEmit(emit, state.copyWith(expandedGroupIds: List<String>.of(stored)));
   }
-
-
 
   Future<void> _onCreateVaultEntry(
     CreateVaultEntry event,
@@ -2794,6 +2806,12 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       );
     }
 
+    // spec-008 T507: an interrupted merge upload is triaged before any
+    // ordinary sync touches the remote. The disposition is not surfaced
+    // here — a stale or handed-off record simply lets `syncNow` find the
+    // conflict and keep it as persistent status, never a modal.
+    await _recoverPendingMergeUpload();
+
     try {
       final result = await databaseSyncRepository.syncNow(
         state.databasePath,
@@ -2862,6 +2880,186 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         ),
       );
     }
+  }
+
+  // ---------------------------------------------------------------------
+  // spec-008 T505 — merge commands. Forwarded to the coordinator; no
+  // download/open/diff/write/upload workflow lives here.
+  // ---------------------------------------------------------------------
+
+  Future<MergeDatabaseId?> _mergeDatabaseId() async {
+    final resolve = resolveDatabaseId;
+    if (resolve == null) return null;
+    final id = await resolve(state.databasePath);
+    return id == null ? null : MergeDatabaseId(id);
+  }
+
+  Future<void> _recoverPendingMergeUpload() async {
+    final coordinator = syncMergeCoordinator;
+    if (coordinator == null) return;
+    try {
+      final databaseId = await _mergeDatabaseId();
+      if (databaseId == null) return;
+      await coordinator.recoverPending(databaseId);
+    } catch (e, st) {
+      // ponytail: recovery failing must not block the sync that follows —
+      // the record stays on disk and is retried on the next sync.
+      logError('Pending merge upload recovery failed.', e, st);
+    }
+  }
+
+  Future<void> _runMergeCommand(
+    Emitter<VaultState> emit,
+    Future<void> Function(SyncMergeCoordinator coordinator) body,
+  ) async {
+    final coordinator = syncMergeCoordinator;
+    if (coordinator == null) {
+      _safeEmit(
+        emit,
+        state.copyWith(
+          mergeFailureCode: MergeFailureCode.mergePreconditionFailed,
+        ),
+      );
+      return;
+    }
+    _safeEmit(
+      emit,
+      state.copyWith(
+        isMergeBusy: true,
+        clearMergeFailureCode: true,
+        clearMergeCommitOutcome: true,
+      ),
+    );
+    try {
+      await body(coordinator);
+    } on SyncMergeFailure catch (failure) {
+      _safeEmit(
+        emit,
+        state.copyWith(
+          mergeFailureCode: failure.code,
+          mergeReview: coordinator.currentReview,
+          clearMergeReview: coordinator.currentReview == null,
+        ),
+      );
+    } catch (e, st) {
+      logError('Merge command failed.', e, st);
+      _safeEmit(
+        emit,
+        state.copyWith(
+          mergeFailureCode: MergeFailureCode.mergePreconditionFailed,
+        ),
+      );
+    } finally {
+      _safeEmit(emit, state.copyWith(isMergeBusy: false));
+    }
+  }
+
+  Future<void> _onStartSyncMergeReview(
+    StartSyncMergeReview event,
+    Emitter<VaultState> emit,
+  ) {
+    return _runMergeCommand(emit, (coordinator) async {
+      final databaseId = await _mergeDatabaseId();
+      if (databaseId == null) {
+        throw const SyncMergeFailure(MergeFailureCode.mergePreconditionFailed);
+      }
+      final summary = await coordinator.startReview(databaseId);
+      _safeEmit(emit, state.copyWith(mergeReview: summary));
+    });
+  }
+
+  Future<void> _onUpdateSyncMergeDecision(
+    UpdateSyncMergeDecision event,
+    Emitter<VaultState> emit,
+  ) {
+    return _runMergeCommand(emit, (coordinator) async {
+      final summary = await coordinator.updateDecision(
+        decisionId: event.decisionId,
+        choice: event.choice,
+      );
+      _safeEmit(emit, state.copyWith(mergeReview: summary));
+    });
+  }
+
+  Future<void> _onApplySyncMergeShortcut(
+    ApplySyncMergeShortcut event,
+    Emitter<VaultState> emit,
+  ) {
+    return _runMergeCommand(emit, (coordinator) async {
+      final summary = await coordinator.applyShortcut(event.shortcut);
+      _safeEmit(emit, state.copyWith(mergeReview: summary));
+    });
+  }
+
+  Future<void> _onCommitSyncMerge(
+    CommitSyncMerge event,
+    Emitter<VaultState> emit,
+  ) {
+    return _runMergeCommand(emit, (coordinator) async {
+      final outcome = await coordinator.commit();
+      _safeEmit(
+        emit,
+        state.copyWith(
+          mergeCommitOutcome: outcome,
+          mergeReview: coordinator.currentReview,
+          clearMergeReview: coordinator.currentReview == null,
+        ),
+      );
+      final localChanged = switch (outcome) {
+        MergeApplied() => true,
+        MergeRejected(:final localCommitCompleted) => localCommitCompleted,
+        MergeNeedsReview() => false,
+      };
+      if (localChanged) {
+        if (state.isSaving) {
+          _safeEmit(emit, state.copyWith(isSyncReloadPending: true));
+        } else {
+          await _reload(
+            emit,
+            currentGroupId: state.currentGroupId,
+            keepLoadingFlag: false,
+          );
+        }
+      }
+      if (outcome is MergeApplied) {
+        final mapping = await databaseSyncRepository.getMapping(
+          state.databasePath,
+        );
+        _safeEmit(
+          emit,
+          state.copyWith(
+            syncStatus: DatabaseSyncStatus.success,
+            lastSyncAt: mapping?.lastSyncAt,
+            lastSyncedLocalChecksum: mapping?.lastSyncedLocalChecksum,
+            clearSyncError: true,
+            clearSyncConflict: true,
+          ),
+        );
+      }
+    });
+  }
+
+  Future<void> _onCancelSyncMerge(
+    CancelSyncMerge event,
+    Emitter<VaultState> emit,
+  ) {
+    return _runMergeCommand(emit, (coordinator) async {
+      await coordinator.cancel();
+      _safeEmit(emit, state.copyWith(clearMergeReview: true));
+    });
+  }
+
+  void _onClearSyncMergeOutcome(
+    ClearSyncMergeOutcome event,
+    Emitter<VaultState> emit,
+  ) {
+    _safeEmit(
+      emit,
+      state.copyWith(
+        clearMergeCommitOutcome: true,
+        clearMergeFailureCode: true,
+      ),
+    );
   }
 
   @override
