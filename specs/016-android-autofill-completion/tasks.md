@@ -14,6 +14,15 @@ Deferred items at the bottom are plain bullets on purpose. They must never
 become checkboxes — the roadmap sync counts every checkbox line as scheduled
 work.
 
+**Status 2026-08-31** (PR #171 merged, branch closed): 21 of 36 tasks done.
+The code for every implementation task has landed — the fifteen open boxes are
+the ones whose *verification* is still owed, not their code: device
+observations (T002–T004, T301–T304, T402–T404, T704, T802, T803) and two
+Kotlin tests that need a `Context` the module cannot fake without Robolectric
+(T201, T504). Where each can be done, and what blocks the rest, is recorded in
+[device-evidence.md](device-evidence.md) § *What remains, and where it can be
+done*. The next Android autofill branch starts from `main` and picks up there.
+
 ## Phase 0 — Device feasibility gate (blocking, evidence only)
 
 - [x] **T001** [P] Prove inline suggestions on real IMEs — owner: `senior-tester`
