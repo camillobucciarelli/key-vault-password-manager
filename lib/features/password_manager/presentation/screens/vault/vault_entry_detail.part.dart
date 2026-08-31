@@ -156,6 +156,23 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
       return;
     }
 
+    // 2026-08-31 (user-directed): go straight to the OS biometric prompt —
+    // no intermediate sheet. The sheet only appears as a fallback when the
+    // prompt fails or is cancelled, offering retry and the password path.
+    bool authenticated;
+    try {
+      authenticated = await di.sl<BiometricDataSource>().authenticate(
+        reason: 'Reveal password',
+      );
+    } catch (_) {
+      authenticated = false;
+    }
+    if (!mounted) return;
+    if (authenticated) {
+      _revealController.reveal();
+      return;
+    }
+
     final unlocked = await _showBiometricRevealGate(context, databasePath);
     if (unlocked == true && mounted) {
       _revealController.reveal();
@@ -777,8 +794,8 @@ class _BiometricRevealGateSheetState extends State<_BiometricRevealGateSheet> {
           ),
           const SizedBox(height: 6),
           Text(
-            'This database requires biometrics before a password is shown '
-            'or copied.',
+            'Biometric check didn\u2019t complete. Try again, or unlock '
+            'with your master password.',
             textAlign: TextAlign.center,
             style: AppTextStyles.body.copyWith(color: colors.textSecondary),
           ),
