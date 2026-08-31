@@ -19,6 +19,7 @@ import '../../../domain/repositories/database_sync_repository.dart';
 import '../../../domain/models/vault_entry.dart';
 import '../../../domain/models/vault_group.dart';
 import '../../../domain/models/vault_snapshot.dart';
+import '../../../domain/services/url_field_keys.dart';
 import '../../../domain/services/vault_health_service.dart';
 import '../../coordinators/android_autofill_save_coordinator.dart';
 import '../../coordinators/apple_autofill_v2_coordinator.dart';
@@ -2660,18 +2661,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         _isAppleAutofillDomainFieldKey(key);
   }
 
-  bool _isAppleAutofillUrlFieldKey(String key) {
-    final normalized = _normalizeAppleAutofillFieldKey(key);
-    return normalized == 'url' ||
-        normalized == 'uri' ||
-        normalized == 'website' ||
-        normalized == 'weburl' ||
-        normalized == 'loginurl' ||
-        normalized == 'kph:url' ||
-        normalized == 'kph:uri' ||
-        RegExp(r'^kph:url\d+$').hasMatch(normalized) ||
-        RegExp(r'^kph:uri\d+$').hasMatch(normalized);
-  }
+  bool _isAppleAutofillUrlFieldKey(String key) => isUrlFieldKey(key);
 
   bool _isAppleAutofillDomainFieldKey(String key) {
     final normalized = _normalizeAppleAutofillFieldKey(key);

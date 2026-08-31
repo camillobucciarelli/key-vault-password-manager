@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../../domain/models/vault_entry.dart';
+import '../../domain/services/url_field_keys.dart';
 import 'browser_exact_origin.dart';
 
 /// Bumped 2 -> 3 with the reveal-authorization fix.
@@ -1261,17 +1262,7 @@ class DesktopBrowserAutofillMetadataMapper {
         RegExp(r'^kph:webdomain\d+$').hasMatch(key);
   }
 
-  static bool _isUrlField(String key) {
-    return key == 'url' ||
-        key == 'uri' ||
-        key == 'website' ||
-        key == 'weburl' ||
-        key == 'loginurl' ||
-        key == 'kph:url' ||
-        key == 'kph:uri' ||
-        RegExp(r'^kph:url\d+$').hasMatch(key) ||
-        RegExp(r'^kph:uri\d+$').hasMatch(key);
-  }
+  static bool _isUrlField(String key) => isUrlFieldKey(key);
 
   static String _normalizeFieldKey(String value) {
     return value.trim().toLowerCase().replaceAll(RegExp(r'[\s_-]+'), '');

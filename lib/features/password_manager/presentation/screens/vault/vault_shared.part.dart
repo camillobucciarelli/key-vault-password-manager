@@ -48,6 +48,7 @@ bool _isOtpFieldKey(String key) {
 List<VaultCustomField> _buildCustomFields({
   required List<_CustomFieldFormRow> customFieldRows,
   required String otpUri,
+  List<String> extraUrls = const [],
 }) {
   final fields = customFieldRows
       .map(
@@ -56,6 +57,22 @@ List<VaultCustomField> _buildCustomFields({
       .where((field) => field.key.isNotEmpty)
       .where((field) => !_isOtpFieldKey(field.key))
       .toList(growable: true);
+
+  // Additional websites travel as `KP2A_URL_n` custom strings — the
+  // KeePass2Android/KeePassXC convention, so other clients and our own
+  // autofill matchers (isUrlFieldKey) pick them up. Renumbered on every
+  // save so removals leave no gaps.
+  var urlIndex = 0;
+  for (final url in extraUrls) {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) {
+      continue;
+    }
+    urlIndex++;
+    fields.add(
+      VaultCustomField(key: '$kp2aUrlKeyPrefix$urlIndex', value: trimmed),
+    );
+  }
 
   final trimmedOtpUri = otpUri.trim();
   if (trimmedOtpUri.isNotEmpty) {

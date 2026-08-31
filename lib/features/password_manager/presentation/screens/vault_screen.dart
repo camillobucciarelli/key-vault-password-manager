@@ -48,6 +48,7 @@ import '../../domain/models/duplicate_group.dart';
 import '../../domain/models/merge_preview.dart';
 import '../../domain/models/database_sync_status.dart';
 import '../../domain/models/vault_health_report.dart';
+import '../../domain/services/url_field_keys.dart';
 import '../../domain/repositories/database_file_repository.dart';
 import '../../domain/repositories/database_sync_repository.dart';
 import '../../domain/services/password_generator_service.dart';

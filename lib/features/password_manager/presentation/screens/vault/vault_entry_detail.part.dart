@@ -174,8 +174,17 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
         ? folderName
         : '$folderName · ${_hostFor(entry.url)}';
 
+    final extraUrls = entry.customFields
+        .where(
+          (field) =>
+              isUrlFieldKey(field.key) && field.value.trim().isNotEmpty,
+        )
+        .map((field) => field.value.trim())
+        .toList(growable: false);
     final customFields = entry.customFields
-        .where((field) => !_isOtpFieldKey(field.key))
+        .where(
+          (field) => !_isOtpFieldKey(field.key) && !isUrlFieldKey(field.key),
+        )
         .toList(growable: false);
     final totpData = entry.otpUri == null
         ? null
@@ -359,6 +368,35 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                       iconSize: 17,
                       onPressed: () =>
                           _copy(text: entry.url, message: 'Copied URL.'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            for (final url in extraUrls) ...[
+              const SizedBox(height: 9),
+              KvFieldRow(
+                label: 'Website',
+                value: url,
+                valueColor: colors.linkText,
+                onCopy: () => _copy(text: url, message: 'Copied URL.'),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    KvCircleIconButton(
+                      glyph: AppGlyph.linkSimple,
+                      tooltip: 'Open website',
+                      nested: true,
+                      iconSize: 17,
+                      onPressed: () => _openEntryUrl(context, url),
+                    ),
+                    const SizedBox(width: 8),
+                    KvCircleIconButton(
+                      glyph: AppGlyph.copy,
+                      tooltip: 'Copy',
+                      nested: true,
+                      iconSize: 17,
+                      onPressed: () => _copy(text: url, message: 'Copied URL.'),
                     ),
                   ],
                 ),

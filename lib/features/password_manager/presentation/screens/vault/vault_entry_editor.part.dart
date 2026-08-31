@@ -125,6 +125,7 @@ class _EntryDialogState extends State<_EntryDialog> {
   late final TextEditingController _usernameController;
   late final TextEditingController _passwordController;
   late final TextEditingController _urlController;
+  final List<TextEditingController> _extraUrlControllers = [];
   late final TextEditingController _notesController;
   late final TextEditingController _otpUriController;
   var _nextCustomFieldId = 0;
@@ -163,9 +164,18 @@ class _EntryDialogState extends State<_EntryDialog> {
       _titleController.text = widget.initialOtpAuth!.title;
     }
 
+    for (final field in widget.initial?.customFields ??
+        const <VaultCustomField>[]) {
+      if (isUrlFieldKey(field.key)) {
+        _extraUrlControllers.add(TextEditingController(text: field.value));
+      }
+    }
     _customFieldRows =
         widget.initial?.customFields
-            .where((field) => !_isOtpFieldKey(field.key))
+            .where(
+              (field) =>
+                  !_isOtpFieldKey(field.key) && !isUrlFieldKey(field.key),
+            )
             .map(
               (field) =>
                   _buildCustomFieldRow(key: field.key, value: field.value),
@@ -199,6 +209,9 @@ class _EntryDialogState extends State<_EntryDialog> {
     _usernameController.dispose();
     _passwordController.dispose();
     _urlController.dispose();
+    for (final controller in _extraUrlControllers) {
+      controller.dispose();
+    }
     _notesController.dispose();
     _otpUriController.dispose();
     super.dispose();
@@ -263,6 +276,9 @@ class _EntryDialogState extends State<_EntryDialog> {
         customFields: _buildCustomFields(
           customFieldRows: _customFieldRows,
           otpUri: _otpUriController.text,
+          extraUrls: _extraUrlControllers
+              .map((controller) => controller.text)
+              .toList(growable: false),
         ),
         attachmentPaths: List<String>.unmodifiable(_attachmentPaths),
       ),
@@ -313,6 +329,7 @@ class _EntryDialogState extends State<_EntryDialog> {
       usernameController: _usernameController,
       passwordController: _passwordController,
       urlController: _urlController,
+      extraUrlControllers: _extraUrlControllers,
       notesController: _notesController,
       otpUriController: _otpUriController,
       titleError: _titleError,
@@ -331,6 +348,22 @@ class _EntryDialogState extends State<_EntryDialog> {
         if (_titleError != null) setState(() => _titleError = null);
       },
       onOpenGenerator: () => _openGenerator(context, generatorFitsAsColumn),
+      onAddUrl: () => setState(() {
+        _extraUrlControllers.add(TextEditingController());
+        _markDirty('URL');
+      }),
+      onRemoveUrl: (index) {
+        final controller = _extraUrlControllers[index];
+        setState(() {
+          _extraUrlControllers.removeAt(index);
+          _markDirty('URL');
+        });
+        // The field is still in the tree this frame; dispose after it
+        // unmounts.
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => controller.dispose(),
+        );
+      },
       onRevealCustomFields: () => setState(() => _showCustomFields = true),
       onRevealAttachments: () => setState(() => _showAttachments = true),
       onRevealOtp: () => setState(() => _showOtp = true),
@@ -471,6 +504,7 @@ class _EntryEditorForm extends StatelessWidget {
     required this.usernameController,
     required this.passwordController,
     required this.urlController,
+    required this.extraUrlControllers,
     required this.notesController,
     required this.otpUriController,
     required this.titleError,
@@ -486,6 +520,8 @@ class _EntryEditorForm extends StatelessWidget {
     required this.onFieldChanged,
     required this.onTitleChanged,
     required this.onOpenGenerator,
+    required this.onAddUrl,
+    required this.onRemoveUrl,
     required this.onRevealCustomFields,
     required this.onRevealAttachments,
     required this.onRevealOtp,
@@ -503,6 +539,7 @@ class _EntryEditorForm extends StatelessWidget {
   final TextEditingController usernameController;
   final TextEditingController passwordController;
   final TextEditingController urlController;
+  final List<TextEditingController> extraUrlControllers;
   final TextEditingController notesController;
   final TextEditingController otpUriController;
   final String? titleError;
@@ -518,6 +555,8 @@ class _EntryEditorForm extends StatelessWidget {
   final ValueChanged<String> onFieldChanged;
   final ValueChanged<String> onTitleChanged;
   final VoidCallback onOpenGenerator;
+  final VoidCallback onAddUrl;
+  final ValueChanged<int> onRemoveUrl;
   final VoidCallback onRevealCustomFields;
   final VoidCallback onRevealAttachments;
   final VoidCallback onRevealOtp;
@@ -598,13 +637,64 @@ class _EntryEditorForm extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 14),
-          _kvFieldLabel('URL', colors),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 7),
+            child: Row(
+              children: [
+                Text(
+                  'URL',
+                  style: AppTextStyles.labelUpper.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                ),
+                const Spacer(),
+                KvCircleIconButton(
+                  glyph: AppGlyph.add,
+                  tooltip: 'Add URL',
+                  size: 28,
+                  iconSize: 15,
+                  onPressed: isSaving ? null : onAddUrl,
+                ),
+              ],
+            ),
+          ),
           TextFormField(
             controller: urlController,
             enabled: !isSaving,
             decoration: _kvFieldDecoration(colors, hint: 'netflix.com'),
             onChanged: (_) => onFieldChanged('URL'),
           ),
+          for (var i = 0; i < extraUrlControllers.length; i++) ...[
+            const SizedBox(height: 8),
+            TextFormField(
+              key: ValueKey('entry-extra-url-$i'),
+              controller: extraUrlControllers[i],
+              enabled: !isSaving,
+              decoration: _kvFieldDecoration(
+                colors,
+                hint: 'another-site.com',
+                suffixIcon: SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: IconButton(
+                    tooltip: 'Remove URL',
+                    onPressed: isSaving ? null : () => onRemoveUrl(i),
+                    style: IconButton.styleFrom(
+                      backgroundColor: colors.surfaceNested,
+                      shape: const CircleBorder(),
+                      padding: EdgeInsets.zero,
+                    ),
+                    icon: KvIcon(
+                      glyph: AppGlyph.close,
+                      size: 15,
+                      color: colors.iconNeutral,
+                    ),
+                  ),
+                ),
+              ),
+              onChanged: (_) => onFieldChanged('URL'),
+            ),
+          ],
           const SizedBox(height: 14),
           _kvFieldLabel('Notes', colors),
           TextFormField(
