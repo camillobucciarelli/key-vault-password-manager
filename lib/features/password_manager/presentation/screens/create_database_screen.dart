@@ -83,6 +83,7 @@ class _CreateDatabaseScreenState extends State<CreateDatabaseScreen> {
       withData: _isWeb,
     );
     if (result == null) return;
+    if (!mounted) return;
     final file = result.files.single;
     if (_isWeb ? file.bytes == null : file.path == null) return;
     setState(() {
