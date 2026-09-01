@@ -16,32 +16,6 @@ DI uses `get_it`, split across `lib/core/di/core_di.dart` and `lib/features/pass
 
 Cloud sync is currently hard-coded to Google Drive. [Spec 010](specs/010-multi-cloud-storage/spec.md) plans one provider-neutral storage port, a sole Google data adapter, remote identity as `(providerId, remoteFileId)`, typed safe errors, and direct DI without a registry. Do not describe that refactor as implemented until its tasks land. Its deferred provider evidence/single-file constraints remain normative outside the immediate Google-only DoD. Autofill has two live paths: Apple (`apple_autofill_v2_coordinator.dart` + `ios/CredentialProviderExtension`, `macos/CredentialProviderExtension`) and desktop browsers (`desktop_browser_autofill_*.dart` + `desktop/native_host/` + `desktop/browser_extension/`). The native messaging protocol is Dart in `tool/native_host_protocol.dart`, entry point `tool/native_host.dart`.
 
-## Architecture Map
-
-| BLoC | Responsibility |
-|------|----------------|
-| `DatabaseSelectionBloc` | Entry point — selects/creates/removes databases, handles Google Drive file picking |
-| `DatabaseUnlockBloc` | Unlocks a selected `.kdbx` file with password/key file/biometrics |
-| `VaultBloc` | All vault operations once unlocked — CRUD entries/groups, search, sync, attachments, CSV import |
-
-Coordinators: `DatabaseSessionCoordinator` (import/dedup/creation/unlock), `VaultSessionCoordinator` (lock/change-database/update-settings), `OtpAuthDeepLinkCoordinator` (`otpauth://` deep links, initialized in `main.dart`).
-
-Autofill fans out from one Dart contract, `AppleAutofillV2CoordinatorContract` (the name is historical — it covers Android too), via `CompositeAutofillV2Coordinator` in `password_manager_presentation_di.dart`:
-
-- **Native** (`AppleAutofillV2Coordinator`) publishes credentials over the `dev.camillobucciarelli.keyvault/apple_autofill_v2` method channel. Native sides are Swift in `ios/CredentialProviderExtension/` and `macos/CredentialProviderExtension/` (`SharedAutofillStore`), Kotlin in `android/app/src/main/kotlin/.../autofill/` (`KeyVaultAutofillService`, `AndroidAutofillV2Channel`, `AutofillPickerActivity`). No `flutter_autofill_service` package is used.
-- **Desktop browsers** (`DesktopBrowserAutofillCoordinator`) writes an on-disk metadata cache (`desktop_browser_autofill_cache.dart`) plus a reveal bridge (`desktop_browser_autofill_reveal_bridge_service.dart`).
-
-Both directions carry pending associations (site ↔ entry links created from the native UI) back into the vault.
-
-Sync: `DatabaseSyncOrchestrator` + `GoogleDriveApiService` + `DriveAuthService`. Auth uses PKCE on desktop (`DesktopOAuthPkceService`) and `google_sign_in` on mobile; checksums, timestamps and mappings live in `SyncMetadataDataSource`.
-
-Key files:
-
-- `lib/main.dart` — single entry point: logging setup, `di.init()`, otpauth deep-link coordinator, `runApp`
-- `lib/core/theme/` — `AppTheme` + `ThemeCubit`
-- `lib/core/utils/mobile_file_storage.dart` — sandboxed file I/O on mobile (iOS/Android keep databases in app-internal directories)
-- `presentation/screens/vault_screen.dart` — assembler only: imports plus ten `part` directives pointing at `presentation/screens/vault/*.part.dart` (`vault_shell`, `vault_navigation`, `vault_entries`, `vault_entries_details`, `vault_dialogs`, `vault_duplicates`, `vault_recycle_bin`, …). Add vault UI to the matching part file, never to `vault_screen.dart`.
-
 ## Build, Test, and Development Commands
 
 ```bash
