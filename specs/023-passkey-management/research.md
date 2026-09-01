@@ -48,13 +48,12 @@ not a guess.
 
 `VaultKdbxService` writes every custom field unprotected:
 
-```dart
-entry.setString(KdbxKey(normalizedKey), PlainValue(field.value));
-```
-— `lib/features/password_manager/data/services/vault_kdbx_service.dart:1126`
+    entry.setString(KdbxKey(normalizedKey), PlainValue(field.value));
+
+— `lib/features/password_manager/data/services/vault_kdbx_service.dart:1193`
 
 Only the password field is protected (`ProtectedValue.fromString`, lines 236,
-275, 385, 945). `VaultCustomField`
+342, 452, 1012). `VaultCustomField`
 (`lib/features/password_manager/domain/models/vault_custom_field.dart`) is a bare
 `{key, value}` pair with no protection concept, though it already redacts its
 value in `props`/`toString`.
