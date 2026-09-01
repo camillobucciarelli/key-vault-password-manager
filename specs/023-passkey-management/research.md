@@ -145,7 +145,9 @@ argument for a shorter cache lifetime, not for a different mechanism.
 
 ## R6 — Recommendations on the three open questions
 
-These are recommendations for the clarification phase, not decisions.
+**All accepted in the 2026-08-29 clarification session**; the decisions now live
+in `spec.md` (FR-015, FR-022, FR-023, Deferred scope, Assumptions). Kept here for
+the reasoning behind them.
 
 **FR-015 (user presence per assertion)** — recommend **A: biometrics or device
 passcode on every assertion**. The WebAuthn user-presence/user-verification
@@ -187,11 +189,10 @@ needs its own graceful-absence story. That is a spec, not a user story.
 
 1. Confirm the KeePassXC field contract against a real vault: protection flag,
    entry tag, base64url variant, PEM formatting (R1).
-2. Decide the three clarification questions (R6).
+2. ~~Decide the three clarification questions (R6).~~ Done 2026-08-29.
 3. Choose the conformance relying parties for SC-004 (three independent sites).
-4. Decide whether registration key generation happens in the extension
-   (CryptoKit) or in the app, which determines whether a Dart ECDSA/CBOR
-   dependency is needed at all in this spec.
+4. ~~Decide where registration key generation happens.~~ Done 2026-08-29: in the
+   extension, in CryptoKit — no Dart ECDSA/CBOR dependency in this spec.
 5. Name the manual QA harness for the Apple flows, following the precedent of
    the spec 008 and spec 011 harnesses, since neither slice can run in
    `flutter test`.

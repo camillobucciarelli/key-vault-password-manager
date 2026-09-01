@@ -46,6 +46,15 @@ must never appear in a diagnostic string. Principle I of the constitution
 (*Secrets never leak into the shell*) is therefore the governing constraint of
 this feature, not a checklist item at the end.
 
+## Clarifications
+
+### Session 2026-08-29
+
+- Q: Is user presence required on every assertion, or may a recent unlock satisfy it? → A: Every assertion — biometrics or device passcode each time, no reuse of the password path's recent-unlock window.
+- Q: Where does passkey private key material live when the app is not running? → A: In the same sealed cache the app already uses for passwords (AES-GCM-256 in the App Group container, key in the shared keychain, this-device-only, never in a backup), wiped when the database is locked or removed.
+- Q: Does Android's Credential Manager belong in this spec or its own? → A: Its own spec — 023 stops at Apple.
+- Q: Where is the key pair generated at registration? → A: In the credential provider extension, in CryptoKit; no Dart cryptography dependency is added by this spec.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Hold passkeys safely in the vault (Priority: P1)
@@ -156,9 +165,12 @@ correct site and account, and that signing in with it afterwards succeeds.
 ### Edge Cases
 
 - **Vault locked at request time.** A passkey request can arrive when the vault
-  has not been unlocked. The user must be able to reach a working sign-in from
-  that state, or be told plainly that the vault must be opened first — never a
-  silent failure that looks to the site like "no credential".
+  has not been unlocked. Per FR-022 the credential is still servable from the
+  sealed cache, so this must produce a working sign-in behind the per-assertion
+  confirmation — not a prompt to go and open the app. Where the credential is
+  genuinely unavailable (cache wiped, database removed), the user must be told
+  plainly, never left with a silent failure that looks to the site like "no
+  credential".
 - **Malformed or foreign passkey fields.** An entry carrying an incomplete,
   truncated or unrecognised passkey field set must be shown as an unusable
   passkey and left byte-identical on save; KeyVault must not "repair" or drop
@@ -230,10 +242,9 @@ correct site and account, and that signing in with it afterwards succeeds.
   relying party matches the requesting site, and MUST NOT allow a passkey for one
   relying party to be used for another.
 - **FR-015**: The system MUST require user presence — biometrics or device
-  passcode — before producing an assertion.
-  [NEEDS CLARIFICATION: is user presence required on *every* assertion, or may a
-  recent successful unlock within a short window satisfy it, as the password
-  autofill path does today?]
+  passcode — before producing **each** assertion. A recent successful vault
+  unlock MUST NOT satisfy this requirement, even though the password autofill
+  path reuses such a window today.
 - **FR-016**: The system MUST produce an assertion that the requesting site
   accepts as a valid WebAuthn response for the stored credential.
 - **FR-017**: On cancellation, failed confirmation, locked vault or missing
@@ -255,12 +266,14 @@ correct site and account, and that signing in with it afterwards succeeds.
 
 **Availability of the credential to the platform**
 
-- **FR-022**: The system MUST define where passkey private key material lives
-  when the app is not running, so that a system passkey request can be served.
-  [NEEDS CLARIFICATION: may passkey private keys be held in the extension's
-  encrypted shared cache so requests work whenever the device is unlocked, or
-  must they be available only while a vault session is active, which means a
-  passkey sign-in first requires opening and unlocking KeyVault?]
+- **FR-022**: Passkey private key material MUST be held in the same encrypted,
+  sealed cache the app already uses for passwords — device-local, readable only
+  while the device is unlocked, and excluded from device backups — so that a
+  system passkey request can be served while the app is not running. It MUST
+  NOT appear in the plaintext routing/display cache.
+- **FR-023**: The system MUST remove a database's passkey material from that
+  cache when the database is locked or removed, so a user has a way to stop a
+  device from being able to answer passkey requests.
 
 ### Key Entities *(include if data involved)*
 
@@ -318,6 +331,10 @@ correct site and account, and that signing in with it afterwards succeeds.
   use cases, services and the existing coordinators (constitution II, VIII).
 - Attestation of the created credential is not required by the target relying
   parties; self-attestation or none is acceptable.
+- Key generation and signing both happen inside the credential provider
+  extension, using the platform's own cryptography. The app is not running when
+  a request arrives, so no second cryptographic implementation is introduced on
+  the Dart side and this spec adds no cryptography dependency.
 - Verification is local before push — `flutter analyze` clean and `flutter test`
   green — and the platform flows that cannot run in the test suite are covered by
   a named manual QA harness, as spec 008 and spec 011 already do.
@@ -328,14 +345,13 @@ Out of scope for 023, each to be its own spec if adopted:
 
 - **Android.** Passkeys are served by the Credential Manager provider API, a
   different integration from the autofill service completed in spec 016, which
-  explicitly excluded them.
+  explicitly excluded them. It also has a floor of its own: a Credential Manager
+  provider needs a newer Android than this app's declared minimum, so a large
+  part of the supported range needs a "not available here" story that belongs in
+  that spec, not in a user story here.
 - **Desktop browsers.** Serving passkeys to a browser requires intercepting the
   site's WebAuthn calls in the browser extension — a large compatibility and
   security surface, and a change to the extension's permissions.
 - **Windows and Linux system-level passkey providers.**
 - **Attestation statements**, enterprise attestation and device-bound keys.
 - **Passkey export/backup as a standalone artefact** outside the `.kdbx`.
-
-[NEEDS CLARIFICATION: should 023 stop at the Apple slice as written, or should
-Android's Credential Manager be pulled into this spec as a fourth user story
-rather than deferred to its own spec?]

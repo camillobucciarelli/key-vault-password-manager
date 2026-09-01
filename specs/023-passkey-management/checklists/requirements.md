@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain
+- [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,15 +31,17 @@
 
 ## Notes
 
-- Three open [NEEDS CLARIFICATION] markers, all deliberate, none with a
-  defensible default:
-  - **FR-015** — user presence on every assertion vs. a recent-unlock window.
-  - **FR-022** — where private key material lives when the app is not running;
-    this decides whether a passkey sign-in works from a locked app at all.
-  - **Deferred scope** — whether Android's Credential Manager belongs in 023 or
-    in its own spec.
+- All three open questions were resolved in the 2026-08-29 clarification session
+  and encoded in `spec.md` (see its `## Clarifications` section): per-assertion
+  user presence (FR-015), private key material in the sealed device-local cache
+  with a wipe on lock/removal (FR-022, FR-023), and Android deferred to its own
+  spec. A fourth answer — key generation inside the credential provider
+  extension — is recorded in Assumptions and means this spec adds no
+  cryptography dependency.
 - Named platform APIs (KeePassXC field layout, Apple credential provider
   extension) appear only where they are the interoperability target or the
   existing asset being reused — they are product constraints, not implementation
   choices, and the requirements themselves stay behaviour-level.
-- Items marked incomplete require spec updates before `/speckit-plan`.
+- Remaining pre-plan work is technical verification, not specification: see
+  `research.md` R8, in particular confirming the KeePassXC field contract
+  against a real vault and naming the conformance relying parties for SC-004.
