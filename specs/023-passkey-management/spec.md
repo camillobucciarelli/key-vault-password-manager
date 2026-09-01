@@ -311,7 +311,7 @@ correct site and account, and that signing in with it afterwards succeeds.
   another site — zero cross-relying-party offers across the matching test suite.
 - **SC-006**: An interrupted registration leaves zero partially written
   credentials across the interruption test matrix (cancel, lock, write failure).
-- **SC-007**: Opening and saving an entry that holds a passkey KeyVault does not
+- **SC-007**: Opening and saving an entry that holds a passkey that KeyVault does not
   fully understand changes no byte of that passkey's stored fields.
 
 ## Assumptions
