@@ -58,6 +58,7 @@ class _CreateDatabaseScreenState extends State<CreateDatabaseScreen> {
   Uint8List? _webSelectedKeyBytes;
   CreateDatabaseDownload? _webDownload;
   bool _webKeyDownloadRequested = false;
+  bool _webBuilding = false;
   String? _webErrorMessage;
 
   bool get _isWeb => widget.debugWebMode ?? kIsWeb;
@@ -82,8 +83,7 @@ class _CreateDatabaseScreenState extends State<CreateDatabaseScreen> {
       dialogTitle: 'Select a Key File',
       withData: _isWeb,
     );
-    if (result == null) return;
-    if (!mounted) return;
+    if (!mounted || result == null) return;
     final file = result.files.single;
     if (_isWeb ? file.bytes == null : file.path == null) return;
     setState(() {
@@ -161,10 +161,11 @@ class _CreateDatabaseScreenState extends State<CreateDatabaseScreen> {
   void _back(CreateDatabaseStep current, {required bool submitting}) {
     if (submitting) return;
     if (current == CreateDatabaseStep.nameAndStorage) {
+      // The BlocConsumer listener owns the pop: cancelling emits a
+      // non-create state, which pops this route exactly once.
       context.read<DatabaseSelectionBloc>().add(
         const CancelCreateDatabaseFlow(),
       );
-      Navigator.of(context).pop();
       return;
     }
     context.read<DatabaseSelectionBloc>().add(const GoBackCreateDatabaseStep());
@@ -198,6 +199,8 @@ class _CreateDatabaseScreenState extends State<CreateDatabaseScreen> {
   /// FR-14: both artefacts are produced once, in memory; a retry reuses the
   /// same generated key.
   Future<void> _buildWebDownload() async {
+    if (_webBuilding) return;
+    setState(() => _webBuilding = true);
     try {
       final download = await const CreateDatabaseDownloadUseCase()(
         CreateDatabaseDownloadRequest(
@@ -208,15 +211,21 @@ class _CreateDatabaseScreenState extends State<CreateDatabaseScreen> {
           generateKeyFile: _keyFileMode == KeyFileMode.generate,
         ),
       );
+      if (!mounted) return;
       setState(() {
         _webDownload = download;
         _webKeyDownloadRequested = false;
         _webErrorMessage = null;
       });
     } catch (_) {
+      if (!mounted) return;
       setState(() {
         _webErrorMessage = 'Unable to prepare the database for download.';
       });
+    } finally {
+      if (mounted) {
+        setState(() => _webBuilding = false);
+      }
     }
   }
 
@@ -224,11 +233,16 @@ class _CreateDatabaseScreenState extends State<CreateDatabaseScreen> {
     final download = _webDownload;
     final keyBytes = download?.keyFileBytes;
     if (keyBytes == null) return;
-    await FilePicker.saveFile(
+    final saved = await FilePicker.saveFile(
       dialogTitle: 'Download key file',
       fileName: '$_webBaseName.keyx',
       bytes: keyBytes,
     );
+    if (!mounted || saved == null) {
+      // A dismissed save dialog saved nothing: the FR-14 "key first" gate
+      // must stay closed.
+      return;
+    }
     setState(() => _webKeyDownloadRequested = true);
   }
 
@@ -240,15 +254,15 @@ class _CreateDatabaseScreenState extends State<CreateDatabaseScreen> {
       // has been requested.
       return;
     }
-    await FilePicker.saveFile(
+    final saved = await FilePicker.saveFile(
       dialogTitle: 'Download database',
       fileName: '$_webBaseName.kdbx',
       bytes: download.databaseBytes,
     );
-    if (!mounted) return;
-    // FR-14: nothing is persisted — return to database selection.
+    if (!mounted || saved == null) return;
+    // FR-14: nothing is persisted — return to database selection. The
+    // BlocConsumer listener owns the single pop.
     context.read<DatabaseSelectionBloc>().add(const CancelCreateDatabaseFlow());
-    Navigator.of(context).pop();
   }
 
   @override
@@ -277,10 +291,11 @@ class _CreateDatabaseScreenState extends State<CreateDatabaseScreen> {
           canPop: false,
           onPopInvokedWithResult: (didPop, _) {
             if (didPop || submitting) return;
+            // Dispatch only: the listener above performs the single pop
+            // when the state leaves the create flow.
             context.read<DatabaseSelectionBloc>().add(
               const CancelCreateDatabaseFlow(),
             );
-            Navigator.of(context).pop();
           },
           child: Scaffold(
             backgroundColor: colors.ground,
@@ -376,6 +391,7 @@ class _CreateDatabaseScreenState extends State<CreateDatabaseScreen> {
                             : 'Continue',
                         onPressed:
                             submitting ||
+                                _webBuilding ||
                                 (step == CreateDatabaseStep.credentials &&
                                     _submitBlockReason != null) ||
                                 (step == CreateDatabaseStep.nameAndStorage &&
