@@ -22,6 +22,8 @@ import '../bloc/database_unlock/database_unlock_event.dart';
 import '../bloc/database_unlock/database_unlock_state.dart';
 import '../coordinators/android_autofill_save_coordinator.dart';
 import '../coordinators/database_session_coordinator.dart';
+import '../../data/datasources/biometric_data_source.dart';
+import '../widgets/managed_key_picker_gate.dart';
 import '../../domain/errors/database_access_failure.dart';
 import '../widgets/database/face_id_prompt_sheet.dart';
 import '../widgets/internal_key_file_manager_sheet.dart';
@@ -121,6 +123,13 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
     if (isManagedStoragePlatform) {
       final bloc = context.read<DatabaseUnlockBloc>();
       final currentKeyFilePath = bloc.state.keyFilePath;
+      // spec 015 FR-12 (T018): managed keys list only after device auth.
+      final authorized = await authorizeManagedKeyPickerAccess(
+        di.sl<BiometricDataSource>(),
+      );
+      if (!mounted || !authorized) {
+        return;
+      }
       final protectedPaths = await di
           .sl<DatabaseSessionCoordinator>()
           .getProtectedKeyFilePaths();

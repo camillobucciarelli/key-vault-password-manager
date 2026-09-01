@@ -42,7 +42,6 @@ const exactGoldenInventory = <String>[
   'db_recent_1024x768_dark.png',
   'db_create_step1_390x844_light.png',
   'db_create_step2_390x844_light.png',
-  'db_create_step3_390x844_light.png',
   'db_drive_loading_390x844_light.png',
   'db_drive_empty_390x844_light.png',
   'db_invalid_file_390x844_light.png',
@@ -176,7 +175,12 @@ void main() {
     await tester.pumpAndSettle();
 
     // Step 1's database-name field already has a non-empty default value
-    // ("new_database.kdbx"), so Continue advances immediately.
+    // ("new_database.kdbx"), so Continue advances immediately to the merged
+    // credentials step (spec 015 FR-1: two steps). The credentials-step
+    // state variants (key modes, optional password, inert submit reason,
+    // FR-13 warning, failure-keeps-wizard) are covered by named widget
+    // assertions in create_database_screen_test.dart; omitted axes per the
+    // spec: 1024x768, dark.
     await tester.tap(find.text('Continue'));
     await tester.pumpAndSettle();
 
@@ -184,35 +188,6 @@ void main() {
     await expectLater(
       find.byType(MaterialApp),
       matchesGoldenFile('db_create_step2_390x844_light.png'),
-    );
-  });
-
-  testWidgets('db_create_step3_390x844_light.png', (tester) async {
-    await setSize(tester, const Size(390, 844));
-    final result = await pumpableCreateDatabaseScreen();
-
-    await tester.pumpWidget(result.widget);
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Continue'));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(
-      find.byType(TextFormField).at(0),
-      'kv-test-only-not-a-real-password',
-    );
-    await tester.enterText(
-      find.byType(TextFormField).at(1),
-      'kv-test-only-not-a-real-password',
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Continue'));
-    await tester.pumpAndSettle();
-
-    expect(tester.takeException(), isNull);
-    await expectLater(
-      find.byType(MaterialApp),
-      matchesGoldenFile('db_create_step3_390x844_light.png'),
     );
   });
 
@@ -600,10 +575,12 @@ void main() {
     );
   });
 
-  // --- Inventory integrity: exactly 22 named files, all present on disk ----
-  test('exact golden inventory has exactly 22 files, all generated', () {
-    expect(exactGoldenInventory.toSet().length, 22);
-    expect(exactGoldenInventory.length, 22);
+  // --- Inventory integrity: exactly 21 named files, all present on disk.
+  // Spec 015 collapsed the create wizard to two steps, retiring
+  // db_create_step3 with `CreateDatabaseStep.optionalLocks`. ----
+  test('exact golden inventory has exactly 21 files, all generated', () {
+    expect(exactGoldenInventory.toSet().length, 21);
+    expect(exactGoldenInventory.length, 21);
 
     final goldensDir = Directory(
       p.join(Directory.current.path, 'test', 'goldens'),

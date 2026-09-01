@@ -319,6 +319,8 @@ class DatabaseUnlockBloc
       switch (failure) {
         InvalidCredentialsFailure() => UnlockPhase.ready,
         KeyFileMissingFailure() => UnlockPhase.ready,
+        InvalidKeyFileFailure() => UnlockPhase.ready,
+        MissingCredentialFactorFailure() => UnlockPhase.ready,
         DatabaseFileMissingFailure() => UnlockPhase.failure,
         InvalidDatabaseFileFailure() => UnlockPhase.failure,
         CorruptDatabaseFailure() => UnlockPhase.failure,

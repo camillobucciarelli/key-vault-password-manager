@@ -186,6 +186,11 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
     if (_busy) return;
     String? selectedPath;
     if (isManagedStoragePlatform) {
+      // spec 015 FR-12 (T018): managed keys list only after device auth.
+      final authorized = await authorizeManagedKeyPickerAccess(
+        di.sl<BiometricDataSource>(),
+      );
+      if (!mounted || !authorized) return;
       final protectedPaths = await di
           .sl<VaultSessionCoordinator>()
           .getProtectedKeyFilePaths();

@@ -180,9 +180,9 @@ void main() {
 
       bloc.add(const AdvanceCreateDatabaseStep(fieldsNonEmpty: true));
       await _until(
-        () => stepStates().last.step == CreateDatabaseStep.masterPassword,
+        () => stepStates().last.step == CreateDatabaseStep.credentials,
       );
-      expect(stepStates().last.step, CreateDatabaseStep.masterPassword);
+      expect(stepStates().last.step, CreateDatabaseStep.credentials);
       // The assertion above samples once `masterPassword` is reached, so the
       // empty-fields event is now provably behind us (bloc events are FIFO).
       // Every step state emitted before it must still have been
@@ -190,7 +190,7 @@ void main() {
       // regression even if the earlier check sampled before that emission.
       expect(
         stepStates()
-            .takeWhile((s) => s.step != CreateDatabaseStep.masterPassword)
+            .takeWhile((s) => s.step != CreateDatabaseStep.credentials)
             .every((s) => s.step == CreateDatabaseStep.nameAndStorage),
         isTrue,
         reason: 'empty fields must never advance the wizard',

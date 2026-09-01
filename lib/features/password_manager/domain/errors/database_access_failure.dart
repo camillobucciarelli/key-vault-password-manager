@@ -60,3 +60,22 @@ final class InvalidCredentialsFailure extends DatabaseAccessFailure {
   @override
   String toString() => 'InvalidCredentialsFailure()';
 }
+
+/// spec 015 FR-2: a create request carrying no credential factor at all —
+/// empty password, no selected key file, generation off. The use case is
+/// the trust boundary and rejects this regardless of caller.
+final class MissingCredentialFactorFailure extends DatabaseAccessFailure {
+  const MissingCredentialFactorFailure();
+
+  @override
+  String toString() => 'MissingCredentialFactorFailure()';
+}
+
+/// spec 015 FR-7: the selected key file exists but is unreadable or empty.
+/// Distinct from [KeyFileMissingFailure] (absent from disk).
+final class InvalidKeyFileFailure extends DatabaseAccessFailure {
+  const InvalidKeyFileFailure();
+
+  @override
+  String toString() => 'InvalidKeyFileFailure()';
+}
