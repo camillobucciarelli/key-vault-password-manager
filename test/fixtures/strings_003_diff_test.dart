@@ -71,6 +71,25 @@ const _approvedSupersededLiterals = <String>{
   // active-row accent tint instead of a "Most recent" text badge).
   'Managed databases',
   'Most recent',
+  // spec 015 FR-1..FR-14: the create wizard collapsed to two steps with a
+  // single credentials step — optional password, a three-way exclusive key
+  // control replacing the switch-plus-button pair, and generation at
+  // submit. The "Prepare generated key file" button, its picker dialogs,
+  // the 'database.key' on-disk name (opaque since spec 014 FR-3) and the
+  // snackbar tied to the deleted control were retired with the surface.
+  'Please enter a password or choose a Key File.',
+  'Key File (optional)',
+  'Generate key file automatically',
+  'On native platforms it will be saved in app internal storage.',
+  'Choose the generated key file option to continue.',
+  'Prepare generated key file',
+  'Choose key file destination',
+  'Generated key file will be saved in app internal storage',
+  'Remove generated key file path',
+  'Select Key File',
+  'Select destination for generated key file',
+  'Select destination folder for generated key file',
+  'database.key',
   // FR-2: create wizard has per-step titles ("Step N of 3" + step-specific
   // heading) instead of one dialog title.
   'New Database Credentials',

@@ -85,10 +85,24 @@ class DatabaseSelectionDuplicateDecisionRequired
 /// C-5: non-secret create-database wizard position. The password itself
 /// never appears here — see `CreateNewDatabase` event / `RedactedValue`.
 class DatabaseSelectionCreateStep extends DatabaseSelectionState {
-  const DatabaseSelectionCreateStep(this.step, {super.items});
+  const DatabaseSelectionCreateStep(
+    this.step, {
+    this.submitting = false,
+    this.errorMessage,
+    super.items,
+  });
 
   final CreateDatabaseStep step;
 
+  /// spec 015 FR-10: true while creation runs — the wizard stays mounted
+  /// with its controls and Back/Cancel disabled. The BLoC holds neither the
+  /// draft nor any secret; the screen owns those.
+  final bool submitting;
+
+  /// spec 015 FR-10: an I/O failure rendered in the wizard, with the draft
+  /// intact. Field-level errors stay at their field in the screen.
+  final String? errorMessage;
+
   @override
-  List<Object?> get props => [step, items];
+  List<Object?> get props => [step, submitting, errorMessage, items];
 }

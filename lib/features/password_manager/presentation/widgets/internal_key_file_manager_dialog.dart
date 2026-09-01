@@ -100,7 +100,7 @@ class _InternalKeyFileManagerDialogState
 
     final selected = result.files.single;
     final fallbackName = selected.name.trim().isEmpty
-        ? 'database.key'
+        ? 'imported-key'
         : selected.name;
     String? importedPath = selected.path;
 

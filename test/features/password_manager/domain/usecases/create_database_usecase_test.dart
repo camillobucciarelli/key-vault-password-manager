@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_import_result.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_import_transaction.dart';
+import 'package:password_manager/features/password_manager/domain/errors/database_access_failure.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_file_repository.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/create_database_usecase.dart';
 
@@ -71,19 +72,154 @@ void main() {
       },
     );
 
-    // Key-file preparation (`generateKeyFile: true`) is intentionally
-    // skipped under `FLUTTER_TEST` (see `CreateDatabaseUseCase._prepareKeyFilePath`
-    // callers), the same guard the pre-existing coordinator used to avoid
-    // ever triggering a real file picker during automated tests. There is
-    // no test exercising that specific branch at any level — it is a known
-    // gap, not something covered elsewhere.
-    //
-    // `database_session_coordinator_test.dart`'s
-    // "createNewDatabase failure cleanup" group covers a different
-    // concern: that a failing/throwing `CreateDatabaseUseCase` leaves no
-    // further coordinator-level mutation (prior active database/session
-    // credentials unchanged), complementing this file's proof that the use
-    // case itself deletes its own partial file output.
+    // spec 015 T003: the FLUTTER_TEST shortcut is gone — the key branches
+    // below run for real. `database_session_coordinator_test.dart` covers
+    // the coordinator-level transaction separately.
+
+    group('spec 015 FR-2 credential matrix (AC-2)', () {
+      test('no factor at all is rejected at the trust boundary', () async {
+        await expectLater(
+          useCase(
+            const CreateDatabaseRequest(databaseFileName: 'v', password: ''),
+          ),
+          throwsA(isA<MissingCredentialFactorFailure>()),
+        );
+        expect(repository.createDatabaseCalls, 0);
+      });
+
+      test('key-file-only (selected) is a valid combination', () async {
+        repository.keyFiles['/picked/my.key'] = [1, 2, 3];
+        final result = await useCase(
+          const CreateDatabaseRequest(
+            databaseFileName: 'v',
+            password: '',
+            keyFilePath: '/picked/my.key',
+          ),
+        );
+        expect(result, isNotNull);
+        expect(result!.keyFilePath, '/managed/keys/opaque-copy');
+        expect(repository.ensuredManagedKeyPaths, ['/picked/my.key']);
+      });
+
+      test('key-file-only (generated) is a valid combination and the key is '
+          'generated at submit (FR-5)', () async {
+        final result = await useCase(
+          const CreateDatabaseRequest(
+            databaseFileName: 'v',
+            password: '',
+            generateKeyFile: true,
+          ),
+        );
+        expect(result, isNotNull);
+        expect(repository.savedKeyFileBytesLength, 64);
+        expect(result!.keyFilePath, '/managed/keys/opaque-generated');
+      });
+
+      test('password plus selected key is a valid combination', () async {
+        repository.keyFiles['/picked/my.key'] = [9];
+        final result = await useCase(
+          const CreateDatabaseRequest(
+            databaseFileName: 'v',
+            password: 'kv-test-only-not-a-real-password',
+            keyFilePath: '/picked/my.key',
+          ),
+        );
+        expect(result, isNotNull);
+      });
+    });
+
+    group('spec 015 FR-7 key-file validation', () {
+      test('a missing selected key file blocks creation', () async {
+        await expectLater(
+          useCase(
+            const CreateDatabaseRequest(
+              databaseFileName: 'v',
+              password: '',
+              keyFilePath: '/picked/absent.key',
+            ),
+          ),
+          throwsA(isA<KeyFileMissingFailure>()),
+        );
+        expect(repository.createDatabaseCalls, 0);
+      });
+
+      test('an empty selected key file blocks creation', () async {
+        repository.keyFiles['/picked/empty.key'] = const [];
+        await expectLater(
+          useCase(
+            const CreateDatabaseRequest(
+              databaseFileName: 'v',
+              password: '',
+              keyFilePath: '/picked/empty.key',
+            ),
+          ),
+          throwsA(isA<InvalidKeyFileFailure>()),
+        );
+        expect(repository.createDatabaseCalls, 0);
+      });
+
+      test('an unreadable selected key file blocks creation', () async {
+        repository.keyFiles['/picked/locked.key'] = [1];
+        repository.readKeyFileError = Exception('EACCES');
+        await expectLater(
+          useCase(
+            const CreateDatabaseRequest(
+              databaseFileName: 'v',
+              password: '',
+              keyFilePath: '/picked/locked.key',
+            ),
+          ),
+          throwsA(isA<InvalidKeyFileFailure>()),
+        );
+        expect(repository.createDatabaseCalls, 0);
+      });
+    });
+
+    group('spec 015 FR-9 key-material cleanup on hashing failure', () {
+      test('a generated key created by this attempt is deleted', () async {
+        repository.hashFileError = Exception('disk full');
+        await expectLater(
+          useCase(
+            const CreateDatabaseRequest(
+              databaseFileName: 'v',
+              password: '',
+              generateKeyFile: true,
+            ),
+          ),
+          throwsException,
+        );
+        expect(
+          repository.deletedPaths,
+          containsAll([
+            '/managed/vault.kdbx',
+            '/managed/keys/opaque-generated',
+          ]),
+        );
+      });
+
+      test('the user-selected key file is never deleted', () async {
+        repository.keyFiles['/picked/my.key'] = [1];
+        repository.hashFileError = Exception('disk full');
+        await expectLater(
+          useCase(
+            const CreateDatabaseRequest(
+              databaseFileName: 'v',
+              password: '',
+              keyFilePath: '/picked/my.key',
+            ),
+          ),
+          throwsException,
+        );
+        expect(repository.deletedPaths, isNot(contains('/picked/my.key')));
+        expect(
+          repository.deletedPaths,
+          isNot(contains('/managed/keys/opaque-copy')),
+          reason:
+              'the managed copy is content the user still owns; only the '
+              'orphan .kdbx goes',
+        );
+      });
+    });
   });
 }
 
@@ -127,9 +263,16 @@ class _FakeDatabaseFileRepository implements DatabaseFileRepository {
     throw UnimplementedError('renameFile is not exercised by this use case');
   }
 
+  final List<String?> ensuredManagedKeyPaths = [];
+
   @override
-  Future<String?> ensureManagedKeyFilePath(String? keyFilePath) async =>
-      keyFilePath;
+  Future<String?> ensureManagedKeyFilePath(String? keyFilePath) async {
+    ensuredManagedKeyPaths.add(keyFilePath);
+    if (keyFilePath == null) return null;
+    final managed = '/managed/keys/opaque-copy';
+    keyFiles[managed] = keyFiles[keyFilePath] ?? const [1];
+    return managed;
+  }
 
   @override
   Future<String> hashFile(String path) async {
@@ -139,8 +282,16 @@ class _FakeDatabaseFileRepository implements DatabaseFileRepository {
     return hashFileResult;
   }
 
+  Map<String, List<int>> keyFiles = {};
+  Object? readKeyFileError;
+
   @override
-  Future<Uint8List> readKeyFileBytes(String keyFilePath) async => Uint8List(0);
+  Future<Uint8List> readKeyFileBytes(String keyFilePath) async {
+    if (readKeyFileError != null) {
+      throw readKeyFileError!;
+    }
+    return Uint8List.fromList(keyFiles[keyFilePath] ?? const []);
+  }
 
   @override
   Future<String> saveKeyFile({
@@ -149,7 +300,9 @@ class _FakeDatabaseFileRepository implements DatabaseFileRepository {
     String? selectedPath,
   }) async {
     savedKeyFileBytesLength = keyFileBytes.length;
-    return saveKeyFileResult ?? '/managed/keys/$fileName';
+    final path = saveKeyFileResult ?? '/managed/keys/opaque-generated';
+    keyFiles[path] = keyFileBytes;
+    return path;
   }
 
   @override
@@ -175,7 +328,8 @@ class _FakeDatabaseFileRepository implements DatabaseFileRepository {
       throw UnimplementedError();
 
   @override
-  Future<bool> keyFileExists(String keyFilePath) => throw UnimplementedError();
+  Future<bool> keyFileExists(String keyFilePath) async =>
+      keyFiles.containsKey(keyFilePath);
 
   @override
   Future<String> managedDatabasePath(String fileName) =>

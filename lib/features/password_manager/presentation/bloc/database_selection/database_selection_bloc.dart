@@ -22,6 +22,10 @@ String failureMessage(DatabaseAccessFailure failure) => switch (failure) {
   KeyFileMissingFailure() =>
     'Key file not found. Locate or select the required key file.',
   InvalidCredentialsFailure() => 'Incorrect master password or key file.',
+  MissingCredentialFactorFailure() =>
+    'Set a master password or choose a key file to protect the database.',
+  InvalidKeyFileFailure() =>
+    'The selected key file is empty or could not be read.',
 };
 
 class DatabaseSelectionBloc
@@ -118,11 +122,22 @@ class DatabaseSelectionBloc
     }
   }
 
+  /// spec 015 FR-10: the wizard stays mounted across submission. While
+  /// creation runs the state carries a `submitting` flag; on failure the
+  /// state returns to the credentials step with a message, never to a
+  /// terminal error state that would unmount the wizard and lose the draft.
   Future<void> _onCreateNewDatabase(
     CreateNewDatabase event,
     Emitter<DatabaseSelectionState> emit,
   ) async {
-    _safeEmit(emit, DatabaseSelectionLoading(items: state.items));
+    _safeEmit(
+      emit,
+      DatabaseSelectionCreateStep(
+        CreateDatabaseStep.credentials,
+        submitting: true,
+        items: state.items,
+      ),
+    );
     try {
       final result = await databaseSessionCoordinator.createNewDatabase(
         databaseFileName: event.databaseFileName,
@@ -132,12 +147,32 @@ class DatabaseSelectionBloc
         generateKeyFile: event.generateKeyFile,
         generatedKeyFilePath: event.generatedKeyFilePath,
       );
+      if (result.status == DatabaseSessionStatus.error) {
+        _safeEmit(
+          emit,
+          DatabaseSelectionCreateStep(
+            CreateDatabaseStep.credentials,
+            errorMessage: result.message,
+            items: result.items,
+          ),
+        );
+        return;
+      }
       _pendingDuplicatePrompt = null;
       _emitResult(emit, result);
     } catch (e, st) {
       logError('Failed while creating a new database file.', e, st);
-      _emitFailure(emit, e);
-      _safeEmit(emit, DatabaseSelectionUnselected(items: state.items));
+      final message = e is DatabaseAccessFailure
+          ? failureMessage(e)
+          : 'Unable to create the database. Nothing was changed.';
+      _safeEmit(
+        emit,
+        DatabaseSelectionCreateStep(
+          CreateDatabaseStep.credentials,
+          errorMessage: message,
+          items: state.items,
+        ),
+      );
     }
   }
 

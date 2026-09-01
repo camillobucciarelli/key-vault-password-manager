@@ -205,7 +205,10 @@ Future<({Widget widget, DatabaseTestHarness harness})> pumpableUnlockScreen({
 /// needed): only requires a `DatabaseSelectionBloc` above it for step
 /// policy (C-5).
 Future<({Widget widget, DatabaseTestHarness harness})>
-pumpableCreateDatabaseScreen({ThemeMode themeMode = ThemeMode.light}) async {
+pumpableCreateDatabaseScreen({
+  ThemeMode themeMode = ThemeMode.light,
+  bool webMode = false,
+}) async {
   final harness = _buildHarness();
   final bloc = DatabaseSelectionBloc(
     databaseSessionCoordinator: harness.coordinator,
@@ -219,7 +222,7 @@ pumpableCreateDatabaseScreen({ThemeMode themeMode = ThemeMode.light}) async {
     themeMode: themeMode,
     home: BlocProvider<DatabaseSelectionBloc>.value(
       value: bloc,
-      child: const CreateDatabaseScreen(),
+      child: CreateDatabaseScreen(debugWebMode: webMode ? true : null),
     ),
   );
 
@@ -271,6 +274,21 @@ class _AutoOpenSheetHostState extends State<_AutoOpenSheetHost> {
 Future<void> resetDatabaseTestDi() => di.sl.reset();
 
 class _FakeBiometricDataSource implements BiometricDataSource {
+  bool deviceAuthSupported = true;
+  bool deviceCredentialResult = true;
+  int deviceCredentialRequests = 0;
+
+  @override
+  Future<bool> isDeviceAuthSupported() async => deviceAuthSupported;
+
+  @override
+  Future<bool> authenticateWithDeviceCredential({
+    required String reason,
+  }) async {
+    deviceCredentialRequests += 1;
+    return deviceCredentialResult;
+  }
+
   _FakeBiometricDataSource({
     required this.available,
     this.authenticateResult = true,

@@ -84,6 +84,7 @@ import 'database_selection_screen.dart';
 import 'database_unlock_screen.dart';
 import '../utils/totp_utils.dart';
 import '../utils/platform_utils.dart';
+import '../widgets/managed_key_picker_gate.dart';
 
 part 'vault/vault_shell.part.dart';
 part 'vault/vault_navigation.part.dart';

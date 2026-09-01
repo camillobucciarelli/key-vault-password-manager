@@ -1,11 +1,12 @@
-import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:kdbx/kdbx.dart';
 import 'package:path/path.dart' as p;
 
+import '../errors/database_access_failure.dart';
 import '../repositories/database_file_repository.dart';
+import 'vault_credentials.dart';
 
 /// Non-secret request: [password] is held only transiently for the duration
 /// of this call (C-5) and is never copied into BLoC/coordinator state.
@@ -48,7 +49,40 @@ class CreateDatabaseUseCase {
 
   /// Returns null when the user cancels the destination picker (desktop
   /// "save file" dialog) — not a failure, nothing was created.
+  ///
+  /// spec 015 FR-2 (trust boundary): a request with no credential factor is
+  /// rejected here with [MissingCredentialFactorFailure], regardless of what
+  /// the UI validated. FR-7: a selected key file that is missing, unreadable
+  /// or empty is rejected before any byte is written. FR-5: key material is
+  /// generated during submission, never earlier.
   Future<CreateDatabaseResult?> call(CreateDatabaseRequest request) async {
+    final hasPassword = request.password.isNotEmpty;
+    final selectedKeyFilePathRaw = request.keyFilePath?.trim();
+    final hasSelectedKey =
+        selectedKeyFilePathRaw != null && selectedKeyFilePathRaw.isNotEmpty;
+    if (!hasPassword && !hasSelectedKey && !request.generateKeyFile) {
+      throw const MissingCredentialFactorFailure();
+    }
+
+    // FR-7: validate the selected key BEFORE creating anything. Any readable
+    // non-empty file is valid — no format restriction.
+    Uint8List? keyFileBytes;
+    if (hasSelectedKey) {
+      if (!await databaseFileRepository.keyFileExists(selectedKeyFilePathRaw)) {
+        throw const KeyFileMissingFailure();
+      }
+      try {
+        keyFileBytes = await databaseFileRepository.readKeyFileBytes(
+          selectedKeyFilePathRaw,
+        );
+      } catch (_) {
+        throw const InvalidKeyFileFailure();
+      }
+      if (keyFileBytes.isEmpty) {
+        throw const InvalidKeyFileFailure();
+      }
+    }
+
     var outputFile = await databaseFileRepository.resolveOutputFilePath(
       request.databaseFileName,
     );
@@ -59,21 +93,33 @@ class CreateDatabaseUseCase {
       outputFile += '.kdbx';
     }
 
-    String? selectedKeyFilePath;
-    if (!Platform.environment.containsKey('FLUTTER_TEST')) {
-      selectedKeyFilePath = await _prepareKeyFilePath(request);
-    }
-
-    Uint8List? keyFileBytes;
-    if (selectedKeyFilePath != null && selectedKeyFilePath.trim().isNotEmpty) {
-      keyFileBytes = await databaseFileRepository.readKeyFileBytes(
-        selectedKeyFilePath,
+    // FR-5: generated key bytes are produced at submit, and the branch runs
+    // under test like any other code (the FLUTTER_TEST shortcut is gone).
+    String? keyFilePath = selectedKeyFilePathRaw;
+    if (request.generateKeyFile) {
+      final generatedBytes = _generateRandomKeyFileBytes();
+      final generatedPath = request.generatedKeyFilePath;
+      keyFilePath = await databaseFileRepository.saveKeyFile(
+        // The managed on-disk name is opaque (spec 014 FR-3); this name only
+        // matters on the non-managed (web download) path.
+        fileName: generatedPath == null
+            ? 'generated-key'
+            : p.basename(generatedPath),
+        keyFileBytes: generatedBytes,
+        selectedPath: generatedPath,
+      );
+      keyFileBytes = await databaseFileRepository.readKeyFileBytes(keyFilePath);
+    } else if (hasSelectedKey) {
+      // FR-6: the selected key is copied into managed storage; the user's
+      // original file is never modified and never deleted.
+      keyFilePath = await databaseFileRepository.ensureManagedKeyFilePath(
+        selectedKeyFilePathRaw,
       );
     }
 
-    final credentials = Credentials.composite(
-      ProtectedValue.fromString(request.password),
-      keyFileBytes,
+    final credentials = composeVaultCredentials(
+      password: request.password,
+      keyFileBytes: keyFileBytes,
     );
     final kdbx = KdbxFormat().create(credentials, 'New Database');
     final savedBytes = await kdbx.save();
@@ -88,7 +134,7 @@ class CreateDatabaseUseCase {
       return CreateDatabaseResult(
         databasePath: createdPath,
         fileHash: fileHash,
-        keyFilePath: selectedKeyFilePath,
+        keyFilePath: keyFilePath,
       );
     } catch (_) {
       // Partial output cleanup: creation succeeded but post-processing
@@ -96,29 +142,15 @@ class CreateDatabaseUseCase {
       try {
         await databaseFileRepository.deleteFile(createdPath);
       } catch (_) {}
+      // FR-9: delete only key material this attempt created, never the
+      // user's selected file.
+      if (request.generateKeyFile && keyFilePath != null) {
+        try {
+          await databaseFileRepository.deleteFile(keyFilePath);
+        } catch (_) {}
+      }
       rethrow;
     }
-  }
-
-  Future<String?> _prepareKeyFilePath(CreateDatabaseRequest request) async {
-    if (!request.generateKeyFile) {
-      final keyFilePath = request.keyFilePath;
-      if (keyFilePath == null || keyFilePath.trim().isEmpty) {
-        return null;
-      }
-      return databaseFileRepository.ensureManagedKeyFilePath(keyFilePath);
-    }
-
-    final keyBytes = _generateRandomKeyFileBytes();
-    final generatedPath = request.generatedKeyFilePath;
-    final fileName = generatedPath == null
-        ? 'database.key'
-        : p.basename(generatedPath);
-    return databaseFileRepository.saveKeyFile(
-      fileName: fileName,
-      keyFileBytes: keyBytes,
-      selectedPath: generatedPath,
-    );
   }
 
   Uint8List _generateRandomKeyFileBytes() {

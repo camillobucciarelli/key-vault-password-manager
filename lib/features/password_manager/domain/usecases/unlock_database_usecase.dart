@@ -5,6 +5,7 @@ import 'package:kdbx/kdbx.dart';
 import 'package:path/path.dart' as p;
 
 import '../errors/database_access_failure.dart';
+import 'vault_credentials.dart';
 
 /// KDBX read/unlock boundary. Maps concrete `kdbx` package exceptions to
 /// C-3 typed [DatabaseAccessFailure]s so no coordinator/BLoC/UI code needs to
@@ -30,9 +31,12 @@ class UnlockDatabaseUseCase {
       keyFileBytes = await keyFile.readAsBytes();
     }
 
-    final credentials = Credentials.composite(
-      ProtectedValue.fromString(password),
-      keyFileBytes,
+    // spec 015 FR-12: one shared credential composition for create and
+    // unlock — an empty password is "no password factor", so a key-only
+    // vault unlocks with just its key file.
+    final credentials = composeVaultCredentials(
+      password: password,
+      keyFileBytes: keyFileBytes,
     );
 
     final dbBytes = await dbFile.readAsBytes();

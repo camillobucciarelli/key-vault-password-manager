@@ -271,6 +271,21 @@ class _FakeVaultSessionCoordinator implements VaultSessionCoordinator {
 }
 
 class _FakeBiometricDataSource implements BiometricDataSource {
+  bool deviceAuthSupported = true;
+  bool deviceCredentialResult = true;
+  int deviceCredentialRequests = 0;
+
+  @override
+  Future<bool> isDeviceAuthSupported() async => deviceAuthSupported;
+
+  @override
+  Future<bool> authenticateWithDeviceCredential({
+    required String reason,
+  }) async {
+    deviceCredentialRequests += 1;
+    return deviceCredentialResult;
+  }
+
   _FakeBiometricDataSource(this.harness);
 
   final EntryTestHarness harness;

@@ -6,56 +6,58 @@ on-disk name is 014 FR-3 and is not restated here.
 
 ## Phase 0 — prerequisite
 
-- [ ] T001 Confirm spec 014 has landed the managed root move and opaque naming
+- [x] T001 Confirm spec 014 has landed the managed root move and opaque naming
       (014 T001 and T004), and that no naming rule is duplicated in this spec's
       implementation.
 
 ## Phase 1 — trust boundary first
 
-- [ ] T002 FR-2/FR-7: reject a `CreateDatabaseRequest` with no factor and a key
+- [x] T002 FR-2/FR-7: reject a `CreateDatabaseRequest` with no factor and a key
       file that is missing, unreadable or empty, inside `CreateDatabaseUseCase`.
       Unit-tested independently of any UI.
-- [ ] T003 FR-5: remove the `FLUTTER_TEST` shortcut at
+- [x] T003 FR-5: remove the `FLUTTER_TEST` shortcut at
       `create_database_usecase.dart:63-65` and move key generation to submission
       time, so the key-preparation branch is executed by tests.
-- [ ] T004 FR-5: delete the `'database.key'` literal relative path
+- [x] T004 FR-5: delete the `'database.key'` literal relative path
       (`create_database_screen.dart:70-74`, `create_database_usecase.dart:115`)
       and the caller that persisted it.
 
 ## Phase 2 — transactional creation
 
-- [ ] T005 FR-9: implement all-or-nothing creation in
+- [x] T005 FR-9: implement all-or-nothing creation in
       `DatabaseSessionCoordinator`, restoring registry, active database,
       security profile, secure store, sync metadata and session secret, modelled
       on `_commitStagedImport` (`database_session_coordinator.dart:454`).
-- [ ] T006 FR-9: never delete the key file the user selected; delete only key
+- [x] T006 FR-9: never delete the key file the user selected; delete only key
       material this attempt created. Covered by a dedicated test.
-- [ ] T007 FR-9: unit tests inducing a failure at each stage and asserting no
+- [x] T007 FR-9: unit tests inducing a failure at each stage and asserting no
       artefact and no mutated persisted state remains.
 
 ## Phase 3 — wizard
 
-- [ ] T008 FR-1: collapse the wizard to two steps — name and storage, then
+- [x] T008 FR-1: collapse the wizard to two steps — name and storage, then
       credentials — with biometric activation at the bottom of the credentials
       step.
-- [ ] T009 FR-2/FR-3: make the password optional, with the confirmation field and
+- [x] T009 FR-2/FR-3: make the password optional, with the confirmation field and
       strength meter required only for a non-empty password, and an inert submit
       control while no factor is present.
-- [ ] T010 FR-4/FR-6: replace the switch-plus-button controls with a three-way
+- [x] T010 FR-4/FR-6: replace the switch-plus-button controls with a three-way
       exclusive key control (none / select / generate), showing a selected key's
-      name with Change and Remove.
-- [ ] T011 FR-8: block advancing out of step 1 on a name containing
+      name with Change and Remove. A selected key file is copied into managed
+      storage at submit (FR-6, via `ensureManagedKeyFilePath`); the user's
+      original file is never modified or deleted, asserted by test.
+- [x] T011 FR-8: block advancing out of step 1 on a name containing
       `\ / : * ? " < > |`; remove the reliance on silent sanitisation by
       `MobileFileStorage._normalizeFileName`.
-- [ ] T012 FR-10: keep the wizard mounted across submission — disabled controls
+- [x] T012 FR-10: keep the wizard mounted across submission — disabled controls
       and disabled Back/Cancel while creating, draft intact on failure, field
       errors at their field and I/O errors in the wizard. The BLoC holds neither
       the draft nor any secret.
-- [ ] T013 FR-13: add the permanent inline backup warning to the generated-key
+- [x] T013 FR-13: add the permanent inline backup warning to the generated-key
       option.
-- [ ] T014 Widget tests for the three key modes, the optional password, the
+- [x] T014 Widget tests for the three key modes, the optional password, the
       invalid name, and a failure that keeps the wizard open.
-- [ ] T015 Realise the `spec.md` golden inventory for the two-step shape: re-shoot
+- [x] T015 Realise the `spec.md` golden inventory for the two-step shape: re-shoot
       `db_create_step1_390x844_light.png` and `db_create_step2_390x844_light.png`,
       delete `db_create_step3_390x844_light.png` with
       `CreateDatabaseStep.optionalLocks`, and cover the omitted axes and the
@@ -64,33 +66,35 @@ on-disk name is 014 FR-3 and is not restated here.
 
 ## Phase 4 — biometrics and unlock fallback
 
-- [ ] T016 FR-11: allow biometric activation only together with stored
+- [x] T016 FR-11: allow biometric activation only together with stored
       credentials, refuse it explicitly otherwise, and never write an empty
-      string to the secure store.
-- [ ] T017 FR-12: implement the shared fallback matrix — password only, password
+      string to the secure store. Same guard for the session secret: a
+      key-file-only vault never seeds `SessionSecretHolder` with an empty
+      string — semantics coordinated with spec 011's session-scope rules.
+- [x] T017 FR-12: implement the shared fallback matrix — password only, password
       plus managed key, key only — for new and existing databases alike.
-- [ ] T018 FR-12: gate the internal managed-key picker behind `local_auth` with
+- [x] T018 FR-12: gate the internal managed-key picker behind `local_auth` with
       system PIN/passcode fallback; default to the key bound to that database,
       and require the same authentication to list all managed keys.
-- [ ] T019 Unlock tests covering the full fallback matrix and the gate.
+- [x] T019 Unlock tests covering the full fallback matrix and the gate.
 
 ## Phase 5 — web
 
-- [ ] T020 FR-14: implement the download-only web path — no biometric step,
+- [x] T020 FR-14: implement the download-only web path — no biometric step,
       `withData: true` for a selected key, generated bytes produced once and
       retained in memory for retry, `KdbxFormat.dartWebWorkaround = true` at the
       web boundary.
-- [ ] T021 FR-14: require two explicit gestures, key download before database
+- [x] T021 FR-14: require two explicit gestures, key download before database
       download, then return to database selection persisting nothing; add the
       inline notice that reloading loses the draft and the key.
-- [ ] T022 FR-14: test the web path without a real browser, asserting the two
+- [x] T022 FR-14: test the web path without a real browser, asserting the two
       artefacts are mutually consistent and nothing is persisted.
 - [ ] T023 Manual verification on Safari and Firefox before any web release;
       Chrome runs as the automated gate.
 
 ## Phase 6 — closing checks
 
-- [ ] T024 FR-15: assert no migration path and no special-casing of existing
+- [x] T024 FR-15: assert no migration path and no special-casing of existing
       databases was added.
-- [ ] T025 Regression gate: `flutter analyze` clean and `flutter test` green,
+- [x] T025 Regression gate: `flutter analyze` clean and `flutter test` green,
       goldens included.

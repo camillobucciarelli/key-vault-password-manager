@@ -1368,6 +1368,193 @@ void main() {
         );
       });
     });
+
+    // spec 015 FR-9 / AC-3 (T007): a failure induced at each stage of the
+    // transaction leaves no .kdbx, no generated key, no registry record, no
+    // changed active id, no security profile, no secure-store entry, no
+    // sync mapping — and the user's selected key file still exists.
+    group('spec 015 T007 transactional create (FR-9)', () {
+      late DatabaseSessionCoordinator realCoordinator;
+
+      setUp(() {
+        realCoordinator = DatabaseSessionCoordinator(
+          sessionSecretHolder: sessionSecretHolder,
+          databaseFileRepository: databaseImportService,
+          databaseSessionRepository: DatabaseSessionRepositoryImpl(
+            localDataSource: localDataSource,
+            secureDataSource: secureDataSource,
+          ),
+          databaseRegistryRepository: registryRepository,
+          databaseSecurityRepository: securityRepository,
+          getActiveDatabaseUseCase: GetActiveDatabaseUseCase(
+            registryRepository,
+          ),
+          resolveDatabaseDuplicateUseCase: ResolveDatabaseDuplicateUseCase(
+            registryRepository,
+          ),
+          databaseSyncRepository: syncRepository,
+          unlockDatabaseUseCase: UnlockDatabaseUseCase(),
+          createDatabaseUseCase: CreateDatabaseUseCase(
+            databaseFileRepository: databaseImportService,
+          ),
+          appleAutofillV2Coordinator: appleAutofillV2Coordinator,
+        );
+      });
+
+      Future<List<String>> managedFiles(String sub) async {
+        final dir = Directory('${tempDir.path}/$sub');
+        if (!await dir.exists()) return const [];
+        return dir
+            .listSync()
+            .map((entity) => entity.path)
+            .toList(growable: false);
+      }
+
+      Future<void> seedPriorState() async {
+        final activePath = await _writeManagedDatabase(tempDir, 'prior.kdbx');
+        registryRepository.records = [
+          _record(id: 'db-prior', path: activePath),
+        ];
+        registryRepository.activeId = 'db-prior';
+        secureDataSource.passwords['db-prior'] = 'prior-secret';
+        sessionSecretHolder.set('prior-secret');
+      }
+
+      Future<void> expectNothingCommitted({
+        required int expectedDatabaseCount,
+      }) async {
+        expect(
+          await managedFiles('databases'),
+          hasLength(expectedDatabaseCount),
+        );
+        expect(await managedFiles('keys'), isEmpty);
+        expect(registryRepository.records.map((r) => r.databaseId), [
+          'db-prior',
+        ]);
+        expect(registryRepository.activeId, 'db-prior');
+        expect(securityRepository.profiles, isEmpty);
+        expect(secureDataSource.passwords, {'db-prior': 'prior-secret'});
+        expect(
+          syncRepository.mappings,
+          isEmpty,
+          reason: 'no sync mapping may be created by a failed create',
+        );
+        expect(sessionSecretHolder.read(), 'prior-secret');
+      }
+
+      test('registry upsert failure rolls everything back', () async {
+        await seedPriorState();
+        registryRepository.failNextUpsert = true;
+
+        await expectLater(
+          realCoordinator.createNewDatabase(
+            databaseFileName: 'fresh.kdbx',
+            password: '',
+            biometricProtectionEnabled: false,
+            generateKeyFile: true,
+          ),
+          throwsException,
+        );
+
+        await expectNothingCommitted(expectedDatabaseCount: 1);
+      });
+
+      test('security profile failure rolls everything back', () async {
+        await seedPriorState();
+        securityRepository.failNextSave = true;
+
+        await expectLater(
+          realCoordinator.createNewDatabase(
+            databaseFileName: 'fresh.kdbx',
+            password: 'fresh-secret',
+            biometricProtectionEnabled: false,
+            generateKeyFile: true,
+          ),
+          throwsException,
+        );
+
+        await expectNothingCommitted(expectedDatabaseCount: 1);
+      });
+
+      test('keystore failure during biometric persistence rolls everything '
+          'back', () async {
+        await seedPriorState();
+        secureDataSource.failNextSaveMasterPassword = true;
+
+        await expectLater(
+          realCoordinator.createNewDatabase(
+            databaseFileName: 'fresh.kdbx',
+            password: 'fresh-secret',
+            biometricProtectionEnabled: true,
+            generateKeyFile: false,
+          ),
+          throwsException,
+        );
+
+        await expectNothingCommitted(expectedDatabaseCount: 1);
+      });
+
+      test('T006: the user-selected key file survives every failure', () async {
+        await seedPriorState();
+        final selectedKey = File('${tempDir.path}/picked/user.key');
+        await selectedKey.create(recursive: true);
+        await selectedKey.writeAsBytes(const [7, 7, 7], flush: true);
+        securityRepository.failNextSave = true;
+
+        await expectLater(
+          realCoordinator.createNewDatabase(
+            databaseFileName: 'fresh.kdbx',
+            password: '',
+            keyFilePath: selectedKey.path,
+            biometricProtectionEnabled: false,
+            generateKeyFile: false,
+          ),
+          throwsException,
+        );
+
+        expect(await selectedKey.exists(), isTrue);
+        expect(await selectedKey.readAsBytes(), const [7, 7, 7]);
+        expect(await managedFiles('databases'), hasLength(1));
+        expect(registryRepository.activeId, 'db-prior');
+      });
+
+      test('FR-11: biometric activation without a password is refused before '
+          'anything is created', () async {
+        await seedPriorState();
+
+        final result = await realCoordinator.createNewDatabase(
+          databaseFileName: 'fresh.kdbx',
+          password: '',
+          biometricProtectionEnabled: true,
+          generateKeyFile: true,
+        );
+
+        expect(result.status, DatabaseSessionStatus.error);
+        expect(result.message, contains('master password'));
+        await expectNothingCommitted(expectedDatabaseCount: 1);
+      });
+
+      test('a successful key-only create never seeds an empty session secret '
+          'and never writes to the secure store (AC-6)', () async {
+        await seedPriorState();
+
+        final result = await realCoordinator.createNewDatabase(
+          databaseFileName: 'fresh.kdbx',
+          password: '',
+          biometricProtectionEnabled: false,
+          generateKeyFile: true,
+        );
+
+        expect(result.status, DatabaseSessionStatus.success);
+        expect(
+          sessionSecretHolder.hasSecret,
+          isFalse,
+          reason: 'a key-only vault has no password secret to hold',
+        );
+        expect(secureDataSource.passwords, {'db-prior': 'prior-secret'});
+        expect(await managedFiles('keys'), hasLength(1));
+      });
+    });
   });
 }
 
@@ -1578,6 +1765,7 @@ class _FakeRegistryRepository implements DatabaseRegistryRepository {
 class _FakeSecurityRepository implements DatabaseSecurityRepository {
   final Map<String, DatabaseSecurityProfile> profiles =
       <String, DatabaseSecurityProfile>{};
+  bool failNextSave = false;
 
   @override
   Future<DatabaseSecurityProfile?> getProfile(String databaseId) async {
@@ -1591,6 +1779,10 @@ class _FakeSecurityRepository implements DatabaseSecurityRepository {
 
   @override
   Future<void> saveProfile(DatabaseSecurityProfile profile) async {
+    if (failNextSave) {
+      failNextSave = false;
+      throw Exception('Simulated profile save failure.');
+    }
     profiles[profile.databaseId] = profile;
   }
 }
@@ -1616,6 +1808,7 @@ class _FakeSecureDataSource implements SecureDataSource {
 
   /// spec-011 FR-4: one entry per database id.
   final Map<String, String> passwords = {};
+  bool failNextSaveMasterPassword = false;
 
   @override
   Future<void> clearMasterPassword(String databaseId) async {
@@ -1628,6 +1821,10 @@ class _FakeSecureDataSource implements SecureDataSource {
 
   @override
   Future<void> saveMasterPassword(String databaseId, String password) async {
+    if (failNextSaveMasterPassword) {
+      failNextSaveMasterPassword = false;
+      throw Exception('Simulated keystore failure.');
+    }
     passwords[databaseId] = password;
   }
 }

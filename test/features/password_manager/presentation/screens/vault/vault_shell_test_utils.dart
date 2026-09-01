@@ -147,6 +147,21 @@ Future<Widget> pumpableVaultShell({
 Future<void> resetVaultShellTestDi() => di.sl.reset();
 
 class _FakeBiometricDataSource implements BiometricDataSource {
+  bool deviceAuthSupported = true;
+  bool deviceCredentialResult = true;
+  int deviceCredentialRequests = 0;
+
+  @override
+  Future<bool> isDeviceAuthSupported() async => deviceAuthSupported;
+
+  @override
+  Future<bool> authenticateWithDeviceCredential({
+    required String reason,
+  }) async {
+    deviceCredentialRequests += 1;
+    return deviceCredentialResult;
+  }
+
   @override
   Future<bool> isBiometricAvailable() async => false;
 

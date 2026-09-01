@@ -240,22 +240,11 @@ class DatabaseSelectionScreen extends StatelessWidget {
   }
 
   Future<void> _onCreateDatabase(BuildContext context) async {
-    final credentials = await Navigator.of(context)
-        .push<CreateDatabaseCredentials>(
-          MaterialPageRoute(builder: (_) => const CreateDatabaseScreen()),
-        );
-    if (credentials != null && context.mounted) {
-      context.read<DatabaseSelectionBloc>().add(
-        CreateNewDatabase(
-          databaseFileName: credentials.databaseFileName,
-          password: credentials.password,
-          keyFilePath: credentials.keyFilePath,
-          biometricProtectionEnabled: credentials.biometricProtectionEnabled,
-          generateKeyFile: credentials.generateKeyFile,
-          generatedKeyFilePath: credentials.generatedKeyFilePath,
-        ),
-      );
-    }
+    // spec 015 FR-10: the wizard dispatches `CreateNewDatabase` itself and
+    // stays mounted across submission; no route result to handle here.
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => const CreateDatabaseScreen()),
+    );
   }
 
   Future<void> _onRemoveRecentDatabase(

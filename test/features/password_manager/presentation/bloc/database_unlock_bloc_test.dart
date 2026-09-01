@@ -479,6 +479,21 @@ Future<void> _untilLast(
 ) => _until(() => states.isNotEmpty && predicate(states.last));
 
 class _FakeBiometricDataSource implements BiometricDataSource {
+  bool deviceAuthSupported = true;
+  bool deviceCredentialResult = true;
+  int deviceCredentialRequests = 0;
+
+  @override
+  Future<bool> isDeviceAuthSupported() async => deviceAuthSupported;
+
+  @override
+  Future<bool> authenticateWithDeviceCredential({
+    required String reason,
+  }) async {
+    deviceCredentialRequests += 1;
+    return deviceCredentialResult;
+  }
+
   bool available = false;
   bool authenticateResult = true;
   final List<String> reasons = [];

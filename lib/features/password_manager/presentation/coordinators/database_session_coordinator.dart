@@ -659,6 +659,11 @@ class DatabaseSessionCoordinator {
     }
   }
 
+  /// spec 015 FR-9/FR-10: all-or-nothing creation. Any failure after the
+  /// use case deletes the artefacts this attempt created (never the user's
+  /// selected key file) and restores registry, active database, security
+  /// profile, secure store, sync metadata (asserted untouched) and session
+  /// secret to their pre-attempt values, modelled on `_commitStagedImport`.
   Future<DatabaseSelectionSessionResult> createNewDatabase({
     required String databaseFileName,
     required String password,
@@ -667,6 +672,26 @@ class DatabaseSessionCoordinator {
     required bool generateKeyFile,
     String? generatedKeyFilePath,
   }) async {
+    // spec 015 FR-11: biometric activation requires storable credentials,
+    // decided BEFORE the vault is created. Refusal is explicit, and an
+    // empty string is never written to the secure store (AC-6).
+    if (biometricProtectionEnabled && password.isEmpty) {
+      return DatabaseSelectionSessionResult(
+        status: DatabaseSessionStatus.error,
+        message:
+            'Biometric unlock needs a master password to store. Set a '
+            'password, or turn biometric protection off.',
+        items: await _loadSelectionItems(),
+      );
+    }
+
+    final originalActive = await getActiveDatabaseUseCase();
+    final originalSessionSecret = sessionSecretHolder.hasSecret
+        ? sessionSecretHolder.read()
+        : null;
+
+    // The use case cleans up its own partial output on failure (including
+    // key material it generated), so a throw here leaves nothing behind.
     final created = await createDatabaseUseCase(
       CreateDatabaseRequest(
         databaseFileName: databaseFileName,
@@ -684,6 +709,23 @@ class DatabaseSessionCoordinator {
       );
     }
 
+    Future<void> deleteCreatedArtifacts() async {
+      try {
+        await databaseFileRepository.deleteFile(created.databasePath);
+      } catch (_) {}
+      // FR-9: only key material this attempt created is deleted. A selected
+      // key produced a managed COPY; the user's original is never touched,
+      // and the copy goes only when it was made by this attempt.
+      final createdKeyPath = created.keyFilePath;
+      if (createdKeyPath != null &&
+          createdKeyPath.trim().isNotEmpty &&
+          createdKeyPath != keyFilePath) {
+        try {
+          await databaseFileRepository.deleteFile(createdKeyPath);
+        } catch (_) {}
+      }
+    }
+
     final imported = DatabaseImportResult(
       path: created.databasePath,
       // spec 014 FR-3: the on-disk name is opaque; the display name is the
@@ -694,37 +736,78 @@ class DatabaseSessionCoordinator {
       fileHash: created.fileHash,
       sourceType: DatabaseSourceType.created,
     );
-    final result = await _applyImportedDatabase(
-      imported,
-      clearCredentials: false,
-    );
 
-    if (result.path != null) {
+    String? committedDatabaseId;
+    try {
+      final result = await _applyImportedDatabase(
+        imported,
+        clearCredentials: false,
+      );
+
+      if (result.path == null) {
+        // Duplicate prompt or cancellation: this attempt commits nothing,
+        // so its artefacts must not linger on disk either.
+        await deleteCreatedArtifacts();
+        return result;
+      }
+
+      final record = await _findRecordByPath(result.path!);
+      committedDatabaseId = record?.databaseId;
       await _saveSecurityProfile(
         path: result.path!,
         keyFilePath: created.keyFilePath,
         biometricProtectionEnabled: biometricProtectionEnabled,
       );
-      sessionSecretHolder.set(password);
-      // spec-011 FR-3: persist the biometric credential only when the user
-      // enabled biometric protection for this database at creation.
-      if (biometricProtectionEnabled) {
-        final record = await _findRecordByPath(result.path!);
-        if (record != null) {
-          await databaseSessionRepository.saveMasterPassword(
-            record.databaseId,
-            password,
-          );
-        }
+      // spec 015 FR-11/T016: a key-file-only vault has no password secret;
+      // the session secret is never seeded with an empty string (spec 011
+      // session-scope rules).
+      if (password.isNotEmpty) {
+        sessionSecretHolder.set(password);
+      } else {
+        sessionSecretHolder.clear();
       }
-    }
+      // spec-011 FR-3: persist the biometric credential only when the user
+      // enabled biometric protection for this database at creation. The
+      // FR-11 guard above proved the password is non-empty.
+      if (biometricProtectionEnabled && record != null) {
+        await databaseSessionRepository.saveMasterPassword(
+          record.databaseId,
+          password,
+        );
+      }
 
-    return DatabaseSelectionSessionResult(
-      status: result.status,
-      path: result.path,
-      items: result.items,
-      message: result.path == null ? result.message : 'Database created.',
-    );
+      return DatabaseSelectionSessionResult(
+        status: result.status,
+        path: result.path,
+        items: result.items,
+        message: result.path == null ? result.message : 'Database created.',
+      );
+    } catch (error) {
+      // FR-9 compensation, in reverse order of mutation.
+      if (committedDatabaseId != null) {
+        try {
+          await databaseSessionRepository.clearMasterPassword(
+            committedDatabaseId,
+          );
+        } catch (_) {}
+        try {
+          await databaseSecurityRepository.removeProfile(committedDatabaseId);
+        } catch (_) {}
+      }
+      try {
+        await _removeRecordByPath(created.databasePath);
+      } catch (_) {}
+      try {
+        await databaseRegistryRepository.setActive(originalActive?.databaseId);
+      } catch (_) {}
+      if (originalSessionSecret == null) {
+        sessionSecretHolder.clear();
+      } else {
+        sessionSecretHolder.set(originalSessionSecret);
+      }
+      await deleteCreatedArtifacts();
+      rethrow;
+    }
   }
 
   /// FR-2 create-flow step policy (C-5): pure decision, no I/O. Returns the
@@ -739,17 +822,15 @@ class DatabaseSessionCoordinator {
       return current;
     }
     return switch (current) {
-      CreateDatabaseStep.nameAndStorage => CreateDatabaseStep.masterPassword,
-      CreateDatabaseStep.masterPassword => CreateDatabaseStep.optionalLocks,
-      CreateDatabaseStep.optionalLocks => CreateDatabaseStep.optionalLocks,
+      CreateDatabaseStep.nameAndStorage => CreateDatabaseStep.credentials,
+      CreateDatabaseStep.credentials => CreateDatabaseStep.credentials,
     };
   }
 
   CreateDatabaseStep resolveCreateDatabaseStepBack(CreateDatabaseStep current) {
     return switch (current) {
       CreateDatabaseStep.nameAndStorage => CreateDatabaseStep.nameAndStorage,
-      CreateDatabaseStep.masterPassword => CreateDatabaseStep.nameAndStorage,
-      CreateDatabaseStep.optionalLocks => CreateDatabaseStep.masterPassword,
+      CreateDatabaseStep.credentials => CreateDatabaseStep.nameAndStorage,
     };
   }
 

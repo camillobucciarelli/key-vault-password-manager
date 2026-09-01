@@ -145,7 +145,7 @@ void main() {
       expect(rowTitle.style!.color, KeyVaultColors.dark.textPrimary);
     });
 
-    testWidgets('create steps 1-3: title resolves to textPrimary', (
+    testWidgets('create steps 1-2: title resolves to textPrimary', (
       tester,
     ) async {
       final result = await pumpableCreateDatabaseScreen(
@@ -162,17 +162,7 @@ void main() {
       await tester.tap(find.text('Continue'));
       await tester.pumpAndSettle();
       expect(
-        tester.widget<Text>(find.text('Set a master password')).style!.color,
-        KeyVaultColors.dark.textPrimary,
-      );
-
-      await tester.enterText(find.byType(TextFormField).at(0), 'x');
-      await tester.enterText(find.byType(TextFormField).at(1), 'x');
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Continue'));
-      await tester.pumpAndSettle();
-      expect(
-        tester.widget<Text>(find.text('Optional locks')).style!.color,
+        tester.widget<Text>(find.text('Choose your credentials')).style!.color,
         KeyVaultColors.dark.textPrimary,
       );
       expect(tester.takeException(), isNull);
