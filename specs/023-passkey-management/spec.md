@@ -50,10 +50,10 @@ this feature, not a checklist item at the end.
 
 ### Session 2026-08-29
 
-- Q: Is user presence required on every assertion, or may a recent unlock satisfy it? → A: Every assertion — biometrics or device passcode each time, no reuse of the password path's recent-unlock window.
-- Q: Where does passkey private key material live when the app is not running? → A: In the same sealed cache the app already uses for passwords (AES-GCM-256 in the App Group container, key in the shared keychain, this-device-only, never in a backup), wiped when the database is locked or removed.
+- Q: Is user presence required on every assertion, or may a recent unlock satisfy it? → A: Every assertion — biometrics or device passcode each time; do not reuse the password autofill recent-unlock window.
+- Q: Where does passkey private key material live when the app is not running? → A: In the same sealed, device-local cache already used for passwords (excluded from backups), wiped when the database is locked or removed.
 - Q: Does Android's Credential Manager belong in this spec or its own? → A: Its own spec — 023 stops at Apple.
-- Q: Where is the key pair generated at registration? → A: In the credential provider extension, in CryptoKit; no Dart cryptography dependency is added by this spec.
+- Q: Where is the key pair generated at registration? → A: In the credential provider extension using the platform cryptography APIs; this spec adds no Dart cryptography dependency.
 
 ## User Scenarios & Testing *(mandatory)*
 
