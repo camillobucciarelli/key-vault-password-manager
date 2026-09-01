@@ -994,8 +994,14 @@ named widget assertions pass.
 
 - [x] **T701** Format focused Dart changes and run `flutter analyze`.
 - [x] **T702** Run focused tests below; full `flutter test` before release only.
-- [ ] **T703** Run/attach each shipped platform harness artifact; keep failed or
-      missing platform feature-disabled.
+- [x] **T703** Run/attach each shipped platform harness artifact; keep failed or
+      missing platform feature-disabled. All five shipped platforms attached
+      from `feasibility-report.md` §"T111 artifact metadata": Android
+      (emulator, API 36, arm64, 8/8), iOS (physical iPhone 16 Pro, iOS 26.6,
+      8/8), macOS (host harness, 8/8), Windows (CI `windows-2022`/NTFS, PR
+      #127 run `32713786823`, 8/8) and Linux (CI `ubuntu-latest`/ext4, same
+      run, 8/8) — none `failed` or missing, so no platform stays
+      feature-disabled on this task's account.
 - [ ] **T704** Manual two-client pass: one-sided records/fields/attachments,
       deletion evidence, stale sides, backup/disk failures, rename aliases,
       edit/auto-sync/lock boundary, all upload outcomes, restart recovery and
