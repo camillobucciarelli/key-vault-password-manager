@@ -1,0 +1,62 @@
+[
+  {
+    "id": "Q1",
+    "domanda": "Quando una sola mapping in sync_mappings.json ha identita' remota mancante o non valida, il fallimento di decodifica riguarda l'intero file o solo quella voce? E come fa una voce non decodificabile a sopravvivere al write-forward v2, dato che la spec vieta di scartarla silenziosamente?",
+    "opzioni": [
+      "A — Per-voce con quarantena: getAllMappings restituisce le mapping valide, la voce non valida viene conservata come JSON grezzo opaco e riscritta invariata dal serializzatore v2; l'errore di decodifica e' esposto solo come stato diagnostico non bloccante",
+      "B — Per-voce senza quarantena: le mapping valide vengono restituite, la voce non valida viene saltata e segnalata, ma il write-forward la perde definitivamente",
+      "C — Per-file: qualsiasi voce non valida fa fallire l'intera lettura con l'errore safe di decodifica; nessuna mapping viene caricata e nessun write-forward avviene finche' il file non e' riparato",
+      "D — Per-file in lettura ma con backup: come C, piu' copia datata del sync_mappings.json non decodificabile prima di qualsiasi riscrittura successiva"
+    ],
+    "default": "A — Per-voce con quarantena e riscrittura fedele della voce opaca",
+    "impatto": "Alto. Decide il raggio d'azione di un singolo record corrotto: con C un utente con N database perde la sync di tutti per colpa di uno. Determina la firma e la struttura di SyncMetadataDataSource.getAllMappings (oggi e' un unico .map() che propaga: una fromMap che lancia fa gia' fallire l'intera lettura, e .whereType<Map>() scarta gia' silenziosamente le voci non-mappa, in conflitto con la regola 6 di 'Backward-compatible decode'), il modello dati del serializzatore v2 (serve o no un contenitore per JSON opaco non decodificato), e la matrice di test T103/T104. Tocca i criteri di accettazione 7 e 9."
+  },
+  {
+    "id": "Q2",
+    "domanda": "Il guard su mapping.providerId deve bloccare anche le operazioni puramente locali sui metadati — removeMapping, moveMappingPath, restoreMappingPathMove, setAutoSync — oppure solo le operazioni che toccano il remoto?",
+    "opzioni": [
+      "A — Solo I/O remoto e scritture del vault: le operazioni locali su metadati (remove, move, restore, setAutoSync) restano sempre permesse, cosi' l'utente puo' sempre scollegare o spostare una mapping con provider sconosciuto",
+      "B — Tutte le mutazioni di mapping sono bloccate da unsupportedProvider, comprese remove e move, come dice alla lettera la sezione 'Error and security requirements'",
+      "C — Bloccate tutte tranne una via di uscita esplicita: remove/unlink resta sempre consentito, il resto e' bloccato",
+      "D — Bloccate tutte le mutazioni tranne quelle che non richiedono coerenza col provider (setAutoSync e move), con remove consentito"
+    ],
+    "default": "A — Guard limitato a I/O remoto e scritture vault; le operazioni locali sui metadati restano disponibili",
+    "impatto": "Alto, e risolve una contraddizione interna alla spec. La regola 7 di 'Architecture and dependency rules' impone la verifica solo 'before remote I/O'; la sezione 'Error and security requirements' estende il controllo a 'mapping mutation'. Con la lettura B una mapping con providerId sconosciuto diventa non rimovibile dall'app: nessun percorso UI per uscirne, se non l'editing manuale del file di metadati. Determina il punto d'innesto del guard in DatabaseSyncOrchestrator/DatabaseSyncRepositoryImpl, il comportamento dell'auto-sync su quella mapping e i contatori-a-zero attesi da T302."
+  },
+  {
+    "id": "Q3",
+    "domanda": "Il timeout per-chiamata resta nell'orchestratore, che oggi lancia un TimeoutException grezzo, mentre la tabella degli errori mappa TimeoutException su CloudStorageErrorCode.timeout a livello di adapter: chi possiede il timeout dopo il refactor, e l'orchestratore deve convertire il proprio TimeoutException in CloudStorageException?",
+    "opzioni": [
+      "A — Il timeout resta nell'orchestratore (posizione invariata) e l'orchestratore avvolge il proprio TimeoutException in CloudStorageException(timeout) prima di propagarlo",
+      "B — Il timeout resta nell'orchestratore e continua a propagare TimeoutException grezzo; presentation e coordinator gestiscono due famiglie di errori distinte",
+      "C — Il timeout si sposta dentro il GoogleDriveStorageProvider, che lo mappa su timeout; l'orchestratore non applica piu' alcun .timeout()",
+      "D — Timeout su entrambi i livelli: budget interno nell'adapter piu' timeout di sicurezza esterno nell'orchestratore, entrambi normalizzati a CloudStorageException(timeout)"
+    ],
+    "default": "A — Timeout in posizione invariata nell'orchestratore, avvolto in CloudStorageException(timeout)",
+    "impatto": "Alto. E' l'unico punto in cui un errore non provider-neutrale puo' ancora attraversare il confine dati verso presentation. Verificato nel codice: DatabaseSyncOrchestrator._remote applica .timeout(driveCallTimeout) e il commento a riga 39 dichiara che 'TimeoutException surfaces through syncNow's existing error path'. Il piano M3 impone 'stessa durata e stessa collocazione del timeout', quindi C cambierebbe la collocazione; ma senza A lo slot di errore dinamico dell'UI non ha alcun safeMessage da mostrare per il caso timeout, e il criterio 10 ('mappatura esaustiva') resta non verificabile per la riga TimeoutException. Determina T301, T203 e la gestione degli errori nei coordinator."
+  },
+  {
+    "id": "Q4",
+    "domanda": "Per un HTTP 403 l'ispezione del body alla ricerca delle reason di rate-limit e' obbligatoria o facoltativa, e in caso di conflitto fra una riga per codice di stato e la riga malformedResponse quale ha precedenza?",
+    "opzioni": [
+      "A — Ispezione obbligatoria per i soli 403; la classificazione avviene per codice di stato prima di tutto, e malformedResponse si applica solo alle risposte 2xx il cui payload non e' parsabile; un body 403 illeggibile ricade su forbidden",
+      "B — Ispezione obbligatoria; un body 403 illeggibile diventa malformedResponse",
+      "C — Ispezione facoltativa (il 'may' della spec e' letterale): l'adapter puo' mappare qualunque 403 su forbidden, e i test sul rate-limit accettano entrambi gli esiti",
+      "D — Nessuna ispezione del body: ogni 403 e' forbidden, il rate limit si riconosce solo dal 429"
+    ],
+    "default": "A — Ispezione obbligatoria sui 403, precedenza allo stato HTTP, body 403 illeggibile su forbidden",
+    "impatto": "Medio-alto. La spec dice che la mappatura Google e' 'exhaustive and precedence-ordered' e chiede un test di confine per ogni riga, ma poi indebolisce il 403 con 'may classify a known rate-limit reason': con C la riga rateLimited da 403 non e' deterministica e non e' testabile come richiede il criterio 10. La precedenza fra stato e malformedResponse e' pure indefinita: un 500 con JSON non valido puo' oggi giustificare sia serverFailure sia malformedResponse. Determina la struttura del mapper d'errore in T203 e l'esito atteso di una riga di test per enum."
+  },
+  {
+    "id": "Q5",
+    "domanda": "Dato che un binario piu' vecchio non sa decodificare una mapping gia' riscritta in versione 2, il reader tollerante alla v2 va rilasciato in una release precedente al writer v2, oppure si accetta che il rollback richieda una patch di compatibilita' costruita a posteriori?",
+    "opzioni": [
+      "A — Rilascio in due fasi: una release precedente contiene solo il reader tollerante v1+v2, il writer v2 arriva nella release successiva; il rollback a una versione qualsiasi resta sicuro senza patch",
+      "B — Rilascio unico come da piano attuale, accettando che il rollback richieda la compilazione di una patch di compatibilita' reattiva",
+      "C — Rilascio unico piu' backup preventivo: alla prima riscrittura v2 viene salvata una copia datata del sync_mappings.json v1, cosi' il rollback ripristina i metadati invece di richiedere una patch",
+      "D — Nessun write-forward automatico: la v2 viene scritta solo per le mapping nuove o modificate esplicitamente, le legacy restano in v1 finche' possibile"
+    ],
+    "default": "C — Rilascio unico con backup datato del file v1 alla prima migrazione",
+    "impatto": "Medio-alto, sul rischio di rilascio piu' che sull'architettura. La spec definisce la 'backout consequence' come esplicita ma non impone alcuna mitigazione preventiva, e 'Rollout sequencing' chiede reader e writer nella stessa release, escludendo A senza dirlo. Il principio VII della costituzione impone un backup datato prima delle operazioni irreversibili: la prima riscrittura v2 e' irreversibile per i binari precedenti, quindi C e' la lettura piu' coerente con la costituzione. Determina M1/T104, la sezione Rollout and backout e la definition of done."
+  }
+]
