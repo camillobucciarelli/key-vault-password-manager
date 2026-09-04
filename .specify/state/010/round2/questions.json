@@ -1,0 +1,95 @@
+[
+  {
+    "id": "Q6",
+    "finding": "E2",
+    "titolo": "Dove vive il backup datato della v1",
+    "domanda": "La clarification Q5 impone una copia datata del sync_mappings.json versione 1 prima della prima riscrittura in versione 2. Quale componente possiede quella copia, e in quale forma? Vincolo di fatto rilevato nel codice: dopo la spec 014 il file NON e' piu' in chiaro — EncryptedMetadataStore lo sigilla con AES-256-GCM, lo scrive con temp+rename atomico e lo rilegge come 'vuoto' se la chiave nel secure store manca o il ciphertext e' manomesso. Una copia datata e' quindi una copia di ciphertext, ripristinabile solo finche' quella stessa chiave sopravvive sul dispositivo.",
+    "severita": "alta",
+    "opzioni": [
+      {
+        "lettera": "A",
+        "titolo": "Copia cifrata dentro il data source metadati",
+        "dettaglio": "SyncMetadataDataSourceImpl copia byte-per-byte il file sigillato in 'sync_mappings.v1.<yyyy-mm-dd>.json.bak' accanto all'originale, una sola volta, prima della prima serializzazione v2, e non procede alla mutazione se la copia fallisce. Nessuna decifratura, nessun nuovo file in chiaro, nessun nuovo nodo di DI: il data source possiede gia' il percorso, la directory e la scrittura atomica. Un marker durevole (presenza del file datato) impedisce di riprendere il backup a ogni scrittura successiva."
+      },
+      {
+        "lettera": "B",
+        "titolo": "backupOnce generalizzato in EncryptedMetadataStore",
+        "dettaglio": "EncryptedMetadataStore espone un backup generico riusabile da tutti i file di metadati della 014. Massimo riuso, ma allarga il confine della cifratura posseduto dalla spec 014, offre la primitiva anche a file che la 010 non possiede (pending_uploads.json) e crea un'astrazione con un solo chiamante reale, contro il principio VIII."
+      },
+      {
+        "lettera": "C",
+        "titolo": "Riuso del safe writer della 008",
+        "dettaglio": "Il backup passa per SafeVaultFileWriter.backup della spec 008: collision-safe, verificato in rilettura, con mode floor owner-only. E' la garanzia piu' forte disponibile, ma quel writer e' il percorso di scrittura dei vault: instradarci un file di metadati accoppia la 010 al writer della 008 e contraddice sia il gate 3 del piano ('non duplicare ne' bypassare il safe writer, questo refactor non aggiunge percorsi di scrittura KDBX') sia il non-goal 'nessun accesso .kdbx durante la migrazione'."
+      },
+      {
+        "lettera": "D",
+        "titolo": "Servizio dedicato di migrazione una-tantum",
+        "dettaglio": "Un nuovo servizio data-layer sul modello di LegacyDatabaseRegistryMigration possiede backup, marker durevole e riscrittura v2, ed e' registrato in DI. Responsabilita' singola e testabile in isolamento, ma introduce un nodo e una registrazione DI nuovi per lavoro una-tantum, in uno slice il cui vincolo dichiarato e' 'ship the smallest thing'."
+      }
+    ],
+    "default": "A — Copia byte-per-byte del file sigillato dentro SyncMetadataDataSourceImpl",
+    "impatto": "Determina il proprietario di T104b (nuovo task), la sezione 'Add/Change' di M1, la riga VII del Constitution Check (oggi dichiara 'la migrazione scrive solo sync_mappings.json'), il nome e il formato del file di backup citati nella definition of done, e il passo 8 dello smoke manuale a cinque piattaforme. Nota da riportare comunque nella spec qualunque sia la scelta: il backup e' ciphertext, quindi protegge dal rollback del binario ma NON dalla perdita della chiave nel secure store; il claim di backout della spec va limitato di conseguenza."
+  },
+  {
+    "id": "Q7",
+    "finding": "E7",
+    "titolo": "Dove vive la diagnostica di quarantena",
+    "domanda": "La clarification Q1 dice che l'errore di decodifica di una voce in quarantena e' esposto 'solo come stato diagnostico non bloccante'. Su quale superficie vive quello stato, e chi puo' osservarlo? Oggi getAllMappings restituisce un semplice List<DatabaseSyncMapping> e non ha alcun canale per segnalare che una voce e' stata messa da parte.",
+    "severita": "media",
+    "opzioni": [
+      {
+        "lettera": "A",
+        "titolo": "Risultato tipizzato nel data source, nessuna UI",
+        "dettaglio": "Il data source espone la quarantena come stato leggibile e provider-neutrale (conteggio delle voci in quarantena piu' un safe code stabile, es. 'sync_metadata.quarantined_entry'), il repository lo ripubblica come valore sicuro interrogabile, e la presentation in questo slice non mostra nulla: nessuna stringa nuova, nessuna copy change. Un'unica riga di log safe per lettura, senza JSON grezzo, senza percorso, senza identita' remota. I test del criterio 7 asseriscono sul valore tipizzato, non sui log."
+      },
+      {
+        "lettera": "B",
+        "titolo": "Solo log, nessuno stato osservabile",
+        "dettaglio": "L'unica traccia e' una riga di log con il safe code. Costo minimo e zero impatto sulle firme esistenti, ma 'stato diagnostico' resta una parola vuota: il criterio di accettazione 7 diventerebbe verificabile solo catturando i log, e nessun futuro flusso di riparazione potrebbe interrogare la condizione."
+      },
+      {
+        "lettera": "C",
+        "titolo": "Slot lastError della mapping interessata",
+        "dettaglio": "Riusa il campo di errore gia' presente sulla mapping. Non e' realizzabile: la voce in quarantena e', per definizione, quella che non e' diventata una mapping, quindi non esiste alcun oggetto su cui appoggiare l'errore. Elencata solo per chiuderla esplicitamente."
+      },
+      {
+        "lettera": "D",
+        "titolo": "Stato visibile nella UI di sync",
+        "dettaglio": "Un badge o un messaggio nello stato di sync avvisa l'utente che una voce di metadati non e' leggibile. E' l'unica opzione che dice qualcosa all'utente, ma richiede copy nuova, quindi viola il principio VI e il non-goal 'nessuna nuova UI di categoria di sicurezza' di questo slice; andrebbe rinviata a una spec successiva."
+      }
+    ],
+    "default": "A — Stato tipizzato al data source, ripubblicato dal repository, nessuna superficie UI in questo slice",
+    "impatto": "Determina se la firma di SyncMetadataDataSource.getAllMappings cambia (e quindi se tutti i suoi chiamanti vanno toccati) oppure se la diagnostica arriva da una seconda lettura dedicata, la forma dell'asserzione del criterio di accettazione 7, il contenuto di T103 e se la Phase 4 (presentation) viene toccata o resta fuori. Con D il Constitution Check passerebbe da PASS a una deroga esplicita sul principio VI."
+  },
+  {
+    "id": "Q8",
+    "finding": "E13",
+    "titolo": "Comportamento quando l'intero file e' illeggibile",
+    "domanda": "La clarification Q1 ha risolto solo il caso della singola voce non decodificabile. Resta indefinito il caso a livello di file. Comportamento attuale verificato nel codice, e sono tre comportamenti diversi: jsonDecode su JSON non valido lancia FormatException e fa fallire l'intera lettura; un JSON valido che non e' una lista restituisce silenziosamente lista vuota; readString restituisce null — quindi ancora lista vuota — se la chiave dei metadati manca o il ciphertext e' manomesso. Il pericolo e' la combinazione: una lettura che restituisce vuoto per errore seguita da un qualunque upsert riscrive il file completo e cancella ogni mapping che era solo temporaneamente illeggibile.",
+    "severita": "alta",
+    "opzioni": [
+      {
+        "lettera": "A",
+        "titolo": "Fail-closed non distruttivo, scritture bloccate",
+        "dettaglio": "Un file presente ma non interpretabile (JSON non valido, oppure JSON valido che non e' una lista) produce un errore tipizzato safe di metadati, non restituisce mapping e blocca ogni scrittura di mapping finche' il file non torna leggibile, cosi' nessun salvataggio puo' sovrascrivere mapping che erano solo illeggibili. Prima di qualsiasi riparazione viene conservata una copia datata del file. Lo stato FR-5 della spec 014 (nessuna chiave, contenuto assente) resta uno stato vuoto legittimo in cui le scritture restano permesse: 'vuoto per progetto' e 'illeggibile' diventano due esiti distinti, oggi indistinguibili."
+      },
+      {
+        "lettera": "B",
+        "titolo": "Nessun cambiamento, comportamento attuale invariato",
+        "dettaglio": "Si preserva alla lettera il comportamento odierno: non-lista diventa vuoto silenzioso, JSON non valido propaga. Coerente con 'preserve current behavior exactly' e a costo zero, ma lascia aperto il percorso di cancellazione silenziosa e contraddice, su scala di file, la motivazione stessa della Q1 ('una mapping non deve mai essere persa in silenzio')."
+      },
+      {
+        "lettera": "C",
+        "titolo": "Quarantena dell'intero file, scritture permesse",
+        "dettaglio": "Il file illeggibile viene conservato sotto un nome datato prima di essere sostituito, ma le scritture proseguono su un file nuovo. Nessuna operazione utente viene bloccata e nulla viene distrutto senza copia; in compenso l'utente resta con la sync di fatto sconfigurata su tutti i database e nessun segnale attivo che debba ripristinare qualcosa."
+      },
+      {
+        "lettera": "D",
+        "titolo": "Ripara e prosegui, senza conservare nulla",
+        "dettaglio": "Il file illeggibile viene semplicemente ricreato vuoto e la app riparte da zero. Massima semplicita' di codice e nessuno stato bloccato, ma e' l'unica opzione che perde dati in modo definitivo e senza consenso: da respingere, elencata per completezza."
+      }
+    ],
+    "default": "A — Fail-closed non distruttivo, con copia datata e distinzione fra 'vuoto per progetto' e 'illeggibile'",
+    "impatto": "Determina il contratto di getAllMappings e _saveMappings, l'esito di T103/T104 nel caso a livello di file e la formulazione del criterio di accettazione 7. Va deciso anche il confine di proprieta': il file di metadati e la sua cifratura appartengono alla spec 014, quindi con A o C una parte del lavoro potrebbe legittimamente appartenere alla 014 e non alla 010 — in tal caso la 010 documenta il vincolo e la 014 lo implementa. Con B la 010 resta piu' piccola ma eredita un percorso noto di perdita dati."
+  }
+]

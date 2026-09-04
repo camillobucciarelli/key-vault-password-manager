@@ -9,6 +9,36 @@ survives. If 013 lands first, the tasks below that touch the selection surface
 rename what 013 shipped instead of what exists today. Do not restate 013's tasks
 in this file.
 
+## Clarification traceability
+
+Every clarification in `spec.md` §Clarifications (session 2026-09-04) has an
+owning task, so none of them can land as spec text only:
+
+| Clarification | Owning tasks |
+| --- | --- |
+| Q1 — per-entry decode with quarantine | T103, T104 |
+| Q2 — guard covers only remote I/O and vault writes | T302, T304 |
+| Q3 — timeout stays in the orchestrator, wrapped as `CloudStorageException(timeout)` | T301 |
+| Q4 — mandatory `403` body inspection, status-first precedence | T203 |
+| Q5 — dated version-1 backup before the first v2 rewrite | T104b |
+
+Three product decisions raised by those clarifications are open and recorded in
+`.specify/state/010/round2/questions.json`. They are **not blocking**: the tasks
+below implement the proposed default and name the affected acceptance line as
+`[depends on Q6/Q7/Q8]`. Answering a question differently rewrites that line
+only.
+
+- **Q6 (E2)** — which component owns the dated version-1 backup. Default:
+  `SyncMetadataDataSourceImpl` copies the sealed file byte-for-byte. Affects
+  T104b.
+- **Q7 (E7)** — where the non-blocking quarantine diagnostic lives. Default:
+  typed state at the data source, republished by the repository, no UI. Affects
+  T103.
+- **Q8 (E13)** — behavior when the **whole** metadata file is undecodable, as
+  opposed to one entry. Default: fail closed without destroying, and block
+  mapping writes until the file reads again. Affects T103 and T104, and may be
+  reassigned to spec 014, which owns the metadata file.
+
 ## Phase 0 — Baseline and coordination
 
 - [ ] **T001 Reconcile active spec 008** — owner: `senior-flutter-dev`  
@@ -40,13 +70,40 @@ in this file.
   Verify: order recorded; the selection-surface tasks name which surface they
   target; selection suites listed in the rebase step.
 
+- [ ] **T001c Reconcile landed spec 014** — owner: `senior-flutter-dev`  
+  Files: `specs/014-managed-storage-hardening/tasks.md`,
+  `lib/features/password_manager/data/datasources/{sync_metadata_data_source,metadata_cipher}.dart`,
+  `lib/features/password_manager/domain/models/database_sync_mapping.dart`.  
+  Spec 014 has already landed almost entirely and it moved the ground under
+  every mapping/metadata task in this file. Confirm and record its current
+  state, then correct any 010 wording that assumes the pre-014 world as the task
+  that touches it lands.  
+  Acceptance: four post-014 facts are confirmed against the code and written
+  into the plan's dependency gate 6 —
+  (a) `sync_mappings.json` is encrypted at rest via `EncryptedMetadataStore`
+  (AES-256-GCM), so "inspect the metadata" and "restore the backup" both mean
+  ciphertext and both depend on the secure-store metadata key surviving;
+  (b) metadata writes already use atomic temp-write + rename, so 010 adds no
+  second durability mechanism;
+  (c) mappings are keyed by **database identifier**, not by path
+  (`getMapping(String databaseId)`), so `databasePath` is location data and any
+  010 text treating it as the lookup key is stale;
+  (d) an absent key or tampered ciphertext currently reads as *empty*, which is
+  indistinguishable from legitimately empty — the exact ambiguity `[depends on
+  Q8]` asks about.  
+  Verify: read 014's `tasks.md` at implementation time rather than trusting this
+  snapshot; run the metadata data source suite before any 010 edit.
+
 - [ ] **T002 Characterize sync algorithm before edits** — owner:
   `senior-flutter-dev`  
   Files: `test/features/password_manager/data/services/database_sync_orchestrator_test.dart`,
   `edit_vs_sync_lost_update_test.dart`, `database_writer_lock_routing_test.dart`.  
   Acceptance: tests pin first baseline, no-change, local-only, remote-only,
   conflict/cancel/keep-local/use-remote, checksum-download fallback, timeout and
-  lock release.  
+  lock release. The timeout case pins the current **failure type** (a bare
+  `TimeoutException`) as well as its duration and placement, so T301's
+  normalization to `CloudStorageException(timeout)` shows up as exactly one
+  intended assertion edit rather than as a silent behavior change.  
   Verify: targeted tests green against unmodified production code.
 
 - [ ] **T003 Characterize Google adapter inputs/outputs** — owner:
@@ -66,11 +123,18 @@ in this file.
   asserts today's baseline plus the explicit allowlist, so it fails only on drift.
   Constitution IX forbids committing a red suite, so no assertion describing the
   post-refactor target may be committed in a failing state: each target assertion
-  (orchestrator/domain Google freedom, one port and one implementation, no
-  registry, no provider injection into presentation) is written **disabled** here
-  and enabled by the task that makes it true — orchestrator freedom by T301, port
-  uniqueness and no-registry by T501, full legacy allowlist by T601b. Enabling an
-  assertion is part of that task's diff, never a separate commit.  
+  is written **disabled** here and enabled by the task that makes it true.
+  Enabling an assertion is part of that task's diff, never a separate commit.
+  Complete disabled-assertion list and its owner:
+
+  | Disabled assertion | Enabled by |
+  | --- | --- |
+  | orchestrator and domain are Google/Drive free | T301 |
+  | no bare `TimeoutException` is thrown or propagated out of `data/` | T301 |
+  | one provider port, one production implementation, no registry/factory/map | T501 |
+  | no provider port injected into presentation | T502 |
+  | full legacy-identifier allowlist | T601b |
+  
   Verify: `flutter test <this file>` green on the untouched baseline; every
   disabled assertion names the task ID that turns it on; no broad false positives.
 
@@ -115,21 +179,90 @@ in this file.
   Verify: constructor/copy/equality tests; source search finds no legacy fields in
   public domain contracts.
 
-- [ ] **T103 Implement exact v1/v2 decode** — owner: `senior-flutter-dev`  
+- [ ] **T103 Implement exact v1/v2 decode with per-entry quarantine** — owner:
+  `senior-flutter-dev`  
   Files: `database_sync_mapping.dart`, `sync_metadata_data_source.dart`, metadata
   tests/fixtures.  
-  Acceptance: absent provider defaults to `google_drive`; generic values win;
-  legacy fallback works; unknown provider retained; malformed required identity
-  fails closed without rewrite or vault access.  
-  Verify: table-driven migration test for every spec decode rule.
+  Acceptance, decode rules: absent provider defaults to `google_drive`; generic
+  values win over legacy aliases; legacy fallback works; unknown provider is
+  retained but not executable.  
+  Acceptance, failure scope (clarification Q1): a missing or invalid required
+  identity fails **per entry, not per file**. `getAllMappings` returns every
+  entry that decodes. The entry that does not decode is **quarantined**:
+  retained verbatim as opaque raw JSON, never interpreted, never executable,
+  never matched by a database identifier or remote-identity lookup. The failure
+  is surfaced as non-blocking diagnostic state, never thrown as a failure of the
+  whole read. Quarantine covers every entry the decoder cannot turn into a
+  mapping, **including an entry that is not a JSON object at all** — the current
+  silent `.whereType<Map>()` drop is a defect this task closes, not behavior to
+  preserve. No entry is silently dropped, no different object is connected, no
+  metadata rewrite is triggered by a read and no vault byte is touched.  
+  Acceptance, diagnostic surface `[depends on Q7]`: the quarantine state is
+  exposed as typed provider-neutral state at the data source (count plus a
+  stable safe code) and republished by the repository as a safe value. No UI
+  surface and no new user-facing string in this slice. Raw quarantined JSON, the
+  metadata path and any remote identity never enter the diagnostic, a log line
+  or a `toString`.  
+  Acceptance, whole-file failure `[depends on Q8]`: a file that is present but
+  not interpretable — invalid JSON, or valid JSON that is not a list — surfaces
+  a safe typed metadata error, returns no mappings and **blocks mapping writes**
+  until it reads again, so a read that returned empty by accident can never be
+  followed by a save that overwrites every mapping with an empty list. The
+  post-014 "no key yet" state stays a legitimate empty state in which writes are
+  allowed; the two cases are distinguishable, which today they are not.  
+  Verify: table-driven migration test for every spec decode rule, plus the six
+  fixtures listed in `plan.md` M0; a mixed fixture of several valid mappings and
+  one undecodable entry returns every valid mapping and reports exactly one
+  quarantined entry.
 
-- [ ] **T104 Write mappings forward to v2** — owner: `senior-flutter-dev`  
+- [ ] **T104 Write mappings forward to v2, preserving quarantined entries** —
+  owner: `senior-flutter-dev`  
   Files: same mapping/data-source files and portable-path tests.  
   Acceptance: successful metadata mutation writes `schemaVersion: 2`, generic
   identity keys and no legacy keys; all non-identity values and portable paths
   survive; reads remain side-effect free.  
+  Acceptance, quarantined entries (clarification Q1): the v2 serializer
+  re-emits a quarantined entry **unchanged** — it copies the retained raw JSON
+  through byte-for-byte, does not upgrade it to v2, does not give it a
+  `providerId`, does not reorder it into a decoded shape and does not drop it. A
+  write that cannot preserve a quarantined entry **fails instead of losing it**.
+  This is what makes "must not silently drop a mapping" enforceable across a
+  rewrite rather than only at read time.  
   Verify: decode legacy fixture, mutate, inspect JSON, decode again; assert vault
-  fixture checksum/mtime unchanged.
+  fixture checksum/mtime unchanged; round-trip a quarantined entry through
+  upsert → read → upsert and assert its bytes are identical to the original;
+  assert a serializer that cannot preserve it raises rather than writing a file
+  without it.
+
+- [ ] **T104b Back up version-1 metadata before the first v2 rewrite** — owner:
+  `senior-flutter-dev`  
+  Files: `lib/features/password_manager/data/datasources/sync_metadata_data_source.dart`,
+  `test/features/password_manager/data/datasources/sync_metadata_data_source_test.dart`.  
+  Clarification Q5 chose a single release plus a preventive backup over a
+  two-release reader-then-writer sequence, because the first v2 write is
+  irreversible for an older binary and constitution principle VII requires a
+  dated copy before an irreversible operation.  
+  Acceptance: before the first version-2 rewrite of a given metadata file, a
+  dated copy of the existing version-1 file is written alongside it. The copy is
+  taken **once**, **before** the mutation, and the mutation does not proceed if
+  it cannot be written. It is a copy of the file as it exists on disk — post-014
+  that is sealed ciphertext, so this is a byte copy and never a
+  decrypt-and-rewrite, and it introduces no plaintext metadata file. It contains
+  metadata only: no vault bytes, no credential, no key material. Migration
+  writes exactly these two files and never opens, decrypts, copies, renames or
+  rewrites a `.kdbx`. A durable marker — the presence of the dated file — stops
+  the backup being retaken on every later write.  
+  Acceptance, owner `[depends on Q6]`: the default implementation puts this in
+  `SyncMetadataDataSourceImpl`, which already owns the path, the directory and
+  the atomic write, so no new DI node is added.  
+  Acceptance, honest scope: the backup protects against a rolled-back **binary**,
+  not against a lost secure-store metadata **key** — restoring it requires that
+  key. State that limit in the release note and do not let `spec.md`'s backout
+  section imply more.  
+  Verify: first v2 write produces the dated file and a second write does not
+  produce a second one; a write that cannot create the backup leaves the
+  original file byte-identical and performs no mutation; restoring the dated
+  copy over the live file decodes back to the original v1 mappings.
 
 - [ ] **T105 Make remote identity a tuple everywhere** — owner:
   `senior-flutter-dev`  
@@ -164,13 +297,32 @@ in this file.
   Files: Google adapter/error tests and minimal Google service changes.  
   Acceptance: exact `CloudStorageErrorCode`, safe code and fixed message table in
   `spec.md`; exhaustive Google/transport source mapping including one-refresh
-  `401`, `403` rate-limit precedence and deterministic `unknown`;
-  orchestrator-owned `unsupportedProvider` is covered by T302. Raw SDK exception,
+  `401` and deterministic `unknown`; orchestrator-owned `unsupportedProvider` is
+  covered by T302 and the orchestrator-owned timeout by T301. Raw SDK exception,
   HTTP body, token-like sentinel, signed URL and stack text never escape or
   persist. No new retry engine. Existing static/unrelated surrounding UI copy
   remains unchanged; unsafe dynamic error detail uses fixed safe text.  
+  Acceptance, precedence (clarification Q4) — three rules, none left to
+  implementation taste:
+  1. an HTTP response is classified by **status code first**;
+     `malformedResponse` is reachable **only** from a `2xx` whose payload cannot
+     be parsed or is missing a required field. A non-`2xx` keeps its
+     status-derived code even when its body is invalid JSON — a `500` with an
+     unparsable body is `serverFailure`, never `malformedResponse`;
+  2. body inspection is **mandatory on `403`** and is the only case where a body
+     affects classification. `rateLimitExceeded`, `userRateLimitExceeded`,
+     `dailyLimitExceeded` and `quotaExceeded` map to `rateLimited`; every other
+     `403` — absent, unparsable or unrecognized reason — maps to `forbidden`.
+     The spec's earlier "may classify" wording is superseded: this is one exact
+     expectation, not a permitted choice. The inspected body is discarded
+     immediately and is never copied into the exception;
+  3. `TimeoutException` in this table means a **transport-level** timeout
+     observed inside the adapter, a different code path from the orchestrator's
+     per-call timeout; both surface the same `timeout` code and message.  
   Verify: one adversarial test per table row plus unknown, exact strings, sentinel
-  absence in exception/string/log/state/persistence.
+  absence in exception/string/log/state/persistence, and one case each for the
+  three precedence rules — `2xx`-only `malformedResponse`, a `500` with an
+  unparsable body, and both `403` rows including an unreadable `403` body.
 
 ## Phase 3 — Neutralize data workflow and repository
 
@@ -179,18 +331,51 @@ in this file.
   Files: `data/services/database_sync_orchestrator.dart`, tests/fakes.  
   Acceptance: no Google/Drive import or dependency; provider-neutral timeout name;
   same duration, lock scope, checksum fallback and sync branches.  
-  Verify: T002 tests unchanged and green; review algorithm-only diff is empty.
+  Acceptance, timeout normalization (clarification Q3): the orchestrator **keeps
+  ownership** of the per-call timeout and wraps the `TimeoutException` its own
+  `.timeout(...)` raises into `CloudStorageException(timeout)` before
+  propagating. The duration stays `const Duration(seconds: 30)`, the placement
+  stays `_remote` under the writer lock — moving the timeout into the adapter is
+  explicitly rejected — no second timeout budget is added, and the failing
+  branch, the lock release and the retry behavior are unchanged. Only the
+  exception type changes. It matters because this is the last path by which a
+  non provider-neutral exception could reach presentation, and without it the
+  dynamic error slot has no `safeMessage` for a timeout and spec acceptance
+  criterion 10 is unverifiable for that row. Update the stale comment at
+  `database_sync_orchestrator.dart` line 39 in the same diff; it currently
+  documents the old behavior.  
+  Verify: T002 tests unchanged and green except the one timeout assertion, which
+  now expects `CloudStorageException(timeout)` with the exact code
+  `cloud_storage.timeout` and message `Cloud storage request timed out.`; a test
+  asserts the elapsed budget is still 30 s and the lock is released on the
+  timeout path; `rg -n 'TimeoutException' lib/features/password_manager` finds
+  only wrap sites; enable the T004 assertion that no bare `TimeoutException`
+  escapes `data/`; review algorithm-only diff is empty.
 
 - [ ] **T302 Enforce mapping provider identity** — owner:
   `senior-flutter-dev`  
   Files: orchestrator and tests.  
   Acceptance: mapping/provider mismatch fails with safe unsupported-provider error
-  before auth, remote call, backup, metadata mutation or local write; exact result
+  before auth, remote call, backup or vault write; exact result
   is `unsupportedProvider` / `cloud_storage.unsupported_provider` /
   `Cloud storage provider is not supported by this build.` Raw provider ID is not
   interpolated; new links use injected provider ID.  
+  Acceptance, guard scope (clarification Q2): the guard covers **exactly remote
+  I/O and vault writes**. Purely local metadata operations — `removeMapping`,
+  `moveMappingPath`, `restoreMappingPathMove` and the auto-sync toggle — are
+  **never** blocked by it and must keep working on a mapping whose provider ID
+  has no wired adapter. Without this carve-out such a mapping becomes
+  unremovable from the app and the only exit is hand-editing an encrypted
+  metadata file. Enabling auto-sync on that mapping is therefore permitted; the
+  sync run it later triggers still fails closed at the guard. Place the guard on
+  the remote/vault path, not on the repository's metadata methods — this also
+  resolves the contradiction between dependency rule 7 ("before remote I/O") and
+  the older "mapping mutation" wording.  
   Verify: sentinel ID absent from exception/string/log/state/persistence; zero call
-  counters and unchanged local/metadata/remote fixtures.
+  counters and unchanged local/metadata/remote fixtures; on that same mapping,
+  remove, path move, move restore and the auto-sync toggle each succeed and
+  throw nothing, and enabling auto-sync then running a sync still throws exactly
+  `unsupportedProvider`.
 
 - [ ] **T303 Neutralize application repository** — owner:
   `senior-flutter-dev`  
@@ -204,8 +389,13 @@ in this file.
   `senior-flutter-dev`  
   Files: orchestrator, repository, metadata/rename/background-sync tests.  
   Acceptance: move/remove/toggle semantics and shared rename transaction remain
-  unchanged under v2 schema.  
-  Verify: metadata, coordinator and background-sync suites.
+  unchanged under v2 schema, **including on a mapping with an unsupported
+  provider ID** — these are the four operations clarification Q2 exempts from
+  the T302 guard, and this task owns proving they still behave identically
+  there. Mappings are keyed by database identifier after spec 014 (T001c), so
+  move/remove operate on that key and `databasePath` stays location data.  
+  Verify: metadata, coordinator and background-sync suites, plus the
+  unsupported-provider variant of each of the four operations.
 
 ## Phase 4 — Use cases, coordinators and presentation vocabulary
 
@@ -299,7 +489,11 @@ in this file.
   Google names are limited to intentional current product UI/action labels and
   data-private Google adapter/technical-service files with focused tests. No loose
   docs allowance applies to production/test search; presentation allowlist names
-  each symbol individually and permits no directory/glob/comment exception.  
+  each symbol individually and permits no directory/glob/comment exception.
+  The `TimeoutException` search from `plan.md` M6 is part of this gate: every
+  remaining hit is a wrap site producing `CloudStorageException(timeout)` or a
+  test asserting that conversion, and a bare `TimeoutException` propagating out
+  of `data/` fails the task.  
   Verify: exact `rg` commands and allowlist from `plan.md` M6.
 
 - [ ] **T602 Run sync safety suites** — owner: `senior-flutter-dev`  
@@ -343,6 +537,15 @@ in this file.
   Task closes only with no `fail` rows and approved waiver for every `not-run`.
   Metadata inspection is redacted and remote remains one externally openable
   `.kdbx`.  
+  Acceptance, the two steps the clarifications changed:
+  - **step 8** additionally verifies the dated version-1 copy that T104b writes:
+    it is present, it is a different file from the live one, and restoring it
+    over the live file makes the app decode the original mappings again. A row
+    that records the write-forward but not the backup does not satisfy step 8;
+  - **step 9** requires decrypting through the app's own read path on the test
+    device, because after spec 014 the metadata file is sealed ciphertext and a
+    hex dump of it proves nothing. Record only the redacted result — never the
+    ciphertext, the key, an account, a path or an object ID.  
   Verify: five dated platform rows without token, account, path or object ID.
 
 ## Deferred — not part of immediate definition of done
