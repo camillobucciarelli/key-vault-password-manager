@@ -333,10 +333,12 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
       active-descendant limitation and verify live announcement fallback.
 
       **Accepted 2026-09-01 without Chrome+NVDA on Windows — product decision,
-      no Windows machine available.** Keyboard-only and VoiceOver/macOS are
-      executed and passed (below). Chrome+NVDA/Windows remains permanent
-      declared debt, not silently dropped: re-open this row if a Windows
-      machine becomes available and a regression is suspected in the AT path.
+      no Windows machine available.** Keyboard-only is executed and passed, and
+      one VoiceOver/macOS session was executed and found the two defects fixed in
+      #81 — that fix has not itself been re-confirmed on the device (below).
+      Chrome+NVDA/Windows remains permanent declared debt, not silently dropped:
+      re-open this row if a Windows machine becomes available and a regression is
+      suspected in the AT path.
 
       Done — one real VoiceOver session on macOS, with the user driving:
       - The live region announces (`"N suggestions"`) after the M13 fix.
@@ -397,7 +399,8 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
       unapproved baseline updates. Noncanonical Edge/Windows/macOS rely on A039 DOM/
       geometry assertions plus A040/manual smoke. Security wins over pixel parity.
       Precondition partially unmet, stated honestly: this task is gated on
-      "A028–A040 pass" and **A040 is still open**. It stays checked because the
+      "A028–A040 pass" and **A040 is checked only as accepted debt** — its
+      Chrome+NVDA/Windows leg was never run. It stays checked because the
       artefact it owns exists and re-verifies independently of A040 — 18 approved
       baselines, hash- and pixel-compared in the pinned canonical container
       (A045: exit 0, 18/18) and inventoried by the three `A041:` cases. What A040
@@ -475,7 +478,8 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
       package reload, and canonical baseline comparison. Edge smoke is not pixel
       authority.
 
-      **Open.** This task asks for ~16 matrix rows, and it was written against
+      **Accepted as done with declared debt — see the acceptance note at the end
+      of this row.** This task asks for ~16 matrix rows, and it was written against
       the **per-origin** authorization model. Slice C (PR #113) replaced that
       model with a single global switch. That did not invalidate the code, but
       it did invalidate part of the evidence recorded here: three of the nine
@@ -592,7 +596,8 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
           rendered overlay against an approved baseline.
       19. Keyboard / pointer — automated only: six `A037:` and five `A038:` cases.
           No manual pass. (Same gap as the keyboard-only row of A040.)
-      20. AT — deferred to A040, which is itself open. Not covered here.
+      20. AT — deferred to A040, whose Chrome+NVDA/Windows leg is accepted debt.
+          Not covered here.
 
       **(d) New manual rows created by Slice C — all still due.** These did not
       exist before PR #113. None has been executed; row 21 above is the only

@@ -429,8 +429,9 @@ flutter test test/features/password_manager/data/services/database_sync_orchestr
 flutter test test/features/password_manager/presentation/coordinators/sync_merge_coordinator_test.dart
 flutter test test/features/password_manager/presentation/bloc/vault_redaction_test.dart
 flutter test test/features/password_manager/presentation/bloc/vault_bloc_background_sync_test.dart
-flutter test test/goldens --plain-name "sync merge golden inventory"
-flutter test test/features/password_manager/presentation/widgets/sync_merge_dynamic_test.dart
+flutter test test/goldens/sync_merge_test.dart
+flutter test test/features/password_manager/presentation/widgets/sync_merge_field_display_view_test.dart
+flutter test test/features/password_manager/presentation/widgets/sync/sync_merge_screen_test.dart
 flutter test integration_test/safe_vault_file_writer_test.dart -d <target-device>
 ```
 
