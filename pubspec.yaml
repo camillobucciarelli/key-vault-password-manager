@@ -35,7 +35,7 @@ dependencies:
   # justification as `xml` below.
   pointycastle: ^4.0.0
   shared_preferences: ^2.5.5
-  stream_transform: ^2.1.1
+  stream_transform: ^2.1.2
   url_launcher: ^6.3.2
   # Already resolved transitively via `kdbx` at the same version; declared
   # explicitly because the spec 008 merge adapter and its semantic manifest
