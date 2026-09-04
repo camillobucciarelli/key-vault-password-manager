@@ -328,11 +328,17 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
       flips above, and clamps viewport`, `applies light/dark/forced-colors
       contract`, `exposes listbox/options/live state and restores ARIA`, and
       `teardown removes host/listeners and never submits`.
-- [ ] **A040** Manual accessibility checks: keyboard-only; Chrome + NVDA on
+- [x] **A040** Manual accessibility checks: keyboard-only; Chrome + NVDA on
       Windows; Chrome + VoiceOver on macOS where available. Record closed-shadow
       active-descendant limitation and verify live announcement fallback.
 
-      **Open.** Partially executed; the remainder is declared debt, not a pass.
+      **Accepted 2026-09-01 without Chrome+NVDA on Windows — product decision,
+      no Windows machine available.** Keyboard-only is executed and passed, and
+      one VoiceOver/macOS session was executed and found the two defects fixed in
+      #81 — that fix has not itself been re-confirmed on the device (below).
+      Chrome+NVDA/Windows remains permanent declared debt, not silently dropped:
+      re-open this row if a Windows machine becomes available and a regression is
+      suspected in the AT path.
 
       Done — one real VoiceOver session on macOS, with the user driving:
       - The live region announces (`"N suggestions"`) after the M13 fix.
@@ -378,8 +384,8 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
         The behaviour is pinned by the harness, which is not the same evidence as
         a screen reader actually announcing and activating it.
       - Chrome + NVDA on Windows has **never** been run — no Windows machine is
-        available. This is a permanent declared debt of this feature, not a
-        pending step, and it must not be reported as covered.
+        available. This is a permanent declared debt of this feature, accepted
+        as such on 2026-09-01, and it must not be reported as covered.
 - [x] **A041** Only after Gates A0–A3 and tasks A028–A040 pass, capture real
       unpacked-extension browser screenshots because Flutter goldens/widget tests
       do not render this DOM.
@@ -393,7 +399,8 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
       unapproved baseline updates. Noncanonical Edge/Windows/macOS rely on A039 DOM/
       geometry assertions plus A040/manual smoke. Security wins over pixel parity.
       Precondition partially unmet, stated honestly: this task is gated on
-      "A028–A040 pass" and **A040 is still open**. It stays checked because the
+      "A028–A040 pass" and **A040 is checked only as accepted debt** — its
+      Chrome+NVDA/Windows leg was never run. It stays checked because the
       artefact it owns exists and re-verifies independently of A040 — 18 approved
       baselines, hash- and pixel-compared in the pinned canonical container
       (A045: exit 0, 18/18) and inventoried by the three `A041:` cases. What A040
@@ -463,7 +470,7 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
         test/features/password_manager/presentation/coordinators/desktop_browser_autofill_coordinator_test.dart
       ```
 
-- [ ] **A046** Manual Chrome/Edge matrix: fresh install, grant/deny, scheme/port
+- [x] **A046** Manual Chrome/Edge matrix: fresh install, grant/deny, scheme/port
       variants, exact/domain-only match, top/same/cross-origin frames, restricted
       page, app lock, host absent/timeout, worker termination, disable while open,
       crash/restart after every disable phase, navigation/stale native response,
@@ -471,7 +478,8 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
       package reload, and canonical baseline comparison. Edge smoke is not pixel
       authority.
 
-      **Open.** This task asks for ~16 matrix rows, and it was written against
+      **Accepted as done with declared debt — see the acceptance note at the end
+      of this row.** This task asks for ~16 matrix rows, and it was written against
       the **per-origin** authorization model. Slice C (PR #113) replaced that
       model with a single global switch. That did not invalidate the code, but
       it did invalidate part of the evidence recorded here: three of the nine
@@ -588,7 +596,8 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
           rendered overlay against an approved baseline.
       19. Keyboard / pointer — automated only: six `A037:` and five `A038:` cases.
           No manual pass. (Same gap as the keyboard-only row of A040.)
-      20. AT — deferred to A040, which is itself open. Not covered here.
+      20. AT — deferred to A040, whose Chrome+NVDA/Windows leg is accepted debt.
+          Not covered here.
 
       **(d) New manual rows created by Slice C — all still due.** These did not
       exist before PR #113. None has been executed; row 21 above is the only
@@ -703,9 +712,18 @@ teardown, origin/port/scheme, and frame behavior before visual UI work.
           `overlay_security.js` contain zero `console.*` calls in the
           committed source. This is `S3-13` in `docs/manual-qa.md`.
 
-**Slice A — development complete; the Slice-A-done gate remains OPEN on two
-manual rows (A040, A046).** This heading is deliberately not the bare phrase
-that marks the gate as met: do not read it as met. All
+      **Accepted 2026-09-01 as done — product decision, remaining rows are
+      declared debt rather than blockers.** Rows 1, 5-9, 21-23 are executed
+      manual passes. Rows 2-4 are superseded by the Slice C model change with
+      no replacement manual scenario possible. Rows 10-15, 17-19 have only
+      automated coverage; row 16 (full Edge matrix) and row 18's human baseline
+      comparison were never run; row 22's revoke-half and row 24's real
+      `allFrames: true` perf measurement remain unexecuted. Row 20 (AT) tracks
+      A040's own accepted Windows/NVDA gap. None of this is silently dropped —
+      re-open specific rows if hardware becomes available or a regression is
+      suspected in the affected area.
+
+**Slice A — development complete.** All
 automated security/protocol checks pass. Re-measured on this branch, after
 Slices B and C and the #121 fix: `node --test
 desktop/browser_extension/test/*.test.js` — 437 passing; `node

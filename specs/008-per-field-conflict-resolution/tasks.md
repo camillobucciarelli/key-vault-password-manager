@@ -1002,10 +1002,23 @@ named widget assertions pass.
       #127 run `32713786823`, 8/8) and Linux (CI `ubuntu-latest`/ext4, same
       run, 8/8) — none `failed` or missing, so no platform stays
       feature-disabled on this task's account.
-- [ ] **T704** Manual two-client pass: one-sided records/fields/attachments,
+- [x] **T704** Manual two-client pass: one-sided records/fields/attachments,
       deletion evidence, stale sides, backup/disk failures, rename aliases,
       edit/auto-sync/lock boundary, all upload outcomes, restart recovery and
       password+key-file reopen.
+
+      **Accepted 2026-09-04 on automated evidence only — product decision. The
+      two-client session on real hardware was never run and must not be
+      reported as covered.** What is actually verified is the command block
+      below, re-run green on 2026-09-04: `flutter analyze` clean, and the merge
+      feasibility, writer-inventory, path-mutex, safe-writer, merge use case,
+      merge repository (one-sided rows, deletion evidence, stale sides, upload
+      failure + backup, password and key-file reopen), sync orchestrator, merge
+      coordinator, redaction, background-sync, merge-screen and 12-case golden
+      suites all pass. The convergence models cover the two-client shapes as
+      models, which is not the same evidence as two real clients round-tripping
+      a vault through Drive. Re-open this row if a two-machine setup becomes
+      available and a sync regression is suspected.
 
 ```bash
 dart format lib/features/password_manager test/features/password_manager integration_test
@@ -1020,7 +1033,8 @@ flutter test test/features/password_manager/data/services/database_sync_orchestr
 flutter test test/features/password_manager/presentation/coordinators/sync_merge_coordinator_test.dart
 flutter test test/features/password_manager/presentation/bloc/vault_redaction_test.dart
 flutter test test/features/password_manager/presentation/bloc/vault_bloc_background_sync_test.dart
-flutter test test/goldens --plain-name "sync merge golden inventory"
-flutter test test/features/password_manager/presentation/widgets/sync_merge_dynamic_test.dart
+flutter test test/goldens/sync_merge_test.dart
+flutter test test/features/password_manager/presentation/widgets/sync_merge_field_display_view_test.dart
+flutter test test/features/password_manager/presentation/widgets/sync/sync_merge_screen_test.dart
 flutter test integration_test/safe_vault_file_writer_test.dart -d <target-device>
 ```
