@@ -627,6 +627,13 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
               _SettingsGroupLabel('About'),
               const SizedBox(height: 8),
               _SettingsRow(
+                glyph: AppGlyph.info,
+                title: 'Version',
+                subtitle: _kApplicationVersion,
+                onTap: null,
+              ),
+              const SizedBox(height: 8),
+              _SettingsRow(
                 glyph: AppGlyph.fileText,
                 title: 'Open source licences',
                 subtitle: 'Third-party notices bundled with this build',
@@ -660,7 +667,7 @@ const _kApplicationName = 'KeyVault';
 /// `.github/workflows/release.yml` only bumps the build number after the `+`,
 /// so this string changes only on a deliberate release bump. Kept literal so
 /// no runtime dependency (e.g. `package_info_plus`) has to be added.
-const _kApplicationVersion = '0.4.0';
+const _kApplicationVersion = '0.5.0';
 
 const _kApplicationLegalese =
     'Copyright (C) 2026 Camillo Bucciarelli - AGPL-3.0';

@@ -179,7 +179,6 @@ jobs:
           retention-days: 1
 
   ios-app-store-publish:
-    if: inputs.channel == 'release'
     needs: [ version, ios ]
     runs-on: self-hosted
     environment: app-store-ios
@@ -279,7 +278,6 @@ jobs:
           retention-days: 1
 
   macos-app-store-publish:
-    if: inputs.channel == 'release'
     needs: [ version, macos ]
     runs-on: self-hosted
     environment: app-store-macos
@@ -351,7 +349,6 @@ jobs:
           retention-days: 1
 
   chrome-web-store-publish:
-    if: inputs.channel == 'release'
     needs: [ version, chrome ]
     runs-on: ubuntu-latest
     environment: chrome-web-store
