@@ -251,7 +251,9 @@ List<String> _filesUnder(String root) =>
     Directory(root)
         .listSync(recursive: true)
         .whereType<File>()
-        .map((f) => f.path)
+        // Separators normalised so the `/`-written allowlists above match on
+        // Windows too, where `listSync` yields `\`.
+        .map((f) => f.path.replaceAll('\\', '/'))
         .where((p) => p.endsWith('.dart'))
         .toList()
       ..sort();

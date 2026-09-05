@@ -421,9 +421,13 @@ void main() {
         expect(provider.totalCalls, 0, reason: 'no auth or remote I/O');
         expect(await seed.localFile.readAsBytes(), bytesBefore);
         expect(await seed.localFile.lastModified(), mtimeBefore);
-        expect(seed.localFile.parent.listSync().map((e) => e.path), [
-          seed.localFile.path,
-        ], reason: 'no backup file created');
+        expect(
+          seed.localFile.parent
+              .listSync()
+              .map((e) => e.path.split(RegExp(r'[/\\]')).last),
+          [seed.localFile.path.split(RegExp(r'[/\\]')).last],
+          reason: 'no backup file created',
+        );
         final after = (await metadata.getMapping(seed.localFile.path))!;
         expect(after, seed.before, reason: 'metadata untouched');
         expect(after.lastError, isNull);
