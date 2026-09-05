@@ -112,7 +112,16 @@ read it before running or changing any of them.
 
 ## Commit & Pull Request Guidelines
 
-Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `ci:`), scope optional (`fix(ci):`). Never hand-edit `version:` in `pubspec.yaml` — `.github/workflows/release.yml` bumps the build number on every push to `main`, commits `chore: bump build number to vX.Y.Z+N`, tags, and pushes.
+Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `ci:`), scope optional (`fix(ci):`).
+
+### Versioning and releases
+
+`version:` in `pubspec.yaml` is `X.Y.Z+N`. Bump `X.Y.Z` by hand in the PR that warrants it; never touch `+N`. Nothing ships on merge: `.github/workflows/release.yml` is `workflow_dispatch` only, with a `channel` input:
+
+- `beta` (default) — bumps `+N`, commits `chore: bump build number to vX.Y.Z-beta+N` to the dispatched branch, tags it, and publishes a GitHub **pre-release** with every artifact. No store publishing.
+- `release` — same, tagged `vX.Y.Z+N`, a normal GitHub release, plus the App Store Connect and Chrome Web Store publish jobs.
+
+The `-beta` suffix lives in the tag only; `pubspec.yaml` stays numeric because `CFBundleShortVersionString` rejects pre-release suffixes. Run it with `gh workflow run release.yml -f channel=beta` (or `release`) from `main`.
 
 ## Agent skills
 
