@@ -120,7 +120,7 @@ class DatabaseSyncMapping extends Equatable {
     final isV1 = version == null || version == 1;
 
     String? nonEmpty(Object? value) =>
-        value is String && value.trim().isNotEmpty ? value : null;
+        value is String && value.trim().isNotEmpty ? value.trim() : null;
 
     final databasePath = nonEmpty(map['databasePath']);
     final providerId =
