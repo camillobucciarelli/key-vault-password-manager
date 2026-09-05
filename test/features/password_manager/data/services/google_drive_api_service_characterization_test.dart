@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:password_manager/features/password_manager/data/services/drive_auth_service.dart';
 import 'package:password_manager/features/password_manager/data/services/google_drive_api_service.dart';
+import 'package:password_manager/features/password_manager/domain/models/cloud_storage_error.dart';
 
 // spec 010 T003 — pins the Google technical service's inputs and outputs
 // (query shape, pagination, field mapping, upload shape, download bytes and
@@ -253,16 +254,32 @@ void main() {
       () async {
         final api = service((_) async => http.Response('', 401));
 
-        await expectLater(api.downloadFile('d'), throwsException);
+        await expectLater(
+          api.downloadFile('d'),
+          throwsA(
+            isA<CloudStorageException>().having(
+              (e) => e.code,
+              'code',
+              CloudStorageErrorCode.authorizationRequired,
+            ),
+          ),
+        );
         expect(requests, hasLength(2));
         expect(auth.forceRefreshFlags, [false, true]);
       },
     );
   });
 
-  group('non-2xx', () {
-    for (final status in [403, 404, 409, 429, 500]) {
-      test('$status throws (status pinned, body discarded)', () async {
+  group('non-2xx (spec 010 T203: typed, body discarded)', () {
+    const rows = {
+      403: CloudStorageErrorCode.forbidden,
+      404: CloudStorageErrorCode.notFound,
+      409: CloudStorageErrorCode.conflict,
+      429: CloudStorageErrorCode.rateLimited,
+      500: CloudStorageErrorCode.serverFailure,
+    };
+    rows.forEach((status, code) {
+      test('$status -> ${code.name}, body never copied', () async {
         final api = service(
           (_) async => http.Response('{"error":"secret-body"}', status),
         );
@@ -270,15 +287,17 @@ void main() {
         await expectLater(
           api.getFileMetadata('x'),
           throwsA(
-            predicate<Object>(
-              (e) =>
-                  e.toString().contains('($status)') &&
-                  !e.toString().contains('secret-body'),
-            ),
+            isA<CloudStorageException>()
+                .having((e) => e.code, 'code', code)
+                .having(
+                  (e) => e.toString(),
+                  'toString',
+                  isNot(contains('secret-body')),
+                ),
           ),
         );
       });
-    }
+    });
   });
 }
 

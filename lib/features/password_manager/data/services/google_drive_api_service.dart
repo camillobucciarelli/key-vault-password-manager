@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:loggy/loggy.dart';
 
+import '../../domain/models/cloud_storage_error.dart';
 import '../../domain/models/drive_remote_file.dart';
 import 'drive_auth_service.dart';
 
@@ -192,9 +194,62 @@ class GoogleDriveApiService {
     );
   }
 
-  void _ensureSuccess(http.Response response, String message) {
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('$message (${response.statusCode}).');
+  /// spec 010 T203: a non-2xx response becomes exactly one
+  /// `CloudStorageException`. The body is inspected only to tell a 403
+  /// rate-limit reason from a plain denial, then dropped — it is never
+  /// copied into the exception, a log or state. [operation] is a fixed
+  /// literal kept for the log line only.
+  void _ensureSuccess(http.Response response, String operation) {
+    final status = response.statusCode;
+    if (status >= 200 && status < 300) {
+      return;
+    }
+    final code = switch (status) {
+      401 => CloudStorageErrorCode.authorizationRequired,
+      403 =>
+        _isRateLimitReason(response.body)
+            ? CloudStorageErrorCode.rateLimited
+            : CloudStorageErrorCode.forbidden,
+      404 => CloudStorageErrorCode.notFound,
+      408 => CloudStorageErrorCode.timeout,
+      409 || 412 => CloudStorageErrorCode.conflict,
+      429 => CloudStorageErrorCode.rateLimited,
+      >= 500 && < 600 => CloudStorageErrorCode.serverFailure,
+      _ => CloudStorageErrorCode.unknown,
+    };
+    logWarning('$operation: HTTP $status -> ${code.name}');
+    throw CloudStorageException(code);
+  }
+
+  static const _rateLimitReasons = {
+    'rateLimitExceeded',
+    'userRateLimitExceeded',
+    'dailyLimitExceeded',
+    'quotaExceeded',
+  };
+
+  /// Drive reports quota denials as 403 with a reason in
+  /// `error.errors[].reason` (v3) or `error.details[].reason`.
+  static bool _isRateLimitReason(String body) {
+    try {
+      final payload = jsonDecode(body);
+      final error = payload is Map ? payload['error'] : null;
+      if (error is! Map) {
+        return false;
+      }
+      for (final key in const ['errors', 'details']) {
+        final items = error[key];
+        if (items is List) {
+          for (final item in items) {
+            if (item is Map && _rateLimitReasons.contains(item['reason'])) {
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    } catch (_) {
+      return false;
     }
   }
 

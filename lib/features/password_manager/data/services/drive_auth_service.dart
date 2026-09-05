@@ -2,8 +2,10 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:loggy/loggy.dart';
 
 import '../../domain/errors/google_authorization_required_exception.dart';
+import '../../domain/models/cloud_storage_error.dart';
 import '../../domain/models/drive_account_summary.dart';
 import '../datasources/google_token_data_source.dart';
 import 'desktop_oauth_pkce_service.dart';
@@ -78,9 +80,7 @@ class DriveAuthService {
       final clientId = _config.desktopClientId;
       final clientSecret = _config.desktopClientSecret;
       if (clientId == null || clientSecret == null) {
-        throw Exception(
-          'Desktop OAuth is not configured. Set GOOGLE_DESKTOP_CLIENT_ID and GOOGLE_DESKTOP_CLIENT_SECRET.',
-        );
+        throw _authenticationFailed(_desktopNotConfiguredHint);
       }
 
       final tokenSet = await _desktopOAuthPkceService.interactiveSignIn(
@@ -94,8 +94,9 @@ class DriveAuthService {
           );
       if (!hasRequiredScope) {
         await _googleTokenDataSource.clearDesktopCredentialsJson();
-        throw Exception(
-          'Google Drive authorization is outdated. Please reconnect and grant full Drive access.',
+        // Token granted without the Drive scope: only a fresh consent fixes it.
+        throw const CloudStorageException(
+          CloudStorageErrorCode.authorizationRequired,
         );
       }
       await _googleTokenDataSource.saveDesktopCredentialsJson(
@@ -141,14 +142,14 @@ class DriveAuthService {
       final clientId = _config.desktopClientId;
       final clientSecret = _config.desktopClientSecret;
       if (clientId == null || clientSecret == null) {
-        throw Exception(
-          'Desktop OAuth is not configured. Set GOOGLE_DESKTOP_CLIENT_ID and GOOGLE_DESKTOP_CLIENT_SECRET.',
-        );
+        throw _authenticationFailed(_desktopNotConfiguredHint);
       }
 
       final raw = await _googleTokenDataSource.getDesktopCredentialsJson();
       if (raw == null || raw.trim().isEmpty) {
-        throw Exception('Google account not connected.');
+        throw const CloudStorageException(
+          CloudStorageErrorCode.authorizationRequired,
+        );
       }
 
       var tokenSet = DesktopOAuthTokenSet.fromJson(raw);
@@ -175,8 +176,8 @@ class DriveAuthService {
           );
       if (!hasRequiredScope) {
         await _googleTokenDataSource.clearDesktopCredentialsJson();
-        throw Exception(
-          'Google Drive authorization needs to be renewed with full Drive access.',
+        throw const CloudStorageException(
+          CloudStorageErrorCode.authorizationRequired,
         );
       }
 
@@ -198,21 +199,23 @@ class DriveAuthService {
 
     if (user == null) {
       _clearCachedAccessToken();
-      throw Exception('Google account not connected. Please reconnect.');
+      throw const CloudStorageException(
+        CloudStorageErrorCode.authorizationRequired,
+      );
     }
 
     final authz = await _getExistingDriveScopeAuthorization(user);
     if (authz == null) {
       _clearCachedAccessToken();
-      throw Exception(
-        'Google Drive authorization needs to be renewed with full Drive access.',
+      throw const CloudStorageException(
+        CloudStorageErrorCode.authorizationRequired,
       );
     }
 
     final accessToken = authz.accessToken;
     if (accessToken.isEmpty) {
       _clearCachedAccessToken();
-      throw Exception('Unable to obtain a valid Google access token.');
+      throw _authenticationFailed('Google returned an empty access token.');
     }
 
     _cacheAccessToken(accessToken);
@@ -280,9 +283,9 @@ class DriveAuthService {
           if (recoveredAuthz != null) {
             return recoveredAuthz;
           }
-          throw Exception(
-            'Google account selected, but Drive permission was not granted.',
-          );
+          // Signed in, but the Drive scope was declined on the consent
+          // screen: access to the storage was denied by the user.
+          throw const CloudStorageException(CloudStorageErrorCode.forbidden);
         }
       }
       throw _mapGoogleSignInException(e);
@@ -334,29 +337,41 @@ class DriveAuthService {
     _cachedAccessTokenAt = null;
   }
 
-  Exception _mapGoogleSignInException(GoogleSignInException exception) {
+  static const _desktopNotConfiguredHint =
+      'Desktop OAuth is not configured. Set GOOGLE_DESKTOP_CLIENT_ID and GOOGLE_DESKTOP_CLIENT_SECRET.';
+
+  /// spec 010 T203: configuration and sign-in failures surface as the fixed
+  /// `authenticationFailed` error. The app-authored [hint] (never SDK text,
+  /// never a credential) goes to the log so a misconfigured build is still
+  /// diagnosable from the field.
+  CloudStorageException _authenticationFailed(String hint) {
+    logWarning('Google sign-in unavailable: $hint');
+    return const CloudStorageException(
+      CloudStorageErrorCode.authenticationFailed,
+    );
+  }
+
+  CloudStorageException _mapGoogleSignInException(
+    GoogleSignInException exception,
+  ) {
     if (exception.code == GoogleSignInExceptionCode.canceled) {
-      return Exception('Google sign-in cancelled.');
+      return const CloudStorageException(CloudStorageErrorCode.cancelled);
     }
     if (exception.code == GoogleSignInExceptionCode.clientConfigurationError) {
       if (!kIsWeb && Platform.isAndroid) {
-        return Exception(
+        return _authenticationFailed(
           'Android Google Sign-In is not configured. Set GOOGLE_WEB_CLIENT_ID in --dart-define-from-file.',
         );
       }
       if (!kIsWeb && Platform.isIOS) {
-        return Exception(
+        return _authenticationFailed(
           'iOS Google Sign-In is not configured. Set GOOGLE_IOS_CLIENT_ID in --dart-define-from-file.',
         );
       }
     }
-    // The platform code and description are the only actionable part of an
-    // unrecognized Google failure, so keep them in the message: the UI mappers
-    // surface it verbatim instead of collapsing it to a generic sentence.
-    final description = exception.description?.trim();
-    return Exception(
-      'Google sign-in failed (${exception.code.name})'
-      '${description == null || description.isEmpty ? '' : ': $description'}',
+    // Only the SDK's enum code is logged; the description is free text.
+    return _authenticationFailed(
+      'Google sign-in failed (${exception.code.name}).',
     );
   }
 }

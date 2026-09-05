@@ -5,9 +5,11 @@ import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
+import 'package:loggy/loggy.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../domain/errors/google_authorization_required_exception.dart';
+import '../../domain/models/cloud_storage_error.dart';
 
 class DesktopOAuthTokenSet {
   const DesktopOAuthTokenSet({
@@ -89,12 +91,15 @@ class DesktopOAuthPkceService {
         mode: LaunchMode.externalApplication,
       );
       if (!launched) {
-        throw Exception('Unable to open system browser for Google sign-in.');
+        throw _authenticationFailed(
+          'Unable to open system browser for Google sign-in.',
+        );
       }
 
       final callback = await server.first.timeout(
         const Duration(minutes: 3),
-        onTimeout: () => throw Exception('Google authentication timeout.'),
+        onTimeout: () =>
+            throw const CloudStorageException(CloudStorageErrorCode.timeout),
       );
       final code = callback.uri.queryParameters['code'];
       final returnedState = callback.uri.queryParameters['state'];
@@ -102,11 +107,18 @@ class DesktopOAuthPkceService {
 
       if (error != null) {
         await _respond(callback, 'Authentication denied: $error');
-        throw Exception('Google authentication denied: $error');
+        // `access_denied` is the user closing the consent screen; anything
+        // else is an OAuth error code (spec-defined token, not free text).
+        if (error == 'access_denied') {
+          throw const CloudStorageException(CloudStorageErrorCode.cancelled);
+        }
+        throw _authenticationFailed('Google authentication denied: $error');
       }
       if (code == null || returnedState != state) {
         await _respond(callback, 'Authentication failed.');
-        throw Exception('Invalid OAuth callback state or missing code.');
+        throw _authenticationFailed(
+          'Invalid OAuth callback state or missing code.',
+        );
       }
 
       await _respond(
@@ -157,14 +169,18 @@ class DesktopOAuthPkceService {
               oauthError == 'unauthorized_client')) {
         throw const GoogleAuthorizationRequiredException();
       }
-      throw Exception('Google token refresh failed (${response.statusCode}).');
+      throw _authenticationFailed(
+        'Google token refresh failed (${response.statusCode}).',
+      );
     }
 
     final payload = jsonDecode(response.body) as Map<String, dynamic>;
     final accessToken = payload['access_token'] as String?;
     final expiresIn = payload['expires_in'] as int?;
     if (accessToken == null || expiresIn == null) {
-      throw Exception('Google token refresh response is invalid.');
+      throw const CloudStorageException(
+        CloudStorageErrorCode.malformedResponse,
+      );
     }
 
     return DesktopOAuthTokenSet(
@@ -183,7 +199,9 @@ class DesktopOAuthPkceService {
     ).replace(queryParameters: {'access_token': accessToken});
     final response = await _httpClient.get(uri);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('Unable to validate Google token scope.');
+      throw _authenticationFailed(
+        'Unable to validate Google token scope (${response.statusCode}).',
+      );
     }
 
     final payload = jsonDecode(response.body) as Map<String, dynamic>;
@@ -220,7 +238,9 @@ class DesktopOAuthPkceService {
     );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('Google token exchange failed (${response.statusCode}).');
+      throw _authenticationFailed(
+        'Google token exchange failed (${response.statusCode}).',
+      );
     }
 
     final payload = jsonDecode(response.body) as Map<String, dynamic>;
@@ -229,7 +249,9 @@ class DesktopOAuthPkceService {
     final expiresIn = payload['expires_in'] as int?;
 
     if (accessToken == null || refreshToken == null || expiresIn == null) {
-      throw Exception('Google token exchange response is invalid.');
+      throw const CloudStorageException(
+        CloudStorageErrorCode.malformedResponse,
+      );
     }
 
     return DesktopOAuthTokenSet(
@@ -251,5 +273,14 @@ class DesktopOAuthPkceService {
     final random = Random.secure();
     final values = List<int>.generate(bytes, (_) => random.nextInt(256));
     return base64Url.encode(values).replaceAll('=', '');
+  }
+
+  /// spec 010 T203: app-authored [hint] to the log (status codes and OAuth
+  /// error tokens only, never a body, token or URL); fixed error outward.
+  CloudStorageException _authenticationFailed(String hint) {
+    logWarning('Google OAuth unavailable: $hint');
+    return const CloudStorageException(
+      CloudStorageErrorCode.authenticationFailed,
+    );
   }
 }

@@ -143,7 +143,7 @@ in this file.
 
 ## Phase 2 — Provider port and Google implementation
 
-- [ ] **T201 Define one provider port and safe errors** — owner:
+- [x] **T201 Define one provider port and safe errors** — owner:
   `senior-flutter-dev`  
   Files: new `domain/repositories/cloud_storage_provider.dart`,
   `domain/models/cloud_storage_error.dart`; contract tests.  
@@ -152,7 +152,7 @@ in this file.
   registry or provider factory.  
   Verify: domain compiles without data imports; architecture guard.
 
-- [ ] **T202 Build Google adapter** — owner: `senior-flutter-dev`  
+- [x] **T202 Build Google adapter** — owner: `senior-flutter-dev`  
   Files: new `data/services/google_drive_storage_provider.dart`; change
   `drive_auth_service.dart`, `google_drive_api_service.dart` only as required;
   new adapter tests.  
@@ -160,7 +160,7 @@ in this file.
   `google_drive`, maps neutral models and preserves behavior.  
   Verify: fake auth/API tests for every operation.
 
-- [ ] **T203 Sanitize provider failures** — owner: `senior-flutter-dev`  
+- [x] **T203 Sanitize provider failures** — owner: `senior-flutter-dev`  
   Files: Google adapter/error tests and minimal Google service changes.  
   Acceptance: exact `CloudStorageErrorCode`, safe code and fixed message table in
   `spec.md`; exhaustive Google/transport source mapping including one-refresh
