@@ -41,8 +41,8 @@ void main() {
     'id': id,
     'name': '$id.kdbx',
     'modifiedTime': '2026-01-02T03:04:05.000Z',
-    'md5Checksum': ?md5,
-    'size': ?size,
+    'md5Checksum': md5,
+    'size': size,
   };
 
   group('list', () {
