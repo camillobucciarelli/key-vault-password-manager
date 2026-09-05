@@ -701,6 +701,9 @@ void main() {
     await _setSize(tester, const Size(390, 844));
     await tester.pumpWidget(
       MaterialApp(
+        // Issue #187: the "overflow marker" in these two goldens was the
+        // DEBUG banner of a bare MaterialApp, not a RenderFlex overflow.
+        debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
         home: CsvImportPreviewScreen(
           filePath: '/tmp/chrome-passwords.csv',
@@ -738,6 +741,9 @@ void main() {
     await _setSize(tester, const Size(390, 844));
     await tester.pumpWidget(
       MaterialApp(
+        // Issue #187: the "overflow marker" in these two goldens was the
+        // DEBUG banner of a bare MaterialApp, not a RenderFlex overflow.
+        debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
         home: CsvImportOutcomeScreen(
           outcome: const CsvImportOutcome(

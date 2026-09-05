@@ -69,7 +69,10 @@ class _GeneratorPanelState extends State<_GeneratorPanel> {
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Flexible(
+            // Issue #187: the title takes whatever the short strength label
+            // leaves. Two Flexibles around a Spacer split the row in thirds,
+            // which ellipsised "Generator" to "Ge…" in the 1024 column.
+            Expanded(
               child: Text(
                 widget.title,
                 maxLines: 1,
@@ -79,20 +82,17 @@ class _GeneratorPanelState extends State<_GeneratorPanel> {
                 ),
               ),
             ),
-            const Spacer(),
-            if (_result.isNotEmpty)
-              Flexible(
-                child: Text(
-                  assessment.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.right,
-                  style: AppTextStyles.secondary.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: colors.positiveText,
-                  ),
+            if (_result.isNotEmpty) ...[
+              const SizedBox(width: 12),
+              Text(
+                assessment.label,
+                maxLines: 1,
+                style: AppTextStyles.secondary.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: colors.positiveText,
                 ),
               ),
+            ],
           ],
         ),
         const SizedBox(height: 16),
