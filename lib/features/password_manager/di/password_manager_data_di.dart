@@ -27,6 +27,7 @@ import '../data/services/desktop_browser_autofill_reveal_bridge_service.dart';
 import '../data/services/desktop_browser_pending_generation_service.dart';
 import '../data/services/drive_auth_service.dart';
 import '../data/services/google_drive_api_service.dart';
+import '../data/services/google_drive_storage_provider.dart';
 import '../data/services/google_oauth_config.dart';
 import '../data/services/vault_csv_import_service.dart';
 import '../data/services/vault_duplicate_service.dart';
@@ -38,6 +39,7 @@ import '../domain/repositories/database_security_repository.dart';
 import '../domain/repositories/database_session_repository.dart';
 import '../domain/repositories/database_sync_repository.dart';
 import '../domain/repositories/autofill_ports.dart';
+import '../domain/repositories/cloud_storage_provider.dart';
 import '../domain/repositories/metadata_recovery_repository.dart';
 import '../domain/repositories/password_generator_settings_repository.dart';
 import '../domain/repositories/sync_merge_repository.dart';
@@ -53,7 +55,7 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
   );
   sl.registerLazySingleton<DatabaseSyncRepository>(
     () => DatabaseSyncRepositoryImpl(
-      driveAuthService: sl(),
+      cloudStorageProvider: sl(),
       databaseSyncOrchestrator: sl(),
     ),
   );
@@ -178,10 +180,18 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
   sl.registerLazySingleton(
     () => GoogleDriveApiService(driveAuthService: sl(), httpClient: sl()),
   );
+  // spec 010: one Google adapter, bound directly as the sole provider port.
+  // No registry, factory or map; a second provider is a future spec.
+  sl.registerLazySingleton<GoogleDriveStorageProvider>(
+    () => GoogleDriveStorageProvider(authService: sl(), apiService: sl()),
+  );
+  sl.registerLazySingleton<CloudStorageProvider>(
+    () => sl<GoogleDriveStorageProvider>(),
+  );
   sl.registerLazySingleton(
     () => DatabaseSyncOrchestrator(
       syncMetadataDataSource: sl(),
-      googleDriveApiService: sl(),
+      cloudStorageProvider: sl(),
       // spec 014 FR-6: resolve a database path to its registry identifier.
       resolveDatabaseId: (databasePath) =>
           resolveDatabaseIdForSync(databasePath, sl()),

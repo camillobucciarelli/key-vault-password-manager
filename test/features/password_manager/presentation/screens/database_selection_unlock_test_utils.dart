@@ -27,6 +27,7 @@ import 'package:password_manager/features/password_manager/presentation/screens/
 import 'package:password_manager/features/password_manager/presentation/screens/database_selection_screen.dart';
 import 'package:password_manager/features/password_manager/presentation/screens/database_unlock_screen.dart';
 import 'package:password_manager/injection_container.dart' as di;
+import 'package:password_manager/features/password_manager/domain/usecases/link_database_to_remote_usecase.dart';
 
 import '../coordinators/fake_database_ports.dart';
 
@@ -64,6 +65,7 @@ DatabaseTestHarness _buildHarness() {
     databaseRegistryRepository: registryRepository,
     databaseSecurityRepository: securityRepository,
     databaseSyncRepository: syncRepository,
+    linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(syncRepository),
     getActiveDatabaseUseCase: GetActiveDatabaseUseCase(registryRepository),
     resolveDatabaseDuplicateUseCase: ResolveDatabaseDuplicateUseCase(
       registryRepository,

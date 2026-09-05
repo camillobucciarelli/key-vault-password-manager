@@ -5,42 +5,43 @@ import 'package:crypto/crypto.dart';
 import 'package:loggy/loggy.dart';
 
 import '../../../../core/utils/portable_path.dart';
+import '../../domain/models/cloud_storage_error.dart';
 import '../../domain/models/database_sync_mapping.dart';
-import '../../domain/models/drive_remote_file.dart';
+import '../../domain/models/remote_file.dart';
 import '../../domain/models/sync_conflict.dart';
+import '../../domain/repositories/cloud_storage_provider.dart';
 import '../../domain/repositories/database_registry_repository.dart';
 import '../../domain/repositories/database_sync_repository.dart';
 import '../datasources/sync_metadata_data_source.dart';
 import 'database_file_hash_recorder.dart';
 import 'database_path_mutex.dart';
-import 'google_drive_api_service.dart';
 import 'safe_vault_file_writer.dart';
 
 class DatabaseSyncOrchestrator {
   DatabaseSyncOrchestrator({
     required SyncMetadataDataSource syncMetadataDataSource,
-    required GoogleDriveApiService googleDriveApiService,
+    required CloudStorageProvider cloudStorageProvider,
     required Future<String?> Function(String databasePath) resolveDatabaseId,
     DatabasePathMutex? mutex,
     SafeVaultFileWriter? safeWriter,
     DatabaseFileHashRecorder? fileHashRecorder,
-    this.driveCallTimeout = const Duration(seconds: 30),
+    this.remoteCallTimeout = const Duration(seconds: 30),
   }) : _syncMetadataDataSource = syncMetadataDataSource,
-       _googleDriveApiService = googleDriveApiService,
+       _provider = cloudStorageProvider,
        _resolveDatabaseId = resolveDatabaseId,
        _mutex = mutex ?? DatabasePathMutex(),
        _safeWriter = safeWriter ?? SafeVaultFileWriter(),
        _fileHashRecorder = fileHashRecorder;
 
-  /// Upper bound on each individual Drive call made while `syncNow` holds
+  /// Upper bound on each individual remote call made while `syncNow` holds
   /// the database lock. The mutex is in-process and non-cancellable: a hung
   /// request would otherwise queue EVERY writer on this database until app
   /// restart. Per-call (not a whole-flow budget) so a legitimately slow
   /// large-vault transfer is not killed by time spent in earlier calls;
-  /// 30s is far above normal Drive API latency. On expiry the pending
+  /// 30s is far above normal provider API latency. On expiry the pending
   /// [TimeoutException] surfaces through syncNow's existing error path and
   /// the lock is released.
-  final Duration driveCallTimeout;
+  final Duration remoteCallTimeout;
 
   final SyncMetadataDataSource _syncMetadataDataSource;
 
@@ -48,7 +49,7 @@ class DatabaseSyncOrchestrator {
   /// a database path to its identifier; `null` means "not registered", which
   /// reads as "no mapping" and refuses a new link.
   final Future<String?> Function(String databasePath) _resolveDatabaseId;
-  final GoogleDriveApiService _googleDriveApiService;
+  final CloudStorageProvider _provider;
 
   /// spec 008 T105: `syncNow` (checksum read, replacement writes and the
   /// `_backupFile` copy) runs entirely inside the shared database lock so a
@@ -71,10 +72,10 @@ class DatabaseSyncOrchestrator {
   /// registry hash tracking.
   final DatabaseFileHashRecorder? _fileHashRecorder;
 
-  /// Applies [driveCallTimeout] to a Drive call issued under the lock.
-  Future<T> _remote<T>(Future<T> call) => call.timeout(driveCallTimeout);
+  /// Applies [remoteCallTimeout] to a provider call issued under the lock.
+  Future<T> _remote<T>(Future<T> call) => call.timeout(remoteCallTimeout);
 
-  Future<DatabaseSyncMapping> linkDatabaseToDrive({
+  Future<DatabaseSyncMapping> linkDatabaseToRemote({
     required String databasePath,
     String? remoteFileId,
     String? remoteFileName,
@@ -86,14 +87,15 @@ class DatabaseSyncOrchestrator {
 
     final bytes = await dbFile.readAsBytes();
 
-    late final DriveRemoteFile remote;
+    late final RemoteFile remote;
     late final DatabaseSyncMapping mapping;
     if (remoteFileId != null && remoteFileId.trim().isNotEmpty) {
-      remote = await _googleDriveApiService.getFileMetadata(remoteFileId);
+      remote = await _provider.getFileMetadata(remoteFileId);
       mapping = DatabaseSyncMapping(
         databasePath: databasePath,
-        driveFileId: remote.id,
-        driveFileName: remote.name,
+        providerId: _provider.providerId,
+        remoteFileId: remote.id,
+        remoteFileName: remote.name,
         lastSyncedLocalChecksum: null,
         lastSyncedRemoteChecksum: null,
         lastSyncedRemoteModifiedTime: remote.modifiedTime,
@@ -105,18 +107,16 @@ class DatabaseSyncOrchestrator {
         remoteFileName,
         fallbackPath: databasePath,
       );
-      remote = await _googleDriveApiService.createFile(
-        fileName: desiredName,
-        bytes: bytes,
-      );
+      remote = await _provider.createFile(name: desiredName, bytes: bytes);
 
       final checksum = md5.convert(bytes).toString();
       mapping = DatabaseSyncMapping(
         databasePath: databasePath,
-        driveFileId: remote.id,
-        driveFileName: remote.name,
+        providerId: _provider.providerId,
+        remoteFileId: remote.id,
+        remoteFileName: remote.name,
         lastSyncedLocalChecksum: checksum,
-        lastSyncedRemoteChecksum: remote.md5Checksum ?? checksum,
+        lastSyncedRemoteChecksum: remote.contentChecksum ?? checksum,
         lastSyncedRemoteModifiedTime: remote.modifiedTime,
         lastSyncAt: DateTime.now(),
         autoSyncEnabled: true,
@@ -133,6 +133,17 @@ class DatabaseSyncOrchestrator {
       return null;
     }
     return _syncMetadataDataSource.getMapping(id);
+  }
+
+  /// spec 010 T302: a persisted mapping is executable only by the provider
+  /// this build injects. Runs before any auth, remote call, backup, metadata
+  /// mutation or local write; the raw stored id is never interpolated.
+  void _requireSupportedProvider(DatabaseSyncMapping mapping) {
+    if (mapping.providerId != _provider.providerId) {
+      throw const CloudStorageException(
+        CloudStorageErrorCode.unsupportedProvider,
+      );
+    }
   }
 
   Future<void> _upsertMappingKeyed(DatabaseSyncMapping mapping) async {
@@ -163,6 +174,7 @@ class DatabaseSyncOrchestrator {
     if (mapping == null) {
       throw Exception('Current database is not linked to Google Drive.');
     }
+    _requireSupportedProvider(mapping);
 
     final dbFile = File(databasePath);
     if (!await dbFile.exists()) {
@@ -172,11 +184,11 @@ class DatabaseSyncOrchestrator {
     final localBytes = await dbFile.readAsBytes();
     final localChecksum = md5.convert(localBytes).toString();
     final remote = await _remote(
-      _googleDriveApiService.getFileMetadata(mapping.driveFileId),
+      _provider.getFileMetadata(mapping.remoteFileId),
     );
     final remoteChecksumSnapshot = await _resolveRemoteChecksum(
-      remoteFileId: mapping.driveFileId,
-      metadataChecksum: remote.md5Checksum,
+      remoteFileId: mapping.remoteFileId,
+      metadataChecksum: remote.contentChecksum,
     );
     final remoteChecksum = remoteChecksumSnapshot.value;
 
@@ -203,7 +215,7 @@ class DatabaseSyncOrchestrator {
 
       _logSyncConflict(
         databasePath: databasePath,
-        driveFileName: mapping.driveFileName,
+        remoteFileName: mapping.remoteFileName,
         localChecksum: localChecksum,
         remoteChecksum: remoteChecksum,
         previousLocalChecksum: previousLocal,
@@ -219,8 +231,8 @@ class DatabaseSyncOrchestrator {
         return SyncNowConflict(
           SyncConflict(
             databasePath: databasePath,
-            driveFileId: mapping.driveFileId,
-            driveFileName: mapping.driveFileName,
+            remoteFileId: mapping.remoteFileId,
+            remoteFileName: mapping.remoteFileName,
             localChecksum: localChecksum,
             remoteChecksum: remoteChecksum,
             remoteModifiedTime: remote.modifiedTime,
@@ -237,15 +249,15 @@ class DatabaseSyncOrchestrator {
 
       if (resolution == SyncConflictResolution.keepLocal) {
         final updated = await _remote(
-          _googleDriveApiService.updateFile(
-            fileId: mapping.driveFileId,
+          _provider.updateFile(
+            remoteFileId: mapping.remoteFileId,
             bytes: localBytes,
           ),
         );
         await _upsertMappingKeyed(
           mapping.copyWith(
             lastSyncedLocalChecksum: localChecksum,
-            lastSyncedRemoteChecksum: updated.md5Checksum ?? localChecksum,
+            lastSyncedRemoteChecksum: updated.contentChecksum ?? localChecksum,
             lastSyncedRemoteModifiedTime: updated.modifiedTime,
             lastSyncAt: DateTime.now(),
             clearError: true,
@@ -255,7 +267,7 @@ class DatabaseSyncOrchestrator {
       }
 
       final downloaded = await _remote(
-        _googleDriveApiService.downloadFile(mapping.driveFileId),
+        _provider.downloadFile(mapping.remoteFileId),
       );
       await _replaceLocalDatabase(databasePath, downloaded);
       final refreshedLocal = md5.convert(downloaded).toString();
@@ -280,7 +292,7 @@ class DatabaseSyncOrchestrator {
     if (localChanged && remoteChanged) {
       _logSyncConflict(
         databasePath: databasePath,
-        driveFileName: mapping.driveFileName,
+        remoteFileName: mapping.remoteFileName,
         localChecksum: localChecksum,
         remoteChecksum: remoteChecksum,
         previousLocalChecksum: previousLocal,
@@ -296,8 +308,8 @@ class DatabaseSyncOrchestrator {
         return SyncNowConflict(
           SyncConflict(
             databasePath: databasePath,
-            driveFileId: mapping.driveFileId,
-            driveFileName: mapping.driveFileName,
+            remoteFileId: mapping.remoteFileId,
+            remoteFileName: mapping.remoteFileName,
             localChecksum: localChecksum,
             remoteChecksum: remoteChecksum,
             remoteModifiedTime: remote.modifiedTime,
@@ -314,15 +326,15 @@ class DatabaseSyncOrchestrator {
 
       if (resolution == SyncConflictResolution.keepLocal) {
         final updated = await _remote(
-          _googleDriveApiService.updateFile(
-            fileId: mapping.driveFileId,
+          _provider.updateFile(
+            remoteFileId: mapping.remoteFileId,
             bytes: localBytes,
           ),
         );
         await _upsertMappingKeyed(
           mapping.copyWith(
             lastSyncedLocalChecksum: localChecksum,
-            lastSyncedRemoteChecksum: updated.md5Checksum ?? localChecksum,
+            lastSyncedRemoteChecksum: updated.contentChecksum ?? localChecksum,
             lastSyncedRemoteModifiedTime: updated.modifiedTime,
             lastSyncAt: DateTime.now(),
             clearError: true,
@@ -332,7 +344,7 @@ class DatabaseSyncOrchestrator {
       }
 
       final downloaded = await _remote(
-        _googleDriveApiService.downloadFile(mapping.driveFileId),
+        _provider.downloadFile(mapping.remoteFileId),
       );
       await _replaceLocalDatabase(databasePath, downloaded);
       final refreshedLocal = md5.convert(downloaded).toString();
@@ -351,15 +363,15 @@ class DatabaseSyncOrchestrator {
 
     if (localChanged) {
       final updated = await _remote(
-        _googleDriveApiService.updateFile(
-          fileId: mapping.driveFileId,
+        _provider.updateFile(
+          remoteFileId: mapping.remoteFileId,
           bytes: localBytes,
         ),
       );
       await _upsertMappingKeyed(
         mapping.copyWith(
           lastSyncedLocalChecksum: localChecksum,
-          lastSyncedRemoteChecksum: updated.md5Checksum ?? localChecksum,
+          lastSyncedRemoteChecksum: updated.contentChecksum ?? localChecksum,
           lastSyncedRemoteModifiedTime: updated.modifiedTime,
           lastSyncAt: DateTime.now(),
           clearError: true,
@@ -370,7 +382,7 @@ class DatabaseSyncOrchestrator {
 
     if (remoteChanged) {
       final downloaded = await _remote(
-        _googleDriveApiService.downloadFile(mapping.driveFileId),
+        _provider.downloadFile(mapping.remoteFileId),
       );
       await _replaceLocalDatabase(databasePath, downloaded);
       final refreshedLocal = md5.convert(downloaded).toString();
@@ -393,12 +405,12 @@ class DatabaseSyncOrchestrator {
     return const SyncNowSuccess();
   }
 
-  Future<List<DriveRemoteFile>> listRemoteFiles({String? query}) {
-    return _googleDriveApiService.listKdbxFilesInDrive(query: query);
+  Future<List<RemoteFile>> listRemoteFiles({String? query}) {
+    return _provider.listKdbxFiles(query: query);
   }
 
   Future<Uint8List> downloadRemoteFile(String fileId) {
-    return _googleDriveApiService.downloadFile(fileId);
+    return _provider.downloadFile(fileId);
   }
 
   Future<void> setAutoSync(String databasePath, bool enabled) async {
@@ -406,6 +418,9 @@ class DatabaseSyncOrchestrator {
     if (mapping == null) {
       throw Exception('Current database is not linked to Google Drive.');
     }
+    // Toggling auto-sync is a mapping mutation, so T302's guard applies here
+    // too: a mapping this build cannot execute must not be rewritten.
+    _requireSupportedProvider(mapping);
     await _upsertMappingKeyed(mapping.copyWith(autoSyncEnabled: enabled));
   }
 
@@ -483,16 +498,14 @@ class DatabaseSyncOrchestrator {
       );
     }
 
-    final downloaded = await _remote(
-      _googleDriveApiService.downloadFile(remoteFileId),
-    );
+    final downloaded = await _remote(_provider.downloadFile(remoteFileId));
     final checksum = md5.convert(downloaded).toString();
     return _RemoteChecksumSnapshot(value: checksum, computedFromDownload: true);
   }
 
   void _logSyncConflict({
     required String databasePath,
-    required String driveFileName,
+    required String remoteFileName,
     required String localChecksum,
     required String remoteChecksum,
     required String? previousLocalChecksum,
@@ -504,7 +517,7 @@ class DatabaseSyncOrchestrator {
   }) {
     logWarning(
       'Sync conflict details '
-      '(db: $databasePath, file: $driveFileName, '
+      '(db: $databasePath, file: $remoteFileName, '
       'localChanged: $localChanged, remoteChanged: $remoteChanged, '
       'firstSyncWithoutBaseline: $firstSyncWithoutBaseline, '
       'remoteChecksumComputedFromDownload: '

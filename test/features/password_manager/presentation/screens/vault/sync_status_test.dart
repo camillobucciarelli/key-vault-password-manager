@@ -49,7 +49,7 @@ void main() {
               status: status,
               isDriveConnected: !isDisconnected,
               isDriveLinked: !isDisconnected,
-              linkedDriveFileName: isDisconnected ? null : 'Personal.kdbx',
+              linkedRemoteFileName: isDisconnected ? null : 'Personal.kdbx',
               lastSyncAt: isDisconnected ? null : DateTime(2026, 1, 1),
               syncError: status == DatabaseSyncStatus.error
                   ? 'Authorization expired'
@@ -100,7 +100,7 @@ void main() {
                 status: DatabaseSyncStatus.disconnected,
                 isDriveConnected: true,
                 isDriveLinked: true,
-                linkedDriveFileName: 'Personal.kdbx',
+                linkedRemoteFileName: 'Personal.kdbx',
               ),
             ),
           );
@@ -129,7 +129,7 @@ void main() {
               status: DatabaseSyncStatus.success,
               isDriveConnected: true,
               isDriveLinked: true,
-              linkedDriveFileName: 'Personal.kdbx',
+              linkedRemoteFileName: 'Personal.kdbx',
               lastSyncAt: lastSyncAt,
             ),
           ),

@@ -6,25 +6,28 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/data/datasources/sync_metadata_data_source.dart';
 import 'package:password_manager/features/password_manager/data/services/database_file_hash_recorder.dart';
 import 'package:password_manager/features/password_manager/data/services/database_sync_orchestrator.dart';
-import 'package:password_manager/features/password_manager/data/services/google_drive_api_service.dart';
 import 'package:password_manager/features/password_manager/data/services/safe_vault_file_writer.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
+import 'package:password_manager/features/password_manager/domain/models/cloud_storage_error.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/storage_account_summary.dart';
+import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
+import 'package:password_manager/features/password_manager/domain/repositories/cloud_storage_provider.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 
 void main() {
   late _InMemorySyncMetadataDataSource metadata;
-  late _FakeGoogleDriveApiService driveApi;
+  late _FakeCloudStorageProvider provider;
   late DatabaseSyncOrchestrator orchestrator;
 
   setUp(() {
     metadata = _InMemorySyncMetadataDataSource();
-    driveApi = _FakeGoogleDriveApiService();
+    provider = _FakeCloudStorageProvider();
     orchestrator = DatabaseSyncOrchestrator(
       syncMetadataDataSource: metadata,
-      googleDriveApiService: driveApi,
+      cloudStorageProvider: provider,
       // Identity resolver: tests address mappings by path.
       resolveDatabaseId: (databasePath) async => databasePath,
     );
@@ -44,8 +47,9 @@ void main() {
         localFile.path,
         DatabaseSyncMapping(
           databasePath: localFile.path,
-          driveFileId: remoteFileId,
-          driveFileName: 'vault.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: remoteFileId,
+          remoteFileName: 'vault.kdbx',
           lastSyncedLocalChecksum: null,
           lastSyncedRemoteChecksum: null,
           lastSyncedRemoteModifiedTime: null,
@@ -53,7 +57,7 @@ void main() {
         ),
       );
 
-      driveApi.setFile(
+      provider.setFile(
         id: remoteFileId,
         name: 'vault.kdbx',
         bytes: localBytes,
@@ -85,12 +89,13 @@ void main() {
         localFile.path,
         DatabaseSyncMapping(
           databasePath: localFile.path,
-          driveFileId: remoteFileId,
-          driveFileName: 'vault.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: remoteFileId,
+          remoteFileName: 'vault.kdbx',
         ),
       );
 
-      driveApi.setFile(
+      provider.setFile(
         id: remoteFileId,
         name: 'vault.kdbx',
         bytes: remoteBytes,
@@ -121,12 +126,13 @@ void main() {
       localFile.path,
       DatabaseSyncMapping(
         databasePath: localFile.path,
-        driveFileId: remoteFileId,
-        driveFileName: 'vault.kdbx',
+        providerId: 'google_drive',
+        remoteFileId: remoteFileId,
+        remoteFileName: 'vault.kdbx',
       ),
     );
 
-    driveApi.setFile(
+    provider.setFile(
       id: remoteFileId,
       name: 'vault.kdbx',
       bytes: localBytes,
@@ -142,16 +148,378 @@ void main() {
     expect(updated.lastSyncedRemoteChecksum, checksum);
   });
 
+  // ---------------------------------------------------------------------------
+  // spec 010 T002 — sync algorithm characterization. These pin the decision
+  // branches of `syncNow` against the unmodified production code so the
+  // provider-port refactor can prove it changed no branch.
+  // ---------------------------------------------------------------------------
+
+  Future<({File localFile, String remoteFileId})> seedBaseline({
+    required Uint8List localBytes,
+    required Uint8List remoteBytes,
+    required String previousLocalChecksum,
+    required String previousRemoteChecksum,
+  }) async {
+    final localFile = await _createTempDatabase(localBytes);
+    addTearDown(() => localFile.parent.delete(recursive: true));
+    const remoteFileId = 'remote-baseline';
+    await metadata.upsertMapping(
+      localFile.path,
+      DatabaseSyncMapping(
+        databasePath: localFile.path,
+        providerId: 'google_drive',
+        remoteFileId: remoteFileId,
+        remoteFileName: 'vault.kdbx',
+        lastSyncedLocalChecksum: previousLocalChecksum,
+        lastSyncedRemoteChecksum: previousRemoteChecksum,
+        lastSyncAt: DateTime(2026),
+        lastError: 'stale error',
+      ),
+    );
+    provider.setFile(
+      id: remoteFileId,
+      name: 'vault.kdbx',
+      bytes: remoteBytes,
+      md5Checksum: md5.convert(remoteBytes).toString(),
+    );
+    return (localFile: localFile, remoteFileId: remoteFileId);
+  }
+
+  test(
+    'T002 no-change: neither side moved -> no transfer, stamp only',
+    () async {
+      final bytes = Uint8List.fromList([1, 2, 3]);
+      final sum = md5.convert(bytes).toString();
+      final seed = await seedBaseline(
+        localBytes: bytes,
+        remoteBytes: bytes,
+        previousLocalChecksum: sum,
+        previousRemoteChecksum: sum,
+      );
+
+      final result = await orchestrator.syncNow(seed.localFile.path);
+
+      expect(result, isA<SyncNowSuccess>());
+      expect(provider.updateCalls, 0);
+      expect(provider.downloadCalls, 0);
+      final updated = (await metadata.getMapping(seed.localFile.path))!;
+      expect(updated.lastSyncedLocalChecksum, sum);
+      expect(updated.lastSyncedRemoteChecksum, sum);
+      expect(updated.lastError, isNull, reason: 'success clears lastError');
+      expect(updated.lastSyncAt!.isAfter(DateTime(2026)), isTrue);
+    },
+  );
+
+  test('T002 local-only: upload, remote baseline follows upload', () async {
+    final oldBytes = Uint8List.fromList([1, 2, 3]);
+    final newLocal = Uint8List.fromList([4, 5, 6]);
+    final oldSum = md5.convert(oldBytes).toString();
+    final seed = await seedBaseline(
+      localBytes: newLocal,
+      remoteBytes: oldBytes,
+      previousLocalChecksum: oldSum,
+      previousRemoteChecksum: oldSum,
+    );
+
+    final result = await orchestrator.syncNow(seed.localFile.path);
+
+    expect(result, isA<SyncNowSuccess>());
+    expect(provider.updateCalls, 1);
+    expect(provider.downloadCalls, 0);
+    expect(await provider.downloadFile(seed.remoteFileId), newLocal);
+    final updated = (await metadata.getMapping(seed.localFile.path))!;
+    final newSum = md5.convert(newLocal).toString();
+    expect(updated.lastSyncedLocalChecksum, newSum);
+    expect(updated.lastSyncedRemoteChecksum, newSum);
+    expect(await seed.localFile.readAsBytes(), newLocal);
+  });
+
+  test(
+    'T002 remote-only: download replaces local, local baseline follows',
+    () async {
+      final oldBytes = Uint8List.fromList([1, 2, 3]);
+      final newRemote = Uint8List.fromList([7, 8, 9]);
+      final oldSum = md5.convert(oldBytes).toString();
+      final seed = await seedBaseline(
+        localBytes: oldBytes,
+        remoteBytes: newRemote,
+        previousLocalChecksum: oldSum,
+        previousRemoteChecksum: oldSum,
+      );
+
+      final result = await orchestrator.syncNow(seed.localFile.path);
+
+      expect(result, isA<SyncNowSuccess>());
+      expect(provider.updateCalls, 0);
+      expect(provider.downloadCalls, 1);
+      expect(await seed.localFile.readAsBytes(), newRemote);
+      final updated = (await metadata.getMapping(seed.localFile.path))!;
+      final newSum = md5.convert(newRemote).toString();
+      expect(updated.lastSyncedLocalChecksum, newSum);
+      expect(updated.lastSyncedRemoteChecksum, newSum);
+    },
+  );
+
+  group('T002 conflict with baseline (both sides moved)', () {
+    final oldBytes = Uint8List.fromList([1, 2, 3]);
+    final newLocal = Uint8List.fromList([4, 5, 6]);
+    final newRemote = Uint8List.fromList([7, 8, 9]);
+    final oldSum = md5.convert(oldBytes).toString();
+
+    Future<({File localFile, String remoteFileId})> seedConflict() =>
+        seedBaseline(
+          localBytes: newLocal,
+          remoteBytes: newRemote,
+          previousLocalChecksum: oldSum,
+          previousRemoteChecksum: oldSum,
+        );
+
+    for (final resolution in [null, SyncConflictResolution.cancel]) {
+      test(
+        'resolution=$resolution -> conflict returned, nothing written',
+        () async {
+          final seed = await seedConflict();
+          final before = await metadata.getMapping(seed.localFile.path);
+
+          final result = await orchestrator.syncNow(
+            seed.localFile.path,
+            resolution: resolution,
+          );
+
+          expect(result, isA<SyncNowConflict>());
+          final conflict = (result as SyncNowConflict).conflict;
+          expect(conflict.firstSyncWithoutBaseline, isFalse);
+          expect(conflict.localChanged, isTrue);
+          expect(conflict.remoteChanged, isTrue);
+          expect(conflict.previousLocalChecksum, oldSum);
+          expect(conflict.previousRemoteChecksum, oldSum);
+          expect(conflict.remoteChecksumComputedFromDownload, isFalse);
+          expect(provider.updateCalls, 0);
+          expect(provider.downloadCalls, 0);
+          expect(await seed.localFile.readAsBytes(), newLocal);
+          expect(await metadata.getMapping(seed.localFile.path), before);
+        },
+      );
+    }
+
+    test('keepLocal -> upload local, remote baseline follows upload', () async {
+      final seed = await seedConflict();
+
+      final result = await orchestrator.syncNow(
+        seed.localFile.path,
+        resolution: SyncConflictResolution.keepLocal,
+      );
+
+      expect(result, isA<SyncNowSuccess>());
+      expect(provider.updateCalls, 1);
+      expect(provider.downloadCalls, 0);
+      expect(await provider.downloadFile(seed.remoteFileId), newLocal);
+      expect(await seed.localFile.readAsBytes(), newLocal);
+      final updated = (await metadata.getMapping(seed.localFile.path))!;
+      final newSum = md5.convert(newLocal).toString();
+      expect(updated.lastSyncedLocalChecksum, newSum);
+      expect(updated.lastSyncedRemoteChecksum, newSum);
+      expect(updated.lastError, isNull);
+    });
+
+    test(
+      'useRemote -> download replaces local, local baseline follows',
+      () async {
+        final seed = await seedConflict();
+
+        final result = await orchestrator.syncNow(
+          seed.localFile.path,
+          resolution: SyncConflictResolution.useRemote,
+        );
+
+        expect(result, isA<SyncNowSuccess>());
+        expect(provider.updateCalls, 0);
+        expect(provider.downloadCalls, 1);
+        expect(await seed.localFile.readAsBytes(), newRemote);
+        final updated = (await metadata.getMapping(seed.localFile.path))!;
+        final newSum = md5.convert(newRemote).toString();
+        expect(updated.lastSyncedLocalChecksum, newSum);
+        expect(updated.lastSyncedRemoteChecksum, newSum);
+        expect(updated.lastError, isNull);
+      },
+    );
+  });
+
+  test(
+    'T002 syncNow on an unlinked database throws before any remote call',
+    () async {
+      final localFile = await _createTempDatabase(Uint8List.fromList([1]));
+      addTearDown(() => localFile.parent.delete(recursive: true));
+
+      await expectLater(orchestrator.syncNow(localFile.path), throwsException);
+      expect(provider.updateCalls, 0);
+      expect(provider.downloadCalls, 0);
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // spec 010 T302 — a persisted mapping is executable only by the injected
+  // provider. Mismatch must fail closed before auth, remote I/O, backup,
+  // metadata mutation or local write, and never leak the stored id.
+  // ---------------------------------------------------------------------------
+  group('T302 provider identity guard', () {
+    const sentinel = 'sentinel_provider_9f3a7c1e';
+
+    Future<({File localFile, DatabaseSyncMapping before})> seedForeign() async {
+      final localBytes = Uint8List.fromList([1, 2, 3]);
+      final localFile = await _createTempDatabase(localBytes);
+      addTearDown(() => localFile.parent.delete(recursive: true));
+      await metadata.upsertMapping(
+        localFile.path,
+        DatabaseSyncMapping(
+          databasePath: localFile.path,
+          providerId: sentinel,
+          remoteFileId: 'remote-foreign',
+          remoteFileName: 'vault.kdbx',
+          lastSyncedLocalChecksum: 'stale',
+          lastSyncedRemoteChecksum: 'stale',
+        ),
+      );
+      provider.setFile(
+        id: 'remote-foreign',
+        name: 'vault.kdbx',
+        bytes: Uint8List.fromList([9, 9, 9]),
+        md5Checksum: 'remote',
+      );
+      final before = (await metadata.getMapping(localFile.path))!;
+      return (localFile: localFile, before: before);
+    }
+
+    for (final resolution in [null, SyncConflictResolution.keepLocal]) {
+      test('syncNow(resolution=$resolution) fails closed with the exact '
+          'safe error and touches nothing', () async {
+        final seed = await seedForeign();
+        final bytesBefore = await seed.localFile.readAsBytes();
+        final mtimeBefore = await seed.localFile.lastModified();
+
+        Object? thrown;
+        try {
+          await orchestrator.syncNow(
+            seed.localFile.path,
+            resolution: resolution,
+          );
+        } catch (e) {
+          thrown = e;
+        }
+
+        expect(thrown, isA<CloudStorageException>());
+        final error = thrown! as CloudStorageException;
+        expect(error.code, CloudStorageErrorCode.unsupportedProvider);
+        expect(error.safeCode, 'cloud_storage.unsupported_provider');
+        expect(
+          error.safeMessage,
+          'Cloud storage provider is not supported by this build.',
+        );
+        expect(error.toString(), error.safeCode);
+        expect(error.toString(), isNot(contains(sentinel)));
+
+        expect(provider.totalCalls, 0, reason: 'no auth or remote I/O');
+        expect(await seed.localFile.readAsBytes(), bytesBefore);
+        expect(await seed.localFile.lastModified(), mtimeBefore);
+        expect(
+          seed.localFile.parent
+              .listSync()
+              .map((e) => e.path.split(RegExp(r'[/\\]')).last),
+          [seed.localFile.path.split(RegExp(r'[/\\]')).last],
+          reason: 'no backup file created',
+        );
+        final after = (await metadata.getMapping(seed.localFile.path))!;
+        expect(after, seed.before, reason: 'metadata untouched');
+        expect(after.lastError, isNull);
+        expect(await metadata.getAllMappings(), hasLength(1));
+      });
+
+      test(
+        'T302 setAutoSync refuses an unsupported provider mapping too',
+        () async {
+          final localFile = await _createTempDatabase(
+            Uint8List.fromList([1, 2]),
+          );
+          addTearDown(() => localFile.parent.delete(recursive: true));
+          const stored = DatabaseSyncMapping(
+            databasePath: 'placeholder',
+            providerId: 'SENTINEL-provider-id',
+            remoteFileId: 'remote-1',
+            remoteFileName: 'vault.kdbx',
+            autoSyncEnabled: true,
+          );
+          await metadata.upsertMapping(
+            localFile.path,
+            stored.copyWith(databasePath: localFile.path),
+          );
+          final before = await metadata.getMapping(localFile.path);
+
+          await expectLater(
+            orchestrator.setAutoSync(localFile.path, false),
+            throwsA(
+              isA<CloudStorageException>()
+                  .having(
+                    (e) => e.code,
+                    'code',
+                    CloudStorageErrorCode.unsupportedProvider,
+                  )
+                  .having(
+                    (e) => e.toString(),
+                    'toString',
+                    isNot(contains('SENTINEL')),
+                  ),
+            ),
+          );
+
+          expect(
+            await metadata.getMapping(localFile.path),
+            before,
+            reason: 'the mapping must not be rewritten',
+          );
+        },
+      );
+    }
+
+    test('new links store the injected provider id', () async {
+      final localFile = await _createTempDatabase(Uint8List.fromList([1]));
+      addTearDown(() => localFile.parent.delete(recursive: true));
+      provider.setFile(
+        id: 'existing-remote',
+        name: 'existing.kdbx',
+        bytes: Uint8List.fromList([1]),
+        md5Checksum: null,
+      );
+
+      final linkedExisting = await orchestrator.linkDatabaseToRemote(
+        databasePath: localFile.path,
+        remoteFileId: 'existing-remote',
+      );
+      final created = await orchestrator.linkDatabaseToRemote(
+        databasePath: localFile.path,
+        remoteFileName: 'fresh',
+      );
+
+      expect(linkedExisting.providerId, provider.providerId);
+      expect(created.providerId, provider.providerId);
+      expect(
+        (await metadata.getMapping(localFile.path))!.providerId,
+        provider.providerId,
+      );
+    });
+  });
+
   test('a Drive-linked mapping moves exactly, restorable on failure', () async {
     final destination = DatabaseSyncMapping(
       databasePath: '/tmp/dest.kdbx',
-      driveFileId: 'destination-remote-id',
-      driveFileName: 'destination.kdbx',
+      providerId: 'google_drive',
+      remoteFileId: 'destination-remote-id',
+      remoteFileName: 'destination.kdbx',
     );
     final source = DatabaseSyncMapping(
       databasePath: '/tmp/source.kdbx',
-      driveFileId: 'source-remote-id',
-      driveFileName: 'source.kdbx',
+      providerId: 'google_drive',
+      remoteFileId: 'source-remote-id',
+      remoteFileName: 'source.kdbx',
     );
     await metadata.upsertMapping(source.databasePath, source);
     await metadata.upsertMapping(destination.databasePath, destination);
@@ -165,7 +533,7 @@ void main() {
     // mapping's PATH payload and drops the mapping that occupied the
     // destination path.
     final moved = await metadata.getMapping(source.databasePath);
-    expect(moved?.driveFileId, 'source-remote-id');
+    expect(moved?.remoteFileId, 'source-remote-id');
     expect(moved?.databasePath, destination.databasePath);
     expect(await metadata.getMapping(destination.databasePath), isNull);
 
@@ -178,7 +546,7 @@ void main() {
       source.databasePath,
     );
     expect(
-      (await metadata.getMapping(destination.databasePath))?.driveFileId,
+      (await metadata.getMapping(destination.databasePath))?.remoteFileId,
       'destination-remote-id',
     );
   });
@@ -275,13 +643,14 @@ Future<_HashSyncHarness> _createHashSyncHarness({
     ),
   )..failUpsertOnCall = failUpsertOnCall;
   final localMetadata = _InMemorySyncMetadataDataSource();
-  final driveService = _FakeGoogleDriveApiService();
+  final driveService = _FakeCloudStorageProvider();
   await localMetadata.upsertMapping(
     localFile.path,
     DatabaseSyncMapping(
       databasePath: localFile.path,
-      driveFileId: remoteFileId,
-      driveFileName: 'vault.kdbx',
+      providerId: 'google_drive',
+      remoteFileId: remoteFileId,
+      remoteFileName: 'vault.kdbx',
       lastSyncedLocalChecksum: localHash,
       lastSyncedRemoteChecksum: localHash,
     ),
@@ -302,7 +671,7 @@ Future<_HashSyncHarness> _createHashSyncHarness({
     orchestrator: DatabaseSyncOrchestrator(
       resolveDatabaseId: (databasePath) async => databasePath,
       syncMetadataDataSource: localMetadata,
-      googleDriveApiService: driveService,
+      cloudStorageProvider: driveService,
       safeWriter: safeWriter,
       fileHashRecorder: DatabaseFileHashRecorder(registryRepository: registry),
     ),
@@ -467,8 +836,29 @@ class _InMemorySyncMetadataDataSource implements SyncMetadataDataSource {
   }
 }
 
-class _FakeGoogleDriveApiService implements GoogleDriveApiService {
+class _FakeCloudStorageProvider implements CloudStorageProvider {
   final Map<String, _RemoteFileState> _files = {};
+
+  int isConnectedCalls = 0;
+  int connectCalls = 0;
+  int disconnectCalls = 0;
+  int getConnectedAccountCalls = 0;
+  int listCalls = 0;
+  int getFileMetadataCalls = 0;
+  int createCalls = 0;
+  int updateCalls = 0;
+  int downloadCalls = 0;
+
+  int get totalCalls =>
+      isConnectedCalls +
+      connectCalls +
+      disconnectCalls +
+      getConnectedAccountCalls +
+      listCalls +
+      getFileMetadataCalls +
+      createCalls +
+      updateCalls +
+      downloadCalls;
 
   void setFile({
     required String id,
@@ -485,68 +875,82 @@ class _FakeGoogleDriveApiService implements GoogleDriveApiService {
     );
   }
 
+  RemoteFile _toRemote(_RemoteFileState file) => RemoteFile(
+    providerId: providerId,
+    id: file.id,
+    name: file.name,
+    modifiedTime: file.modifiedTime,
+    contentChecksum: file.md5Checksum,
+  );
+
+  _RemoteFileState _require(String remoteFileId) {
+    final file = _files[remoteFileId];
+    if (file == null) {
+      throw Exception('Missing file state for $remoteFileId');
+    }
+    return file;
+  }
+
   @override
-  Future<DriveRemoteFile> createFile({
-    required String fileName,
+  String get providerId => 'google_drive';
+
+  @override
+  Future<bool> isConnected() async {
+    isConnectedCalls += 1;
+    return true;
+  }
+
+  @override
+  Future<void> connect() async {
+    connectCalls += 1;
+  }
+
+  @override
+  Future<void> disconnect() async {
+    disconnectCalls += 1;
+  }
+
+  @override
+  Future<StorageAccountSummary> getConnectedAccount() async {
+    getConnectedAccountCalls += 1;
+    return const StorageAccountSummary(displayLabel: 'fake');
+  }
+
+  @override
+  Future<List<RemoteFile>> listKdbxFiles({String? query}) async {
+    listCalls += 1;
+    return _files.values.map(_toRemote).toList(growable: false);
+  }
+
+  @override
+  Future<RemoteFile> getFileMetadata(String remoteFileId) async {
+    getFileMetadataCalls += 1;
+    return _toRemote(_require(remoteFileId));
+  }
+
+  @override
+  Future<RemoteFile> createFile({
+    required String name,
     required Uint8List bytes,
   }) async {
+    createCalls += 1;
     const id = 'created-file-id';
     setFile(
       id: id,
-      name: fileName,
+      name: name,
       bytes: bytes,
       md5Checksum: md5.convert(bytes).toString(),
     );
-    return getFileMetadata(id);
+    return _toRemote(_require(id));
   }
 
   @override
-  Future<Uint8List> downloadFile(String fileId) async {
-    final file = _files[fileId];
-    if (file == null) {
-      throw Exception('Missing file state for $fileId');
-    }
-    return file.bytes;
-  }
-
-  @override
-  Future<DriveRemoteFile> getFileMetadata(String fileId) async {
-    final file = _files[fileId];
-    if (file == null) {
-      throw Exception('Missing file state for $fileId');
-    }
-    return DriveRemoteFile(
-      id: file.id,
-      name: file.name,
-      modifiedTime: file.modifiedTime,
-      md5Checksum: file.md5Checksum,
-    );
-  }
-
-  @override
-  Future<List<DriveRemoteFile>> listKdbxFilesInDrive({String? query}) async {
-    return _files.values
-        .map(
-          (file) => DriveRemoteFile(
-            id: file.id,
-            name: file.name,
-            modifiedTime: file.modifiedTime,
-            md5Checksum: file.md5Checksum,
-          ),
-        )
-        .toList(growable: false);
-  }
-
-  @override
-  Future<DriveRemoteFile> updateFile({
-    required String fileId,
+  Future<RemoteFile> updateFile({
+    required String remoteFileId,
     required Uint8List bytes,
   }) async {
-    final current = _files[fileId];
-    if (current == null) {
-      throw Exception('Missing file state for $fileId');
-    }
-
+    updateCalls += 1;
+    final current = _require(remoteFileId);
     final next = _RemoteFileState(
       id: current.id,
       name: current.name,
@@ -554,17 +958,15 @@ class _FakeGoogleDriveApiService implements GoogleDriveApiService {
       md5Checksum: md5.convert(bytes).toString(),
       modifiedTime: DateTime.now(),
     );
-    _files[fileId] = next;
-    return DriveRemoteFile(
-      id: next.id,
-      name: next.name,
-      modifiedTime: next.modifiedTime,
-      md5Checksum: next.md5Checksum,
-    );
+    _files[remoteFileId] = next;
+    return _toRemote(next);
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+  Future<Uint8List> downloadFile(String remoteFileId) async {
+    downloadCalls += 1;
+    return _require(remoteFileId).bytes;
+  }
 }
 
 class _RemoteFileState {

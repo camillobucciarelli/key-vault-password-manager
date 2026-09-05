@@ -5,7 +5,7 @@ import '../../../domain/models/vault_custom_field.dart';
 import '../../../domain/models/sync_conflict.dart';
 import '../../../domain/models/sync_merge_models.dart';
 import '../../../domain/services/sync_merge_policy.dart' show MergeShortcut;
-import '../../../domain/models/drive_remote_file.dart';
+import '../../../domain/models/remote_file.dart';
 import 'vault_state.dart';
 
 abstract class VaultEvent extends Equatable {
@@ -387,7 +387,7 @@ class ConnectGoogleDrive extends VaultEvent {
 class GoogleDriveReconnectSucceeded extends VaultEvent {
   const GoogleDriveReconnectSucceeded({this.remoteFiles});
 
-  final List<DriveRemoteFile>? remoteFiles;
+  final List<RemoteFile>? remoteFiles;
 
   @override
   List<Object?> get props => [remoteFiles];
@@ -451,8 +451,8 @@ class ClearVaultSyncFeedback extends VaultEvent {
   const ClearVaultSyncFeedback();
 }
 
-class LoadDriveRemoteFiles extends VaultEvent {
-  const LoadDriveRemoteFiles({this.query});
+class LoadRemoteFiles extends VaultEvent {
+  const LoadRemoteFiles({this.query});
 
   final String? query;
 

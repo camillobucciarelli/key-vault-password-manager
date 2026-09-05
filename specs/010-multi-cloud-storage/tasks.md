@@ -11,14 +11,14 @@ in this file.
 
 ## Phase 0 — Baseline and coordination
 
-- [ ] **T001 Reconcile active spec 008** — owner: `senior-flutter-dev`  
+- [x] **T001 Reconcile active spec 008** — owner: `senior-flutter-dev`  
   Files: `specs/008-per-field-conflict-resolution/{spec,plan,tasks}.md`, current
   orchestrator/mapping/DI/mutex changes.  
   Acceptance: implementation base includes latest shared singleton mutex and any
   landed safe-writer work; no 010 branch forks those invariants.  
   Verify: inspect diff/history; run current writer-routing and model suites.
 
-- [ ] **T001b Fix spec 013 sequencing** — owner: `senior-flutter-dev`  
+- [x] **T001b Fix spec 013 sequencing** — owner: `senior-flutter-dev`  
   Files: `specs/013-google-drive-per-file-access/{spec,tasks}.md`, this file.  
   **Decision (2026-08-28): 010 lands first in production; 013 rebases onto the
   neutral models.** 013's Gate 0-A spike runs in parallel on its own
@@ -40,7 +40,7 @@ in this file.
   Verify: order recorded; the selection-surface tasks name which surface they
   target; selection suites listed in the rebase step.
 
-- [ ] **T002 Characterize sync algorithm before edits** — owner:
+- [x] **T002 Characterize sync algorithm before edits** — owner:
   `senior-flutter-dev`  
   Files: `test/features/password_manager/data/services/database_sync_orchestrator_test.dart`,
   `edit_vs_sync_lost_update_test.dart`, `database_writer_lock_routing_test.dart`.  
@@ -49,7 +49,7 @@ in this file.
   lock release.  
   Verify: targeted tests green against unmodified production code.
 
-- [ ] **T003 Characterize Google adapter inputs/outputs** — owner:
+- [x] **T003 Characterize Google adapter inputs/outputs** — owner:
   `senior-flutter-dev`  
   Files: `test/features/password_manager/data/services/google_drive_api_service_test.dart`,
   auth service tests if present.  
@@ -58,7 +58,7 @@ in this file.
   dynamic provider-derived error detail.  
   Verify: targeted Google service tests green; no live account needed.
 
-- [ ] **T004 Add architecture guard (green from the first commit)** — owner:
+- [x] **T004 Add architecture guard (green from the first commit)** — owner:
   `senior-flutter-dev`  
   Files: new
   `test/features/password_manager/data/architecture/cloud_storage_provider_architecture_test.dart`.  
@@ -74,7 +74,7 @@ in this file.
   Verify: `flutter test <this file>` green on the untouched baseline; every
   disabled assertion names the task ID that turns it on; no broad false positives.
 
-- [ ] **T005 Freeze complete legacy-identifier inventory** — owner:
+- [x] **T005 Freeze complete legacy-identifier inventory** — owner:
   `senior-flutter-dev`  
   Files: every production/test path listed in `plan.md` M0, including
   `presentation/screens/database_selection_screen.dart`, shared
@@ -90,7 +90,7 @@ in this file.
 
 ## Phase 1 — Generic models and mapping migration
 
-- [ ] **T101 Add provider-neutral remote models** — owner:
+- [x] **T101 Add provider-neutral remote models** — owner:
   `senior-flutter-dev`  
   Files: new `domain/models/remote_file.dart`,
   `domain/models/storage_account_summary.dart`,
@@ -103,7 +103,7 @@ in this file.
   dropped instead of renamed and T404 records that.  
   Verify: model tests and `flutter analyze`.
 
-- [ ] **T102 Rename mapping/conflict vocabulary** — owner:
+- [x] **T102 Rename mapping/conflict vocabulary** — owner:
   `senior-flutter-dev`  
   Files: `domain/models/database_sync_mapping.dart`,
   `domain/models/sync_conflict.dart`,
@@ -115,7 +115,7 @@ in this file.
   Verify: constructor/copy/equality tests; source search finds no legacy fields in
   public domain contracts.
 
-- [ ] **T103 Implement exact v1/v2 decode** — owner: `senior-flutter-dev`  
+- [x] **T103 Implement exact v1/v2 decode** — owner: `senior-flutter-dev`  
   Files: `database_sync_mapping.dart`, `sync_metadata_data_source.dart`, metadata
   tests/fixtures.  
   Acceptance: absent provider defaults to `google_drive`; generic values win;
@@ -123,7 +123,7 @@ in this file.
   fails closed without rewrite or vault access.  
   Verify: table-driven migration test for every spec decode rule.
 
-- [ ] **T104 Write mappings forward to v2** — owner: `senior-flutter-dev`  
+- [x] **T104 Write mappings forward to v2** — owner: `senior-flutter-dev`  
   Files: same mapping/data-source files and portable-path tests.  
   Acceptance: successful metadata mutation writes `schemaVersion: 2`, generic
   identity keys and no legacy keys; all non-identity values and portable paths
@@ -131,7 +131,7 @@ in this file.
   Verify: decode legacy fixture, mutate, inspect JSON, decode again; assert vault
   fixture checksum/mtime unchanged.
 
-- [ ] **T105 Make remote identity a tuple everywhere** — owner:
+- [x] **T105 Make remote identity a tuple everywhere** — owner:
   `senior-flutter-dev`  
   Files: neutral remote model, mapping/conflict, repository/orchestrator, picker,
   `vault_sync.part.dart`, metadata/picker/coordinator tests and shared fakes.  
@@ -143,7 +143,7 @@ in this file.
 
 ## Phase 2 — Provider port and Google implementation
 
-- [ ] **T201 Define one provider port and safe errors** — owner:
+- [x] **T201 Define one provider port and safe errors** — owner:
   `senior-flutter-dev`  
   Files: new `domain/repositories/cloud_storage_provider.dart`,
   `domain/models/cloud_storage_error.dart`; contract tests.  
@@ -152,7 +152,7 @@ in this file.
   registry or provider factory.  
   Verify: domain compiles without data imports; architecture guard.
 
-- [ ] **T202 Build Google adapter** — owner: `senior-flutter-dev`  
+- [x] **T202 Build Google adapter** — owner: `senior-flutter-dev`  
   Files: new `data/services/google_drive_storage_provider.dart`; change
   `drive_auth_service.dart`, `google_drive_api_service.dart` only as required;
   new adapter tests.  
@@ -160,7 +160,7 @@ in this file.
   `google_drive`, maps neutral models and preserves behavior.  
   Verify: fake auth/API tests for every operation.
 
-- [ ] **T203 Sanitize provider failures** — owner: `senior-flutter-dev`  
+- [x] **T203 Sanitize provider failures** — owner: `senior-flutter-dev`  
   Files: Google adapter/error tests and minimal Google service changes.  
   Acceptance: exact `CloudStorageErrorCode`, safe code and fixed message table in
   `spec.md`; exhaustive Google/transport source mapping including one-refresh
@@ -174,14 +174,14 @@ in this file.
 
 ## Phase 3 — Neutralize data workflow and repository
 
-- [ ] **T301 Inject provider port into orchestrator** — owner:
+- [x] **T301 Inject provider port into orchestrator** — owner:
   `senior-flutter-dev`  
   Files: `data/services/database_sync_orchestrator.dart`, tests/fakes.  
   Acceptance: no Google/Drive import or dependency; provider-neutral timeout name;
   same duration, lock scope, checksum fallback and sync branches.  
   Verify: T002 tests unchanged and green; review algorithm-only diff is empty.
 
-- [ ] **T302 Enforce mapping provider identity** — owner:
+- [x] **T302 Enforce mapping provider identity** — owner:
   `senior-flutter-dev`  
   Files: orchestrator and tests.  
   Acceptance: mapping/provider mismatch fails with safe unsupported-provider error
@@ -192,7 +192,7 @@ in this file.
   Verify: sentinel ID absent from exception/string/log/state/persistence; zero call
   counters and unchanged local/metadata/remote fixtures.
 
-- [ ] **T303 Neutralize application repository** — owner:
+- [x] **T303 Neutralize application repository** — owner:
   `senior-flutter-dev`  
   Files: `domain/repositories/database_sync_repository.dart`,
   `data/repositories/database_sync_repository_impl.dart`, repository fakes/tests.  
@@ -200,7 +200,7 @@ in this file.
   names; auth/account through provider, sync through orchestrator.  
   Verify: delegation tests and architecture guard.
 
-- [ ] **T304 Preserve mapping move/remove and auto-sync** — owner:
+- [x] **T304 Preserve mapping move/remove and auto-sync** — owner:
   `senior-flutter-dev`  
   Files: orchestrator, repository, metadata/rename/background-sync tests.  
   Acceptance: move/remove/toggle semantics and shared rename transaction remain
@@ -209,7 +209,7 @@ in this file.
 
 ## Phase 4 — Use cases, coordinators and presentation vocabulary
 
-- [ ] **T401 Add meaningful atomic use cases** — owner:
+- [x] **T401 Add meaningful atomic use cases** — owner:
   `senior-flutter-dev`  
   Files: new `domain/usecases/link_database_to_remote_usecase.dart`,
   `sync_database_now_usecase.dart`; use-case tests.  
@@ -217,7 +217,7 @@ in this file.
   use case added for simple getters/toggles.  
   Verify: policy/outcome tests, not constructor-only tests.
 
-- [ ] **T402 Move touched multi-step flow to coordinators** — owner:
+- [x] **T402 Move touched multi-step flow to coordinators** — owner:
   `senior-flutter-dev`  
   Files: `database_session_coordinator.dart`, `vault_session_coordinator.dart`,
   coordinator tests.  
@@ -226,13 +226,13 @@ in this file.
   presentation.  
   Verify: coordinator tests cover success/failure/cancellation parity.
 
-- [ ] **T403 Keep VaultBloc thin** — owner: `senior-flutter-dev`  
+- [x] **T403 Keep VaultBloc thin** — owner: `senior-flutter-dev`  
   Files: `vault_bloc.dart`, `vault_event.dart`, `vault_state.dart`, DI/tests.  
   Acceptance: touched handlers delegate sequencing and emit state; no OAuth,
   provider selection or remote operation chain in BLoC.  
   Verify: background sync, status and error-state tests.
 
-- [ ] **T404 Neutralize touched model names in UI** — owner:
+- [x] **T404 Neutralize touched model names in UI** — owner:
   `senior-flutter-dev`  
   Files: `presentation/screens/database_selection_screen.dart`,
   `vault_sync.part.dart`, `vault_dialogs.part.dart`, `vault_navigation.part.dart`,
@@ -255,7 +255,7 @@ in this file.
 
 ## Phase 5 — DI and cleanup
 
-- [ ] **T501 Wire direct Google implementation** — owner:
+- [x] **T501 Wire direct Google implementation** — owner:
   `senior-flutter-dev`  
   Files: `di/password_manager_data_di.dart`.  
   Acceptance: one lazy singleton Google adapter, one direct
@@ -263,14 +263,14 @@ in this file.
   orchestrator, shared existing mutex unchanged; no registry/factory/map.  
   Verify: GetIt resolution test and architecture guard.
 
-- [ ] **T502 Wire use cases/coordinators** — owner: `senior-flutter-dev`  
+- [x] **T502 Wire use cases/coordinators** — owner: `senior-flutter-dev`  
   Files: `di/password_manager_domain_di.dart`,
   `di/password_manager_presentation_di.dart`.  
   Acceptance: two meaningful use cases registered; coordinators/BLoC resolve;
   provider never injected into presentation.  
   Verify: DI smoke and coordinator/BLoC tests.
 
-- [ ] **T503 Remove obsolete Drive domain models** — owner:
+- [x] **T503 Remove obsolete Drive domain models** — owner:
   `senior-flutter-dev`  
   Files: delete `domain/models/drive_remote_file.dart`,
   `domain/models/drive_account_summary.dart`; update all tests/fakes/imports.  
@@ -281,14 +281,14 @@ in this file.
 
 ## Phase 6 — Validation and release gate
 
-- [ ] **T601 Run targeted provider/migration suites** — owner:
+- [x] **T601 Run targeted provider/migration suites** — owner:
   `senior-flutter-dev`  
   Files: tests only as fixes require.  
   Acceptance: architecture, mapping, Google adapter/API, orchestrator, repository
   and use-case suites green.  
   Verify: commands from `plan.md` M6.
 
-- [ ] **T601b Enforce legacy/source allowlist** — owner:
+- [x] **T601b Enforce legacy/source allowlist** — owner:
   `senior-flutter-dev`  
   Files: architecture test and all search results.  
   Acceptance: every identifier banned by acceptance criterion 3 in `spec.md` has
@@ -302,13 +302,13 @@ in this file.
   each symbol individually and permits no directory/glob/comment exception.  
   Verify: exact `rg` commands and allowlist from `plan.md` M6.
 
-- [ ] **T602 Run sync safety suites** — owner: `senior-flutter-dev`  
+- [x] **T602 Run sync safety suites** — owner: `senior-flutter-dev`  
   Files: no production change unless test finds regression.  
   Acceptance: mutex/writer routing, edit-vs-sync, active 008 convergence and
   deletion model suites green; no shared-invariant regression.  
   Verify: commands from `plan.md` M6.
 
-- [ ] **T603 Run presentation regression** — owner:
+- [x] **T603 Run presentation regression** — owner:
   `senior-flutter-dev`  
   Files: coordinator/BLoC/widget tests.  
   Acceptance: static/unrelated copy, remote selection, link, sync status/conflict
@@ -317,7 +317,7 @@ in this file.
   behavior is compared against whatever spec 013 defines when 013 has landed.  
   Verify: targeted presentation tests.
 
-- [ ] **T604 Full static/test gate and scope guard** — owner:
+- [x] **T604 Full static/test gate and scope guard** — owner:
   `senior-flutter-dev`  
   Files: whole Dart workspace.  
   Acceptance: formatted code, `flutter analyze` clean, full `flutter test` green.

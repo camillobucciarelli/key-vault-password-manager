@@ -1,6 +1,6 @@
 // Copilot review fix (spec-005 PR #9): `_selectedId` in
 // `_RemoteFilePickerScreenState` used to only ever be assigned once
-// (`_selectedId ??= state.remoteDriveFiles.first.id`). If the user typed a
+// (`_selectedId ??= state.remoteFiles.first.id`). If the user typed a
 // search query that removed the currently-selected file from the list, the
 // stale id survived — no row showed as selected, yet "Link" stayed enabled
 // and would have completed with an id no longer visible to the user.
@@ -11,10 +11,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:password_manager/features/password_manager/domain/models/cloud_storage_error.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:password_manager/features/password_manager/domain/errors/google_authorization_required_exception.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_account_summary.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/storage_account_summary.dart';
+import 'package:password_manager/features/password_manager/domain/models/remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/google_drive_reconnect_coordinator.dart';
@@ -26,8 +27,16 @@ import 'package:password_manager/injection_container.dart' as di;
 import '../../coordinators/fake_database_ports.dart';
 import 'vault_shell_test_utils.dart';
 
-const _fileA = DriveRemoteFile(id: 'a1', name: 'Alpha.kdbx');
-const _fileB = DriveRemoteFile(id: 'b1', name: 'Beta.kdbx');
+const _fileA = RemoteFile(
+  providerId: 'google_drive',
+  id: 'a1',
+  name: 'Alpha.kdbx',
+);
+const _fileB = RemoteFile(
+  providerId: 'google_drive',
+  id: 'b1',
+  name: 'Beta.kdbx',
+);
 
 void _usePhoneViewport(WidgetTester tester) {
   tester.view.physicalSize = const Size(390, 844);
@@ -51,11 +60,11 @@ class _FakeUnlinkedSyncRepository extends FakeDatabaseSyncRepository {
   Future<List<DatabaseSyncMapping>> getAllMappings() async => const [];
 
   @override
-  Future<DriveAccountSummary> getConnectedAccount() async =>
-      DriveAccountSummary.fallback;
+  Future<StorageAccountSummary> getConnectedAccount() async =>
+      const StorageAccountSummary(displayLabel: 'Google Drive account');
 
   @override
-  Future<List<DriveRemoteFile>> listRemoteFiles({String? query}) async {
+  Future<List<RemoteFile>> listRemoteFiles({String? query}) async {
     const all = [_fileA, _fileB];
     if (query == null || query.isEmpty) return all;
     return all
@@ -64,9 +73,32 @@ class _FakeUnlinkedSyncRepository extends FakeDatabaseSyncRepository {
   }
 }
 
+/// spec 010 T105: another database linked to the same opaque id under a
+/// different provider (`a1`) and one linked to the same tuple (`b1`).
+class _LinkedElsewhereSyncRepository extends _FakeUnlinkedSyncRepository {
+  @override
+  Future<List<DatabaseSyncMapping>> getAllMappings() async => const [
+    DatabaseSyncMapping(
+      databasePath: '/other/one.kdbx',
+      providerId: 'other_provider_zz',
+      remoteFileId: 'a1',
+      remoteFileName: 'Alpha.kdbx',
+      autoSyncEnabled: true,
+    ),
+    DatabaseSyncMapping(
+      databasePath: '/other/two.kdbx',
+      providerId: 'google_drive',
+      remoteFileId: 'b1',
+      remoteFileName: 'Beta.kdbx',
+      autoSyncEnabled: true,
+    ),
+  ];
+}
+
 class _RecoveringUnlinkedSyncRepository extends _FakeUnlinkedSyncRepository {
   int listCalls = 0;
   int authorizationFailures = 1;
+  Object authorizationError = const GoogleAuthorizationRequiredException();
   final queries = <String?>[];
   Object? connectError;
   Completer<void>? connectGate;
@@ -79,11 +111,11 @@ class _RecoveringUnlinkedSyncRepository extends _FakeUnlinkedSyncRepository {
   }
 
   @override
-  Future<List<DriveRemoteFile>> listRemoteFiles({String? query}) async {
+  Future<List<RemoteFile>> listRemoteFiles({String? query}) async {
     listCalls += 1;
     queries.add(query);
     if (listCalls <= authorizationFailures) {
-      throw const GoogleAuthorizationRequiredException();
+      throw authorizationError;
     }
     return super.listRemoteFiles(query: query);
   }
@@ -94,8 +126,9 @@ class _BackgroundReconnectSyncRepository extends FakeDatabaseSyncRepository {
     connected = true;
     mappings[kTestDatabasePath] = const DatabaseSyncMapping(
       databasePath: kTestDatabasePath,
-      driveFileId: 'remote-1',
-      driveFileName: 'Vault.kdbx',
+      providerId: 'google_drive',
+      remoteFileId: 'remote-1',
+      remoteFileName: 'Vault.kdbx',
       autoSyncEnabled: true,
     );
   }
@@ -314,6 +347,62 @@ void main() {
 
     expect(repository.connectCalls, 2);
     expect(repository.listCalls, 2);
+    expect(find.text('Alpha.kdbx'), findsOneWidget);
+  });
+
+  testWidgets('linked-elsewhere compares the (providerId, id) tuple', (
+    tester,
+  ) async {
+    addTearDown(resetVaultShellTestDi);
+    _usePhoneViewport(tester);
+
+    await tester.pumpWidget(
+      await pumpableVaultShell(
+        databaseSyncRepository: _LinkedElsewhereSyncRepository(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sync'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Pick an existing .kdbx'));
+    await tester.pumpAndSettle();
+
+    final rows = {
+      for (final row in tester.widgetList<RemoteFileRow>(
+        find.byType(RemoteFileRow),
+      ))
+        row.file.id: row.isLinkedElsewhere,
+    };
+    expect(rows, {'a1': false, 'b1': true});
+    expect(find.text('Linked'), findsOneWidget);
+  });
+
+  testWidgets('typed authorizationRequired offers picker reconnect', (
+    tester,
+  ) async {
+    addTearDown(resetVaultShellTestDi);
+    _usePhoneViewport(tester);
+    final repository = _RecoveringUnlinkedSyncRepository()
+      ..remoteFiles = const [_fileA]
+      ..authorizationError = const CloudStorageException(
+        CloudStorageErrorCode.authorizationRequired,
+      );
+
+    await tester.pumpWidget(
+      await pumpableVaultShell(databaseSyncRepository: repository),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sync'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Pick an existing .kdbx'));
+    await tester.pumpAndSettle();
+
+    expect(find.bySemanticsLabel('Reconnect Google Drive'), findsOneWidget);
+    expect(find.text('Google authorization expired'), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('Reconnect Google Drive'));
+    await tester.pumpAndSettle();
+    expect(repository.connectCalls, 1);
     expect(find.text('Alpha.kdbx'), findsOneWidget);
   });
 

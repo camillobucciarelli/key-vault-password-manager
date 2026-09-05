@@ -118,7 +118,7 @@ final Map<String, List<String>> _effectByRow = {
   '04': ['CreateVaultGroup', 'RenameVaultGroup'],
   '06': ['MoveVaultEntry', 'MoveVaultGroup'],
   '07': ['ExportVaultAttachment', 'RemoveVaultAttachment'],
-  '08': ['LoadDriveRemoteFiles', 'LinkCurrentDatabaseToDrive'],
+  '08': ['LoadRemoteFiles', 'LinkCurrentDatabaseToDrive'],
   '09': ['ClearVaultSyncFeedback', 'SyncCurrentDatabaseNow'],
   '10': ['LoadDuplicates'],
   '11': ['MergeDuplicateEntries'],

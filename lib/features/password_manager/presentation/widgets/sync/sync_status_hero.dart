@@ -83,7 +83,7 @@ class SyncStatusHero extends StatelessWidget {
     required this.status,
     this.isDriveConnected = false,
     this.isDriveLinked = false,
-    this.linkedDriveFileName,
+    this.linkedRemoteFileName,
     this.lastSyncAt,
     this.localChecksum,
     this.autoSyncEnabled = true,
@@ -109,7 +109,7 @@ class SyncStatusHero extends StatelessWidget {
   final DatabaseSyncStatus status;
   final bool isDriveConnected;
   final bool isDriveLinked;
-  final String? linkedDriveFileName;
+  final String? linkedRemoteFileName;
   final DateTime? lastSyncAt;
   final String? localChecksum;
   final bool autoSyncEnabled;
@@ -579,7 +579,7 @@ class SyncStatusHero extends StatelessWidget {
           const SizedBox(height: 8),
           KvListRow(
             title: provider.name,
-            subtitle: linkedDriveFileName ?? provider.tagline,
+            subtitle: linkedRemoteFileName ?? provider.tagline,
             backgroundColor: colors.surfaceNested,
             leading: Container(
               width: 40,

@@ -8,9 +8,9 @@ import '../../../../../core/widgets/kv_icon.dart';
 import '../../../../../core/widgets/kv_circle_icon_button.dart';
 import '../../../../../core/widgets/kv_tag.dart';
 import '../../../../../core/theme/keyvault_colors.dart';
-import '../../../domain/models/drive_remote_file.dart';
+import '../../../domain/models/remote_file.dart';
 
-/// FR-2 / T8: one row per `DriveRemoteFile` — name, `modifiedTime`, `size`,
+/// FR-2 / T8: one row per `RemoteFile` — name, `modifiedTime`, `size`,
 /// and an already-linked warning `KvTag` when the file id appears in another
 /// `DatabaseSyncMapping` ([isLinkedElsewhere], AC4).
 ///
@@ -29,7 +29,7 @@ class RemoteFileRow extends StatefulWidget {
     this.onLink,
   });
 
-  final DriveRemoteFile file;
+  final RemoteFile file;
   final bool selected;
   final bool isLinkedElsewhere;
   final VoidCallback? onTap;

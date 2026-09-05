@@ -265,8 +265,9 @@ void main() {
         'db-1',
         DatabaseSyncMapping(
           databasePath: oldPath,
-          driveFileId: 'drive-id',
-          driveFileName: 'vault.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: 'drive-id',
+          remoteFileName: 'vault.kdbx',
         ),
       );
 
@@ -277,7 +278,7 @@ void main() {
         secureDataSource: secure,
       ).getMapping('db-1');
       expect(mapping, isNotNull);
-      expect(mapping!.driveFileId, 'drive-id');
+      expect(mapping!.remoteFileId, 'drive-id');
       expect(mapping.databasePath, newPath);
     });
 
@@ -287,8 +288,9 @@ void main() {
         'db-1',
         DatabaseSyncMapping(
           databasePath: externalPath,
-          driveFileId: 'drive-id',
-          driveFileName: 'vault.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: 'drive-id',
+          remoteFileName: 'vault.kdbx',
         ),
       );
 

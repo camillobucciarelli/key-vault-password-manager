@@ -42,7 +42,7 @@ import 'package:kdbx/kdbx.dart';
 
 import '../../domain/entities/database_record.dart';
 import '../../domain/models/database_sync_mapping.dart';
-import '../../domain/models/drive_remote_file.dart';
+import '../../domain/models/remote_file.dart';
 import '../../domain/models/merge_field_display.dart';
 import '../../domain/models/sync_merge_models.dart';
 import '../../domain/repositories/database_registry_repository.dart';
@@ -98,8 +98,8 @@ MergeSessionId _mintSessionId() => MergeSessionId(_mintToken('ms'));
 
 MergeDecisionId _mintDecisionId() => MergeDecisionId(_mintToken('md'));
 
-/// FR-7 step 1/2/3's comparator: `md5Checksum` is what Drive reports and what
-/// every other writer in this codebase already checksums local bytes with
+/// FR-7 step 1/2/3's comparator: `contentChecksum` is what Drive reports and
+/// what every other writer in this codebase already checksums local bytes with
 /// (`DatabaseSyncOrchestrator`), so a local/remote pair is comparable without
 /// a second hash family entering the picture.
 String _checksumOf(Uint8List bytes) => md5.convert(bytes).toString();
@@ -296,25 +296,25 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
     for (var round = 0; round < _mergeRetryBudget; round++) {
       // Step 3: remote metadata recheck. No concurrency token is read or
       // sent — Drive declares no `conditionalWrite` capability, so FR-7's
-      // optional token never applies here; `md5Checksum` alone is the
+      // optional token never applies here; `contentChecksum` alone is the
       // comparator.
-      final DriveRemoteFile remoteMeta;
+      final RemoteFile remoteMeta;
       try {
-        remoteMeta = await _drive.getFileMetadata(mapping.driveFileId);
+        remoteMeta = await _drive.getFileMetadata(mapping.remoteFileId);
       } on Object {
         return MergeRejected(
           MergeFailureCode.uploadOutcomeAmbiguous,
           localCommitCompleted: localWritten,
         );
       }
-      final observedBeforeWrite = remoteMeta.md5Checksum;
+      final observedBeforeWrite = remoteMeta.contentChecksum;
       if (observedBeforeWrite != null &&
           observedBeforeWrite != expectedRemoteChecksum) {
         // Divergence found BEFORE anything is written this round: there is no
         // candidate yet to short-circuit against, so the only sound move is
         // to re-merge against what the remote actually holds now.
         try {
-          remoteBytes = await _sync.downloadRemoteFile(mapping.driveFileId);
+          remoteBytes = await _sync.downloadRemoteFile(mapping.remoteFileId);
         } on Object {
           return MergeRejected(
             MergeFailureCode.uploadOutcomeAmbiguous,
@@ -423,7 +423,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       // questions of them.
       final pending = PendingMergeUpload(
         databasePath: session.canonicalPath,
-        remoteFileId: mapping.driveFileId,
+        remoteFileId: mapping.remoteFileId,
         mergedChecksum: localCandidateChecksum,
         localCommittedChecksum: localCandidateChecksum,
         expectedOldRemoteChecksum: expectedRemoteChecksum,
@@ -445,10 +445,10 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       }
 
       // Step 11.
-      final DriveRemoteFile updated;
+      final RemoteFile updated;
       try {
         updated = await _drive.updateFile(
-          fileId: mapping.driveFileId,
+          fileId: mapping.remoteFileId,
           bytes: candidateBytes,
         );
       } on Object {
@@ -474,7 +474,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       // strictly after the write completes (a real second round trip, not a
       // cached echo of what was sent), so that response IS the mandatory
       // read-back.
-      final observedChecksum = updated.md5Checksum;
+      final observedChecksum = updated.contentChecksum;
       if (observedChecksum == null) {
         // A non-executable read-back: nothing to verify against. Ambiguous,
         // never finalized, never retried blindly.
@@ -507,7 +507,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       // spending a re-merge round on it.
       final Uint8List redownloaded;
       try {
-        redownloaded = await _sync.downloadRemoteFile(mapping.driveFileId);
+        redownloaded = await _sync.downloadRemoteFile(mapping.remoteFileId);
       } on Object {
         // The write went out and the read-back showed divergence, so the
         // outcome is exactly as unknown as the two paths above — mark it the
@@ -805,7 +805,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
     // re-send and no `versionHistory` revision to fetch, so the step-3
     // re-read plus the step-5 verification carry the whole safety here.
     final mapping = await _sync.getMapping(record.canonicalPath);
-    if (mapping == null || mapping.driveFileId != pending.remoteFileId) {
+    if (mapping == null || mapping.remoteFileId != pending.remoteFileId) {
       // The mapping moved under the record; nothing can be verified against
       // it. Keep the evidence and stay ambiguous rather than guess.
       await _markPendingAmbiguous(pending);
@@ -813,7 +813,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
         MergeRecoveryDisposition.stillAmbiguous,
       );
     }
-    final DriveRemoteFile remoteMeta;
+    final RemoteFile remoteMeta;
     try {
       remoteMeta = await _drive.getFileMetadata(pending.remoteFileId);
     } on Object {
@@ -822,7 +822,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
         MergeRecoveryDisposition.stillAmbiguous,
       );
     }
-    final observed = remoteMeta.md5Checksum;
+    final observed = remoteMeta.contentChecksum;
     if (observed == null) {
       await _markPendingAmbiguous(pending);
       return const MergeRecoveryOutcome(
@@ -850,7 +850,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
     // (the candidate the review produced is exactly what is on disk) and
     // verify with the same step-5 read-back `commit` uses.
     if (observed == pending.expectedOldRemoteChecksum) {
-      final DriveRemoteFile updated;
+      final RemoteFile updated;
       try {
         updated = await _drive.updateFile(
           fileId: pending.remoteFileId,
@@ -862,7 +862,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
           MergeRecoveryDisposition.stillAmbiguous,
         );
       }
-      final afterWrite = updated.md5Checksum;
+      final afterWrite = updated.contentChecksum;
       if (afterWrite == null) {
         await _markPendingAmbiguous(pending);
         return const MergeRecoveryOutcome(
@@ -960,7 +960,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       throw const SyncMergeFailure(MergeFailureCode.mergePreconditionFailed);
     }
     try {
-      return await _sync.downloadRemoteFile(mapping.driveFileId);
+      return await _sync.downloadRemoteFile(mapping.remoteFileId);
     } on SyncMergeFailure {
       rethrow;
     } on Object {

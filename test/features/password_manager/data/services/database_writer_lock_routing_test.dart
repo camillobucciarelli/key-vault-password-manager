@@ -10,13 +10,13 @@ import 'package:password_manager/features/password_manager/data/services/databas
 import 'package:password_manager/features/password_manager/data/services/database_import_service.dart';
 import 'package:password_manager/features/password_manager/data/services/database_path_mutex.dart';
 import 'package:password_manager/features/password_manager/data/services/database_sync_orchestrator.dart';
-import 'package:password_manager/features/password_manager/data/services/google_drive_api_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_import_result.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_import_transaction.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/repositories/cloud_storage_provider.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/validate_database_usecase.dart';
@@ -961,12 +961,12 @@ void main() {
   group('DatabaseSyncOrchestrator lock routing', () {
     late Directory tempDir;
     late _InMemoryMetadata metadata;
-    late _FakeDrive drive;
+    late _FakeProvider drive;
 
     setUp(() async {
       tempDir = await Directory.systemTemp.createTemp('sync_lock_routing_');
       metadata = _InMemoryMetadata();
-      drive = _FakeDrive();
+      drive = _FakeProvider();
     });
 
     tearDown(() async {
@@ -987,8 +987,9 @@ void main() {
         localFile.path,
         DatabaseSyncMapping(
           databasePath: localFile.path,
-          driveFileId: 'remote-1',
-          driveFileName: 'vault.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: 'remote-1',
+          remoteFileName: 'vault.kdbx',
           // Remote changed, local unchanged -> download+replace branch.
           lastSyncedLocalChecksum: localChecksum,
           lastSyncedRemoteChecksum: 'stale-remote-checksum',
@@ -996,10 +997,11 @@ void main() {
           lastSyncAt: DateTime(2026),
         ),
       );
-      drive.metadataResult = DriveRemoteFile(
+      drive.metadataResult = RemoteFile(
+        providerId: 'google_drive',
         id: 'remote-1',
         name: 'vault.kdbx',
-        md5Checksum: remoteChecksum,
+        contentChecksum: remoteChecksum,
       );
       drive.downloadResult = remoteBytes;
 
@@ -1007,7 +1009,7 @@ void main() {
         () => DatabaseSyncOrchestrator(
           resolveDatabaseId: (databasePath) async => databasePath,
           syncMetadataDataSource: metadata,
-          googleDriveApiService: drive,
+          cloudStorageProvider: drive,
           mutex: RefusingDatabasePathMutex(),
         ).syncNow(localFile.path),
         throwsA(isA<LockRefused>()),
@@ -1022,7 +1024,7 @@ void main() {
       final result = await DatabaseSyncOrchestrator(
         resolveDatabaseId: (databasePath) async => databasePath,
         syncMetadataDataSource: metadata,
-        googleDriveApiService: drive,
+        cloudStorageProvider: drive,
         mutex: recording,
       ).syncNow(localFile.path);
       expect(result, isA<SyncNowSuccess>());
@@ -1052,8 +1054,9 @@ void main() {
         localFile.path,
         DatabaseSyncMapping(
           databasePath: localFile.path,
-          driveFileId: 'remote-1',
-          driveFileName: 'vault.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: 'remote-1',
+          remoteFileName: 'vault.kdbx',
           lastSyncedLocalChecksum: null,
           lastSyncedRemoteChecksum: null,
           lastSyncedRemoteModifiedTime: null,
@@ -1064,9 +1067,9 @@ void main() {
       final orchestrator = DatabaseSyncOrchestrator(
         resolveDatabaseId: (databasePath) async => databasePath,
         syncMetadataDataSource: metadata,
-        googleDriveApiService: _HangingDrive(),
+        cloudStorageProvider: _HangingProvider(),
         mutex: mutex,
-        driveCallTimeout: const Duration(milliseconds: 200),
+        remoteCallTimeout: const Duration(milliseconds: 200),
       );
 
       await expectLater(
@@ -1128,12 +1131,15 @@ class _InMemoryMetadata implements SyncMetadataDataSource {
       throw UnimplementedError('${invocation.memberName} not needed here');
 }
 
-/// Drive fake whose first metadata call never completes — models a hung
+/// Provider fake whose first metadata call never completes — models a hung
 /// network request for the lock-liveness test.
-class _HangingDrive implements GoogleDriveApiService {
+class _HangingProvider implements CloudStorageProvider {
   @override
-  Future<DriveRemoteFile> getFileMetadata(String fileId) {
-    return Completer<DriveRemoteFile>().future;
+  String get providerId => 'google_drive';
+
+  @override
+  Future<RemoteFile> getFileMetadata(String remoteFileId) {
+    return Completer<RemoteFile>().future;
   }
 
   @override
@@ -1141,16 +1147,19 @@ class _HangingDrive implements GoogleDriveApiService {
       throw UnimplementedError('${invocation.memberName} not needed here');
 }
 
-class _FakeDrive implements GoogleDriveApiService {
-  DriveRemoteFile? metadataResult;
+class _FakeProvider implements CloudStorageProvider {
+  RemoteFile? metadataResult;
   Uint8List? downloadResult;
 
   @override
-  Future<DriveRemoteFile> getFileMetadata(String fileId) async =>
+  String get providerId => 'google_drive';
+
+  @override
+  Future<RemoteFile> getFileMetadata(String remoteFileId) async =>
       metadataResult!;
 
   @override
-  Future<Uint8List> downloadFile(String fileId) async => downloadResult!;
+  Future<Uint8List> downloadFile(String remoteFileId) async => downloadResult!;
 
   @override
   dynamic noSuchMethod(Invocation invocation) =>

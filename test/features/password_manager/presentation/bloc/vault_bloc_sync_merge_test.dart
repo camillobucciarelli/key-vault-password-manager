@@ -7,8 +7,8 @@ import 'package:password_manager/features/password_manager/data/services/vault_c
 import 'package:password_manager/features/password_manager/data/services/vault_duplicate_service.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_status.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_account_summary.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/storage_account_summary.dart';
+import 'package:password_manager/features/password_manager/domain/models/remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/models/merge_field_display.dart';
 import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
 import 'package:password_manager/features/password_manager/domain/models/sync_merge_models.dart';
@@ -20,6 +20,8 @@ import 'package:password_manager/features/password_manager/presentation/bloc/vau
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_event.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/sync_merge_coordinator.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/link_database_to_remote_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/sync_database_now_usecase.dart';
 
 import 'vault/vault_bloc_harness.dart';
 
@@ -43,6 +45,8 @@ void main() {
       vaultCsvImportService: VaultCsvImportService(),
       vaultDuplicateService: VaultDuplicateService(),
       databaseSyncRepository: sync,
+      linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(sync),
+      syncDatabaseNow: SyncDatabaseNowUseCase(sync),
       syncMergeCoordinator: SyncMergeCoordinator(
         startReview: StartSyncMergeReviewUseCase(port),
         updateDecision: UpdateSyncMergeDecisionUseCase(port),
@@ -173,6 +177,8 @@ void main() {
         vaultCsvImportService: VaultCsvImportService(),
         vaultDuplicateService: VaultDuplicateService(),
         databaseSyncRepository: sync,
+        linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(sync),
+        syncDatabaseNow: SyncDatabaseNowUseCase(sync),
       );
       addTearDown(bare.close);
 
@@ -192,8 +198,9 @@ void main() {
       sync.connected = true;
       sync.mapping = DatabaseSyncMapping(
         databasePath: _dbPath,
-        driveFileId: 'drive-1',
-        driveFileName: 'db.kdbx',
+        providerId: 'google_drive',
+        remoteFileId: 'drive-1',
+        remoteFileName: 'db.kdbx',
       );
       // The bloc only syncs once it believes Drive is connected and linked.
       bloc.add(const BackgroundDriveSync());
@@ -233,8 +240,8 @@ void main() {
       sync.syncResult = SyncNowConflict(
         SyncConflict(
           databasePath: _dbPath,
-          driveFileId: 'drive-1',
-          driveFileName: 'db.kdbx',
+          remoteFileId: 'drive-1',
+          remoteFileName: 'db.kdbx',
           localChecksum: 'aaa',
           remoteChecksum: 'bbb',
         ),
@@ -391,11 +398,11 @@ class _FakeSyncRepo implements DatabaseSyncRepository {
   }
 
   @override
-  Future<DriveAccountSummary> getConnectedAccount() async =>
-      DriveAccountSummary.fallback;
+  Future<StorageAccountSummary> getConnectedAccount() async =>
+      const StorageAccountSummary(displayLabel: 'Google Drive account');
 
   @override
-  Future<List<DriveRemoteFile>> listRemoteFiles({String? query}) async => [];
+  Future<List<RemoteFile>> listRemoteFiles({String? query}) async => [];
 
   @override
   Future<Uint8List> downloadRemoteFile(String id) async => Uint8List(0);

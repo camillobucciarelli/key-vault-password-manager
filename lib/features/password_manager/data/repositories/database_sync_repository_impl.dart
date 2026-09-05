@@ -1,30 +1,30 @@
 import '../../domain/models/database_sync_mapping.dart';
-import '../../domain/models/drive_account_summary.dart';
-import '../../domain/models/drive_remote_file.dart';
+import '../../domain/models/remote_file.dart';
+import '../../domain/models/storage_account_summary.dart';
 import '../../domain/models/sync_conflict.dart';
+import '../../domain/repositories/cloud_storage_provider.dart';
 import '../../domain/repositories/database_sync_repository.dart';
 import 'dart:typed_data';
 import '../services/database_sync_orchestrator.dart';
-import '../services/drive_auth_service.dart';
 
 class DatabaseSyncRepositoryImpl implements DatabaseSyncRepository {
   DatabaseSyncRepositoryImpl({
-    required DriveAuthService driveAuthService,
+    required CloudStorageProvider cloudStorageProvider,
     required DatabaseSyncOrchestrator databaseSyncOrchestrator,
-  }) : _driveAuthService = driveAuthService,
+  }) : _provider = cloudStorageProvider,
        _databaseSyncOrchestrator = databaseSyncOrchestrator;
 
-  final DriveAuthService _driveAuthService;
+  final CloudStorageProvider _provider;
   final DatabaseSyncOrchestrator _databaseSyncOrchestrator;
 
   @override
   Future<void> connect() {
-    return _driveAuthService.connect();
+    return _provider.connect();
   }
 
   @override
   Future<void> disconnect() {
-    return _driveAuthService.disconnect();
+    return _provider.disconnect();
   }
 
   @override
@@ -60,21 +60,21 @@ class DatabaseSyncRepositoryImpl implements DatabaseSyncRepository {
 
   @override
   Future<bool> isConnected() {
-    return _driveAuthService.isConnected();
+    return _provider.isConnected();
   }
 
   @override
-  Future<DriveAccountSummary> getConnectedAccount() {
-    return _driveAuthService.getConnectedAccountSummary();
+  Future<StorageAccountSummary> getConnectedAccount() {
+    return _provider.getConnectedAccount();
   }
 
   @override
-  Future<DatabaseSyncMapping> linkDatabaseToDrive({
+  Future<DatabaseSyncMapping> linkDatabaseToRemote({
     required String databasePath,
     String? remoteFileId,
     String? remoteFileName,
   }) {
-    return _databaseSyncOrchestrator.linkDatabaseToDrive(
+    return _databaseSyncOrchestrator.linkDatabaseToRemote(
       databasePath: databasePath,
       remoteFileId: remoteFileId,
       remoteFileName: remoteFileName,
@@ -82,7 +82,7 @@ class DatabaseSyncRepositoryImpl implements DatabaseSyncRepository {
   }
 
   @override
-  Future<List<DriveRemoteFile>> listRemoteFiles({String? query}) {
+  Future<List<RemoteFile>> listRemoteFiles({String? query}) {
     return _databaseSyncOrchestrator.listRemoteFiles(query: query);
   }
 

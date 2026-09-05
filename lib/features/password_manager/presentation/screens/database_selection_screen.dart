@@ -52,7 +52,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
     final coordinator = di.sl<DatabaseSessionCoordinator>();
     final result = await showDrivePickerSheet(
       context,
-      loadPickerData: coordinator.getDrivePickerData,
+      loadPickerData: coordinator.getRemoteFileSelectionData,
     );
     if (result == null || !context.mounted) {
       return;
@@ -347,7 +347,6 @@ class DatabaseSelectionScreen extends StatelessWidget {
       confirmLabel: 'Replace',
     );
   }
-
 
   Future<void> _handleDuplicateDecisionPrompt(
     BuildContext context,

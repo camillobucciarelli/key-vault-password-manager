@@ -11,7 +11,7 @@ import 'package:stream_transform/stream_transform.dart';
 import '../../../data/services/vault_csv_import_service.dart';
 import '../../../data/services/vault_duplicate_service.dart';
 import '../../../data/services/vault_kdbx_service.dart';
-import '../../../domain/errors/google_authorization_required_exception.dart';
+import '../../../domain/models/cloud_storage_error.dart';
 import '../../../domain/models/database_sync_status.dart';
 import '../../../domain/models/sync_conflict.dart';
 import '../../../domain/models/sync_merge_models.dart';
@@ -24,10 +24,13 @@ import '../../../domain/models/vault_group.dart';
 import '../../../domain/models/vault_snapshot.dart';
 import '../../../domain/services/url_field_keys.dart';
 import '../../../domain/services/vault_health_service.dart';
+import '../../../domain/usecases/link_database_to_remote_usecase.dart';
+import '../../../domain/usecases/sync_database_now_usecase.dart';
 import '../../coordinators/android_autofill_save_coordinator.dart';
 import '../../coordinators/apple_autofill_v2_coordinator.dart';
 import '../../coordinators/session_secret_holder.dart';
 import '../../coordinators/sync_merge_coordinator.dart';
+import '../../utils/cloud_storage_error_presentation.dart';
 import 'vault_event.dart';
 import 'vault_state.dart';
 
@@ -50,6 +53,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     required this.vaultCsvImportService,
     required this.vaultDuplicateService,
     required this.databaseSyncRepository,
+    required this.linkDatabaseToRemote,
+    required this.syncDatabaseNow,
     this.appleAutofillV2Coordinator = const NoopAppleAutofillV2Coordinator(),
     this.androidAutofillSaveCoordinator,
     this.vaultHealthService = const VaultHealthService(),
@@ -131,8 +136,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<MergeDuplicateEntries>(_onMergeDuplicateEntries);
     on<ClearCsvImportOutcome>(_onClearCsvImportOutcome);
     on<UnlinkCurrentDatabaseFromDrive>(_onUnlinkCurrentDatabaseFromDrive);
-    on<LoadDriveRemoteFiles>(
-      _onLoadDriveRemoteFiles,
+    on<LoadRemoteFiles>(
+      _onLoadRemoteFiles,
       transformer: (events, mapper) => events
           .debounce(const Duration(milliseconds: 300))
           .distinct(
@@ -156,6 +161,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   final VaultCsvImportService vaultCsvImportService;
   final VaultDuplicateService vaultDuplicateService;
   final DatabaseSyncRepository databaseSyncRepository;
+  final LinkDatabaseToRemoteUseCase linkDatabaseToRemote;
+  final SyncDatabaseNowUseCase syncDatabaseNow;
 
   /// spec-008 T505: every merge command is forwarded here. Null in hosts and
   /// tests that never merge — the events then report a precondition failure.
@@ -199,7 +206,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         emit,
         state.copyWith(
           isDriveLinked: true,
-          linkedDriveFileName: mapping.driveFileName,
+          linkedRemoteFileName: mapping.remoteFileName,
           autoSyncEnabled: mapping.autoSyncEnabled,
           lastSyncAt: mapping.lastSyncAt,
           lastSyncedLocalChecksum: mapping.lastSyncedLocalChecksum,
@@ -1919,10 +1926,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         isDriveConnected: true,
         syncStatus: DatabaseSyncStatus.success,
         driveReconnectRequired: false,
-        remoteDriveFiles: event.remoteFiles,
-        isLoadingRemoteDriveFiles: false,
+        remoteFiles: event.remoteFiles,
+        isLoadingRemoteFiles: false,
         clearSyncError: true,
-        clearRemoteDriveFilesError: event.remoteFiles != null,
+        clearRemoteFilesError: event.remoteFiles != null,
       ),
     );
   }
@@ -1945,9 +1952,9 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           isDriveConnected: authorizationRequired
               ? false
               : state.isDriveConnected,
-          isLoadingRemoteDriveFiles: false,
-          remoteDriveFilesError: message,
-          remoteDriveFilesReconnectRequired: authorizationRequired,
+          isLoadingRemoteFiles: false,
+          remoteFilesError: message,
+          remoteFilesReconnectRequired: authorizationRequired,
           syncStatus: DatabaseSyncStatus.error,
           clearSyncError: true,
         ),
@@ -1979,7 +1986,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       state.copyWith(
         isDriveConnected: connected,
         isDriveLinked: mapping != null,
-        linkedDriveFileName: mapping?.driveFileName,
+        linkedRemoteFileName: mapping?.remoteFileName,
         autoSyncEnabled: mapping?.autoSyncEnabled ?? true,
         lastSyncAt: mapping?.lastSyncAt,
         lastSyncedLocalChecksum: mapping?.lastSyncedLocalChecksum,
@@ -2010,7 +2017,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         }
       }
     } catch (e, st) {
-      if (e is GoogleAuthorizationRequiredException) {
+      if (isCloudAuthorizationRequired(e)) {
         _emitDriveAuthorizationRequired(emit);
       } else {
         logError('Background Drive sync failed.', e, st);
@@ -2039,7 +2046,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         state.copyWith(
           isDriveConnected: false,
           isDriveLinked: false,
-          linkedDriveFileName: null,
+          linkedRemoteFileName: null,
           syncStatus: DatabaseSyncStatus.disconnected,
           infoMessage: 'Google Drive disconnected.',
           clearSyncError: true,
@@ -2081,7 +2088,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       ),
     );
     try {
-      final mapping = await databaseSyncRepository.linkDatabaseToDrive(
+      final mapping = await linkDatabaseToRemote(
         databasePath: state.databasePath,
         remoteFileId: event.remoteFileId,
         remoteFileName: event.remoteFileName,
@@ -2090,16 +2097,16 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         emit,
         state.copyWith(
           isDriveLinked: true,
-          linkedDriveFileName: mapping.driveFileName,
+          linkedRemoteFileName: mapping.remoteFileName,
           autoSyncEnabled: mapping.autoSyncEnabled,
           lastSyncAt: mapping.lastSyncAt,
           lastSyncedLocalChecksum: mapping.lastSyncedLocalChecksum,
           syncStatus: DatabaseSyncStatus.success,
-          infoMessage: 'Database linked to ${mapping.driveFileName}.',
+          infoMessage: 'Database linked to ${mapping.remoteFileName}.',
         ),
       );
     } catch (e, st) {
-      if (e is GoogleAuthorizationRequiredException) {
+      if (isCloudAuthorizationRequired(e)) {
         _emitDriveAuthorizationRequired(emit);
         return;
       }
@@ -2170,7 +2177,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         emit,
         state.copyWith(
           isDriveLinked: false,
-          linkedDriveFileName: null,
+          linkedRemoteFileName: null,
           lastSyncAt: null,
           syncStatus: DatabaseSyncStatus.idle,
           infoMessage: 'Database unlinked from Drive.',
@@ -2203,17 +2210,17 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     );
   }
 
-  Future<void> _onLoadDriveRemoteFiles(
-    LoadDriveRemoteFiles event,
+  Future<void> _onLoadRemoteFiles(
+    LoadRemoteFiles event,
     Emitter<VaultState> emit,
   ) async {
     if (!state.isDriveConnected) {
       _safeEmit(
         emit,
         state.copyWith(
-          remoteDriveFiles: const [],
-          isLoadingRemoteDriveFiles: false,
-          clearRemoteDriveFilesError: true,
+          remoteFiles: const [],
+          isLoadingRemoteFiles: false,
+          clearRemoteFilesError: true,
         ),
       );
       return;
@@ -2222,9 +2229,9 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     _safeEmit(
       emit,
       state.copyWith(
-        isLoadingRemoteDriveFiles: true,
+        isLoadingRemoteFiles: true,
         clearSyncError: true,
-        clearRemoteDriveFilesError: true,
+        clearRemoteFilesError: true,
       ),
     );
     try {
@@ -2234,10 +2241,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       _safeEmit(
         emit,
         state.copyWith(
-          remoteDriveFiles: files,
-          isLoadingRemoteDriveFiles: false,
+          remoteFiles: files,
+          isLoadingRemoteFiles: false,
           clearSyncError: true,
-          clearRemoteDriveFilesError: true,
+          clearRemoteFilesError: true,
         ),
       );
     } catch (e, st) {
@@ -2247,9 +2254,9 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           state.copyWith(
             isDriveConnected: false,
             isDriveLinked: false,
-            isLoadingRemoteDriveFiles: false,
-            remoteDriveFilesError: _driveAuthorizationRequiredMessage,
-            remoteDriveFilesReconnectRequired: true,
+            isLoadingRemoteFiles: false,
+            remoteFilesError: _driveAuthorizationRequiredMessage,
+            remoteFilesReconnectRequired: true,
             syncStatus: DatabaseSyncStatus.error,
             isOffline: false,
             clearSyncError: true,
@@ -2263,9 +2270,9 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       _safeEmit(
         emit,
         state.copyWith(
-          isLoadingRemoteDriveFiles: false,
-          remoteDriveFilesError: 'Unable to load remote Drive files.',
-          remoteDriveFilesReconnectRequired: false,
+          isLoadingRemoteFiles: false,
+          remoteFilesError: 'Unable to load remote Drive files.',
+          remoteFilesReconnectRequired: false,
           syncStatus: DatabaseSyncStatus.error,
           clearSyncError: true,
         ),
@@ -2274,7 +2281,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   }
 
   bool _requiresDrivePermissionReauth(Object error) {
-    if (error is GoogleAuthorizationRequiredException) {
+    if (isCloudAuthorizationRequired(error)) {
       return true;
     }
     final message = error.toString().toLowerCase();
@@ -2290,7 +2297,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       state.copyWith(
         isDriveConnected: false,
         isDriveLinked: false,
-        isLoadingRemoteDriveFiles: false,
+        isLoadingRemoteFiles: false,
         syncError: _driveAuthorizationRequiredMessage,
         driveReconnectRequired: true,
         syncStatus: DatabaseSyncStatus.error,
@@ -2301,6 +2308,18 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   }
 
   String _buildDriveConnectErrorMessage(Object error) {
+    // spec 010: typed provider failures map by code and never render
+    // `toString()`; the substring branches below serve untyped exceptions.
+    if (error is CloudStorageException) {
+      return switch (error.code) {
+        CloudStorageErrorCode.cancelled => 'Google sign-in cancelled.',
+        CloudStorageErrorCode.forbidden =>
+          'Google Drive permission not granted.',
+        CloudStorageErrorCode.authorizationRequired =>
+          'Google account not connected. Reconnect Google Drive.',
+        _ => error.safeMessage,
+      };
+    }
     final message = error.toString().toLowerCase();
     if (message.contains('google sign-in cancelled')) {
       return 'Google sign-in cancelled.';
@@ -2339,7 +2358,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       state.copyWith(
         isDriveConnected: connected,
         isDriveLinked: mapping != null,
-        linkedDriveFileName: mapping?.driveFileName,
+        linkedRemoteFileName: mapping?.remoteFileName,
         autoSyncEnabled: mapping?.autoSyncEnabled ?? true,
         lastSyncAt: mapping?.lastSyncAt,
         lastSyncedLocalChecksum: mapping?.lastSyncedLocalChecksum,
@@ -2844,7 +2863,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     await _recoverPendingMergeUpload();
 
     try {
-      final result = await databaseSyncRepository.syncNow(
+      final result = await syncDatabaseNow(
         state.databasePath,
         resolution: resolution,
       );
@@ -2877,7 +2896,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         emit,
         state.copyWith(
           syncStatus: DatabaseSyncStatus.success,
-          linkedDriveFileName: mapping?.driveFileName,
+          linkedRemoteFileName: mapping?.remoteFileName,
           lastSyncAt: mapping?.lastSyncAt ?? DateTime.now(),
           lastSyncedLocalChecksum: mapping?.lastSyncedLocalChecksum,
           isOffline: false,
@@ -2885,22 +2904,28 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           clearSyncConflict: true,
         ),
       );
-    } on GoogleAuthorizationRequiredException {
-      _emitDriveAuthorizationRequired(emit);
-    } on SocketException catch (e, st) {
-      // T7 non-negotiable: offline is derived ONLY from a connection-level
-      // failure (SocketException) — never from an HTTP error status, which
-      // stays in the `error` branch below. A transient 500 must not be
-      // mistaken for "you are offline". Also reset syncStatus away from
-      // `syncing` (set just above, before the failed await) — otherwise
-      // the UI is stuck showing an indeterminate spinner forever while
-      // offline instead of the dedicated offline card.
-      logError('Drive sync failed: no connection.', e, st);
-      _safeEmit(
-        emit,
-        state.copyWith(syncStatus: DatabaseSyncStatus.idle, isOffline: true),
-      );
     } catch (e, st) {
+      if (isCloudAuthorizationRequired(e)) {
+        _emitDriveAuthorizationRequired(emit);
+        return;
+      }
+      if (e is SocketException || _isNetworkUnavailable(e)) {
+        // T7 non-negotiable: offline is derived ONLY from a connection-level
+        // failure (SocketException, or the provider port's typed
+        // `networkUnavailable` which wraps exactly that) — never from an
+        // HTTP error status, which stays in the `error` branch below. A
+        // transient 500 must not be mistaken for "you are offline". Also
+        // reset syncStatus away from `syncing` (set just above, before the
+        // failed await) — otherwise the UI is stuck showing an
+        // indeterminate spinner forever while offline instead of the
+        // dedicated offline card.
+        logError('Drive sync failed: no connection.', e, st);
+        _safeEmit(
+          emit,
+          state.copyWith(syncStatus: DatabaseSyncStatus.idle, isOffline: true),
+        );
+        return;
+      }
       logError('Drive sync failed.', e, st);
       _safeEmit(
         emit,
@@ -2912,6 +2937,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       );
     }
   }
+
+  static bool _isNetworkUnavailable(Object error) =>
+      error is CloudStorageException &&
+      error.code == CloudStorageErrorCode.networkUnavailable;
 
   // ---------------------------------------------------------------------
   // spec-008 T505 — merge commands. Forwarded to the coordinator; no

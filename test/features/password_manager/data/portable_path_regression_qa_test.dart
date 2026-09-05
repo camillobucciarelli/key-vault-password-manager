@@ -84,8 +84,9 @@ void main() {
         'db-1',
         DatabaseSyncMapping(
           databasePath: path,
-          driveFileId: 'id',
-          driveFileName: 'v.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: 'id',
+          remoteFileName: 'v.kdbx',
         ),
       );
       final raw = await readSealed(
@@ -101,8 +102,9 @@ void main() {
         'db-1',
         DatabaseSyncMapping(
           databasePath: oldPath,
-          driveFileId: 'id',
-          driveFileName: 'v.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: 'id',
+          remoteFileName: 'v.kdbx',
         ),
       );
       await relocate();
@@ -124,8 +126,9 @@ void main() {
         'db-1',
         DatabaseSyncMapping(
           databasePath: oldPath,
-          driveFileId: 'id',
-          driveFileName: 'v.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: 'id',
+          remoteFileName: 'v.kdbx',
         ),
       );
       await relocate();
@@ -144,7 +147,7 @@ void main() {
       expect(
         (await SyncMetadataDataSourceImpl(
           secureDataSource: secure,
-        ).getMapping('db-1'))?.driveFileId,
+        ).getMapping('db-1'))?.remoteFileId,
         'id',
       );
     });
@@ -155,8 +158,9 @@ void main() {
         'db-1',
         DatabaseSyncMapping(
           databasePath: external,
-          driveFileId: 'id',
-          driveFileName: 'v.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: 'id',
+          remoteFileName: 'v.kdbx',
         ),
       );
       final raw = await readSealed(

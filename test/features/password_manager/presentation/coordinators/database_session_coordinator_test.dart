@@ -15,8 +15,8 @@ import 'package:password_manager/features/password_manager/domain/models/apple_a
 import 'package:password_manager/features/password_manager/domain/models/database_dedup_result.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_selection_item.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_account_summary.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/storage_account_summary.dart';
+import 'package:password_manager/features/password_manager/domain/models/remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
@@ -31,6 +31,7 @@ import 'package:password_manager/features/password_manager/presentation/bloc/dat
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/database_session_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/link_database_to_remote_usecase.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:path/path.dart' as p;
@@ -102,6 +103,7 @@ void main() {
           registryRepository,
         ),
         databaseSyncRepository: syncRepository,
+        linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(syncRepository),
         unlockDatabaseUseCase: UnlockDatabaseUseCase(),
         createDatabaseUseCase: CreateDatabaseUseCase(
           databaseFileRepository: databaseImportService,
@@ -136,6 +138,7 @@ void main() {
             registryRepository,
           ),
           databaseSyncRepository: syncRepository,
+          linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(syncRepository),
           unlockDatabaseUseCase: unlockUseCase,
           createDatabaseUseCase: CreateDatabaseUseCase(
             databaseFileRepository: databaseImportService,
@@ -275,6 +278,7 @@ void main() {
             registryRepository,
           ),
           databaseSyncRepository: syncRepository,
+          linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(syncRepository),
           unlockDatabaseUseCase: unlockUseCase,
           createDatabaseUseCase:
               createDatabaseUseCase ??
@@ -750,14 +754,21 @@ void main() {
 
     test('Drive listing connects before loading remote files', () async {
       syncRepository.remoteFiles = const [
-        DriveRemoteFile(id: 'remote-id', name: 'remote.kdbx'),
+        RemoteFile(
+          providerId: 'google_drive',
+          id: 'remote-id',
+          name: 'remote.kdbx',
+        ),
       ];
 
-      final picker = await coordinator.getDrivePickerData();
+      final picker = await coordinator.getRemoteFileSelectionData();
 
       expect(syncRepository.connectCalls, 1);
       expect(picker.files.single.name, 'remote.kdbx');
-      expect(picker.account, DriveAccountSummary.fallback);
+      expect(
+        picker.account,
+        const StorageAccountSummary(displayLabel: 'Google Drive account'),
+      );
     });
 
     test('Drive duplicate cancel preserves file and mapping', () async {
@@ -782,7 +793,7 @@ void main() {
 
       expect(resolved.status, DatabaseSessionStatus.unselected);
       expect(await File(existingPath).readAsBytes(), originalBytes);
-      expect(syncRepository.mappings[existingPath]!.driveFileId, 'old-remote');
+      expect(syncRepository.mappings[existingPath]!.remoteFileId, 'old-remote');
       expect(registryRepository.records, hasLength(1));
     });
 
@@ -806,7 +817,7 @@ void main() {
 
       expect(resolved.path, existingPath);
       expect(await File(existingPath).readAsBytes(), originalBytes);
-      expect(syncRepository.mappings[existingPath]!.driveFileId, 'remote-id');
+      expect(syncRepository.mappings[existingPath]!.remoteFileId, 'remote-id');
       expect(registryRepository.records, hasLength(1));
     });
 
@@ -830,8 +841,8 @@ void main() {
       expect(resolved.path, isNot(existingPath));
       expect(await File(resolved.path!).exists(), isTrue);
       expect(registryRepository.records, hasLength(2));
-      expect(syncRepository.mappings[existingPath]!.driveFileId, 'old-remote');
-      expect(syncRepository.mappings[resolved.path]!.driveFileId, 'remote-id');
+      expect(syncRepository.mappings[existingPath]!.remoteFileId, 'old-remote');
+      expect(syncRepository.mappings[resolved.path]!.remoteFileId, 'remote-id');
     });
 
     test(
@@ -861,7 +872,10 @@ void main() {
           await File(existingPath).readAsBytes(),
           syncRepository.downloadBytes,
         );
-        expect(syncRepository.mappings[existingPath]!.driveFileId, 'remote-id');
+        expect(
+          syncRepository.mappings[existingPath]!.remoteFileId,
+          'remote-id',
+        );
         expect(registryRepository.records, hasLength(1));
         expect(registryRepository.records.single.canonicalPath, existingPath);
       },
@@ -1105,8 +1119,9 @@ void main() {
         );
         syncRepository.mappings[missingPath] = DatabaseSyncMapping(
           databasePath: missingPath,
-          driveFileId: 'remote-1',
-          driveFileName: 'missing.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: 'remote-1',
+          remoteFileName: 'missing.kdbx',
           autoSyncEnabled: true,
         );
 
@@ -1139,7 +1154,7 @@ void main() {
           isFalse,
           reason: 'the stale mapping key must be moved, not duplicated',
         );
-        expect(syncRepository.mappings[foundPath]?.driveFileId, 'remote-1');
+        expect(syncRepository.mappings[foundPath]?.remoteFileId, 'remote-1');
 
         final locatedItem = result.items.firstWhere(
           (item) => item.databaseId == 'db-1',
@@ -1253,16 +1268,18 @@ void main() {
               .toString();
           final source = DatabaseSyncMapping(
             databasePath: missingPath,
-            driveFileId: 'source-remote-id',
-            driveFileName: 'source.kdbx',
+            providerId: 'google_drive',
+            remoteFileId: 'source-remote-id',
+            remoteFileName: 'source.kdbx',
           );
           // Destination already has a mapping to a DIFFERENT Drive file —
           // a blind reverse move would overwrite it with the source's
           // remote id instead of restoring it.
           final destination = DatabaseSyncMapping(
             databasePath: foundPath,
-            driveFileId: 'destination-remote-id',
-            driveFileName: 'destination.kdbx',
+            providerId: 'google_drive',
+            remoteFileId: 'destination-remote-id',
+            remoteFileName: 'destination.kdbx',
           );
           registryRepository.records = [
             _record(
@@ -1305,13 +1322,15 @@ void main() {
             .toString();
         final source = DatabaseSyncMapping(
           databasePath: missingPath,
-          driveFileId: 'source-remote-id',
-          driveFileName: 'source.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: 'source-remote-id',
+          remoteFileName: 'source.kdbx',
         );
         final destination = DatabaseSyncMapping(
           databasePath: foundPath,
-          driveFileId: 'destination-remote-id',
-          driveFileName: 'destination.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: 'destination-remote-id',
+          remoteFileName: 'destination.kdbx',
         );
         registryRepository.records = [
           _record(
@@ -1381,6 +1400,7 @@ void main() {
             registryRepository,
           ),
           databaseSyncRepository: syncRepository,
+          linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(syncRepository),
           unlockDatabaseUseCase: UnlockDatabaseUseCase(),
           createDatabaseUseCase: _FailingCreateDatabaseUseCase(
             databaseFileRepository: databaseImportService,
@@ -1434,6 +1454,7 @@ void main() {
             registryRepository,
           ),
           databaseSyncRepository: syncRepository,
+          linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(syncRepository),
           unlockDatabaseUseCase: UnlockDatabaseUseCase(),
           createDatabaseUseCase: CreateDatabaseUseCase(
             databaseFileRepository: databaseImportService,
@@ -1629,8 +1650,9 @@ Future<String> _prepareDriveDuplicate(
   ]);
   syncRepository.mappings[existingPath] = DatabaseSyncMapping(
     databasePath: existingPath,
-    driveFileId: 'old-remote',
-    driveFileName: 'old.kdbx',
+    providerId: 'google_drive',
+    remoteFileId: 'old-remote',
+    remoteFileName: 'old.kdbx',
     lastSyncAt: null,
     autoSyncEnabled: true,
   );
@@ -1899,7 +1921,7 @@ class _FakeAppleAutofillV2Coordinator
 class _FakeSyncRepository implements DatabaseSyncRepository {
   Uint8List downloadBytes = Uint8List(0);
   final Map<String, DatabaseSyncMapping> mappings = {};
-  List<DriveRemoteFile> remoteFiles = const [];
+  List<RemoteFile> remoteFiles = const [];
   bool connected = false;
   int connectCalls = 0;
   _MappingMoveFailurePoint? failNextMoveAt;
@@ -1931,15 +1953,16 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
   Future<bool> isConnected() async => connected;
 
   @override
-  Future<DatabaseSyncMapping> linkDatabaseToDrive({
+  Future<DatabaseSyncMapping> linkDatabaseToRemote({
     required String databasePath,
     String? remoteFileId,
     String? remoteFileName,
   }) async {
     final mapping = DatabaseSyncMapping(
       databasePath: databasePath,
-      driveFileId: remoteFileId ?? 'remote-id',
-      driveFileName: remoteFileName ?? 'remote.kdbx',
+      providerId: 'google_drive',
+      remoteFileId: remoteFileId ?? 'remote-id',
+      remoteFileName: remoteFileName ?? 'remote.kdbx',
       lastSyncAt: null,
       autoSyncEnabled: true,
     );
@@ -1948,7 +1971,7 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
   }
 
   @override
-  Future<List<DriveRemoteFile>> listRemoteFiles({String? query}) async {
+  Future<List<RemoteFile>> listRemoteFiles({String? query}) async {
     return remoteFiles;
   }
 
@@ -2022,8 +2045,8 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
   }
 
   @override
-  Future<DriveAccountSummary> getConnectedAccount() async =>
-      DriveAccountSummary.fallback;
+  Future<StorageAccountSummary> getConnectedAccount() async =>
+      const StorageAccountSummary(displayLabel: 'Google Drive account');
 }
 
 enum _MappingMoveFailurePoint {

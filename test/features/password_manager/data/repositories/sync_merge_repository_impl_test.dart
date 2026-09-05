@@ -48,7 +48,7 @@ import 'package:password_manager/features/password_manager/data/services/safe_va
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_security_profile.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_security_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
@@ -60,7 +60,7 @@ import 'package:password_manager/features/password_manager/domain/services/sync_
 // T303 leak scan can look for it verbatim.
 const _password = 'repo-not-a-real-password-9f2b';
 const _databaseId = 'db-merge-fixture';
-const _driveFileId = 'drive-file-fixture';
+const _remoteFileIdFixture = 'drive-file-fixture';
 const _sharedEntryUuid = 'CCCCCCCCCCCCCCCCCCCCAQ==';
 const _localOnlyEntryUuid = 'CCCCCCCCCCCCCCCCCCCCAg==';
 const _remoteOnlyEntryUuid = 'CCCCCCCCCCCCCCCCCCCCAw==';
@@ -1310,7 +1310,7 @@ void main() {
         harness.databasePath,
         _databaseId,
         _password,
-        _driveFileId,
+        _remoteFileIdFixture,
         _sharedEntryUuid,
         _localOnlyFieldKey,
         _remoteOnlyFieldKey,
@@ -1648,7 +1648,7 @@ void main() {
           _remoteOnlyFieldValue,
           _localOnlyFieldKey,
           _sharedAttachmentName,
-          _driveFileId,
+          _remoteFileIdFixture,
         ]) {
           expect(
             exposed,
@@ -2943,8 +2943,9 @@ class _Harness {
           ? null
           : DatabaseSyncMapping(
               databasePath: databasePath,
-              driveFileId: _driveFileId,
-              driveFileName: 'fixture.kdbx',
+              providerId: 'google_drive',
+              remoteFileId: _remoteFileIdFixture,
+              remoteFileName: 'fixture.kdbx',
             ),
       remote: remote,
     );
@@ -3172,7 +3173,7 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
 
   @override
   Future<Uint8List> downloadRemoteFile(String fileId) async {
-    if (fileId != mapping?.driveFileId) {
+    if (fileId != mapping?.remoteFileId) {
       throw StateError('unexpected remote file id');
     }
     if (remote.downloadError != null) throw remote.downloadError!;
@@ -3216,19 +3217,20 @@ class _FakeGoogleDriveApiService implements GoogleDriveApiService {
   int getMetadataCalls = 0;
 
   @override
-  Future<DriveRemoteFile> getFileMetadata(String fileId) async {
+  Future<RemoteFile> getFileMetadata(String fileId) async {
     getMetadataCalls++;
     if (remote.getMetadataError != null) throw remote.getMetadataError!;
-    return DriveRemoteFile(
+    return RemoteFile(
+      providerId: 'google_drive',
       id: fileId,
       name: 'fixture.kdbx',
-      md5Checksum: remote.checksum(),
+      contentChecksum: remote.checksum(),
       modifiedTime: DateTime.now(),
     );
   }
 
   @override
-  Future<DriveRemoteFile> updateFile({
+  Future<RemoteFile> updateFile({
     required String fileId,
     required Uint8List bytes,
   }) async {
@@ -3236,10 +3238,13 @@ class _FakeGoogleDriveApiService implements GoogleDriveApiService {
     if (remote.updateFileError != null) throw remote.updateFileError!;
     final race = remote.onUpload;
     remote.content = race == null ? bytes : await race(bytes);
-    return DriveRemoteFile(
+    return RemoteFile(
+      providerId: 'google_drive',
       id: fileId,
       name: 'fixture.kdbx',
-      md5Checksum: remote.suppressChecksumOnUpdate ? null : remote.checksum(),
+      contentChecksum: remote.suppressChecksumOnUpdate
+          ? null
+          : remote.checksum(),
       modifiedTime: DateTime.now(),
     );
   }
@@ -3371,7 +3376,7 @@ class _ConditionalWriteFakeDrive extends _FakeGoogleDriveApiService {
 
   int conditionalCalls = 0;
 
-  Future<DriveRemoteFile> updateFileIfMatch({
+  Future<RemoteFile> updateFileIfMatch({
     required String fileId,
     required Uint8List bytes,
     required String expectedToken,

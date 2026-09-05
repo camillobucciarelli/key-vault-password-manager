@@ -2,12 +2,23 @@ import 'dart:convert';
 
 import 'package:equatable/equatable.dart';
 
+/// spec 010 decode rule 6: a persisted mapping whose required identity is
+/// missing or malformed. Deliberately carries nothing from the entry — no
+/// path, id or provider — so it can be surfaced and logged as-is.
+final class SyncMappingDecodeException implements Exception {
+  const SyncMappingDecodeException();
+
+  @override
+  String toString() => 'Sync mapping identity is missing or malformed.';
+}
+
 class DatabaseSyncMapping extends Equatable {
   const DatabaseSyncMapping({
     this.databaseId,
     required this.databasePath,
-    required this.driveFileId,
-    required this.driveFileName,
+    required this.providerId,
+    required this.remoteFileId,
+    required this.remoteFileName,
     this.lastSyncedLocalChecksum,
     this.lastSyncedRemoteChecksum,
     this.lastSyncedRemoteModifiedTime,
@@ -16,13 +27,26 @@ class DatabaseSyncMapping extends Equatable {
     this.lastError,
   });
 
+  /// spec 010 §Persisted mapping schema: the shape every save writes.
+  static const schemaVersion = 2;
+
+  /// spec 010 decode rule 1: a version-1 mapping predates `providerId`, and
+  /// every version-1 mapping was written by the Google Drive integration.
+  static const _v1DefaultProviderId = 'google_drive';
+
   /// spec 014 FR-6: the registry identifier this mapping is keyed by.
   /// Nullable only because pre-keying constructions stamp it at upsert time.
   final String? databaseId;
 
   final String databasePath;
-  final String driveFileId;
-  final String driveFileName;
+
+  /// Stable machine id of the provider that owns [remoteFileId]. Remote
+  /// identity is always the tuple `(providerId, remoteFileId)`.
+  final String providerId;
+  final String remoteFileId;
+
+  /// Display name only; never identity.
+  final String remoteFileName;
   final String? lastSyncedLocalChecksum;
   final String? lastSyncedRemoteChecksum;
   final DateTime? lastSyncedRemoteModifiedTime;
@@ -33,8 +57,9 @@ class DatabaseSyncMapping extends Equatable {
   DatabaseSyncMapping copyWith({
     String? databaseId,
     String? databasePath,
-    String? driveFileId,
-    String? driveFileName,
+    String? providerId,
+    String? remoteFileId,
+    String? remoteFileName,
     String? lastSyncedLocalChecksum,
     String? lastSyncedRemoteChecksum,
     DateTime? lastSyncedRemoteModifiedTime,
@@ -46,8 +71,9 @@ class DatabaseSyncMapping extends Equatable {
     return DatabaseSyncMapping(
       databaseId: databaseId ?? this.databaseId,
       databasePath: databasePath ?? this.databasePath,
-      driveFileId: driveFileId ?? this.driveFileId,
-      driveFileName: driveFileName ?? this.driveFileName,
+      providerId: providerId ?? this.providerId,
+      remoteFileId: remoteFileId ?? this.remoteFileId,
+      remoteFileName: remoteFileName ?? this.remoteFileName,
       lastSyncedLocalChecksum:
           lastSyncedLocalChecksum ?? this.lastSyncedLocalChecksum,
       lastSyncedRemoteChecksum:
@@ -60,12 +86,17 @@ class DatabaseSyncMapping extends Equatable {
     );
   }
 
+  /// Version-2 shape only (spec 010 §Write-forward): generic identity keys,
+  /// no legacy Drive keys. Every other key is byte-semantically the same as
+  /// version 1.
   Map<String, dynamic> toMap() {
     return {
+      'schemaVersion': schemaVersion,
       'databaseId': databaseId,
       'databasePath': databasePath,
-      'driveFileId': driveFileId,
-      'driveFileName': driveFileName,
+      'providerId': providerId,
+      'remoteFileId': remoteFileId,
+      'remoteFileName': remoteFileName,
       'lastSyncedLocalChecksum': lastSyncedLocalChecksum,
       'lastSyncedRemoteChecksum': lastSyncedRemoteChecksum,
       'lastSyncedRemoteModifiedTime': lastSyncedRemoteModifiedTime
@@ -77,12 +108,42 @@ class DatabaseSyncMapping extends Equatable {
     };
   }
 
+  /// spec 010 §Backward-compatible decode, rules 1-6.
+  ///
+  /// Version 1 (no `schemaVersion`) defaults `providerId` to Google Drive and
+  /// reads the legacy `driveFileId` / `driveFileName` keys only when the
+  /// generic key is absent or empty — a valid generic value always wins.
+  /// Version 2 reads generic keys only. Missing or malformed identity throws
+  /// [SyncMappingDecodeException]; nothing is guessed and nothing is written.
   factory DatabaseSyncMapping.fromMap(Map<String, dynamic> map) {
+    final version = map['schemaVersion'];
+    final isV1 = version == null || version == 1;
+
+    String? nonEmpty(Object? value) =>
+        value is String && value.trim().isNotEmpty ? value.trim() : null;
+
+    final databasePath = nonEmpty(map['databasePath']);
+    final providerId =
+        nonEmpty(map['providerId']) ?? (isV1 ? _v1DefaultProviderId : null);
+    final remoteFileId =
+        nonEmpty(map['remoteFileId']) ??
+        (isV1 ? nonEmpty(map['driveFileId']) : null);
+    final remoteFileName =
+        nonEmpty(map['remoteFileName']) ??
+        (isV1 ? nonEmpty(map['driveFileName']) : null);
+    if (databasePath == null ||
+        providerId == null ||
+        remoteFileId == null ||
+        remoteFileName == null) {
+      throw const SyncMappingDecodeException();
+    }
+
     return DatabaseSyncMapping(
       databaseId: map['databaseId'] as String?,
-      databasePath: map['databasePath'] as String,
-      driveFileId: map['driveFileId'] as String,
-      driveFileName: map['driveFileName'] as String,
+      databasePath: databasePath,
+      providerId: providerId,
+      remoteFileId: remoteFileId,
+      remoteFileName: remoteFileName,
       lastSyncedLocalChecksum: map['lastSyncedLocalChecksum'] as String?,
       lastSyncedRemoteChecksum: map['lastSyncedRemoteChecksum'] as String?,
       lastSyncedRemoteModifiedTime: map['lastSyncedRemoteModifiedTime'] == null
@@ -110,8 +171,9 @@ class DatabaseSyncMapping extends Equatable {
   List<Object?> get props => [
     databaseId,
     databasePath,
-    driveFileId,
-    driveFileName,
+    providerId,
+    remoteFileId,
+    remoteFileName,
     lastSyncedLocalChecksum,
     lastSyncedRemoteChecksum,
     lastSyncedRemoteModifiedTime,

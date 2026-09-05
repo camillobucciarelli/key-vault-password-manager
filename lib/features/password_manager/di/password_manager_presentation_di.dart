@@ -57,6 +57,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       databaseRegistryRepository: sl(),
       databaseSecurityRepository: sl(),
       databaseSyncRepository: sl(),
+      linkDatabaseToRemote: sl(),
       metadataRecoveryRepository: sl(),
       getActiveDatabaseUseCase: sl(),
       resolveDatabaseDuplicateUseCase: sl(),
@@ -126,6 +127,8 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       vaultCsvImportService: sl(),
       vaultDuplicateService: sl(),
       databaseSyncRepository: sl(),
+      linkDatabaseToRemote: sl(),
+      syncDatabaseNow: sl(),
       appleAutofillV2Coordinator: sl(),
       androidAutofillSaveCoordinator: sl(),
       // spec-019 FR-006g: the folder expansion set outlives the session.

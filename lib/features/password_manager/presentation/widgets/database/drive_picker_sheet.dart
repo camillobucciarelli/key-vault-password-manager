@@ -6,9 +6,11 @@ import '../../../../../core/theme/app_text_styles.dart';
 import '../../../../../core/theme/keyvault_colors.dart';
 import '../../../../../core/widgets/kv_bottom_sheet.dart';
 import '../../../../../core/widgets/kv_pill_button.dart';
-import '../../../domain/errors/google_authorization_required_exception.dart';
-import '../../../domain/models/drive_account_summary.dart';
-import '../../../domain/models/drive_remote_file.dart';
+import '../../../domain/models/cloud_storage_error.dart';
+import '../../../domain/models/remote_file_selection_data.dart';
+import '../../../domain/models/storage_account_summary.dart';
+import '../../../domain/models/remote_file.dart';
+import '../../utils/cloud_storage_error_presentation.dart';
 import 'drive_picker_skeleton.dart';
 
 class DrivePickerSheetResult {
@@ -26,7 +28,7 @@ class DrivePickerSheetResult {
       createAndUpload = false,
       switchAccount = true;
 
-  final DriveRemoteFile? file;
+  final RemoteFile? file;
   final bool createAndUpload;
   final bool switchAccount;
 }
@@ -36,7 +38,7 @@ class DrivePickerSheetResult {
 /// / switch-account actions.
 Future<DrivePickerSheetResult?> showDrivePickerSheet(
   BuildContext context, {
-  required Future<DrivePickerData> Function() loadPickerData,
+  required Future<RemoteFileSelectionData> Function() loadPickerData,
 }) {
   return KvBottomSheet.show<DrivePickerSheetResult>(
     context: context,
@@ -49,6 +51,19 @@ Future<DrivePickerSheetResult?> showDrivePickerSheet(
 /// renders a raw `e.toString()` for a recognized failure).
 @visibleForTesting
 String driveOpenErrorMessage(Object error) {
+  // spec 010: typed provider failures map by code and never render
+  // `toString()`; the substring branches below serve untyped exceptions.
+  if (error is CloudStorageException) {
+    return switch (error.code) {
+      CloudStorageErrorCode.cancelled =>
+        'Google sign-in was cancelled during authorization. Please try again and grant Drive permissions.',
+      CloudStorageErrorCode.forbidden =>
+        'Google Drive permission was not granted. Enable Drive access and try again.',
+      CloudStorageErrorCode.authorizationRequired =>
+        'Google Drive session expired or unavailable. Use Reconnect below to sign in again.',
+      _ => error.safeMessage,
+    };
+  }
   final message = error.toString();
   final normalized = message.toLowerCase();
 
@@ -95,7 +110,7 @@ String driveOpenErrorMessage(Object error) {
 class _DrivePickerSheetContent extends StatefulWidget {
   const _DrivePickerSheetContent({required this.loadPickerData});
 
-  final Future<DrivePickerData> Function() loadPickerData;
+  final Future<RemoteFileSelectionData> Function() loadPickerData;
 
   @override
   State<_DrivePickerSheetContent> createState() =>
@@ -103,7 +118,7 @@ class _DrivePickerSheetContent extends StatefulWidget {
 }
 
 class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
-  DrivePickerData? _data;
+  RemoteFileSelectionData? _data;
   Object? _error;
   bool _isLoading = false;
 
@@ -156,7 +171,7 @@ class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
           const SizedBox(height: 14),
           if (_error != null) ...[
             Text(
-              _error is GoogleAuthorizationRequiredException
+              isCloudAuthorizationRequired(_error!)
                   ? 'Google authorization expired'
                   : 'Unable to connect to Google Drive',
               textAlign: TextAlign.center,
@@ -175,14 +190,14 @@ class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
               container: true,
               button: true,
               enabled: !_isLoading,
-              label: _error is GoogleAuthorizationRequiredException
+              label: isCloudAuthorizationRequired(_error!)
                   ? 'Reconnect Google Drive'
                   : 'Retry Google Drive connection',
               child: ExcludeSemantics(
                 child: KvPillButton(
                   label: _isLoading
                       ? 'Connecting...'
-                      : _error is GoogleAuthorizationRequiredException
+                      : isCloudAuthorizationRequired(_error!)
                       ? 'Reconnect'
                       : 'Retry',
                   onPressed: _isLoading ? null : _load,
@@ -244,7 +259,7 @@ class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
 class _DriveEmptyState extends StatelessWidget {
   const _DriveEmptyState({required this.account});
 
-  final DriveAccountSummary account;
+  final StorageAccountSummary account;
 
   @override
   Widget build(BuildContext context) {
