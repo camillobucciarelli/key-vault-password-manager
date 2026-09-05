@@ -109,13 +109,15 @@ void main() {
     test('Key-file manager: sheet / sheet', () {
       expectAlwaysSheet(KeyFileManagerSurface<VaultDone>(builder: _noop));
     });
-    test('Confirmations: sheet / sheet over root window', () {
-      expectAlwaysSheet(ConfirmationSurface<VaultDone>(builder: _noop));
-    });
-    test('Confirmations with dialogOnWide: sheet / dialog', () {
-      expectSheetThenBareDialog(
-        ConfirmationSurface<VaultDone>(builder: _noop, dialogOnWide: true),
-      );
+    // 2026-09-05 (user-directed): yes/no confirmations are dialogs at every
+    // width.
+    test('Confirmations: bare dialog / bare dialog', () {
+      final surface = ConfirmationSurface<VaultDone>(builder: _noop);
+      for (final width in [mobileWidth, railWidth]) {
+        final got = presentationFor(surface, width);
+        expect(got, isA<VaultDialogPresentation>());
+        expect((got as VaultDialogPresentation).bare, isTrue);
+      }
     });
   });
 

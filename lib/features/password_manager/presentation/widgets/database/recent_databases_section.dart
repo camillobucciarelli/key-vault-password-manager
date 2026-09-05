@@ -50,58 +50,53 @@ class _RecentDatabasesSectionState extends State<RecentDatabasesSection> {
         .toList(growable: false);
     final showSearch = widget.items.length > 5;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Semantics(
-          hint: widget.items.length > 1
-              ? 'Multiple databases are available. Pick one from recent list or open another file.'
-              : null,
-          child: Text(
-            'Recent',
-            style: AppTextStyles.panelTitleLarge.copyWith(
-              color: colors.textPrimary,
+    // No section title: the screen header already reads "Databases" and the
+    // list is every registered database, not a recency subset.
+    return Semantics(
+      hint: widget.items.length > 1
+          ? 'Multiple databases are available. Pick one from the list or open another file.'
+          : null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (showSearch) ...[
+            TextFormField(
+              decoration: const InputDecoration(
+                labelText: 'Search databases',
+                prefixIcon: Icon(AppIcons.search),
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _query = value;
+                });
+              },
             ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        if (showSearch) ...[
-          TextFormField(
-            decoration: const InputDecoration(
-              labelText: 'Search recent databases',
-              prefixIcon: Icon(AppIcons.search),
-            ),
-            onChanged: (value) {
-              setState(() {
-                _query = value;
-              });
-            },
-          ),
-          const SizedBox(height: 8),
-        ],
-        ...filtered.map((item) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: DatabaseItemTile(
-              item: item,
-              onOpen: () => widget.onOpen(item),
-              onExport: () => widget.onExport(item),
-              onRemove: () => widget.onRemove(item),
-              onLocate: item.isMissing ? () => widget.onLocate(item) : null,
-            ),
-          );
-        }),
-        if (filtered.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Text(
-              'No recent database matches your search.',
-              style: AppTextStyles.secondary.copyWith(
-                color: colors.textSecondary,
+            const SizedBox(height: 8),
+          ],
+          ...filtered.map((item) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: DatabaseItemTile(
+                item: item,
+                onOpen: () => widget.onOpen(item),
+                onExport: () => widget.onExport(item),
+                onRemove: () => widget.onRemove(item),
+                onLocate: item.isMissing ? () => widget.onLocate(item) : null,
+              ),
+            );
+          }),
+          if (filtered.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Text(
+                'No database matches your search.',
+                style: AppTextStyles.secondary.copyWith(
+                  color: colors.textSecondary,
+                ),
               ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }

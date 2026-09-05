@@ -82,7 +82,9 @@ void main() {
     'SyncMergeSurface': (narrow: 'route', wide: 'route'),
     'DatabaseSettingsSurface': (narrow: 'route', wide: 'pane'),
     'KeyFileManagerSurface': (narrow: 'sheet', wide: 'sheet'),
-    'ConfirmationSurface': (narrow: 'sheet', wide: 'sheet'),
+    // 2026-09-05 (user-directed): yes/no confirmations are dialogs at every
+    // width.
+    'ConfirmationSurface': (narrow: 'dialog', wide: 'dialog'),
   };
 
   group('presentationFor baseline', () {
@@ -192,8 +194,9 @@ void main() {
         'DatabaseSettingsSurface': 'route route route pane pane pane pane pane',
         'KeyFileManagerSurface':
             'sheet sheet sheet sheet sheet sheet sheet sheet',
+        // 2026-09-05 (user-directed): dialog at every width.
         'ConfirmationSurface':
-            'sheet sheet sheet sheet sheet sheet sheet sheet',
+            'dialog dialog dialog dialog dialog dialog dialog dialog',
       };
 
       test('every surface that existed before spec 019 is still listed', () {

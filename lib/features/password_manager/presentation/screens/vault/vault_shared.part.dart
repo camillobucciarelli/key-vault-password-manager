@@ -197,8 +197,9 @@ String _formatEntryDateTime(DateTime? value) {
 // implementation, "unchanged in behaviour" per FR-8.
 Future<void> _exportDatabaseBackup(
   BuildContext context,
-  String databasePath,
-) async {
+  String databasePath, {
+  String? databaseLabel,
+}) async {
   final messenger = ScaffoldMessenger.of(context);
   if (databasePath.trim().isEmpty) {
     messenger.showSnackBar(
@@ -218,7 +219,11 @@ Future<void> _exportDatabaseBackup(
   // The macOS save panel appends the allowed extension itself, so a full
   // basename showed "name.kdbx.kdbx". The resolvedPath guard below restores
   // ".kdbx" where the platform does not append it.
-  final defaultName = path.basenameWithoutExtension(databasePath);
+  // spec 014 FR-3: on mobile the stored file is an opaque identifier, so the
+  // suggested name comes from the registry, not from the path.
+  final defaultName = path.basenameWithoutExtension(
+    databaseLabel ?? path.basename(databasePath),
+  );
   final savePath = await FilePicker.saveFile(
     dialogTitle: 'Export database backup',
     fileName: defaultName,

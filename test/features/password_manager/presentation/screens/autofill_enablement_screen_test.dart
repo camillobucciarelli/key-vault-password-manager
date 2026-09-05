@@ -78,7 +78,7 @@ void main() {
       // Must positively disclose that a password copy is kept + how it is
       // protected (Face ID gate), not just titles/usernames/sites.
       expect(find.textContaining('password'), findsWidgets);
-      expect(find.textContaining('Face ID'), findsWidgets);
+      expect(find.textContaining('biometrics'), findsWidgets);
       expect(find.textContaining('42 titles'), findsOneWidget);
     });
   });

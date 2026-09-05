@@ -57,6 +57,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       databaseRegistryRepository: sl(),
       databaseSecurityRepository: sl(),
       databaseSyncRepository: sl(),
+      metadataRecoveryRepository: sl(),
       getActiveDatabaseUseCase: sl(),
       resolveDatabaseDuplicateUseCase: sl(),
       unlockDatabaseUseCase: sl(),
@@ -134,6 +135,13 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
         final records = await sl<DatabaseRegistryRepository>().list();
         for (final record in records) {
           if (record.canonicalPath == databasePath) return record.databaseId;
+        }
+        return null;
+      },
+      resolveDisplayName: (databasePath) async {
+        final records = await sl<DatabaseRegistryRepository>().list();
+        for (final record in records) {
+          if (record.canonicalPath == databasePath) return record.displayName;
         }
         return null;
       },

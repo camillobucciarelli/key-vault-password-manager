@@ -7,6 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/data/datasources/database_registry_local_data_source.dart';
 import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
 import 'package:password_manager/features/password_manager/data/services/legacy_database_registry_migration.dart';
+import 'package:password_manager/features/password_manager/data/services/database_sync_orchestrator.dart';
+import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 import 'package:password_manager/injection_container.dart' as di;
 import 'package:path/path.dart' as p;
@@ -138,6 +140,47 @@ void main() {
       expect(records.single.fileHash, md5.convert([1, 2, 3]).toString());
     },
   );
+
+  test('a vault under the documents root resolves to its registry id, so '
+      'linking it to Drive is not refused as unregistered', () async {
+    await di.init();
+
+    final database = File(p.join(documentsDirectory.path, 'vault.kdbx'));
+    await database.writeAsBytes([1, 2, 3], flush: true);
+    final now = DateTime.now();
+    final registry = di.sl<DatabaseRegistryRepository>();
+    await registry.upsert(
+      DatabaseRecord(
+        databaseId: 'db-1',
+        canonicalPath: database.path,
+        displayName: 'vault.kdbx',
+        sourceType: DatabaseSourceType.drive,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+
+    // The record is stored PortablePath-encoded, which is exactly what a
+    // raw data-source read cannot compare against an absolute path.
+    expect(
+      (await di.sl<DatabaseRegistryLocalDataSource>()
+              .getRecords())
+          .single['canonicalPath'],
+      isNot(database.path),
+    );
+    expect(
+      await resolveDatabaseIdForSync(database.path, registry),
+      'db-1',
+      reason: 'the encoded record must still match the absolute path',
+    );
+    expect(
+      await resolveDatabaseIdForSync(
+        p.join(documentsDirectory.path, 'other.kdbx'),
+        registry,
+      ),
+      isNull,
+    );
+  });
 
   test('di.init() completes and every other dependency stays usable when the '
       'legacy migration fails, so a persistent migration failure never '

@@ -70,6 +70,20 @@ void main() {
     expect(find.text('Search 3 items'), findsOneWidget);
   });
 
+  // 2026-09-05: on a phone the browser lists the current folder's own
+  // records, but a search runs over the whole subtree (FR-006h).
+  testWidgets('a phone search reaches records in subfolders', (tester) async {
+    await pumpAt(tester, 390);
+    expect(find.text('GitHub'), findsNothing);
+
+    await tester.enterText(find.byType(TextFormField).first, 'Git');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    expect(find.text('GitHub'), findsOneWidget);
+    expect(find.text('Gmail'), findsNothing);
+  });
+
   testWidgets('FR-006j — a record on loan from a subfolder says so', (
     tester,
   ) async {

@@ -1,114 +1,38 @@
 import 'package:flutter/material.dart';
 
-import '../../../../../core/theme/app_icons.dart';
 import '../../../../../core/theme/app_text_styles.dart';
 import '../../../../../core/theme/keyvault_colors.dart';
 import '../../../../../core/widgets/kv_bottom_sheet.dart';
-import '../../../../../core/widgets/kv_pill_button.dart';
+import '../../../../../core/widgets/kv_confirm_dialog.dart';
 import '../../../domain/models/database_dedup_result.dart';
 
-/// FR-3: invalid-file sheet. Names only the basename, never the full path
+/// FR-3: invalid-file message. Names only the basename, never the full path
 /// (C-3) and never offers CSV import (that requires an open vault).
-Future<void> showInvalidDatabaseFileSheet(
+Future<void> showInvalidDatabaseFileDialog(
   BuildContext context, {
   required String basename,
 }) {
-  return KvBottomSheet.show<void>(
-    context: context,
-    builder: (sheetContext) => _MessageSheet(
-      icon: AppIcons.warning,
-      title: 'Invalid database file',
-      body: '"$basename" is not a valid KeyVault database file.',
-      primaryLabel: 'OK',
-      onPrimary: () => Navigator.of(sheetContext).pop(),
-    ),
+  return showKvConfirmDialog(
+    context,
+    title: 'Invalid database file',
+    body: '"$basename" is not a valid KeyVault database file.',
+    confirmLabel: 'OK',
+    cancelLabel: null,
   );
 }
 
-/// FR-3/C-3: corrupt-file sheet. Never phrased as "wrong password".
-Future<void> showCorruptDatabaseFileSheet(
+/// FR-3/C-3: corrupt-file message. Never phrased as "wrong password".
+Future<void> showCorruptDatabaseFileDialog(
   BuildContext context, {
   required String basename,
 }) {
-  return KvBottomSheet.show<void>(
-    context: context,
-    builder: (sheetContext) => _MessageSheet(
-      icon: AppIcons.warning,
-      title: 'Database file is corrupted',
-      body: '"$basename" could not be read. The file may be corrupted.',
-      primaryLabel: 'OK',
-      onPrimary: () => Navigator.of(sheetContext).pop(),
-    ),
+  return showKvConfirmDialog(
+    context,
+    title: 'Database file is corrupted',
+    body: '"$basename" could not be read. The file may be corrupted.',
+    confirmLabel: 'OK',
+    cancelLabel: null,
   );
-}
-
-class _MessageSheet extends StatelessWidget {
-  const _MessageSheet({
-    required this.icon,
-    required this.title,
-    required this.body,
-    required this.primaryLabel,
-    required this.onPrimary,
-  });
-
-  final IconData icon;
-  final String title;
-  final String body;
-  final String primaryLabel;
-  final VoidCallback onPrimary;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 26),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: 46,
-              height: 5,
-              margin: const EdgeInsets.only(bottom: 14),
-              decoration: BoxDecoration(
-                color: colors.divider,
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-          ),
-          Center(
-            child: Container(
-              width: 52,
-              height: 52,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: colors.attentionTint,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: colors.attentionText),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: AppTextStyles.sheetTitleLarge.copyWith(
-              color: colors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            body,
-            textAlign: TextAlign.center,
-            style: AppTextStyles.body.copyWith(color: colors.textSecondary),
-          ),
-          const SizedBox(height: 20),
-          KvPillButton(label: primaryLabel, onPressed: onPrimary),
-        ],
-      ),
-    );
-  }
 }
 
 /// FR-4 duplicate sheet: the three real resolutions plus their consequence
@@ -184,17 +108,6 @@ class _DuplicateSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Center(
-            child: Container(
-              width: 46,
-              height: 5,
-              margin: const EdgeInsets.only(bottom: 14),
-              decoration: BoxDecoration(
-                color: colors.divider,
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-          ),
           Text(
             'Duplicate database detected',
             textAlign: TextAlign.center,

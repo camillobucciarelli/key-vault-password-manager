@@ -325,8 +325,6 @@ class _GeneratorSheetScaffold extends StatefulWidget {
 class _GeneratorSheetScaffoldState extends State<_GeneratorSheetScaffold> {
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
-
     // Sheet chrome only when actually hosted as a sheet: on wide layouts
     // this surface is a pane (`presentationFor`), where a drag handle lies
     // about the interaction and a back affordance is missing (2026-08-31).
@@ -347,17 +345,6 @@ class _GeneratorSheetScaffoldState extends State<_GeneratorSheetScaffold> {
                   onPressed: () => VaultOperationScope.of(context).cancel(),
                 ),
               ],
-            )
-          else
-            Center(
-              child: Container(
-                width: 46,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: colors.divider,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-              ),
             ),
           const SizedBox(height: 14),
           _GeneratorPanel(

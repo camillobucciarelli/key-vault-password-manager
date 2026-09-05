@@ -68,6 +68,9 @@ class DatabaseItemTile extends StatelessWidget {
       child: _HoverSurface(
         onTap: item.isMissing ? onLocate : () => onOpen(),
         baseColor: active ? colors.attentionTint : colors.surface,
+        // Active row: tint alone is too close to the background, so the
+        // selection border is always on (not just hover/focus).
+        borderColor: active ? colors.selectionBorder : Colors.transparent,
         hoveredBorderColor: colors.selectionBorder.withValues(alpha: 0.5),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
@@ -118,9 +121,7 @@ class DatabaseItemTile extends StatelessWidget {
                       style: AppTextStyles.secondary.copyWith(
                         color: item.isMissing
                             ? colors.attentionText
-                            : (active
-                                  ? colors.actionText
-                                  : colors.textSecondary),
+                            : colors.textSecondary,
                       ),
                     ),
                   ],
@@ -149,12 +150,14 @@ class _HoverSurface extends StatefulWidget {
   const _HoverSurface({
     required this.child,
     required this.baseColor,
+    required this.borderColor,
     required this.hoveredBorderColor,
     this.onTap,
   });
 
   final Widget child;
   final Color baseColor;
+  final Color borderColor;
   final Color hoveredBorderColor;
   final VoidCallback? onTap;
 
@@ -205,7 +208,7 @@ class _HoverSurfaceState extends State<_HoverSurface> {
               border: Border.all(
                 color: highlight
                     ? widget.hoveredBorderColor
-                    : Colors.transparent,
+                    : widget.borderColor,
               ),
             ),
             child: widget.child,

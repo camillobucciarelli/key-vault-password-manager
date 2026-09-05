@@ -8,6 +8,7 @@ import 'package:password_manager/features/password_manager/data/datasources/data
 import 'package:password_manager/features/password_manager/data/datasources/local_data_source.dart';
 import 'package:password_manager/features/password_manager/data/datasources/metadata_cipher.dart';
 import 'package:password_manager/features/password_manager/data/datasources/sync_metadata_data_source.dart';
+import 'package:password_manager/features/password_manager/domain/errors/database_access_failure.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -185,11 +186,12 @@ void main() {
         // Key lost, ciphertext still on disk.
         secure.entries.remove('METADATA_ENCRYPTION_KEY');
         expect(await registry.getRecords(), isEmpty);
+
         await expectLater(
           registry.saveRecords([
             {'databaseId': 'db_2', 'displayName': 'Other.kdbx'},
           ]),
-          throwsA(isA<StateError>()),
+          throwsA(isA<MetadataStorageUnreadableFailure>()),
           reason: 'minting a new key over ciphertext would destroy it',
         );
         expect(secure.entries['METADATA_ENCRYPTION_KEY'], isNull);

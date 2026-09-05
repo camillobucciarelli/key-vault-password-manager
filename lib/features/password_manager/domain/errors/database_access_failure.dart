@@ -79,3 +79,14 @@ final class InvalidKeyFileFailure extends DatabaseAccessFailure {
   @override
   String toString() => 'InvalidKeyFileFailure()';
 }
+
+/// spec 014 FR-5: the metadata encryption key is gone while its ciphertext
+/// is still on disk, so every metadata write is refused. The database list
+/// reads as empty and stays that way until the user explicitly discards the
+/// unreadable metadata — see `MetadataRecoveryService`.
+final class MetadataStorageUnreadableFailure extends DatabaseAccessFailure {
+  const MetadataStorageUnreadableFailure();
+
+  @override
+  String toString() => 'MetadataStorageUnreadableFailure()';
+}

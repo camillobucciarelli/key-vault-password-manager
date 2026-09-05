@@ -264,11 +264,8 @@ void main() {
     testWidgets('selecting then removing a key file updates the form', (
       tester,
     ) async {
-      // FR-5: the key-file card (with its Change/Remove buttons) is mobile
-      // only — desktop uses a "Key file…" secondary pill instead. Pin the
-      // viewport to mobile width so this card-focused test exercises the
-      // surface it targets rather than the default (desktop-width) test
-      // window.
+      // Phone viewport: the form is one layout on every width, this just
+      // exercises the narrowest one.
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -292,9 +289,9 @@ void main() {
       bloc.add(const UpdateKeyFilePath(keyPath));
       await tester.pumpAndSettle();
       expect(find.text('Unlock with key file'), findsOneWidget);
-      expect(find.text('Remove key file'), findsOneWidget);
+      expect(find.byTooltip('Remove key file'), findsOneWidget);
 
-      await tester.tap(find.text('Remove key file'));
+      await tester.tap(find.byTooltip('Remove key file'));
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);

@@ -56,6 +56,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     this.folderExpansionPreferences,
     this.syncMergeCoordinator,
     this.resolveDatabaseId,
+    this.resolveDisplayName,
     this.now = DateTime.now,
   }) : super(VaultState.initial(databasePath: databasePath)) {
     on<InitializeVault>(_onInitializeVault);
@@ -163,6 +164,12 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   /// Maps the open database path to its registry id, the only identity the
   /// merge port accepts. Kept as a callback so this BLoC holds no registry.
   final Future<String?> Function(String databasePath)? resolveDatabaseId;
+
+  /// spec 014 FR-3: maps the open database path to the human-readable name
+  /// held in the registry — the file on disk is an opaque identifier on
+  /// mobile. A callback for the same reason as [resolveDatabaseId]: this
+  /// BLoC holds no registry.
+  final Future<String?> Function(String databasePath)? resolveDisplayName;
   final AppleAutofillV2CoordinatorContract appleAutofillV2Coordinator;
   final VaultHealthService vaultHealthService;
 
@@ -213,6 +220,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       // below — never a silent empty-string fallback.
       _password = sessionSecretHolder.read();
       _keyFilePath = await getSelectedKeyFilePath();
+      await _loadDisplayName(emit);
       _restoreExpandedGroupIds(emit);
       await _preloadDriveStateFromLocalMapping(emit);
       await _reload(emit);
@@ -229,6 +237,21 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           errorMessage: 'Unable to load vault credentials.',
         ),
       );
+    }
+  }
+
+  /// Best-effort: an unresolvable name leaves the state's basename fallback
+  /// in place rather than failing the whole vault load.
+  Future<void> _loadDisplayName(Emitter<VaultState> emit) async {
+    final resolve = resolveDisplayName;
+    if (resolve == null) return;
+    try {
+      final name = await resolve(state.databasePath);
+      if (name != null && name.trim().isNotEmpty) {
+        _safeEmit(emit, state.copyWith(displayName: name));
+      }
+    } catch (e, st) {
+      logError('Failed resolving the database display name.', e, st);
     }
   }
 
@@ -2297,8 +2320,16 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     if (message.contains('google account not connected')) {
       return 'Google account not connected. Reconnect Google Drive.';
     }
+    if (message.contains('google sign-in failed')) {
+      return 'Unable to connect Google Drive. ${_withoutExceptionPrefix(error)}';
+    }
     return 'Unable to connect Google Drive.';
   }
+
+  /// Unrecognized Google failures carry the platform code and description,
+  /// which is the only thing that tells connect failures apart in the field.
+  static String _withoutExceptionPrefix(Object error) =>
+      error.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
 
   Future<void> _refreshSyncState(Emitter<VaultState> emit) async {
     final connected = await databaseSyncRepository.isConnected();

@@ -61,7 +61,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    // FR-3: three actions — Face ID (unavailable in the fake harness,
+    // FR-3: three actions — biometrics (unavailable in the fake harness,
     // so only the password + close-database actions render), master
     // password, close database.
     expect(find.text('Use master password'), findsOneWidget);

@@ -64,6 +64,9 @@ keys/
 # Local editor and agent tooling
 .agents/
 .claude/settings.local.json
+.claude/.headroom_*
+.codex/
+.headroom/
 .lh/
 .serena/
 .vscode/settings.json

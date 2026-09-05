@@ -26,6 +26,8 @@ String failureMessage(DatabaseAccessFailure failure) => switch (failure) {
     'Set a master password or choose a key file to protect the database.',
   InvalidKeyFileFailure() =>
     'The selected key file is empty or could not be read.',
+  MetadataStorageUnreadableFailure() =>
+    'Saved database details cannot be read on this device.',
 };
 
 class DatabaseSelectionBloc
@@ -44,6 +46,7 @@ class DatabaseSelectionBloc
     on<AdvanceCreateDatabaseStep>(_onAdvanceCreateDatabaseStep);
     on<GoBackCreateDatabaseStep>(_onGoBackCreateDatabaseStep);
     on<CancelCreateDatabaseFlow>(_onCancelCreateDatabaseFlow);
+    on<DiscardUnreadableMetadata>(_onDiscardUnreadableMetadata);
   }
 
   final DatabaseSessionCoordinator databaseSessionCoordinator;
@@ -211,6 +214,29 @@ class DatabaseSelectionBloc
       _safeEmit(emit, DatabaseSelectionUnselected(items: result.items));
     } catch (e, st) {
       logError('Failed while removing recent database.', e, st);
+      _emitFailure(emit, e);
+      _safeEmit(emit, DatabaseSelectionUnselected(items: state.items));
+    }
+  }
+
+  Future<void> _onDiscardUnreadableMetadata(
+    DiscardUnreadableMetadata event,
+    Emitter<DatabaseSelectionState> emit,
+  ) async {
+    _safeEmit(emit, DatabaseSelectionLoading(items: state.items));
+    try {
+      final items = await databaseSessionCoordinator
+          .discardUnreadableMetadata();
+      _safeEmit(
+        emit,
+        DatabaseSelectionInfo(
+          'Saved database details were reset. Add your databases again.',
+          items: items,
+        ),
+      );
+      _safeEmit(emit, DatabaseSelectionUnselected(items: items));
+    } catch (e, st) {
+      logError('Failed while discarding unreadable metadata.', e, st);
       _emitFailure(emit, e);
       _safeEmit(emit, DatabaseSelectionUnselected(items: state.items));
     }

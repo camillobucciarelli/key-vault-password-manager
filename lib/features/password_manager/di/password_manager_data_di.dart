@@ -1,11 +1,10 @@
 import 'package:get_it/get_it.dart';
 
-import '../../../core/utils/portable_path.dart';
-
 import '../data/datasources/biometric_data_source.dart';
 import '../data/datasources/database_registry_local_data_source.dart';
 import '../data/datasources/database_security_local_data_source.dart';
 import '../data/datasources/google_token_data_source.dart';
+import '../data/datasources/key_file_names_data_source.dart';
 import '../data/datasources/local_data_source.dart';
 import '../data/datasources/secure_data_source.dart';
 import '../data/datasources/sync_metadata_data_source.dart';
@@ -32,12 +31,14 @@ import '../data/services/google_oauth_config.dart';
 import '../data/services/vault_csv_import_service.dart';
 import '../data/services/vault_duplicate_service.dart';
 import '../data/services/vault_kdbx_service.dart';
+import '../data/services/metadata_recovery_service.dart';
 import '../domain/repositories/database_file_repository.dart';
 import '../domain/repositories/database_registry_repository.dart';
 import '../domain/repositories/database_security_repository.dart';
 import '../domain/repositories/database_session_repository.dart';
 import '../domain/repositories/database_sync_repository.dart';
 import '../domain/repositories/autofill_ports.dart';
+import '../domain/repositories/metadata_recovery_repository.dart';
 import '../domain/repositories/password_generator_settings_repository.dart';
 import '../domain/repositories/sync_merge_repository.dart';
 import '../domain/services/apple_autofill_v2_payload_mapper.dart';
@@ -86,6 +87,9 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
     ),
   );
 
+  sl.registerLazySingleton<MetadataRecoveryRepository>(
+    () => MetadataRecoveryService(secureDataSource: sl()),
+  );
   sl.registerLazySingleton<LocalDataSource>(
     () => LocalDataSourceImpl(secureDataSource: sl()),
   );
@@ -109,6 +113,9 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
   );
   sl.registerLazySingleton<SyncMetadataDataSource>(
     () => SyncMetadataDataSourceImpl(secureDataSource: sl()),
+  );
+  sl.registerLazySingleton<KeyFileNamesDataSource>(
+    () => KeyFileNamesDataSource(secureDataSource: sl()),
   );
 
   sl.registerLazySingleton(() => VaultAutofillMatcher());
@@ -176,19 +183,8 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
       syncMetadataDataSource: sl(),
       googleDriveApiService: sl(),
       // spec 014 FR-6: resolve a database path to its registry identifier.
-      resolveDatabaseId: (databasePath) async {
-        final records = await sl<DatabaseRegistryLocalDataSource>()
-            .getRecords();
-        final resolved = PortablePath.resolveForComparison(databasePath);
-        for (final record in records) {
-          final canonical = record['canonicalPath'];
-          if (canonical is! String) continue;
-          if (PortablePath.resolveForComparison(canonical) == resolved) {
-            return record['databaseId'] as String?;
-          }
-        }
-        return null;
-      },
+      resolveDatabaseId: (databasePath) =>
+          resolveDatabaseIdForSync(databasePath, sl()),
       mutex: sl(),
       fileHashRecorder: sl(),
     ),

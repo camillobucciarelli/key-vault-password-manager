@@ -3,6 +3,8 @@ import 'package:loggy/loggy.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/di/core_di.dart';
+import 'core/utils/mobile_file_storage.dart';
+import 'features/password_manager/data/datasources/key_file_names_data_source.dart';
 import 'features/password_manager/data/datasources/secure_data_source.dart';
 import 'features/password_manager/data/services/database_file_hash_recorder.dart';
 import 'features/password_manager/data/services/legacy_database_registry_migration.dart';
@@ -50,4 +52,8 @@ Future<void> init() async {
   // is built and therefore before any biometric unlock can read the keystore.
   // Idempotent delete at every launch — zero migration state to persist.
   await sl<SecureDataSource>().deleteLegacyMasterPassword();
+
+  // spec 014 FR-3: from here on every managed key-file write records its
+  // human-readable name and every listing shows it.
+  MobileFileStorage.keyFileNames = sl<KeyFileNamesDataSource>();
 }

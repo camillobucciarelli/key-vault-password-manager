@@ -56,7 +56,7 @@ class PrivacyOverlay extends StatelessWidget {
 }
 
 /// FR-3 lock overlay: dark ground, mark 76/r24, "Locked for `<duration>`",
-/// three actions — Face ID (existing biometric flow, unchanged), master
+/// three actions — biometrics (existing flow, unchanged), master
 /// password (existing `DatabaseUnlockScreen` hand-off, unchanged), and
 /// closing the database (new — reuses
 /// `_VaultViewState._closeCurrentDatabaseAndSelectAnother`'s confirm +
@@ -64,12 +64,17 @@ class PrivacyOverlay extends StatelessWidget {
 class _LockOverlay extends StatefulWidget {
   const _LockOverlay({
     required this.databasePath,
+    required this.databaseLabel,
     required this.lockedAt,
     required this.onUnlocked,
     required this.onCloseDatabase,
   });
 
   final String databasePath;
+
+  /// spec 014 FR-3: the registry name; the path's basename is opaque on
+  /// mobile.
+  final String databaseLabel;
   final DateTime lockedAt;
   final VoidCallback onUnlocked;
   final Future<void> Function() onCloseDatabase;
@@ -164,7 +169,7 @@ class _LockOverlayState extends State<_LockOverlay> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '${path.basename(widget.databasePath)} is still open in memory. '
+                  '${widget.databaseLabel} is still open in memory. '
                   "Confirm it's you to continue where you left off.",
                   textAlign: TextAlign.center,
                   style: AppTextStyles.body.copyWith(
@@ -174,14 +179,14 @@ class _LockOverlayState extends State<_LockOverlay> {
                 const SizedBox(height: 24),
                 if (_biometricAvailable && !_showPasswordFallback)
                   KvPillButton(
-                    label: 'Unlock with Face ID',
+                    label: 'Unlock with biometrics',
                     icon: AppIcons.fingerprint,
                     onPressed: _isAuthenticating ? null : _triggerBiometric,
                   ),
                 if (_showPasswordFallback) ...[
                   if (_biometricAvailable) ...[
                     KvPillButton(
-                      label: 'Unlock with Face ID',
+                      label: 'Unlock with biometrics',
                       icon: AppIcons.fingerprint,
                       onPressed: _isAuthenticating ? null : _triggerBiometric,
                     ),

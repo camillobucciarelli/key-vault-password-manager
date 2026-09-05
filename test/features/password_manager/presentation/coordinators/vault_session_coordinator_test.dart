@@ -243,6 +243,60 @@ void main() {
     });
 
     test(
+      'spec 014 FR-3: renaming a database whose at-rest name is opaque '
+      'renames it in the registry only, never on disk',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'vault_session_test_',
+        );
+        addTearDown(() => tempDir.delete(recursive: true));
+
+        // The at-rest shape managed storage allocates: 32 hex, no extension.
+        final opaqueFile = File(
+          '${tempDir.path}/0123456789abcdef0123456789abcdef',
+        );
+        await opaqueFile.writeAsBytes(const [1, 2, 3], flush: true);
+
+        registryRepository.records = [
+          DatabaseRecord(
+            databaseId: 'db-1',
+            canonicalPath: opaqueFile.path,
+            displayName: 'Old name.kdbx',
+            sourceType: DatabaseSourceType.local,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          ),
+        ];
+        sessionSecretHolder.set('secret');
+
+        final result = await coordinator.updateDatabaseSettings(
+          DatabaseSettingsUpdateRequest(
+            currentDatabasePath: opaqueFile.path,
+            fileName: 'New name.kdbx',
+            keyFilePath: null,
+            biometricProtectionEnabled: false,
+            changePassword: false,
+            inactivityLockTimeoutSeconds: null,
+          ),
+        );
+
+        expect(result.databasePath, opaqueFile.path);
+        expect(opaqueFile.existsSync(), isTrue);
+        expect(
+          Directory(tempDir.path).listSync().map((e) => p.basename(e.path)),
+          ['0123456789abcdef0123456789abcdef'],
+          reason: 'the human-readable name must never reach the filesystem',
+        );
+        expect(syncRepository.movedFrom, isNull);
+        expect(
+          registryRepository.records.single.displayName,
+          'New name.kdbx',
+          reason: 'the new name lives in the encrypted registry',
+        );
+      },
+    );
+
+    test(
       'updateDatabaseSettings renames database and updates mapping/profile',
       () async {
         final tempDir = await Directory.systemTemp.createTemp(

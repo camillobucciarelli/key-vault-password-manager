@@ -897,6 +897,47 @@ void main() {
       );
     });
 
+    test('spec 014 FR-3: reopening a database whose at-rest name is opaque '
+        'keeps the registry display name instead of the hex', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'db_session_reopen_opaque_',
+      );
+      addTearDown(() => tempDir.delete(recursive: true));
+      final opaquePath = p.join(
+        tempDir.path,
+        '0123456789abcdef0123456789abcdef',
+      );
+      await File(opaquePath).writeAsBytes(<int>[
+        0x03,
+        0xD9,
+        0xA2,
+        0x9A,
+        0x67,
+        0xFB,
+        0x4B,
+        0xB5,
+        ...utf8.encode('fixture'),
+      ], flush: true);
+      registryRepository.records = [
+        DatabaseRecord(
+          databaseId: 'db-opaque',
+          canonicalPath: opaquePath,
+          displayName: 'Personal vault.kdbx',
+          sourceType: DatabaseSourceType.drive,
+          createdAt: DateTime(2026),
+          updatedAt: DateTime(2026),
+        ),
+      ];
+
+      final result = await coordinator.openRecentDatabase(opaquePath);
+
+      expect(result.status, DatabaseSessionStatus.success);
+      expect(
+        registryRepository.records.single.displayName,
+        'Personal vault.kdbx',
+      );
+    });
+
     test(
       'openRecentDatabase succeeds without duplicate decision prompt',
       () async {

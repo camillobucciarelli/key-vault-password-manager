@@ -427,7 +427,7 @@ class AppTheme {
   static OutlineInputBorder _inputBorder(Color color, {double width = 1}) =>
       OutlineInputBorder(
         // AppRadii.row: one radius for every text field — the search bar
-        // (this theme) and the editor's fields (_kvFieldDecoration) agree.
+        // (this theme) and the form fields (kvFieldDecoration) agree.
         borderRadius: BorderRadius.circular(AppRadii.row),
         borderSide: BorderSide(color: color, width: width),
       );

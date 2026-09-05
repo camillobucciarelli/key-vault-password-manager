@@ -5,7 +5,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_glyph.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/theme/keyvault_colors.dart';
-import '../../../../core/widgets/kv_bottom_sheet.dart';
+import '../../../../core/utils/mobile_file_storage.dart';
 import '../../../../core/widgets/kv_icon.dart';
 import '../../../../core/widgets/kv_pill_button.dart';
 import '../../../../injection_container.dart' as di;
@@ -21,9 +21,18 @@ import '../coordinators/vault_session_coordinator.dart';
 /// used, which now also writes the constitution-VII dated pre-rekey backup
 /// (see `VaultSessionCoordinator._writeDatedPreRekeyBackup`).
 class ChangeMasterPasswordScreen extends StatefulWidget {
-  const ChangeMasterPasswordScreen({super.key, required this.databasePath});
+  const ChangeMasterPasswordScreen({
+    super.key,
+    required this.databasePath,
+    required this.databaseName,
+  });
 
   final String databasePath;
+
+  /// spec 014 FR-3: the registry name. Passed back unchanged on save — the
+  /// at-rest file name is an opaque identifier on mobile and must never be
+  /// written into the registry as a display name.
+  final String databaseName;
 
   @override
   State<ChangeMasterPasswordScreen> createState() =>
@@ -39,6 +48,7 @@ class _ChangeMasterPasswordScreenState
   bool _saving = false;
   bool _loaded = false;
   String? _keyFilePath;
+  String? _keyFileLabel;
   bool _biometricEnabled = false;
   int? _inactivityTimeoutSeconds;
   String? _error;
@@ -65,6 +75,9 @@ class _ChangeMasterPasswordScreenState
       final keyFilePath = await coordinator.getPersistedKeyFilePath(
         widget.databasePath,
       );
+      final keyFileLabel = keyFilePath == null
+          ? null
+          : await MobileFileStorage.keyFileDisplayName(keyFilePath);
       final biometricEnabled = await coordinator
           .getBiometricProtectionEnabledForPath(
             databasePath: widget.databasePath,
@@ -74,6 +87,7 @@ class _ChangeMasterPasswordScreenState
       if (!mounted) return;
       setState(() {
         _keyFilePath = keyFilePath;
+        _keyFileLabel = keyFileLabel;
         _biometricEnabled = biometricEnabled;
         _inactivityTimeoutSeconds = inactivityTimeoutSeconds;
         _loaded = true;
@@ -98,12 +112,13 @@ class _ChangeMasterPasswordScreenState
 
   Future<void> _submit() async {
     if (!_canSubmit) return;
-    final confirmed = await KvBottomSheet.show<bool>(
+    final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => _ConfirmSecurityChangesSheet(
+      useRootNavigator: true,
+      builder: (_) => _ConfirmSecurityChangesDialog(
         keyFileLabel: _keyFilePath == null || _keyFilePath!.trim().isEmpty
             ? 'Key file · none'
-            : 'Key file · ${path.basename(_keyFilePath!)}',
+            : 'Key file · ${_keyFileLabel ?? path.basename(_keyFilePath!)}',
       ),
     );
     if (confirmed != true || !mounted) return;
@@ -116,7 +131,7 @@ class _ChangeMasterPasswordScreenState
       await di.sl<VaultSessionCoordinator>().updateDatabaseSettings(
         DatabaseSettingsUpdateRequest(
           currentDatabasePath: widget.databasePath,
-          fileName: path.basename(widget.databasePath),
+          fileName: widget.databaseName,
           keyFilePath: _keyFilePath,
           biometricProtectionEnabled: _biometricEnabled,
           changePassword: true,
@@ -367,40 +382,25 @@ class _StrengthBar extends StatelessWidget {
   }
 }
 
-/// FR-2/T3 — screen 3 ("Confirm security changes" sheet). Lists what
-/// changes (always "Master password" here — this sheet only opens from the
-/// change-password submit) and what stays (key file, biometrics, Drive
-/// link, entries — none of those are touched by a password-only re-key).
-class _ConfirmSecurityChangesSheet extends StatelessWidget {
-  const _ConfirmSecurityChangesSheet({required this.keyFileLabel});
+/// FR-2/T3 — screen 3 ("Confirm security changes"). A dialog on every width
+/// (yes/no confirmation). Lists what changes (always "Master password" here —
+/// this only opens from the change-password submit) and what stays (key
+/// file, biometrics, Drive link, entries — none touched by a password-only
+/// re-key).
+class _ConfirmSecurityChangesDialog extends StatelessWidget {
+  const _ConfirmSecurityChangesDialog({required this.keyFileLabel});
 
   final String keyFileLabel;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 20, 18, 26),
-      child: Column(
+    return AlertDialog(
+      title: const Text('Confirm security changes'),
+      content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Center(
-            child: Container(
-              width: 46,
-              height: 5,
-              decoration: BoxDecoration(
-                color: colors.divider,
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Confirm security changes',
-            style: AppTextStyles.sheetTitle.copyWith(color: colors.textPrimary),
-          ),
-          const SizedBox(height: 6),
           Text(
             'The file will be re-encrypted with the new master password. A '
             'dated backup of the current file is kept automatically. This '
@@ -430,28 +430,18 @@ class _ConfirmSecurityChangesSheet extends StatelessWidget {
             label: 'Biometric protection · Drive link · entries',
             dimmed: true,
           ),
-          const SizedBox(height: 18),
-          KvPillButton(
-            label: 'Confirm and apply',
-            onPressed: () => Navigator.of(context).pop(true),
-          ),
-          const SizedBox(height: 9),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: colors.textPrimary,
-                side: BorderSide(color: colors.divider),
-                minimumSize: const Size(44, 52),
-                shape: const StadiumBorder(),
-                textStyle: AppTextStyles.rowTitle,
-              ),
-              child: const Text('Cancel'),
-            ),
-          ),
         ],
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('Confirm and apply'),
+        ),
+      ],
     );
   }
 }

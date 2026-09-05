@@ -1,11 +1,18 @@
 name: Release
 
+# Manual only. Every merge to main used to ship a full release (App Store,
+# Chrome Web Store); now a human picks the channel:
+#   beta    -> GitHub pre-release tagged vX.Y.Z-beta+N, no store publishing
+#   release -> GitHub release tagged vX.Y.Z+N, App Store + Chrome Web Store
+# Both bump the build number and commit it to the dispatched branch.
 on:
-  push:
-    branches: [ main ]
-    paths-ignore:
-      - "pubspec.yaml"
   workflow_dispatch:
+    inputs:
+      channel:
+        description: Release channel
+        type: choice
+        options: [ beta, release ]
+        default: beta
 
 permissions:
   contents: write
@@ -23,15 +30,21 @@ jobs:
           token: ${{ secrets.RELEASE_PAT }}
 
       - id: bump
+        env:
+          CHANNEL: ${{ inputs.channel }}
         run: |
           CURRENT=$(grep '^version:' pubspec.yaml | sed 's/version: //')
           VERSION_NAME=$(echo "$CURRENT" | cut -d'+' -f1)
           OLD_BUILD=$(echo "$CURRENT" | cut -d'+' -f2)
           BUILD_NUMBER=$((OLD_BUILD + 1))
           sed -i "s/^version: .*/version: ${VERSION_NAME}+${BUILD_NUMBER}/" pubspec.yaml
+          # The suffix lives in the tag only: pubspec stays numeric because
+          # CFBundleShortVersionString rejects "0.5.0-beta".
+          SUFFIX=""
+          if [[ "$CHANNEL" == "beta" ]]; then SUFFIX="-beta"; fi
           echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
-          echo "tag=v${VERSION_NAME}+${BUILD_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION_NAME}${SUFFIX}+${BUILD_NUMBER}" >> "$GITHUB_OUTPUT"
 
       - name: Commit and tag
         env:
@@ -42,7 +55,7 @@ jobs:
           git add pubspec.yaml
           git commit -m "chore: bump build number to ${TAG}"
           git tag "$TAG"
-          git push origin main --tags
+          git push origin "HEAD:${GITHUB_REF_NAME}" --tags
 
   android:
     needs: version
@@ -83,6 +96,7 @@ jobs:
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           name: ${{ needs.version.outputs.tag }}
+          prerelease: ${{ inputs.channel == 'beta' }}
           files: dist/prod_packages/*/password_manager-android-release.apk
 
   linux:
@@ -122,6 +136,7 @@ jobs:
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           name: ${{ needs.version.outputs.tag }}
+          prerelease: ${{ inputs.channel == 'beta' }}
           files: dist/prod_packages/*/password_manager-linux-release.zip
 
   ios:
@@ -145,6 +160,7 @@ jobs:
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           name: ${{ needs.version.outputs.tag }}
+          prerelease: ${{ inputs.channel == 'beta' }}
           files: dist/prod_packages/*/password_manager-ios-appstore.ipa
 
       - name: Locate xcarchive
@@ -163,6 +179,7 @@ jobs:
           retention-days: 1
 
   ios-app-store-publish:
+    if: inputs.channel == 'release'
     needs: [ version, ios ]
     runs-on: self-hosted
     environment: app-store-ios
@@ -219,6 +236,7 @@ jobs:
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           name: ${{ needs.version.outputs.tag }}
+          prerelease: ${{ inputs.channel == 'beta' }}
           files: dist/prod_packages/*/password_manager-macos-appstore.pkg
 
       - name: Build macOS Chrome Support installer
@@ -236,6 +254,7 @@ jobs:
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           name: ${{ needs.version.outputs.tag }}
+          prerelease: ${{ inputs.channel == 'beta' }}
           files: dist/keyvault-chrome-support-macos.pkg
           fail_on_unmatched_files: true
 
@@ -260,6 +279,7 @@ jobs:
           retention-days: 1
 
   macos-app-store-publish:
+    if: inputs.channel == 'release'
     needs: [ version, macos ]
     runs-on: self-hosted
     environment: app-store-macos
@@ -320,6 +340,7 @@ jobs:
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           name: ${{ needs.version.outputs.tag }}
+          prerelease: ${{ inputs.channel == 'beta' }}
           files: desktop/browser_extension/dist/keyvault-browser-extension.zip
 
       - name: Upload extension zip artifact
@@ -330,6 +351,7 @@ jobs:
           retention-days: 1
 
   chrome-web-store-publish:
+    if: inputs.channel == 'release'
     needs: [ version, chrome ]
     runs-on: ubuntu-latest
     environment: chrome-web-store
@@ -442,4 +464,5 @@ jobs:
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           name: ${{ needs.version.outputs.tag }}
+          prerelease: ${{ inputs.channel == 'beta' }}
           files: dist/prod_packages/*/password_manager-windows-release.zip

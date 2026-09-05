@@ -21,6 +21,16 @@ class AppStorageFileEntry {
   final DateTime modifiedAt;
 }
 
+/// spec 014 FR-3: key files rest under an opaque identifier, so their
+/// human-readable name has to live somewhere encrypted. This is that
+/// somewhere's contract; the data layer implements it and installs it on
+/// [MobileFileStorage.keyFileNames]. Keys are the at-rest basename.
+abstract class ManagedKeyFileNames {
+  Future<Map<String, String>> getAll();
+  Future<void> set(String opaqueName, String displayName);
+  Future<void> remove(String opaqueName);
+}
+
 /// File helpers for the app-managed storage directory.
 ///
 /// ## Path preconditions
@@ -36,6 +46,41 @@ class AppStorageFileEntry {
 /// (`p.normalize`, or `p.canonicalize` when the file exists), otherwise it
 /// will be rejected even when it points inside app storage.
 class MobileFileStorage {
+  /// Where the human-readable name of every managed key file is kept.
+  ///
+  /// ponytail: a static seam rather than a constructor dependency, because
+  /// every key-file writer in the app (import service, session coordinator,
+  /// both key-file managers) already funnels through this class — one hook
+  /// here covers them all. `null` (tests, before DI) means names are simply
+  /// not recorded and the listing falls back to the basename.
+  static ManagedKeyFileNames? keyFileNames;
+
+  static const _keysSubdirectory = 'keys';
+
+  /// The name to show for a managed key file at [filePath].
+  ///
+  /// The recorded name, else a neutral label when the basename is opaque
+  /// (a key imported before names were recorded), else the basename itself
+  /// (desktop, where the file name is the name).
+  static Future<String> keyFileDisplayName(String filePath) async {
+    final basename = p.basename(filePath);
+    final names = await _keyFileNamesOrEmpty();
+    return _keyFileLabel(basename, names);
+  }
+
+  static String _keyFileLabel(String basename, Map<String, String> names) =>
+      names[basename] ??
+      (isOpaqueFileName(basename) ? 'Unnamed key file' : basename);
+
+  static Future<Map<String, String>> _keyFileNamesOrEmpty() async {
+    try {
+      return await keyFileNames?.getAll() ?? const {};
+    } catch (_) {
+      // An unreadable name store must not hide the files themselves.
+      return const {};
+    }
+  }
+
   static bool get isMobilePlatform {
     if (kIsWeb) {
       return false;
@@ -111,6 +156,13 @@ class MobileFileStorage {
         );
       }
       await tempFile.rename(filePath);
+      if (subdirectory == _keysSubdirectory && isOpaqueFileName(normalized)) {
+        // Best-effort: a name that fails to record leaves a working key file
+        // labelled "Unnamed key file", never a lost key file.
+        try {
+          await keyFileNames?.set(normalized, _normalizeFileName(fileName));
+        } catch (_) {}
+      }
       await _enforceOwnerOnly(filePath, subdirectory);
     } catch (_) {
       try {
@@ -167,15 +219,21 @@ class MobileFileStorage {
     final directory = await _ensureSubdirectory(subdirectory);
     final entries = await directory.list(followLinks: false).toList();
     final files = <AppStorageFileEntry>[];
+    final names = subdirectory == _keysSubdirectory
+        ? await _keyFileNamesOrEmpty()
+        : const <String, String>{};
 
     for (final entry in entries) {
       if (entry is! File) {
         continue;
       }
       final stat = await entry.stat();
+      final basename = p.basename(entry.path);
       files.add(
         AppStorageFileEntry(
-          name: p.basename(entry.path),
+          name: subdirectory == _keysSubdirectory
+              ? _keyFileLabel(basename, names)
+              : basename,
           path: entry.path,
           sizeBytes: stat.size,
           modifiedAt: stat.modified,
@@ -287,6 +345,11 @@ class MobileFileStorage {
     if (await target.exists()) {
       await target.delete();
     }
+    if (subdirectory == _keysSubdirectory) {
+      try {
+        await keyFileNames?.remove(p.basename(filePath));
+      } catch (_) {}
+    }
   }
 
   /// Managed subdirectories whose at-rest file names are opaque
@@ -302,6 +365,17 @@ class MobileFileStorage {
     final bytes = List<int>.generate(16, (_) => random.nextInt(256));
     return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
+
+  /// Whether [fileName] has the at-rest shape [allocateOpaqueFileName]
+  /// produces: 32 lowercase hex characters and no extension.
+  ///
+  /// Pure by design — the callers that need it (a rename, a name shown in
+  /// the UI) must not have to reach the filesystem to learn that the name on
+  /// disk carries no meaning.
+  static bool isOpaqueFileName(String fileName) =>
+      _opaqueFileNamePattern.hasMatch(fileName);
+
+  static final _opaqueFileNamePattern = RegExp(r'^[0-9a-f]{32}$');
 
   /// spec 014 FR-7 (T012): databases and key files in managed storage are
   /// owner-only on desktop POSIX platforms. Windows has no `chmod` in
