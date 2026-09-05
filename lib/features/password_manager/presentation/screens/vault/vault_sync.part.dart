@@ -48,7 +48,7 @@ class _VaultSyncDestinationState extends State<_VaultSyncDestination> {
                 ),
               ),
               Text(
-                path.basename(state.databasePath),
+                state.databaseLabel,
                 style: AppTextStyles.body.copyWith(color: colors.textSecondary),
               ),
               const SizedBox(height: 18),
@@ -67,8 +67,11 @@ class _VaultSyncDestinationState extends State<_VaultSyncDestination> {
                 isOffline: state.isOffline,
                 onConnect: () =>
                     context.read<VaultBloc>().add(const ConnectGoogleDrive()),
-                onExportBackup: () =>
-                    _exportDatabaseBackup(context, state.databasePath),
+                onExportBackup: () => _exportDatabaseBackup(
+                  context,
+                  state.databasePath,
+                  databaseLabel: state.databaseLabel,
+                ),
                 onCreateNewFile: () => _createNewDriveFile(context, state),
                 onPickExisting: () => _pickExistingDriveFile(context),
                 onToggleAutoSync: (enabled) => context.read<VaultBloc>().add(
@@ -115,8 +118,8 @@ class _VaultSyncDestinationState extends State<_VaultSyncDestination> {
   }
 }
 
-String _suggestedRemoteFileName(String databasePath) {
-  final localName = path.basename(databasePath);
+String _suggestedRemoteFileName(String databaseLabel) {
+  final localName = databaseLabel;
   return localName.toLowerCase().endsWith('.kdbx')
       ? localName
       : '$localName.kdbx';
@@ -125,7 +128,7 @@ String _suggestedRemoteFileName(String databasePath) {
 void _createNewDriveFile(BuildContext context, VaultState state) {
   context.read<VaultBloc>().add(
     LinkCurrentDatabaseToDrive(
-      remoteFileName: _suggestedRemoteFileName(state.databasePath),
+      remoteFileName: _suggestedRemoteFileName(state.databaseLabel),
     ),
   );
 }
@@ -531,17 +534,6 @@ class _SyncConflictSheet extends StatelessWidget {
                   onPressed: () => VaultOperationScope.of(context).cancel(),
                 ),
               ],
-            )
-          else
-            Center(
-              child: Container(
-                width: 46,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: colors.divider,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-              ),
             ),
           const SizedBox(height: 14),
           Text(

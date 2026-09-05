@@ -29,7 +29,7 @@ class _VaultBackupsDestination extends StatelessWidget {
                 ),
               ),
               Text(
-                path.basename(state.databasePath),
+                state.databaseLabel,
                 style: AppTextStyles.body.copyWith(color: colors.textSecondary),
               ),
               const SizedBox(height: 18),
@@ -37,7 +37,11 @@ class _VaultBackupsDestination extends StatelessWidget {
                 title: 'Export the database',
                 subtitle: 'A copy of the encrypted .kdbx file',
                 leading: _actionIcon(colors, AppGlyph.export),
-                onTap: () => _exportDatabaseBackup(context, state.databasePath),
+                onTap: () => _exportDatabaseBackup(
+                  context,
+                  state.databasePath,
+                  databaseLabel: state.databaseLabel,
+                ),
               ),
               const SizedBox(height: 8),
               KvListRow(

@@ -12,7 +12,7 @@ import '../../../../core/utils/mobile_file_storage.dart';
 import '../../../../injection_container.dart' as di;
 import '../../domain/repositories/database_file_repository.dart';
 import '../../../../core/widgets/kv_bottom_sheet.dart';
-import '../../../../core/widgets/kv_pill_button.dart';
+import '../../../../core/widgets/kv_confirm_dialog.dart';
 
 class InternalKeyFileManagerResult {
   const InternalKeyFileManagerResult({
@@ -173,51 +173,11 @@ class _InternalKeyFileManagerSheetState
     if (isProtectedKeyFilePath(entry.path, widget.protectedPaths)) {
       return;
     }
-    final confirmed = await KvBottomSheet.show<bool>(
-      context: context,
-      barrierAlpha: 0.3,
-      builder: (sheetContext) {
-        final colors = Theme.of(sheetContext).extension<KeyVaultColors>()!;
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 26),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Delete key file?',
-                style: AppTextStyles.sheetTitle.copyWith(
-                  color: colors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Delete "${entry.name}" from app storage?',
-                style: AppTextStyles.body.copyWith(color: colors.textSecondary),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextButton(
-                      onPressed: () => Navigator.of(sheetContext).pop(false),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: KvPillButton(
-                      compact: true,
-                      label: 'Delete',
-                      onPressed: () => Navigator.of(sheetContext).pop(true),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
+    final confirmed = await showKvConfirmDialog(
+      context,
+      title: 'Delete key file?',
+      body: 'Delete "${entry.name}" from app storage?',
+      confirmLabel: 'Delete',
     );
 
     if (!mounted || confirmed != true) return;
@@ -253,17 +213,6 @@ class _InternalKeyFileManagerSheetState
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Center(
-            child: Container(
-              width: 46,
-              height: 5,
-              margin: const EdgeInsets.only(bottom: 14),
-              decoration: BoxDecoration(
-                color: colors.divider,
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-          ),
           Text(
             'Internal key files',
             textAlign: TextAlign.center,

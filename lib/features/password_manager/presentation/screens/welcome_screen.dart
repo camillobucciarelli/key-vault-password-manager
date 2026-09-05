@@ -23,7 +23,7 @@ class WelcomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
 
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 34),
       child: Column(
         mainAxisSize: MainAxisSize.min,

@@ -1,12 +1,12 @@
 part of '../vault_screen.dart';
 
-/// spec-006 T7/FR-5 (screen 7): `Link AutoFill credential?` sheet — Target /
+/// spec-006 T7/FR-5 (screen 7): `Link AutoFill credential?` — Target /
 /// Entry / Username rows, Reject / Link actions. Drives the existing
 /// pending-association flow (`ConfirmAppleAutofillPendingAssociation` /
-/// `RejectAppleAutofillPendingAssociation`) unchanged; only the
-/// presentation moved off the generic `_router.confirm` `AlertDialog`.
-class _LinkAutofillCredentialSheet extends StatelessWidget {
-  const _LinkAutofillCredentialSheet({
+/// `RejectAppleAutofillPendingAssociation`) unchanged. A modal dialog at
+/// every width (2026-09-05, user-directed: yes/no confirmations are dialogs).
+class _LinkAutofillCredentialDialog extends StatelessWidget {
+  const _LinkAutofillCredentialDialog({
     required this.target,
     required this.entryTitle,
     required this.username,
@@ -23,28 +23,12 @@ class _LinkAutofillCredentialSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 20, 18, 26),
-      child: Column(
+    return AlertDialog(
+      title: const Text('Link AutoFill credential?'),
+      content: Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Center(
-            child: Container(
-              width: 46,
-              height: 5,
-              decoration: BoxDecoration(
-                color: colors.divider,
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Link AutoFill credential?',
-            style: AppTextStyles.sheetTitle.copyWith(color: colors.textPrimary),
-          ),
-          const SizedBox(height: 6),
           Text(
             'iOS asked to associate a login you just used. The vault is '
             'updated only after you confirm.',
@@ -64,25 +48,12 @@ class _LinkAutofillCredentialSheet extends StatelessWidget {
             value: username ?? '—',
             showCopyButton: false,
           ),
-          const SizedBox(height: 18),
-          KvPillButton(label: 'Link', onPressed: onLink),
-          const SizedBox(height: 9),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: onReject,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: colors.textPrimary,
-                side: BorderSide(color: colors.divider),
-                minimumSize: const Size(44, 52),
-                shape: const StadiumBorder(),
-                textStyle: AppTextStyles.rowTitle,
-              ),
-              child: const Text('Reject'),
-            ),
-          ),
         ],
       ),
+      actions: [
+        TextButton(onPressed: onReject, child: const Text('Reject')),
+        FilledButton(onPressed: onLink, child: const Text('Link')),
+      ],
     );
   }
 }

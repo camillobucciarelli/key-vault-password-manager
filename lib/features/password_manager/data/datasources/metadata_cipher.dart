@@ -8,6 +8,7 @@ import 'package:pointycastle/block/modes/gcm.dart';
 import 'package:pointycastle/pointycastle.dart'
     show AEADParameters, KeyParameter;
 
+import '../../domain/errors/database_access_failure.dart';
 import 'secure_data_source.dart';
 
 /// AES-256-GCM seal/open for the spec 014 FR-4 metadata files.
@@ -118,15 +119,16 @@ class EncryptedMetadataStore {
         encoded = existing;
       } else if (await file.exists()) {
         // FR-5 / safety gate 4: never regenerate the key over existing
-        // ciphertext.
-        throw StateError(
-          'metadata key unavailable for existing ciphertext; refusing to '
-          'mint a new key over it',
-        );
+        // ciphertext. Recovery is the user's explicit call
+        // (`quarantineOrphanedCiphertext`), never a silent side effect of a
+        // write.
+        throw const MetadataStorageUnreadableFailure();
       } else {
         encoded = await secureDataSource.createMetadataKey();
       }
     } on StateError {
+      rethrow;
+    } on MetadataStorageUnreadableFailure {
       rethrow;
     } catch (error) {
       throw StateError('secure store unavailable; refusing plaintext write');
@@ -151,5 +153,33 @@ class EncryptedMetadataStore {
       } catch (_) {}
       rethrow;
     }
+  }
+
+  /// True when [file] holds ciphertext no key can open: the bytes are there
+  /// and the key entry is not. Distinguishes a lost key from a store that is
+  /// merely unreachable right now — the latter throws and answers `false`,
+  /// because its data is still intact and must not be quarantined.
+  Future<bool> hasOrphanedCiphertext(File file) async {
+    if (!await file.exists()) {
+      return false;
+    }
+    try {
+      return await secureDataSource.readMetadataKey() == null;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Renames orphaned ciphertext out of the way so a later write can mint a
+  /// fresh key. Never called by [writeString]: only an explicit user-driven
+  /// recovery discards metadata. Renames rather than deletes, so the bytes
+  /// survive if the key ever comes back.
+  Future<void> quarantineOrphanedCiphertext(File file) async {
+    if (!await file.exists()) {
+      return;
+    }
+    await file.rename(
+      '${file.path}.orphaned-${DateTime.now().microsecondsSinceEpoch}',
+    );
   }
 }

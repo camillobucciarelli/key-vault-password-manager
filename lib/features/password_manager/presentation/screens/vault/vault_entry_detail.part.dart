@@ -644,7 +644,10 @@ Future<void> _showRecordInfoDialog(BuildContext context, VaultEntry entry) {
     context: context,
     builder: (dialogContext) => AlertDialog(
       title: const Text('Record info'),
-      content: SizedBox(width: 360, child: _MetadataGrid(entry: entry)),
+      // 2026-09-05: `_MetadataGrid` is a Column; without `min` it fills the
+      // loose height the dialog's content slot hands it and the dialog stood
+      // full-screen on a phone.
+      content: _MetadataGrid(entry: entry),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(dialogContext).pop(),
@@ -674,6 +677,7 @@ class _MetadataGrid extends StatelessWidget {
 
     return Column(
       key: const ValueKey('entry-detail-metadata-grid'),
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         for (var i = 0; i < rows.length; i++) ...[
@@ -748,15 +752,6 @@ class _BiometricRevealGateSheetState extends State<_BiometricRevealGateSheet> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 46,
-            height: 5,
-            decoration: BoxDecoration(
-              color: colors.divider,
-              borderRadius: BorderRadius.circular(999),
-            ),
-          ),
-          const SizedBox(height: 14),
           Container(
             width: 52,
             height: 52,

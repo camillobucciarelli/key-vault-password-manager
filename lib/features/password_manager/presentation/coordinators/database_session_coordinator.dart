@@ -19,6 +19,7 @@ import '../../domain/repositories/database_registry_repository.dart';
 import '../../domain/repositories/database_security_repository.dart';
 import '../../domain/repositories/database_session_repository.dart';
 import '../../domain/repositories/database_sync_repository.dart';
+import '../../domain/repositories/metadata_recovery_repository.dart';
 import '../../domain/usecases/create_database_usecase.dart';
 import '../../domain/usecases/get_active_database_usecase.dart';
 import '../../domain/usecases/resolve_database_duplicate_usecase.dart';
@@ -75,11 +76,18 @@ class UnlockBootstrapResult {
     required this.keyFilePath,
     required this.biometricRequired,
     required this.biometricAvailable,
+    this.displayName,
   });
 
   final String? keyFilePath;
   final bool biometricRequired;
   final bool biometricAvailable;
+
+  /// spec 014 FR-3: on mobile the file on disk is an opaque identifier, so
+  /// the registry holds the only human-readable name. `null` when the path
+  /// is not registered — the caller falls back to the basename, which is the
+  /// real name on desktop.
+  final String? displayName;
 }
 
 /// C-7 coordinator: sequences multi-step selection/unlock/create workflows.
@@ -98,6 +106,7 @@ class DatabaseSessionCoordinator {
     required this.databaseRegistryRepository,
     required this.databaseSecurityRepository,
     required this.databaseSyncRepository,
+    this.metadataRecoveryRepository = const NoopMetadataRecoveryRepository(),
     required this.getActiveDatabaseUseCase,
     required this.resolveDatabaseDuplicateUseCase,
     required this.unlockDatabaseUseCase,
@@ -111,6 +120,7 @@ class DatabaseSessionCoordinator {
   final DatabaseRegistryRepository databaseRegistryRepository;
   final DatabaseSecurityRepository databaseSecurityRepository;
   final DatabaseSyncRepository databaseSyncRepository;
+  final MetadataRecoveryRepository metadataRecoveryRepository;
   final GetActiveDatabaseUseCase getActiveDatabaseUseCase;
   final ResolveDatabaseDuplicateUseCase resolveDatabaseDuplicateUseCase;
   final UnlockDatabaseUseCase unlockDatabaseUseCase;
@@ -366,10 +376,13 @@ class DatabaseSessionCoordinator {
     final imported = await databaseFileRepository.openExistingPath(path);
     final existingRecord = await _findRecordByPath(imported.path);
     final now = DateTime.now();
+    // spec 014 FR-3: no `displayName` here. `imported.fileName` is the
+    // basename, which under managed storage is the opaque identifier — the
+    // registry already holds the real name and every reopen was overwriting
+    // it with the hex. Only a brand-new record takes the basename as name.
     final recordToSave =
         existingRecord?.copyWith(
           canonicalPath: imported.path,
-          displayName: imported.fileName,
           fileHash: imported.fileHash,
           updatedAt: now,
           lastOpenedAt: now,
@@ -408,6 +421,13 @@ class DatabaseSessionCoordinator {
     final files = await databaseSyncRepository.listRemoteFiles();
     final account = await databaseSyncRepository.getConnectedAccount();
     return DrivePickerData(files: files, account: account);
+  }
+
+  /// spec 014 FR-5 recovery, user-initiated only: discards metadata no key
+  /// can open, then reloads the (now writable) selection list.
+  Future<List<DatabaseSelectionItem>> discardUnreadableMetadata() async {
+    await metadataRecoveryRepository.discardUnreadableMetadata();
+    return _loadSelectionItems();
   }
 
   Future<bool> hasManagedDatabaseNamed(String fileName) async {
@@ -846,7 +866,7 @@ class DatabaseSessionCoordinator {
       );
     }
 
-    var userMessage = 'Database removed from recent list.';
+    var userMessage = 'Database removed from the list.';
     final activeRecord = await getActiveDatabaseUseCase();
     if (activeRecord != null &&
         _containsPath([activeRecord.canonicalPath], trimmed)) {
@@ -917,6 +937,7 @@ class DatabaseSessionCoordinator {
       keyFilePath: keyFilePath,
       biometricRequired: biometricRequired,
       biometricAvailable: biometricAvailable,
+      displayName: record?.displayName,
     );
   }
 

@@ -28,7 +28,7 @@ const _sectionToCurrentFiles = <String, List<String>>{
   'database_unlock_screen.dart': [
     'lib/features/password_manager/presentation/screens/database_unlock_screen.dart',
     'lib/features/password_manager/presentation/screens/database_unlock_widgets.part.dart',
-    'lib/features/password_manager/presentation/widgets/database/face_id_prompt_sheet.dart',
+    'lib/features/password_manager/presentation/widgets/database/biometric_prompt_sheet.dart',
   ],
   'database_unlock_widgets.part.dart': [
     'lib/features/password_manager/presentation/screens/database_unlock_widgets.part.dart',
@@ -71,6 +71,12 @@ const _approvedSupersededLiterals = <String>{
   // active-row accent tint instead of a "Most recent" text badge).
   'Managed databases',
   'Most recent',
+  // 2026-09-05: the section lists every registered database (sorted by last
+  // open), not a recency subset, so "Recent" wording was retired for
+  // "Databases" across the header, search field, empty state and hint.
+  'Multiple databases are available. Pick one from recent list or open another file.',
+  'Search recent databases',
+  'No recent database matches your search.',
   // spec 015 FR-1..FR-14: the create wizard collapsed to two steps with a
   // single credentials step — optional password, a three-way exclusive key
   // control replacing the switch-plus-button pair, and generation at

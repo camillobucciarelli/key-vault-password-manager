@@ -70,7 +70,8 @@ handed in is the window width; no caller substitutes its own
 
 Note that "narrow" here means below the derived 704, not below 600: FR-002d
 moved the pane break, so the 600–703 band presents as narrow.
-| `KeyFileManagerSurface`, `ConfirmationSurface` | sheet | sheet — amended 2026-08-31 (user-directed): a `ConfirmationSurface(dialogOnWide: true)` (the generic `confirm`, whose builder is an `AlertDialog`) is a bare dialog on wide; sheet-hosting rendered it as a window-sized card-in-card |
+| `KeyFileManagerSurface` | sheet | sheet |
+| `ConfirmationSurface` | bare dialog | bare dialog — amended 2026-09-05 (user-directed): a yes/no confirmation is a modal dialog at every width; the builder supplies the `AlertDialog`. Supersedes the 2026-08-31 `dialogOnWide` split |
 
 **Guarantees**
 

@@ -350,6 +350,13 @@ class DriveAuthService {
         );
       }
     }
-    return Exception('Google sign-in failed: ${exception.toString()}');
+    // The platform code and description are the only actionable part of an
+    // unrecognized Google failure, so keep them in the message: the UI mappers
+    // surface it verbatim instead of collapsing it to a generic sentence.
+    final description = exception.description?.trim();
+    return Exception(
+      'Google sign-in failed (${exception.code.name})'
+      '${description == null || description.isEmpty ? '' : ': $description'}',
+    );
   }
 }

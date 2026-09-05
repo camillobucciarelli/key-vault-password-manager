@@ -38,59 +38,6 @@ Future<EntryEditResult?> _showEntryDialog(
   );
 }
 
-InputDecoration _kvFieldDecoration(
-  KeyVaultColors colors, {
-  String? hint,
-  Widget? suffixIcon,
-  String? errorText,
-  Color? fillColor,
-}) {
-  return InputDecoration(
-    hintText: hint,
-    filled: true,
-    fillColor: fillColor ?? colors.surface,
-    // The suffix button keeps the same breathing room on its right as the
-    // field's content padding gives on the left.
-    suffixIcon: suffixIcon == null
-        ? null
-        : Padding(padding: const EdgeInsets.only(right: 8), child: suffixIcon),
-    errorText: errorText,
-    errorMaxLines: 3,
-    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-    border: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppRadii.row),
-      borderSide: BorderSide.none,
-    ),
-    enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppRadii.row),
-      borderSide: BorderSide.none,
-    ),
-    focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppRadii.row),
-      borderSide: BorderSide(color: colors.selectionBorder, width: 2),
-    ),
-    errorBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppRadii.row),
-      borderSide: BorderSide(color: AppColors.accent700, width: 2),
-    ),
-    focusedErrorBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppRadii.row),
-      borderSide: BorderSide(color: AppColors.accent700, width: 2),
-    ),
-    // spec-022 F-001: the error text reads the semantic token — a hard-coded
-    // `accent800` vanished on the dark ground.
-    errorStyle: AppTextStyles.secondary.copyWith(color: colors.attentionText),
-  );
-}
-
-Widget _kvFieldLabel(String label, KeyVaultColors colors) => Padding(
-  padding: const EdgeInsets.only(bottom: 7),
-  child: Text(
-    label,
-    style: AppTextStyles.labelUpper.copyWith(color: colors.textSecondary),
-  ),
-);
-
 class _EntryDialog extends StatefulWidget {
   const _EntryDialog({
     this.initial,
@@ -235,7 +182,7 @@ class _EntryDialogState extends State<_EntryDialog> {
     if (!_isDirty) {
       return true;
     }
-    final decision = await _showDiscardSheet(context, _dirtyFields);
+    final decision = await _showDiscardDialog(context, _dirtyFields);
     return decision == true;
   }
 
@@ -577,11 +524,11 @@ class _EntryEditorForm extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _kvFieldLabel('Title', colors),
+          kvFieldLabel('Title', colors),
           TextFormField(
             controller: titleController,
             enabled: !isSaving,
-            decoration: _kvFieldDecoration(
+            decoration: kvFieldDecoration(
               colors,
               hint: 'e.g. Netflix',
               errorText: titleError,
@@ -589,20 +536,20 @@ class _EntryEditorForm extends StatelessWidget {
             onChanged: onTitleChanged,
           ),
           const SizedBox(height: 14),
-          _kvFieldLabel('Username', colors),
+          kvFieldLabel('Username', colors),
           TextFormField(
             controller: usernameController,
             enabled: !isSaving,
-            decoration: _kvFieldDecoration(colors, hint: 'Email or user name'),
+            decoration: kvFieldDecoration(colors, hint: 'Email or user name'),
             onChanged: (_) => onFieldChanged('username'),
           ),
           const SizedBox(height: 14),
-          _kvFieldLabel('Password', colors),
+          kvFieldLabel('Password', colors),
           TextFormField(
             controller: passwordController,
             enabled: !isSaving,
             style: AppTextStyles.secret.copyWith(color: colors.textPrimary),
-            decoration: _kvFieldDecoration(
+            decoration: kvFieldDecoration(
               colors,
               hint: 'Type or generate',
               suffixIcon: SizedBox(
@@ -662,7 +609,7 @@ class _EntryEditorForm extends StatelessWidget {
           TextFormField(
             controller: urlController,
             enabled: !isSaving,
-            decoration: _kvFieldDecoration(colors, hint: 'netflix.com'),
+            decoration: kvFieldDecoration(colors, hint: 'netflix.com'),
             onChanged: (_) => onFieldChanged('URL'),
           ),
           for (var i = 0; i < extraUrlControllers.length; i++) ...[
@@ -671,7 +618,7 @@ class _EntryEditorForm extends StatelessWidget {
               key: ValueKey('entry-extra-url-$i'),
               controller: extraUrlControllers[i],
               enabled: !isSaving,
-              decoration: _kvFieldDecoration(
+              decoration: kvFieldDecoration(
                 colors,
                 hint: 'another-site.com',
                 suffixIcon: SizedBox(
@@ -697,13 +644,13 @@ class _EntryEditorForm extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 14),
-          _kvFieldLabel('Notes', colors),
+          kvFieldLabel('Notes', colors),
           TextFormField(
             controller: notesController,
             enabled: !isSaving,
             minLines: 3,
             maxLines: 5,
-            decoration: _kvFieldDecoration(
+            decoration: kvFieldDecoration(
               colors,
               hint: 'Anything you\u2019ll need later',
             ),
@@ -755,7 +702,7 @@ class _EntryEditorForm extends StatelessWidget {
           ],
           if (showOtp) ...[
             const SizedBox(height: 20),
-            _kvFieldLabel('OTP URI (otpauth://\u2026)', colors),
+            kvFieldLabel('OTP URI (otpauth://\u2026)', colors),
             TextFormField(
               key: ValueKey('entry-otp-uri-${otpUriController.text}'),
               controller: otpUriController,
@@ -763,7 +710,7 @@ class _EntryEditorForm extends StatelessWidget {
               minLines: 2,
               maxLines: 3,
               style: AppTextStyles.secret.copyWith(color: colors.textPrimary),
-              decoration: _kvFieldDecoration(
+              decoration: kvFieldDecoration(
                 colors,
                 hint: 'otpauth://totp/...',
                 errorText: otpError,
@@ -965,7 +912,7 @@ class _CustomFieldRowEditor extends StatelessWidget {
           // Value stay the same full width instead of one dodging the X.
           Row(
             children: [
-              Expanded(child: _kvFieldLabel('Key', colors)),
+              Expanded(child: kvFieldLabel('Key', colors)),
               KvCircleIconButton(
                 glyph: AppGlyph.close,
                 tooltip: 'Remove field',
@@ -980,7 +927,7 @@ class _CustomFieldRowEditor extends StatelessWidget {
           TextFormField(
             initialValue: row.key,
             enabled: enabled,
-            decoration: _kvFieldDecoration(
+            decoration: kvFieldDecoration(
               colors,
               fillColor: colors.surfaceNested,
             ),
@@ -990,11 +937,11 @@ class _CustomFieldRowEditor extends StatelessWidget {
             },
           ),
           const SizedBox(height: 12),
-          _kvFieldLabel('Value', colors),
+          kvFieldLabel('Value', colors),
           TextFormField(
             initialValue: row.value,
             enabled: enabled,
-            decoration: _kvFieldDecoration(
+            decoration: kvFieldDecoration(
               colors,
               fillColor: colors.surfaceNested,
             ),
@@ -1115,65 +1062,23 @@ class _SavingOverlay extends StatelessWidget {
   }
 }
 
-/// FR-5 T17: discard-changes bottom sheet, naming which fields were edited
+/// FR-5 T17: discard-changes confirmation, naming which fields were edited
 /// (proposal, per the mock — the existing unlock-screen discard guard is
-/// generic; this one lists specifics).
-Future<bool?> _showDiscardSheet(BuildContext context, Set<String> dirtyFields) {
-  return KvBottomSheet.show<bool>(
-    context: context,
-    builder: (sheetContext) {
-      final colors = Theme.of(sheetContext).extension<KeyVaultColors>()!;
-      final fieldList = dirtyFields.toList(growable: false);
-      final verb = fieldList.length == 1 ? 'was' : 'were';
-      final body = fieldList.isEmpty
-          ? 'Your unsaved record changes will be lost.'
-          : '${_joinWithAnd(fieldList)} $verb edited and not saved yet.';
-
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(18, 20, 18, 26),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 46,
-              height: 5,
-              decoration: BoxDecoration(
-                color: colors.divider,
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-            const SizedBox(height: 14),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Discard changes?',
-                style: AppTextStyles.sheetTitle.copyWith(
-                  color: colors.textPrimary,
-                ),
-              ),
-            ),
-            const SizedBox(height: 6),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                body,
-                style: AppTextStyles.body.copyWith(color: colors.textSecondary),
-              ),
-            ),
-            const SizedBox(height: 14),
-            KvPillButton(
-              label: 'Keep editing',
-              onPressed: () => Navigator.of(sheetContext).pop(false),
-            ),
-            const SizedBox(height: 9),
-            KvSecondaryPillButton(
-              label: 'Discard',
-              onPressed: () => Navigator.of(sheetContext).pop(true),
-            ),
-          ],
-        ),
-      );
-    },
+/// generic; this one lists specifics). A dialog at every width.
+Future<bool?> _showDiscardDialog(
+  BuildContext context,
+  Set<String> dirtyFields,
+) {
+  final fieldList = dirtyFields.toList(growable: false);
+  final verb = fieldList.length == 1 ? 'was' : 'were';
+  return showKvConfirmDialog(
+    context,
+    title: 'Discard changes?',
+    body: fieldList.isEmpty
+        ? 'Your unsaved record changes will be lost.'
+        : '${_joinWithAnd(fieldList)} $verb edited and not saved yet.',
+    confirmLabel: 'Discard',
+    cancelLabel: 'Keep editing',
   );
 }
 
@@ -1496,13 +1401,13 @@ class _CameraDeniedScreen extends StatelessWidget {
                 style: AppTextStyles.body.copyWith(color: colors.textSecondary),
               ),
               const SizedBox(height: 18),
-              _kvFieldLabel('OTP URI (otpauth://\u2026)', colors),
+              kvFieldLabel('OTP URI (otpauth://\u2026)', colors),
               TextFormField(
                 controller: manualUriController,
                 minLines: 2,
                 maxLines: 3,
                 style: AppTextStyles.secret.copyWith(color: colors.textPrimary),
-                decoration: _kvFieldDecoration(
+                decoration: kvFieldDecoration(
                   colors,
                   hint: 'otpauth://totp/Sella:CB77219?secret=\u2026',
                 ),

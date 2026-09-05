@@ -291,7 +291,7 @@ class _AutofillEnablementScreenState extends State<AutofillEnablementScreen>
                                   'An encrypted copy of each password is also '
                                   'kept on this device and revealed only when '
                                   'you pick a credential and confirm with '
-                                  'Face ID.',
+                                  'biometrics.',
                                   style: AppTextStyles.metaLarge.copyWith(
                                     color: colors.textSecondary,
                                   ),

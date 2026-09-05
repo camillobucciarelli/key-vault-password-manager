@@ -47,7 +47,8 @@ Future<DrivePickerSheetResult?> showDrivePickerSheet(
 /// Preserves the former dialog's exact granular OAuth error copy (moved
 /// here from `database_selection_screen.dart`, C-3-adjacent: still never
 /// renders a raw `e.toString()` for a recognized failure).
-String _driveOpenErrorMessage(Object error) {
+@visibleForTesting
+String driveOpenErrorMessage(Object error) {
   final message = error.toString();
   final normalized = message.toLowerCase();
 
@@ -81,6 +82,12 @@ String _driveOpenErrorMessage(Object error) {
       normalized.contains('authorization is outdated') ||
       normalized.contains('google account not connected')) {
     return 'Google Drive session expired or unavailable. Use Reconnect below to sign in again.';
+  }
+  if (normalized.contains('google sign-in failed')) {
+    // Unrecognized Google failure: the platform code and description are the
+    // only actionable detail, so show them instead of a generic sentence.
+    return 'Unable to open database from Google Drive. '
+        '${message.replaceFirst(RegExp(r'^Exception:\s*'), '')}';
   }
   return 'Unable to open database from Google Drive.';
 }
@@ -139,17 +146,6 @@ class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Center(
-            child: Container(
-              width: 46,
-              height: 5,
-              margin: const EdgeInsets.only(bottom: 14),
-              decoration: BoxDecoration(
-                color: colors.divider,
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-          ),
           Text(
             'Open from Google Drive',
             textAlign: TextAlign.center,
@@ -170,7 +166,7 @@ class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
             ),
             const SizedBox(height: 8),
             Text(
-              _driveOpenErrorMessage(_error!),
+              driveOpenErrorMessage(_error!),
               textAlign: TextAlign.center,
               style: AppTextStyles.body.copyWith(color: colors.attentionText),
             ),

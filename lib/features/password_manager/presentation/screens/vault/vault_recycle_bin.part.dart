@@ -50,7 +50,7 @@ class _RecycleBinScreen extends StatelessWidget {
   }
 
   Future<void> _handleEmptyBin(BuildContext context) async {
-    final confirmed = await _showEmptyBinConfirmSheet(context);
+    final confirmed = await _showEmptyBinConfirmDialog(context);
     if (confirmed == ConfirmDecision.confirm && context.mounted) {
       context.read<VaultBloc>().add(const EmptyRecycleBin());
     }
@@ -408,84 +408,12 @@ class _RecycleBinEmptyState extends StatelessWidget {
   }
 }
 
-Future<ConfirmDecision?> _showEmptyBinConfirmSheet(BuildContext context) {
-  return VaultShellRouterScope.of(context).open<ConfirmDecision>(
+Future<ConfirmDecision?> _showEmptyBinConfirmDialog(BuildContext context) {
+  return VaultShellRouterScope.of(context).confirm(
     context: context,
-    surface: ConfirmationSurface<ConfirmDecision>(
-      builder: (sheetContext) => const _EmptyBinConfirmSheet(),
-    ),
+    title: 'Empty the bin?',
+    body:
+        'This will permanently remove all items from recycle bin. This action cannot be undone.',
+    confirmLabel: 'Empty bin',
   );
-}
-
-class _EmptyBinConfirmSheet extends StatelessWidget {
-  const _EmptyBinConfirmSheet();
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(18, 20, 18, 26),
-      decoration: BoxDecoration(
-        color: colors.ground,
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(AppRadii.sheet),
-        ),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: 46,
-              height: 5,
-              decoration: BoxDecoration(
-                color: colors.divider,
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: colors.attentionTint,
-              shape: BoxShape.circle,
-            ),
-            alignment: Alignment.center,
-            child: KvIcon(
-              glyph: AppGlyph.deleteSweep,
-              size: 25,
-              color: colors.attentionText,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            'Empty the bin?',
-            style: AppTextStyles.sheetTitle.copyWith(color: colors.textPrimary),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'This will permanently remove all items from recycle bin. This action cannot be undone.',
-            style: AppTextStyles.body.copyWith(color: colors.textSecondary),
-          ),
-          const SizedBox(height: 14),
-          KvPillButton(
-            label: 'Empty bin',
-            onPressed: () => VaultOperationScope.of(
-              context,
-            ).complete(ConfirmDecision.confirm),
-          ),
-          const SizedBox(height: 9),
-          KvSecondaryPillButton(
-            label: 'Cancel',
-            onPressed: () => VaultOperationScope.of(
-              context,
-            ).complete(ConfirmDecision.cancel),
-          ),
-        ],
-      ),
-    );
-  }
 }

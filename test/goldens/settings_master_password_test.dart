@@ -146,6 +146,7 @@ void main() {
           theme: AppTheme.lightTheme,
           home: const ChangeMasterPasswordScreen(
             databasePath: '/tmp/settings_golden.kdbx',
+            databaseName: 'settings_golden.kdbx',
           ),
         ),
       );
@@ -166,6 +167,7 @@ void main() {
           theme: AppTheme.lightTheme,
           home: const ChangeMasterPasswordScreen(
             databasePath: '/tmp/settings_golden.kdbx',
+            databaseName: 'settings_golden.kdbx',
           ),
         ),
       );

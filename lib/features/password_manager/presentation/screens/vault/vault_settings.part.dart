@@ -37,6 +37,10 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
   bool _biometricEnabled = false;
   int? _inactivityTimeoutSeconds;
   String? _keyFilePath;
+
+  /// spec 014 FR-3: what the "Key file" row shows — the recorded name, not
+  /// the opaque basename the file rests under.
+  String? _keyFileLabel;
   bool _busy = false;
   String? _loadedForPath;
   String? _loadingForPath;
@@ -97,6 +101,9 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
       final keyFilePath = await coordinator.getPersistedKeyFilePath(
         databasePath,
       );
+      final keyFileLabel = keyFilePath == null
+          ? null
+          : await MobileFileStorage.keyFileDisplayName(keyFilePath);
       // Guard against a stale result: the vault's active path may have
       // moved on while these awaits were in flight (e.g. a concurrent
       // `_ensureLoaded` for a different path completed first).
@@ -108,6 +115,7 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
         _biometricEnabled = biometricEnabled;
         _inactivityTimeoutSeconds = inactivityTimeoutSeconds;
         _keyFilePath = keyFilePath;
+        _keyFileLabel = keyFileLabel;
         _loadedForPath = databasePath;
       });
     } catch (_) {
@@ -124,12 +132,16 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
   }
 
   Future<bool> _persist(String databasePath) async {
+    // spec 014 FR-3: the registry name, never the at-rest file name — on
+    // mobile the latter is an opaque identifier, and passing it here would
+    // overwrite the database's name with it.
+    final currentName = context.read<VaultBloc>().state.databaseLabel;
     setState(() => _busy = true);
     try {
       await di.sl<VaultSessionCoordinator>().updateDatabaseSettings(
         DatabaseSettingsUpdateRequest(
           currentDatabasePath: databasePath,
-          fileName: path.basename(databasePath),
+          fileName: currentName,
           keyFilePath: _keyFilePath,
           biometricProtectionEnabled: _biometricEnabled,
           changePassword: false,
@@ -218,7 +230,14 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
 
     if (!mounted) return;
     final previous = _keyFilePath;
-    setState(() => _keyFilePath = selectedPath);
+    final label = selectedPath == null
+        ? null
+        : await MobileFileStorage.keyFileDisplayName(selectedPath);
+    if (!mounted) return;
+    setState(() {
+      _keyFilePath = selectedPath;
+      _keyFileLabel = label;
+    });
     if (!await _persist(databasePath) && mounted) {
       setState(() => _keyFilePath = previous);
     }
@@ -234,8 +253,9 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
   ) async {
     if (_busy) return;
     final messenger = ScaffoldMessenger.of(context);
+    final currentName = context.read<VaultBloc>().state.databaseLabel;
     final controller = TextEditingController(
-      text: path.basenameWithoutExtension(databasePath),
+      text: path.basenameWithoutExtension(currentName),
     );
     final formKey = GlobalKey<FormState>();
     final newName = await showDialog<String>(
@@ -287,7 +307,7 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
     controller.dispose();
     if (newName == null || !mounted) return;
     final normalized = _normalizeDatabaseFileName(newName);
-    if (normalized == path.basename(databasePath)) return;
+    if (normalized == currentName) return;
 
     setState(() => _busy = true);
     try {
@@ -458,7 +478,7 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
                 iconBackground: colors.positiveTint,
                 iconColor: colors.positiveText,
                 title: 'Biometric protection',
-                subtitle: 'Unlock requires Face ID when available',
+                subtitle: 'Unlock requires biometrics when available',
                 value: _biometricEnabled,
                 onChanged: _busy
                     ? null
@@ -519,6 +539,10 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
                     MaterialPageRoute<void>(
                       builder: (_) => ChangeMasterPasswordScreen(
                         databasePath: databasePath,
+                        databaseName: context
+                            .read<VaultBloc>()
+                            .state
+                            .databaseLabel,
                       ),
                     ),
                   );
@@ -532,7 +556,7 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
                 title: 'Key file',
                 subtitle: _keyFilePath == null || _keyFilePath!.trim().isEmpty
                     ? 'None configured'
-                    : path.basename(_keyFilePath!),
+                    : _keyFileLabel ?? path.basename(_keyFilePath!),
                 onTap: _busy ? null : () => _pickKeyFile(databasePath),
               ),
               const SizedBox(height: 8),
@@ -543,7 +567,7 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
               _SettingsRow(
                 glyph: AppGlyph.edit,
                 title: 'Rename database',
-                subtitle: path.basename(databasePath),
+                subtitle: context.watch<VaultBloc>().state.databaseLabel,
                 onTap: _busy
                     ? null
                     : () => unawaited(_renameDatabase(context, databasePath)),
@@ -587,7 +611,7 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
                 title: 'Autofill & browsers',
                 subtitle:
                     _autofillStatusSubtitle ??
-                    'Face ID keyboard, desktop helper',
+                    'Biometric keyboard, desktop helper',
                 onTap: () => _openAutofillSettings(context),
               ),
               const SizedBox(height: 8),

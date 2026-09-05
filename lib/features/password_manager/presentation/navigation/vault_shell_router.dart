@@ -4,6 +4,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/responsive/breakpoints.dart';
+import '../../../../core/widgets/kv_bottom_sheet.dart';
 import '../../domain/models/sync_conflict.dart';
 import '../../domain/models/vault_custom_field.dart';
 
@@ -326,17 +327,7 @@ final class KeyFileManagerSurface<R extends VaultRouteResult>
 
 final class ConfirmationSurface<R extends VaultRouteResult>
     extends VaultSurface<R> {
-  const ConfirmationSurface({
-    required super.builder,
-    this.dialogOnWide = false,
-  });
-
-  /// 2026-08-31 (user-directed): a confirmation whose builder returns an
-  /// `AlertDialog` (the generic `confirm`) is a bare modal dialog on wide
-  /// layouts — hosted in a sheet it rendered as a card-in-card the size of
-  /// the window. Sheet-styled confirmations (empty bin, autofill link) keep
-  /// the sheet at every width.
-  final bool dialogOnWide;
+  const ConfirmationSurface({required super.builder});
 }
 
 sealed class VaultSurfacePresentation {
@@ -423,10 +414,10 @@ VaultSurfacePresentation presentationFor<R extends VaultRouteResult>(
           : const VaultDialogPresentation(bare: true),
     SyncConflictSurface() =>
       mobile ? const VaultSheetPresentation() : const VaultPanePresentation(),
-    ConfirmationSurface(dialogOnWide: true) when !mobile =>
-      const VaultDialogPresentation(bare: true),
-    KeyFileManagerSurface() ||
-    ConfirmationSurface() => const VaultSheetPresentation(),
+    KeyFileManagerSurface() => const VaultSheetPresentation(),
+    // 2026-09-05 (user-directed): a yes/no confirmation is a modal dialog at
+    // every width; its builder supplies the `AlertDialog`, hence `bare`.
+    ConfirmationSurface() => const VaultDialogPresentation(bare: true),
   };
 }
 
@@ -523,7 +514,6 @@ final class VaultShellRouter {
     return open<ConfirmDecision>(
       context: context,
       surface: ConfirmationSurface<ConfirmDecision>(
-        dialogOnWide: true,
         builder: (surfaceContext) => AlertDialog(
           title: Text(title),
           content: Text(body),
@@ -798,7 +788,7 @@ final class VaultShellRouter {
         // VaultShellRouterScope's ancestor chain.
         return VaultShellRouterScope(
           router: this,
-          child: SafeArea(child: builder(modalContext)),
+          child: KvSheetFrame(child: builder(modalContext)),
         );
       },
     );

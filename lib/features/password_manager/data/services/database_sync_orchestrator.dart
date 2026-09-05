@@ -4,9 +4,11 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:loggy/loggy.dart';
 
+import '../../../../core/utils/portable_path.dart';
 import '../../domain/models/database_sync_mapping.dart';
 import '../../domain/models/drive_remote_file.dart';
 import '../../domain/models/sync_conflict.dart';
+import '../../domain/repositories/database_registry_repository.dart';
 import '../../domain/repositories/database_sync_repository.dart';
 import '../datasources/sync_metadata_data_source.dart';
 import 'database_file_hash_recorder.dart';
@@ -522,4 +524,26 @@ class _RemoteChecksumSnapshot {
 
   final String value;
   final bool computedFromDownload;
+}
+
+/// spec 014 FR-6: resolves a database path to its registry identifier;
+/// `null` means "not registered", which reads as "no mapping" and refuses a
+/// new Drive link.
+///
+/// Reads through the repository, never the raw data source: the stored
+/// `canonicalPath` is PortablePath-encoded (`{documents}/vault.kdbx`), so
+/// comparing the record as written against an absolute path never matched
+/// wherever the vault lives under the documents root — on mobile that made
+/// every Drive link fail with "Database is not registered".
+Future<String?> resolveDatabaseIdForSync(
+  String databasePath,
+  DatabaseRegistryRepository registry,
+) async {
+  final resolved = PortablePath.resolveForComparison(databasePath);
+  for (final record in await registry.list()) {
+    if (PortablePath.resolveForComparison(record.canonicalPath) == resolved) {
+      return record.databaseId;
+    }
+  }
+  return null;
 }

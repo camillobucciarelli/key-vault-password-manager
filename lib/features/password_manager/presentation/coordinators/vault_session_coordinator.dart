@@ -209,7 +209,17 @@ class VaultSessionCoordinator {
     );
     final currentPath = request.currentDatabasePath;
     final parentDir = p.dirname(currentPath);
-    final targetPath = p.join(parentDir, normalizedName);
+    // spec 014 FR-3: a database in managed storage rests under an opaque
+    // identifier, so a rename there changes the registry name only —
+    // renaming the file would write the human-readable name back onto disk,
+    // which is what FR-3 forbids. Elsewhere (desktop, user-chosen paths) the
+    // file name IS the name, so it is renamed as before.
+    final atRestNameIsOpaque = MobileFileStorage.isOpaqueFileName(
+      p.basename(currentPath),
+    );
+    final targetPath = atRestNameIsOpaque
+        ? currentPath
+        : p.join(parentDir, normalizedName);
     final records = await databaseRegistryRepository.list();
     final record = records
         .where((item) => item.canonicalPath == currentPath)
@@ -324,7 +334,9 @@ class VaultSessionCoordinator {
       await databaseRegistryRepository.upsert(
         record.copyWith(
           canonicalPath: effectivePath,
-          displayName: p.basename(effectivePath),
+          // The name the user typed, never the at-rest file name: on mobile
+          // that is an opaque identifier (spec 014 FR-3).
+          displayName: normalizedName,
           updatedAt: DateTime.now(),
           lastOpenedAt: DateTime.now(),
         ),

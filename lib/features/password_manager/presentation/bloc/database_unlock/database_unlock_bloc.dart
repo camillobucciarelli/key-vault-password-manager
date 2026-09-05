@@ -58,6 +58,7 @@ class DatabaseUnlockBloc
       );
 
       var nextState = state.copyWith(
+        displayName: bootstrap.displayName,
         keyFilePath: bootstrap.keyFilePath,
         clearKeyFilePath: bootstrap.keyFilePath == null,
         biometricAvailable: bootstrap.biometricAvailable,
@@ -324,6 +325,9 @@ class DatabaseUnlockBloc
         DatabaseFileMissingFailure() => UnlockPhase.failure,
         InvalidDatabaseFileFailure() => UnlockPhase.failure,
         CorruptDatabaseFailure() => UnlockPhase.failure,
+        // Unreadable metadata is not something the unlock screen can repair:
+        // recovery lives on the selection screen the user goes back to.
+        MetadataStorageUnreadableFailure() => UnlockPhase.failure,
       };
 
   void _emitTypedOrGenericFailure(

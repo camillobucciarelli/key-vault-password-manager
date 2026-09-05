@@ -109,3 +109,23 @@ reads or repairs a previous on-disk layout.
 - [x] T016 Regression gate: `flutter analyze` clean and `flutter test` green,
       including `test/tool/safe_vault_writer_harness_test.dart` and the spec 008
       `database_writer_inventory_test.dart`.
+
+## Phase 8 — FR-5 recovery (field defect, 2026-09-04)
+
+- [x] T017 FR-5: make the recovery FR-5 promises reachable. A device was found
+      with metadata ciphertext on disk and no key entry in the secure store
+      (Pixel 11 Pro, `ENCRYPTED_PREFERENCES_MIGRATED=true`): reads were empty as
+      specified, but every write was refused, so the "manual re-selection"
+      recovery could not run and the app could never record a database again.
+      `EncryptedMetadataStore.writeString` now throws the typed
+      `MetadataStorageUnreadableFailure` instead of a bare `StateError`; the
+      refusal itself is unchanged, and nothing is discarded implicitly.
+- [x] T018 FR-5: `MetadataRecoveryService` (port
+      `MetadataRecoveryRepository`) reports unreadable metadata and, on the
+      user's explicit confirmation only, renames it aside so writes resume under
+      a fresh key. A store that is merely unreachable is never treated as
+      unreadable, and files are renamed, never deleted.
+- [x] T019 FR-5: the database selection screen turns
+      `MetadataStorageUnreadableFailure` into a confirm sheet ("Saved database
+      details unreadable" → Reset) that dispatches `DiscardUnreadableMetadata`;
+      declining leaves the refusal in place.

@@ -7,14 +7,19 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:path/path.dart' as p;
 
 import '../../../../../core/navigation/app_navigation.dart';
-import '../../../../../core/responsive/breakpoints.dart';
+import '../../../../../core/theme/app_glyph.dart';
 import '../../../../../core/theme/app_icons.dart';
 import '../../../../../core/theme/app_motion.dart';
 import '../../../../../core/theme/app_radii.dart';
 import '../../../../../core/theme/app_text_styles.dart';
 import '../../../../../core/theme/app_theme.dart';
 import '../../../../../core/theme/keyvault_colors.dart';
-import '../../../../../core/widgets/kv_bottom_sheet.dart';
+import '../../../../../core/utils/mobile_file_storage.dart';
+import '../../../../../core/widgets/kv_confirm_dialog.dart';
+import '../../../../../core/widgets/kv_circle_icon_button.dart';
+import '../../../../../core/widgets/kv_field_decoration.dart';
+import '../../../../../core/widgets/kv_icon.dart';
+import '../../../../../core/widgets/kv_list_row.dart';
 import '../../../../../core/widgets/kv_pill_button.dart';
 import '../../../../../injection_container.dart' as di;
 import '../bloc/database_unlock/database_unlock_bloc.dart';
@@ -25,7 +30,7 @@ import '../coordinators/database_session_coordinator.dart';
 import '../../data/datasources/biometric_data_source.dart';
 import '../widgets/managed_key_picker_gate.dart';
 import '../../domain/errors/database_access_failure.dart';
-import '../widgets/database/face_id_prompt_sheet.dart';
+import '../widgets/database/biometric_prompt_sheet.dart';
 import '../widgets/internal_key_file_manager_sheet.dart';
 import '../utils/platform_utils.dart';
 import 'database_selection_screen.dart';
@@ -237,7 +242,7 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
             errorMessage: state.errorMessage,
           );
         case UnlockPhase.decrypting:
-          return _DecryptingView(basename: p.basename(state.databasePath));
+          return _DecryptingView(basename: state.databaseLabel);
         case UnlockPhase.failure:
           return _UnlockFailureView(
             state: state,
@@ -261,7 +266,7 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
             onClearKeyFile: () => context.read<DatabaseUnlockBloc>().add(
               const UpdateKeyFilePath(null),
             ),
-            onFaceIdRetry: () => context.read<DatabaseUnlockBloc>().add(
+            onBiometricRetry: () => context.read<DatabaseUnlockBloc>().add(
               const RetryBiometricAuthentication(),
             ),
 
@@ -288,55 +293,13 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
         keyFilePath != null && keyFilePath.trim().isNotEmpty;
 
     if (hasPasswordDraft || hasKeyFileDraft) {
-      final shouldLeave = await KvBottomSheet.show<bool>(
-        context: context,
-        barrierAlpha: 0.3,
-        builder: (sheetContext) {
-          final sheetColors = Theme.of(
-            sheetContext,
-          ).extension<KeyVaultColors>()!;
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 26),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Return to database list?',
-                  style: AppTextStyles.sheetTitle.copyWith(
-                    color: sheetColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Any unlock credentials entered on this screen will be discarded.',
-                  style: AppTextStyles.body.copyWith(
-                    color: sheetColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextButton(
-                        onPressed: () => Navigator.of(sheetContext).pop(false),
-                        child: const Text('Stay here'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: KvPillButton(
-                        compact: true,
-                        label: 'Return',
-                        onPressed: () => Navigator.of(sheetContext).pop(true),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          );
-        },
+      final shouldLeave = await showKvConfirmDialog(
+        context,
+        title: 'Return to database list?',
+        body:
+            'Any unlock credentials entered on this screen will be discarded.',
+        confirmLabel: 'Return',
+        cancelLabel: 'Stay here',
       );
 
       if (shouldLeave != true || !mounted) {
@@ -351,10 +314,8 @@ class _DatabaseUnlockViewState extends State<_DatabaseUnlockView> {
   }
 
   Future<void> _showBiometricSetupPrompt() async {
-    final basename = p.basename(
-      context.read<DatabaseUnlockBloc>().state.databasePath,
-    );
-    final shouldEnable = await showFaceIdPromptSheet(
+    final basename = context.read<DatabaseUnlockBloc>().state.databaseLabel;
+    final shouldEnable = await showBiometricPromptDialog(
       context,
       basename: basename,
     );

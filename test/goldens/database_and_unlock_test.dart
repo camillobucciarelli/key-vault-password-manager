@@ -23,7 +23,7 @@ import 'package:password_manager/features/password_manager/presentation/bloc/dat
 import 'package:password_manager/features/password_manager/presentation/bloc/database_unlock/database_unlock_event.dart';
 import 'package:password_manager/features/password_manager/presentation/widgets/database/database_selection_sheets.dart';
 import 'package:password_manager/features/password_manager/presentation/widgets/database/drive_picker_sheet.dart';
-import 'package:password_manager/features/password_manager/presentation/widgets/database/face_id_prompt_sheet.dart';
+import 'package:password_manager/features/password_manager/presentation/widgets/database/biometric_prompt_sheet.dart';
 import 'package:password_manager/features/password_manager/presentation/widgets/internal_key_file_manager_sheet.dart';
 import 'package:path/path.dart' as p;
 
@@ -251,7 +251,7 @@ void main() {
     await tester.pumpWidget(
       pumpableSheetHost(
         onOpen: (context) =>
-            showInvalidDatabaseFileSheet(context, basename: 'not-a-vault.kdbx'),
+            showInvalidDatabaseFileDialog(context, basename: 'not-a-vault.kdbx'),
       ),
     );
     await tester.pumpAndSettle();
@@ -562,7 +562,7 @@ void main() {
     await tester.pumpWidget(
       pumpableSheetHost(
         onOpen: (context) async {
-          await showFaceIdPromptSheet(context, basename: 'work.kdbx');
+          await showBiometricPromptDialog(context, basename: 'work.kdbx');
         },
       ),
     );

@@ -160,3 +160,9 @@ class GoBackCreateDatabaseStep extends DatabaseSelectionEvent {
 class CancelCreateDatabaseFlow extends DatabaseSelectionEvent {
   const CancelCreateDatabaseFlow();
 }
+
+/// spec 014 FR-5 recovery: the user accepted discarding metadata that no key
+/// can open, so writes can resume and the vaults can be re-selected.
+class DiscardUnreadableMetadata extends DatabaseSelectionEvent {
+  const DiscardUnreadableMetadata();
+}

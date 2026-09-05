@@ -26,6 +26,12 @@
 # - Row 09: title restyled to the mock's literal "Both versions changed"
 #   (07-09 mock, screen 8); presentation/surface/action unchanged.
 #
+# 2026-09-05 supersession (user-directed, vault_navigation_contract.md
+# §presentations amended in the same change):
+# - Rows 05, 14, 17, 18, 19: mobile and rail presentation sheet -> dialog.
+#   A yes/no confirmation is a modal dialog at every width; only choosers
+#   with lists adapt to a bottom sheet on phones.
+#
 # 2026-08-30 supersession (hygiene destinations):
 # - Rows 10, 15: rail presentation pane -> dialog. Recycle bin and
 #   duplicates are visits, not columns of the working layout, so on wide
@@ -34,7 +40,7 @@
 02|_showEntryDialog|Add record|-|Create|EntryEditResult?|route|pane
 03|_scanOtpUriFromQr|Scan OTP QR|-|Cancel|OtpScanResult?|route|pane
 04|_showGroupDialog|Create folder|-|Create|GroupEditResult?|sheet|dialog
-05|_showDeleteConfirm|Confirm delete|{label}|Delete|ConfirmDecision?|sheet|sheet
+05|_showDeleteConfirm|Confirm delete|{label}|Delete|ConfirmDecision?|dialog|dialog
 06|_showMoveTargetDialog|Move to folder|-|Move|MoveTargetResult?|sheet|dialog
 07|_showAttachmentsDialog|Attachments|-|Close|VaultDone?|route|pane
 08|_pickExistingDriveFile|Link to a Drive file|-|Link|DriveLinkResult?|route|pane
@@ -48,9 +54,9 @@
 # its one unique action became the Settings 'Rename database' row. Row 14's
 # security-confirm sheet lives on in ChangeMasterPasswordScreen.
 #13|_showDatabaseSettings|Database settings|-|Save changes|DatabaseSettingsResult?|route|pane
-14|_showDatabaseSettings.securityConfirm|Confirm security changes|You are about to update: {securityChanges}. Use the new credentials to unlock this vault after saving.|Confirm and apply|ConfirmDecision?|sheet|sheet
+14|_showDatabaseSettings.securityConfirm|Confirm security changes|You are about to update: {securityChanges}. Use the new credentials to unlock this vault after saving.|Confirm and apply|ConfirmDecision?|dialog|dialog
 15|_showRecycleBinDialog|Recycle bin|-|-|VaultDone?|route|route
 16|_startCsvImportFlow|Import CSV|-|Import|CsvImportResult?|route|pane
-17|_handleOtpAuthEvent|Add OTP account?|An OTP account for {otpAuth.title} was received. Review it before saving to this vault.|Review|ConfirmDecision?|sheet|sheet
-18|_closeCurrentDatabaseAndSelectAnother|Close database|Close this database and return to file selection? Saved credentials for the current database will be removed.|Close database|ConfirmDecision?|sheet|sheet
-19|_showAppleAutofillAssociationDialog|Link AutoFill credential?|Target: {target}\n\n{entrySummary}\n\nThis association updates the vault only after you confirm.|Link|ConfirmDecision?|sheet|sheet
+17|_handleOtpAuthEvent|Add OTP account?|An OTP account for {otpAuth.title} was received. Review it before saving to this vault.|Review|ConfirmDecision?|dialog|dialog
+18|_closeCurrentDatabaseAndSelectAnother|Close database|Close this database and return to file selection? Saved credentials for the current database will be removed.|Close database|ConfirmDecision?|dialog|dialog
+19|_showAppleAutofillAssociationDialog|Link AutoFill credential?|Target: {target}\n\n{entrySummary}\n\nThis association updates the vault only after you confirm.|Link|ConfirmDecision?|dialog|dialog

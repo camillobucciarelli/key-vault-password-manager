@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:path/path.dart' as p;
 
 import '../../../domain/models/apple_autofill_v2_models.dart';
 import '../../../domain/models/database_sync_status.dart';
@@ -18,6 +19,7 @@ enum VaultEntrySort { titleAsc, titleDesc, usernameAsc }
 class VaultState extends Equatable {
   const VaultState({
     required this.databasePath,
+    this.displayName,
     this.rootGroupId,
     this.currentGroupId,
     this.groups = const [],
@@ -70,6 +72,15 @@ class VaultState extends Equatable {
   }
 
   final String databasePath;
+
+  /// spec 014 FR-3: the registry name. The database file rests under an
+  /// opaque identifier on mobile, so the basename is not a name to show —
+  /// it is only the fallback for storage that is not opaque (desktop).
+  final String? displayName;
+
+  /// What the UI shows for the open database.
+  String get databaseLabel => displayName ?? p.basename(databasePath);
+
   final String? rootGroupId;
   final String? currentGroupId;
   final List<VaultGroup> groups;
@@ -177,6 +188,7 @@ class VaultState extends Equatable {
   };
 
   VaultState copyWith({
+    String? displayName,
     String? rootGroupId,
     String? currentGroupId,
     List<VaultGroup>? groups,
@@ -236,6 +248,7 @@ class VaultState extends Equatable {
   }) {
     return VaultState(
       databasePath: databasePath,
+      displayName: displayName ?? this.displayName,
       rootGroupId: rootGroupId ?? this.rootGroupId,
       currentGroupId: currentGroupId ?? this.currentGroupId,
       groups: groups ?? this.groups,
@@ -349,6 +362,7 @@ class VaultState extends Equatable {
   @override
   List<Object?> get props => [
     databasePath,
+    displayName,
     rootGroupId,
     currentGroupId,
     groups,

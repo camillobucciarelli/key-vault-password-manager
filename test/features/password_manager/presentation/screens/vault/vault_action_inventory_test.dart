@@ -111,7 +111,7 @@ void main() {
     'Target',
     'This device',
     'Unlock with biometrics',
-    'Unlock with Face ID',
+    'Unlock with biometrics',
     'Uppercase letters (A-Z)',
     'Use password',
     'Use remote',
@@ -160,7 +160,10 @@ void main() {
     final pattern = RegExp(
       // `title:` joined 2026-08-31: the retired `⋮` sheet's `label:` rows
       // became `_SettingsRow(title: …)` rows in the Settings destination.
-      r"(?:(?:tooltip|label|title): |Text\()'([^'\\$]*)'",
+      // `confirmLabel:`/`cancelLabel:` joined 2026-09-05: yes/no
+      // confirmations are dialogs built by `confirm`/`showKvConfirmDialog`,
+      // so their action copy travels as those named arguments.
+      r"(?:(?:tooltip|label|title|confirmLabel|cancelLabel): |Text\()'([^'\\$]*)'",
     );
     final found = <String>{};
     for (final file in sources) {

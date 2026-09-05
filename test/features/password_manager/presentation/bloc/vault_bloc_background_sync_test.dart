@@ -106,6 +106,38 @@ void main() {
     },
   );
 
+  group('ConnectGoogleDrive error copy', () {
+    test('an unrecognized Google failure keeps its platform code and '
+        'description instead of collapsing to the generic sentence', () async {
+      final repo = _FakeSyncRepo()
+        ..connectError = Exception(
+          'Google sign-in failed (uiUnavailable): No Activity is available',
+        );
+      final bloc = _makeBloc(repo, _FakeVaultKdbxService());
+      addTearDown(bloc.close);
+
+      bloc.add(const ConnectGoogleDrive());
+      await _waitUntil(() => bloc.state.syncStatus == DatabaseSyncStatus.error);
+
+      final error = bloc.state.syncError!;
+      expect(error, contains('uiUnavailable'));
+      expect(error, contains('No Activity is available'));
+      expect(error, isNot(contains('Exception:')));
+    });
+
+    test('recognized failures keep their existing copy', () async {
+      final repo = _FakeSyncRepo()
+        ..connectError = Exception('Google sign-in cancelled.');
+      final bloc = _makeBloc(repo, _FakeVaultKdbxService());
+      addTearDown(bloc.close);
+
+      bloc.add(const ConnectGoogleDrive());
+      await _waitUntil(() => bloc.state.syncStatus == DatabaseSyncStatus.error);
+
+      expect(bloc.state.syncError, 'Google sign-in cancelled.');
+    });
+  });
+
   group('Apple autofill lifecycle', () {
     test('publishes after vault is loaded', () async {
       final repo = _FakeSyncRepo()..mapping = _testMapping;
@@ -1109,8 +1141,17 @@ class _FakeSyncRepo implements DatabaseSyncRepository {
     return syncResult;
   }
 
+  /// When set, `connect` throws this instead of succeeding — lets tests
+  /// exercise the connect error copy without a real Google Sign-In stack.
+  Object? connectError;
+
   @override
-  Future<void> connect() async {}
+  Future<void> connect() async {
+    final error = connectError;
+    if (error != null) {
+      throw error;
+    }
+  }
 
   @override
   Future<void> disconnect() async {}

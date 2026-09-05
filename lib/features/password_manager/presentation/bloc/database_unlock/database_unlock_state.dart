@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:path/path.dart' as p;
 import 'package:password_manager/core/utils/redacted_value.dart';
 
 import '../../../domain/errors/database_access_failure.dart';
@@ -34,6 +35,10 @@ enum UnlockPhase {
 
 class DatabaseUnlockState extends Equatable {
   final String databasePath;
+
+  /// spec 014 FR-3: the registry name. The file on disk is an opaque
+  /// identifier on mobile, so never render the basename when this is set.
+  final String? displayName;
   final String? keyFilePath;
   final UnlockPhase phase;
   final bool biometricAvailable;
@@ -58,6 +63,7 @@ class DatabaseUnlockState extends Equatable {
 
   const DatabaseUnlockState({
     required this.databasePath,
+    this.displayName,
     this.keyFilePath,
     this.phase = UnlockPhase.initializing,
     this.biometricAvailable = false,
@@ -73,6 +79,10 @@ class DatabaseUnlockState extends Equatable {
     return DatabaseUnlockState(databasePath: databasePath);
   }
 
+  /// What the UI shows for this database. Falls back to the basename, which
+  /// is the real name wherever storage is not opaque (desktop).
+  String get databaseLabel => displayName ?? p.basename(databasePath);
+
   bool get isLoading =>
       phase == UnlockPhase.initializing || phase == UnlockPhase.decrypting;
   bool get isDecrypting => phase == UnlockPhase.decrypting;
@@ -81,6 +91,7 @@ class DatabaseUnlockState extends Equatable {
 
   DatabaseUnlockState copyWith({
     String? databasePath,
+    String? displayName,
     String? keyFilePath,
     UnlockPhase? phase,
     bool? biometricAvailable,
@@ -96,6 +107,7 @@ class DatabaseUnlockState extends Equatable {
   }) {
     return DatabaseUnlockState(
       databasePath: databasePath ?? this.databasePath,
+      displayName: displayName ?? this.displayName,
       keyFilePath: keyFilePath ?? (clearKeyFilePath ? null : this.keyFilePath),
       phase: phase ?? this.phase,
       biometricAvailable: biometricAvailable ?? this.biometricAvailable,
@@ -112,6 +124,7 @@ class DatabaseUnlockState extends Equatable {
   @override
   List<Object?> get props => [
     databasePath,
+    displayName,
     RedactedValue<String?>(keyFilePath, redaction: '<redacted keyFilePath>'),
     phase,
     biometricAvailable,

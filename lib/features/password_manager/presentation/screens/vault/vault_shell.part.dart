@@ -626,16 +626,14 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
         serviceIdentifierValue: serviceIdentifierValue,
       );
 
-      // spec-006 T7/FR-5: restyled into a `KvBottomSheet` with Target /
-      // Entry / Username rows (screen 7) instead of the generic
-      // title/body `AlertDialog` `_router.confirm` builds — same
-      // `ConfirmationSurface` presentation (always a sheet), same
-      // Confirm/Reject decision the pending-association flow already acts
-      // on below, unchanged.
+      // spec-006 T7/FR-5: Target / Entry / Username rows (screen 7) instead
+      // of the generic title/body the `_router.confirm` builds — same
+      // `ConfirmationSurface` presentation, same Confirm/Reject decision the
+      // pending-association flow already acts on below, unchanged.
       final shouldLink = await _router.open<ConfirmDecision>(
         context: context,
         surface: ConfirmationSurface<ConfirmDecision>(
-          builder: (surfaceContext) => _LinkAutofillCredentialSheet(
+          builder: (surfaceContext) => _LinkAutofillCredentialDialog(
             target: target,
             entryTitle: entry == null
                 ? null
@@ -923,6 +921,10 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                               .read<VaultBloc>()
                               .state
                               .databasePath,
+                          databaseLabel: context
+                              .read<VaultBloc>()
+                              .state
+                              .databaseLabel,
                           lockedAt: _lockedAt ?? debugLockOverlayNowOverride(),
                           onUnlocked: _dismissLock,
                           onCloseDatabase: () =>
@@ -1114,23 +1116,31 @@ class _VaultNavigationLayout extends StatelessWidget {
     // in a single artboard, corrected to the design's stated 72 — see the
     // spec's design-decisions section.
     const railWidth = VaultColumns.rail;
-    return Row(
-      // A destination shorter than the window (Health) would otherwise be
-      // vertically centered by the Row's default cross-axis alignment.
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SizedBox(
-          key: const ValueKey('vault-rail'),
-          width: railWidth,
-          child: _VaultRail(
-            selected: selectedDestination,
-            onSelected: onSelectDestination,
-            settingsNeedsAttention: settingsNeedsAttention,
+    // Side insets are taken here, outside the fixed-width rail: a phone in
+    // landscape puts its display cutout on the left, and a `SafeArea` inside
+    // the 72 px box left the icons no room — they were pushed under the body
+    // and the rail read as missing (Pixel 11 Pro, 2026-09-05).
+    return SafeArea(
+      top: false,
+      bottom: false,
+      child: Row(
+        // A destination shorter than the window (Health) would otherwise be
+        // vertically centered by the Row's default cross-axis alignment.
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            key: const ValueKey('vault-rail'),
+            width: railWidth,
+            child: _VaultRail(
+              selected: selectedDestination,
+              onSelected: onSelectDestination,
+              settingsNeedsAttention: settingsNeedsAttention,
+            ),
           ),
-        ),
-        const _VaultVerticalDivider(),
-        Expanded(child: _railBody(context, railWidth)),
-      ],
+          const _VaultVerticalDivider(),
+          Expanded(child: _railBody(context, railWidth)),
+        ],
+      ),
     );
   }
 
@@ -1612,7 +1622,7 @@ class _VaultNameHeader extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              path.basename(state.databasePath),
+              state.databaseLabel,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: titleStyle.copyWith(color: colors.textPrimary),

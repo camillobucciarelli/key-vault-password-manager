@@ -259,9 +259,9 @@ void main() {
                   'lib/features/password_manager/presentation/screens/vault',
                 ])
                 .where(
-                  (f) => f.readAsStringSync().contains(
-                    '_exportDatabaseBackup(context',
-                  ),
+                  (f) =>
+                      f.readAsStringSync().contains('_exportDatabaseBackup(') &&
+                      !_posixPath(f).endsWith('vault_shared.part.dart'),
                 )
                 .map(_posixPath)
                 .toList()
@@ -765,6 +765,11 @@ const _baseline = <String, List<String>>{
   ],
   'lib/features/password_manager/data/datasources/'
       'database_security_local_data_source.dart': [
+    'create',
+  ],
+  // spec 014 FR-3: key-file display names, sealed through the same store.
+  'lib/features/password_manager/data/datasources/'
+      'key_file_names_data_source.dart': [
     'create',
   ],
   'lib/features/password_manager/data/datasources/local_data_source.dart': [

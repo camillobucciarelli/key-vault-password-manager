@@ -14,6 +14,7 @@ import '../../../../../core/theme/keyvault_colors.dart';
 import '../../../../../core/utils/mobile_file_storage.dart';
 import '../../../../../core/theme/app_radii.dart';
 import '../../../../../core/widgets/kv_bottom_sheet.dart';
+import '../../../../../core/widgets/kv_confirm_dialog.dart';
 import '../../../../../core/widgets/kv_icon.dart';
 import '../../../../../core/widgets/kv_pill_button.dart';
 import '../../../../../injection_container.dart' as di;
@@ -326,7 +327,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
     BuildContext context,
     String fileName,
   ) {
-    return _showConfirmSheetOrDialog(
+    return showKvConfirmDialog(
       context,
       title: 'Delete file?',
       body: 'This will try to permanently delete "$fileName" from disk.',
@@ -338,7 +339,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
     BuildContext context,
     String fileName,
   ) {
-    return _showConfirmSheetOrDialog(
+    return showKvConfirmDialog(
       context,
       title: 'Replace existing database?',
       body:
@@ -347,82 +348,6 @@ class DatabaseSelectionScreen extends StatelessWidget {
     );
   }
 
-  /// 2026-08-31 (user-directed): on desktop widths a title/body confirmation
-  /// is a modal `AlertDialog`, matching the vault's `confirm` presentation;
-  /// the bottom sheet remains the phone presentation.
-  Future<bool?> _showConfirmSheetOrDialog(
-    BuildContext context, {
-    required String title,
-    required String body,
-    required String confirmLabel,
-  }) {
-    final isWide = MediaQuery.sizeOf(context).width >= Breakpoints.mobile;
-    if (isWide) {
-      return showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: Text(title),
-          content: Text(body),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: Text(confirmLabel),
-            ),
-          ],
-        ),
-      );
-    }
-    return KvBottomSheet.show<bool>(
-      context: context,
-      barrierAlpha: 0.3,
-      builder: (sheetContext) {
-        final colors = Theme.of(sheetContext).extension<KeyVaultColors>()!;
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 26),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                title,
-                style: AppTextStyles.sheetTitle.copyWith(
-                  color: colors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                body,
-                style: AppTextStyles.body.copyWith(color: colors.textSecondary),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextButton(
-                      onPressed: () => Navigator.of(sheetContext).pop(false),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: KvPillButton(
-                      compact: true,
-                      label: confirmLabel,
-                      onPressed: () => Navigator.of(sheetContext).pop(true),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
 
   Future<void> _handleDuplicateDecisionPrompt(
     BuildContext context,
@@ -446,11 +371,31 @@ class DatabaseSelectionScreen extends StatelessWidget {
   ) async {
     final failure = state.failure;
     if (failure is InvalidDatabaseFileFailure) {
-      await showInvalidDatabaseFileSheet(context, basename: failure.basename);
+      await showInvalidDatabaseFileDialog(context, basename: failure.basename);
       return;
     }
     if (failure is CorruptDatabaseFailure) {
-      await showCorruptDatabaseFileSheet(context, basename: failure.basename);
+      await showCorruptDatabaseFileDialog(context, basename: failure.basename);
+      return;
+    }
+    if (failure is MetadataStorageUnreadableFailure) {
+      // spec 014 FR-5: discarding metadata is the user's call, never the
+      // app's — a refused write stays refused until they confirm here.
+      final bloc = context.read<DatabaseSelectionBloc>();
+      final confirmed = await showKvConfirmDialog(
+        context,
+        title: 'Saved database details unreadable',
+        body:
+            'This device can no longer read the list of databases and their '
+            'sync settings. Your database files and their passwords are '
+            'untouched. Reset the saved details to continue, then add your '
+            'databases again.',
+        confirmLabel: 'Reset',
+      );
+      if (confirmed != true) {
+        return;
+      }
+      bloc.add(const DiscardUnreadableMetadata());
       return;
     }
     ScaffoldMessenger.of(

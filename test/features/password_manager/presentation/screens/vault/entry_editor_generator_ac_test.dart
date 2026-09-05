@@ -98,6 +98,37 @@ void main() {
 
       await tester.pumpWidget(const SizedBox());
     });
+
+    testWidgets('on a phone the dialog wraps its three rows, not the screen', (
+      tester,
+    ) async {
+      await setSize(tester, const Size(390, 844));
+      await tester.pumpWidget(await pumpableEntryScreen());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('GitHub').first);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Record actions').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Record info'));
+      await tester.pumpAndSettle();
+
+      // 2026-09-05: the grid Column used to take the loose height the
+      // dialog's content slot offers, so the dialog stood full-screen.
+      // The dialog's own box fills the route; its first Material is the card.
+      final card = tester.getSize(
+        find
+            .descendant(
+              of: find.byType(AlertDialog),
+              matching: find.byType(Material),
+            )
+            .first,
+      );
+      expect(card.height, lessThan(844 / 2));
+
+      await tester.pumpWidget(const SizedBox());
+    });
   });
 
   group('FR-3 regression: clipboard clears even after the screen that '

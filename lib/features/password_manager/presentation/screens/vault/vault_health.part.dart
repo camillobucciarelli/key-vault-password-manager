@@ -44,7 +44,7 @@ class _VaultHealthDestination extends StatelessWidget {
               ),
               Text(
                 '${state.allEntries.length} records in '
-                '${path.basename(state.databasePath)}',
+                '${state.databaseLabel}',
                 style: AppTextStyles.body.copyWith(color: colors.textSecondary),
               ),
               const SizedBox(height: 18),

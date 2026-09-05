@@ -14,6 +14,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,7 +29,7 @@ import 'package:password_manager/features/password_manager/presentation/bloc/dat
 import 'package:password_manager/features/password_manager/presentation/bloc/database_unlock/database_unlock_event.dart';
 import 'package:password_manager/features/password_manager/presentation/widgets/database/database_selection_sheets.dart';
 import 'package:password_manager/features/password_manager/presentation/widgets/database/drive_picker_sheet.dart';
-import 'package:password_manager/features/password_manager/presentation/widgets/database/face_id_prompt_sheet.dart';
+import 'package:password_manager/features/password_manager/presentation/widgets/database/biometric_prompt_sheet.dart';
 import 'package:password_manager/features/password_manager/presentation/widgets/internal_key_file_manager_sheet.dart';
 
 import 'database_selection_unlock_test_utils.dart';
@@ -200,13 +201,17 @@ void main() {
         pumpableSheetHost(
           themeMode: ThemeMode.dark,
           onOpen: (context) =>
-              showInvalidDatabaseFileSheet(context, basename: 'bad.kdbx'),
+              showInvalidDatabaseFileDialog(context, basename: 'bad.kdbx'),
         ),
       );
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(
-        tester.widget<Text>(find.text('Invalid database file')).style!.color,
+        tester
+            .renderObject<RenderParagraph>(find.text('Invalid database file'))
+            .text
+            .style!
+            .color,
         KeyVaultColors.dark.textPrimary,
       );
     });
@@ -216,14 +221,17 @@ void main() {
         pumpableSheetHost(
           themeMode: ThemeMode.dark,
           onOpen: (context) =>
-              showCorruptDatabaseFileSheet(context, basename: 'bad.kdbx'),
+              showCorruptDatabaseFileDialog(context, basename: 'bad.kdbx'),
         ),
       );
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(
         tester
-            .widget<Text>(find.text('Database file is corrupted'))
+            .renderObject<RenderParagraph>(
+              find.text('Database file is corrupted'),
+            )
+            .text
             .style!
             .color,
         KeyVaultColors.dark.textPrimary,
@@ -394,12 +402,12 @@ void main() {
       );
     });
 
-    testWidgets('Face ID prompt resolves declared roles', (tester) async {
+    testWidgets('Biometric prompt resolves declared roles', (tester) async {
       await tester.pumpWidget(
         pumpableSheetHost(
           themeMode: ThemeMode.dark,
           onOpen: (context) async {
-            await showFaceIdPromptSheet(context, basename: 'work.kdbx');
+            await showBiometricPromptDialog(context, basename: 'work.kdbx');
           },
         ),
       );
@@ -407,7 +415,10 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(
         tester
-            .widget<Text>(find.text('Use Face ID for work.kdbx?'))
+            .renderObject<RenderParagraph>(
+              find.text('Use biometric unlock for work.kdbx?'),
+            )
+            .text
             .style!
             .color,
         KeyVaultColors.dark.textPrimary,
@@ -645,6 +656,24 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
 
+      if (width >= 600) {
+        // 2026-09-05 (user-directed): choosers are a `Dialog` on wide
+        // windows, capped at the same 560 px the sheet used to be.
+        expect(find.byType(BottomSheet), findsNothing);
+        final dialog = find.byType(Dialog);
+        expect(dialog, findsOneWidget);
+        // `Dialog` itself fills the route; its `Material` is the card.
+        final card = find
+            .descendant(of: dialog, matching: find.byType(Material))
+            .first;
+        expect(
+          tester.getSize(card).width,
+          lessThanOrEqualTo(560.5),
+          reason: 'Dialog content must respect the 560 px max width.',
+        );
+        return;
+      }
+
       expect(find.byType(BottomSheet), findsOneWidget);
 
       // The radius-32 top corners come from `AppTheme`'s
@@ -671,52 +700,51 @@ void main() {
       final radius = sheetShape.borderRadius as BorderRadius;
       expect(radius.topLeft.x, AppRadii.sheet);
       expect(radius.topRight.x, AppRadii.sheet);
+    }
 
-      if (width >= 600) {
-        final radiusedMaterials = find.descendant(
-          of: find.byType(BottomSheet),
-          matching: find.byWidgetPredicate(
-            (w) =>
-                w is Material &&
-                w.shape is RoundedRectangleBorder &&
-                ((w.shape as RoundedRectangleBorder).borderRadius
-                            as BorderRadius)
-                        .topLeft
-                        .x ==
-                    AppRadii.sheet,
-          ),
-        );
-        expect(radiusedMaterials, findsOneWidget);
-        final renderWidth = tester.getSize(radiusedMaterials).width;
-        expect(
-          renderWidth,
-          lessThanOrEqualTo(560.5),
-          reason: 'Sheet content must respect the 560 px tablet max width.',
-        );
-      }
+    /// Yes/no confirmations and single-action messages are an `AlertDialog`
+    /// on every width.
+    Future<void> expectConfirmDialog(
+      WidgetTester tester,
+      Future<void> Function(BuildContext context) onOpen, {
+      required ThemeMode themeMode,
+      required double width,
+    }) async {
+      tester.view.physicalSize = Size(width, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        pumpableSheetHost(onOpen: onOpen, themeMode: themeMode),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(find.byType(AlertDialog), findsOneWidget);
     }
 
     for (final themeMode in [ThemeMode.light, ThemeMode.dark]) {
       for (final width in [390.0, 1024.0]) {
         testWidgets(
-          'invalid sheet: root navigator, radius-32, width @ ${width.toInt()} '
+          'invalid file: dialog on every width @ ${width.toInt()} '
           '(${themeMode.name})',
-          (tester) async => expectSheetGeometry(
+          (tester) async => expectConfirmDialog(
             tester,
             (context) =>
-                showInvalidDatabaseFileSheet(context, basename: 'bad.kdbx'),
+                showInvalidDatabaseFileDialog(context, basename: 'bad.kdbx'),
             themeMode: themeMode,
             width: width,
           ),
         );
 
         testWidgets(
-          'corrupt sheet: root navigator, radius-32, width @ ${width.toInt()} '
+          'corrupt file: dialog on every width @ ${width.toInt()} '
           '(${themeMode.name})',
-          (tester) async => expectSheetGeometry(
+          (tester) async => expectConfirmDialog(
             tester,
             (context) =>
-                showCorruptDatabaseFileSheet(context, basename: 'bad.kdbx'),
+                showCorruptDatabaseFileDialog(context, basename: 'bad.kdbx'),
             themeMode: themeMode,
             width: width,
           ),
@@ -754,12 +782,12 @@ void main() {
         );
 
         testWidgets(
-          'Face ID sheet: root navigator, radius-32, width @ '
+          'Biometric prompt: dialog on every width @ '
           '${width.toInt()} (${themeMode.name})',
-          (tester) async => expectSheetGeometry(
+          (tester) async => expectConfirmDialog(
             tester,
             (context) async {
-              await showFaceIdPromptSheet(context, basename: 'work.kdbx');
+              await showBiometricPromptDialog(context, basename: 'work.kdbx');
             },
             themeMode: themeMode,
             width: width,
