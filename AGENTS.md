@@ -168,5 +168,5 @@ After a spec change, run the script (`PROJECT_NUMBER=2 tool/sync_spec_project.sh
 - Thorough in reasoning, concise in output.
 - Skip files over 100KB unless required.
 - No sycophantic openers or closing fluff.
-- No emojis or em-dashes.
+- In agent responses, avoid emojis and em-dashes.
 - Do not guess APIs, versions, flags, commit SHAs, or package names. Verify by reading code or docs before asserting.
