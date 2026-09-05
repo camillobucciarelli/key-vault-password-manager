@@ -116,7 +116,7 @@ Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `ci:`), s
 
 ### Versioning and releases
 
-`version:` in `pubspec.yaml` is `X.Y.Z+N`. Bump `X.Y.Z` by hand in the PR that warrants it; never touch `+N`. Nothing ships on merge: `.github/workflows/release.yml` is `workflow_dispatch` only, with a `channel` input:
+`version:` in `pubspec.yaml` is `X.Y.Z+N`. Bump `X.Y.Z` by hand in the PR that warrants it; never touch `+N` outside of that bump. The one exception is the `X.Y.Z` bump itself: hand-set `+N` to a low, positive, buildable number (never `0` — `versionCode = flutter.versionCode` in `android/app/build.gradle.kts` requires a positive integer, so `+0` breaks Android builds on `main` until the next dispatch) so the counter restarts near the new version line instead of continuing the old one's count. App Store Connect and the Chrome Web Store each require every uploaded build number to be strictly higher than the last one published for that app, so this reset is only safe directly after bumping `X.Y.Z` — never on an existing version line with builds already published. Nothing ships on merge: `.github/workflows/release.yml` is `workflow_dispatch` only, with a `channel` input:
 
 - `beta` (default) — bumps `+N`, commits `chore: bump build number to vX.Y.Z-beta+N` to the dispatched branch, tags it, and publishes a GitHub **pre-release** with every artifact.
 - `release` — same, tagged `vX.Y.Z+N`, a normal GitHub release.
