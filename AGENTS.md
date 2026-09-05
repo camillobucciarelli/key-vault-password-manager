@@ -118,8 +118,10 @@ Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `ci:`), s
 
 `version:` in `pubspec.yaml` is `X.Y.Z+N`. Bump `X.Y.Z` by hand in the PR that warrants it; never touch `+N`. Nothing ships on merge: `.github/workflows/release.yml` is `workflow_dispatch` only, with a `channel` input:
 
-- `beta` (default) — bumps `+N`, commits `chore: bump build number to vX.Y.Z-beta+N` to the dispatched branch, tags it, and publishes a GitHub **pre-release** with every artifact. No store publishing.
-- `release` — same, tagged `vX.Y.Z+N`, a normal GitHub release, plus the App Store Connect and Chrome Web Store publish jobs.
+- `beta` (default) — bumps `+N`, commits `chore: bump build number to vX.Y.Z-beta+N` to the dispatched branch, tags it, and publishes a GitHub **pre-release** with every artifact.
+- `release` — same, tagged `vX.Y.Z+N`, a normal GitHub release.
+
+Both channels run the App Store Connect (TestFlight) and Chrome Web Store publish jobs — there is no separate staged/beta track on those stores, so a beta dispatch reaches their users too. Only the GitHub release's pre-release flag and the tag suffix differ.
 
 The `-beta` suffix lives in the tag only; `pubspec.yaml` stays numeric because `CFBundleShortVersionString` rejects pre-release suffixes. Run it with `gh workflow run release.yml -f channel=beta` (or `release`) from `main`.
 
