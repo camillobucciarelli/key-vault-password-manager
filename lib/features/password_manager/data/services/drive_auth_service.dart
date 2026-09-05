@@ -6,7 +6,7 @@ import 'package:loggy/loggy.dart';
 
 import '../../domain/errors/google_authorization_required_exception.dart';
 import '../../domain/models/cloud_storage_error.dart';
-import '../../domain/models/drive_account_summary.dart';
+import '../../domain/models/storage_account_summary.dart';
 import '../datasources/google_token_data_source.dart';
 import 'desktop_oauth_pkce_service.dart';
 import 'google_oauth_config.dart';
@@ -226,18 +226,26 @@ class DriveAuthService {
   /// (lightweight re-authentication, no interactive prompt). Desktop
   /// Drive-only OAuth does not guarantee identity without expanding scopes,
   /// so it always returns the exact fallback.
-  Future<DriveAccountSummary> getConnectedAccountSummary() async {
+  /// C-2: mobile reports the signed-in account's email. Desktop Drive-only
+  /// OAuth cannot assert identity without widening the scope, so it returns
+  /// the fixed fallback label — deliberately the Google product name, since
+  /// Google Drive is the account the user connected.
+  static const fallbackAccount = StorageAccountSummary(
+    displayLabel: 'Google Drive account',
+  );
+
+  Future<StorageAccountSummary> getConnectedAccountSummary() async {
     if (_isDesktop) {
-      return DriveAccountSummary.fallback;
+      return fallbackAccount;
     }
 
     await _ensureGoogleSignInInitialized();
     final lightweightAttempt = _googleSignIn.attemptLightweightAuthentication();
     final user = lightweightAttempt == null ? null : await lightweightAttempt;
     if (user == null || user.email.trim().isEmpty) {
-      return DriveAccountSummary.fallback;
+      return fallbackAccount;
     }
-    return DriveAccountSummary(displayLabel: user.email, email: user.email);
+    return StorageAccountSummary(displayLabel: user.email, email: user.email);
   }
 
   Future<GoogleSignInAccount> _authenticateForDriveScopes() async {

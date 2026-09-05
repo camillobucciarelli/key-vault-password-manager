@@ -5,8 +5,15 @@ import 'package:http/http.dart' as http;
 import 'package:loggy/loggy.dart';
 
 import '../../domain/models/cloud_storage_error.dart';
-import '../../domain/models/drive_remote_file.dart';
+import '../../domain/models/remote_file.dart';
 import 'drive_auth_service.dart';
+
+/// spec 010 §Domain vocabulary — the stable persisted machine id of this
+/// provider. It is not a label, an enum ordinal, a Dart type name or an OAuth
+/// client id, and Google rebranding must not change it. Declared next to the
+/// lowest-level Google file so both this service and its adapter can stamp
+/// remote files with it without importing each other.
+const googleDriveProviderId = 'google_drive';
 
 class GoogleDriveApiService {
   GoogleDriveApiService({
@@ -21,7 +28,7 @@ class GoogleDriveApiService {
   final DriveAuthService _driveAuthService;
   final http.Client _httpClient;
 
-  Future<List<DriveRemoteFile>> listKdbxFilesInDrive({String? query}) async {
+  Future<List<RemoteFile>> listKdbxFilesInDrive({String? query}) async {
     const baseQuery =
         "mimeType != 'application/vnd.google-apps.folder' and trashed = false and name contains '.kdbx'";
     final normalizedQuery = query?.trim() ?? '';
@@ -50,10 +57,8 @@ class GoogleDriveApiService {
         .toList(growable: false);
   }
 
-  Future<List<DriveRemoteFile>> _fetchKdbxFiles({
-    required String driveQuery,
-  }) async {
-    final collected = <DriveRemoteFile>[];
+  Future<List<RemoteFile>> _fetchKdbxFiles({required String driveQuery}) async {
+    final collected = <RemoteFile>[];
     String? nextPageToken;
 
     do {
@@ -87,10 +92,10 @@ class GoogleDriveApiService {
       nextPageToken = payload['nextPageToken'] as String?;
     } while (nextPageToken != null && nextPageToken.isNotEmpty);
 
-    return List<DriveRemoteFile>.unmodifiable(collected);
+    return List<RemoteFile>.unmodifiable(collected);
   }
 
-  Future<DriveRemoteFile> getFileMetadata(String fileId) async {
+  Future<RemoteFile> getFileMetadata(String fileId) async {
     final uri = Uri.parse('$_apiBase/files/$fileId').replace(
       queryParameters: {'fields': 'id,name,modifiedTime,md5Checksum,size'},
     );
@@ -100,7 +105,7 @@ class GoogleDriveApiService {
     return _mapRemoteFile(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
-  Future<DriveRemoteFile> createFile({
+  Future<RemoteFile> createFile({
     required String fileName,
     required Uint8List bytes,
   }) async {
@@ -132,7 +137,7 @@ class GoogleDriveApiService {
     return getFileMetadata(payload['id'] as String);
   }
 
-  Future<DriveRemoteFile> updateFile({
+  Future<RemoteFile> updateFile({
     required String fileId,
     required Uint8List bytes,
   }) async {
@@ -182,14 +187,15 @@ class GoogleDriveApiService {
     return response;
   }
 
-  DriveRemoteFile _mapRemoteFile(Map<String, dynamic> map) {
-    return DriveRemoteFile(
+  RemoteFile _mapRemoteFile(Map<String, dynamic> map) {
+    return RemoteFile(
+      providerId: googleDriveProviderId,
       id: map['id'] as String,
       name: map['name'] as String,
       modifiedTime: map['modifiedTime'] == null
           ? null
           : DateTime.tryParse(map['modifiedTime'] as String)?.toLocal(),
-      md5Checksum: map['md5Checksum'] as String?,
+      contentChecksum: map['md5Checksum'] as String?,
       size: map['size'] == null ? null : int.tryParse(map['size'] as String),
     );
   }

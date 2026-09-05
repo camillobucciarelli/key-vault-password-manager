@@ -135,3 +135,36 @@ name in the architecture test allowlist.
     51:  final GoogleDriveApiService _googleDriveApiService;
 
 Removed by T301.
+
+## Five-platform Google smoke
+
+Spec 010 T605. **Open**: this matrix is human-run on real hardware, so no
+automated run can close it. The release gate permits no `fail` row, and every
+`not-run` needs an approved waiver naming approver, date and a concrete
+environment/release reason — "covered on host" is invalid, and one platform's
+result never qualifies another. Record no account, object id, path or token.
+
+Each platform runs the same checklist from `spec.md`:
+
+1. connect and show the safe account label/fallback;
+2. select a remote `.kdbx` through the selection mechanism that ships at the
+   time (the current in-app list, or the spec 013 Picker once 013 has landed);
+3. link/download an existing file and create/link a new one;
+4. manual no-change / local-only / remote-only sync;
+5. restart, then verify the persisted mapping and auto-sync after a local edit;
+6. force a conflict and exercise Keep local, Use remote and Cancel;
+7. confirm a legacy (version 1) mapping still opens, keeps its baselines and
+   is rewritten as `schemaVersion: 2` on the next successful save;
+8. confirm the remote stays one externally openable `.kdbx`;
+9. confirm provider failures surface the fixed safe messages, with no raw
+   Google text, token or URL anywhere in the UI;
+10. inspect the persisted `sync_mappings.json` (redacted) for the version-2
+    keys and the absence of the legacy Drive keys.
+
+| Platform | Auth path | Result | Date | Approver | Waiver reason |
+| --- | --- | --- | --- | --- | --- |
+| Android | mobile Google Sign-In + Drive scope | `not-run` | | | |
+| iOS | mobile Google Sign-In + Drive scope | `not-run` | | | |
+| macOS | desktop browser OAuth PKCE + secure token store | `not-run` | | | |
+| Windows | desktop browser OAuth PKCE + secure token store | `not-run` | | | |
+| Linux | desktop browser OAuth PKCE + secure token store | `not-run` | | | |

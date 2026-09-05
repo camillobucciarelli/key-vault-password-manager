@@ -255,7 +255,7 @@ in this file.
 
 ## Phase 5 — DI and cleanup
 
-- [ ] **T501 Wire direct Google implementation** — owner:
+- [x] **T501 Wire direct Google implementation** — owner:
   `senior-flutter-dev`  
   Files: `di/password_manager_data_di.dart`.  
   Acceptance: one lazy singleton Google adapter, one direct
@@ -270,7 +270,7 @@ in this file.
   provider never injected into presentation.  
   Verify: DI smoke and coordinator/BLoC tests.
 
-- [ ] **T503 Remove obsolete Drive domain models** — owner:
+- [x] **T503 Remove obsolete Drive domain models** — owner:
   `senior-flutter-dev`  
   Files: delete `domain/models/drive_remote_file.dart`,
   `domain/models/drive_account_summary.dart`; update all tests/fakes/imports.  
@@ -281,14 +281,14 @@ in this file.
 
 ## Phase 6 — Validation and release gate
 
-- [ ] **T601 Run targeted provider/migration suites** — owner:
+- [x] **T601 Run targeted provider/migration suites** — owner:
   `senior-flutter-dev`  
   Files: tests only as fixes require.  
   Acceptance: architecture, mapping, Google adapter/API, orchestrator, repository
   and use-case suites green.  
   Verify: commands from `plan.md` M6.
 
-- [ ] **T601b Enforce legacy/source allowlist** — owner:
+- [x] **T601b Enforce legacy/source allowlist** — owner:
   `senior-flutter-dev`  
   Files: architecture test and all search results.  
   Acceptance: every identifier banned by acceptance criterion 3 in `spec.md` has
@@ -302,13 +302,13 @@ in this file.
   each symbol individually and permits no directory/glob/comment exception.  
   Verify: exact `rg` commands and allowlist from `plan.md` M6.
 
-- [ ] **T602 Run sync safety suites** — owner: `senior-flutter-dev`  
+- [x] **T602 Run sync safety suites** — owner: `senior-flutter-dev`  
   Files: no production change unless test finds regression.  
   Acceptance: mutex/writer routing, edit-vs-sync, active 008 convergence and
   deletion model suites green; no shared-invariant regression.  
   Verify: commands from `plan.md` M6.
 
-- [ ] **T603 Run presentation regression** — owner:
+- [x] **T603 Run presentation regression** — owner:
   `senior-flutter-dev`  
   Files: coordinator/BLoC/widget tests.  
   Acceptance: static/unrelated copy, remote selection, link, sync status/conflict
@@ -317,7 +317,7 @@ in this file.
   behavior is compared against whatever spec 013 defines when 013 has landed.  
   Verify: targeted presentation tests.
 
-- [ ] **T604 Full static/test gate and scope guard** — owner:
+- [x] **T604 Full static/test gate and scope guard** — owner:
   `senior-flutter-dev`  
   Files: whole Dart workspace.  
   Acceptance: formatted code, `flutter analyze` clean, full `flutter test` green.

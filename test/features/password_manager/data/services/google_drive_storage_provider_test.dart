@@ -11,7 +11,7 @@ import 'package:password_manager/features/password_manager/data/services/google_
 import 'package:password_manager/features/password_manager/data/services/google_drive_storage_provider.dart';
 import 'package:password_manager/features/password_manager/domain/errors/google_authorization_required_exception.dart';
 import 'package:password_manager/features/password_manager/domain/models/cloud_storage_error.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_account_summary.dart';
+import 'package:password_manager/features/password_manager/domain/models/storage_account_summary.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/cloud_storage_provider.dart';
 
 // spec 010 T202/T203 — the Google adapter: neutral model mapping, behaviour
@@ -157,12 +157,12 @@ void main() {
 
     test('account summary maps label and email; fallback preserved', () async {
       final p = provider((_) => json({}));
-      auth.account = DriveAccountSummary.fallback;
+      auth.account = DriveAuthService.fallbackAccount;
       var account = await p.getConnectedAccount();
       expect(account.displayLabel, 'Google Drive account');
       expect(account.email, isNull);
 
-      auth.account = const DriveAccountSummary(
+      auth.account = const StorageAccountSummary(
         displayLabel: 'a@b.c',
         email: 'a@b.c',
       );
@@ -411,7 +411,7 @@ class _FakeAuth implements DriveAuthService {
   bool connected = false;
   Object? connectError;
   Object? tokenError;
-  DriveAccountSummary account = DriveAccountSummary.fallback;
+  StorageAccountSummary account = DriveAuthService.fallbackAccount;
 
   @override
   Future<void> connect() async {
@@ -427,7 +427,7 @@ class _FakeAuth implements DriveAuthService {
   Future<bool> isConnected() async => connected;
 
   @override
-  Future<DriveAccountSummary> getConnectedAccountSummary() async => account;
+  Future<StorageAccountSummary> getConnectedAccountSummary() async => account;
 
   @override
   Future<String> getValidAccessToken({bool forceRefresh = false}) async {

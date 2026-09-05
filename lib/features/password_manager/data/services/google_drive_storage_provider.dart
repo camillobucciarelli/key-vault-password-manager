@@ -7,7 +7,6 @@ import 'package:loggy/loggy.dart';
 
 import '../../domain/errors/google_authorization_required_exception.dart';
 import '../../domain/models/cloud_storage_error.dart';
-import '../../domain/models/drive_remote_file.dart';
 import '../../domain/models/remote_file.dart';
 import '../../domain/models/storage_account_summary.dart';
 import '../../domain/repositories/cloud_storage_provider.dart';
@@ -26,7 +25,7 @@ class GoogleDriveStorageProvider implements CloudStorageProvider {
   }) : _auth = authService,
        _api = apiService;
 
-  static const String id = 'google_drive';
+  static const String id = googleDriveProviderId;
 
   final DriveAuthService _auth;
   final GoogleDriveApiService _api;
@@ -44,56 +43,32 @@ class GoogleDriveStorageProvider implements CloudStorageProvider {
   Future<void> disconnect() => _guard(_auth.disconnect);
 
   @override
-  Future<StorageAccountSummary> getConnectedAccount() => _guard(() async {
-    final summary = await _auth.getConnectedAccountSummary();
-    return StorageAccountSummary(
-      displayLabel: summary.displayLabel,
-      email: summary.email,
-    );
-  });
+  Future<List<RemoteFile>> listKdbxFiles({String? query}) =>
+      _guard(() => _api.listKdbxFilesInDrive(query: query));
 
   @override
-  Future<List<RemoteFile>> listKdbxFiles({String? query}) => _guard(() async {
-    final files = await _api.listKdbxFilesInDrive(query: query);
-    return List<RemoteFile>.unmodifiable(files.map(_toRemoteFile));
-  });
-
-  @override
-  Future<RemoteFile> getFileMetadata(String remoteFileId) => _guard(
-    () async => _toRemoteFile(await _api.getFileMetadata(remoteFileId)),
-  );
+  Future<RemoteFile> getFileMetadata(String remoteFileId) =>
+      _guard(() => _api.getFileMetadata(remoteFileId));
 
   @override
   Future<RemoteFile> createFile({
     required String name,
     required Uint8List bytes,
-  }) => _guard(
-    () async =>
-        _toRemoteFile(await _api.createFile(fileName: name, bytes: bytes)),
-  );
+  }) => _guard(() => _api.createFile(fileName: name, bytes: bytes));
 
   @override
   Future<RemoteFile> updateFile({
     required String remoteFileId,
     required Uint8List bytes,
-  }) => _guard(
-    () async => _toRemoteFile(
-      await _api.updateFile(fileId: remoteFileId, bytes: bytes),
-    ),
-  );
+  }) => _guard(() => _api.updateFile(fileId: remoteFileId, bytes: bytes));
 
   @override
   Future<Uint8List> downloadFile(String remoteFileId) =>
       _guard(() => _api.downloadFile(remoteFileId));
 
-  RemoteFile _toRemoteFile(DriveRemoteFile file) => RemoteFile(
-    providerId: id,
-    id: file.id,
-    name: file.name,
-    modifiedTime: file.modifiedTime,
-    contentChecksum: file.md5Checksum,
-    size: file.size,
-  );
+  @override
+  Future<StorageAccountSummary> getConnectedAccount() =>
+      _guard(_auth.getConnectedAccountSummary);
 
   /// spec 010 Google/transport mapping table. Typed failures the Google
   /// services already classified pass through; transport and decoding

@@ -12,7 +12,7 @@ import 'package:password_manager/features/password_manager/data/services/desktop
 import 'package:password_manager/features/password_manager/data/services/drive_auth_service.dart';
 import 'package:password_manager/features/password_manager/data/services/google_drive_api_service.dart';
 import 'package:password_manager/features/password_manager/data/services/google_oauth_config.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/remote_file.dart';
 
 // =============================================================================
 // spec 008 Gate 0 (T005) — Drive conditional upload spike.
@@ -85,7 +85,7 @@ void main() {
       // spec FR-10: a definite success must be verifiable by refetching the
       // merged checksum, not by trusting the response.
       expect(
-        outcome.remote!.md5Checksum,
+        outcome.remote!.contentChecksum,
         md5.convert(const [4, 5, 6]).toString(),
       );
     });
@@ -271,23 +271,24 @@ void main() {
       expect(source, contains('headers: {...headers,'));
     });
 
-    test('DriveRemoteFile carries no concurrency token', () {
-      // The model declares exactly five fields, none of which is a
+    test('RemoteFile carries no concurrency token', () {
+      // The model declares exactly six fields, none of which is a
       // server-enforceable precondition token. Asserted against the source,
       // because `props` is a list of VALUES: `isNot(contains('etag'))` on it
       // would pass even if an `etag` field existed.
       final source = File(
-        'lib/features/password_manager/domain/models/drive_remote_file.dart',
+        'lib/features/password_manager/domain/models/remote_file.dart',
       ).readAsStringSync();
       final fields = RegExp(
         r'^\s*final\s+[\w<>?]+\s+(\w+);',
         multiLine: true,
       ).allMatches(source).map((m) => m.group(1)).toList();
       expect(fields, <String>[
+        'providerId',
         'id',
         'name',
         'modifiedTime',
-        'md5Checksum',
+        'contentChecksum',
         'size',
       ]);
       for (final token in const ['etag', 'version', 'headRevisionId']) {
@@ -298,11 +299,21 @@ void main() {
         );
       }
 
-      // `md5Checksum` is content-derived, not a concurrency token: two
+      // `contentChecksum` is content-derived, not a concurrency token: two
       // different remote generations with identical content share it, so it
       // cannot serialize writes on its own.
-      const first = DriveRemoteFile(id: 'a', name: 'a.kdbx', md5Checksum: 'x');
-      const second = DriveRemoteFile(id: 'a', name: 'a.kdbx', md5Checksum: 'x');
+      const first = RemoteFile(
+        providerId: 'google_drive',
+        id: 'a',
+        name: 'a.kdbx',
+        contentChecksum: 'x',
+      );
+      const second = RemoteFile(
+        providerId: 'google_drive',
+        id: 'a',
+        name: 'a.kdbx',
+        contentChecksum: 'x',
+      );
       expect(
         first,
         second,
@@ -429,7 +440,7 @@ class _UploadResult {
 
   final _UploadOutcome classification;
   final int? statusCode;
-  final DriveRemoteFile? remote;
+  final RemoteFile? remote;
 }
 
 enum _RecoveryBranch {
@@ -494,10 +505,11 @@ Future<_UploadResult> _spikeConditionalUpdate({
     return _UploadResult(
       classification: _UploadOutcome.appliedDefinite,
       statusCode: response.statusCode,
-      remote: DriveRemoteFile(
+      remote: RemoteFile(
+        providerId: 'google_drive',
         id: payload['id'] as String,
         name: payload['name'] as String,
-        md5Checksum: payload['md5Checksum'] as String?,
+        contentChecksum: payload['md5Checksum'] as String?,
       ),
     );
   }

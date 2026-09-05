@@ -148,7 +148,7 @@ void main() {
       expect(remote.id, 'm');
       expect(remote.name, 'm.kdbx');
       expect(remote.modifiedTime, DateTime.utc(2026, 1, 2, 3, 4, 5).toLocal());
-      expect(remote.md5Checksum, 'abc');
+      expect(remote.contentChecksum, 'abc');
       expect(remote.size, 4096);
     });
 
@@ -157,7 +157,7 @@ void main() {
 
       final remote = await api.getFileMetadata('m');
 
-      expect(remote.md5Checksum, isNull);
+      expect(remote.contentChecksum, isNull);
       expect(remote.size, isNull);
     });
   });
@@ -185,7 +185,7 @@ void main() {
 
       expect(requests.map((r) => r.method), ['POST', 'GET']);
       expect(remote.id, 'created');
-      expect(remote.md5Checksum, 'fresh');
+      expect(remote.contentChecksum, 'fresh');
     });
 
     test('updateFile PATCHes media then refetches metadata', () async {
@@ -206,7 +206,7 @@ void main() {
       );
 
       expect(requests.map((r) => r.method), ['PATCH', 'GET']);
-      expect(remote.md5Checksum, 'after');
+      expect(remote.contentChecksum, 'after');
     });
 
     test('downloadFile GETs alt=media and returns the body bytes', () async {

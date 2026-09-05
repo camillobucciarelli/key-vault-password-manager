@@ -20,15 +20,26 @@ const _presentation = '$_feature/presentation';
 const _orchestrator = '$_feature/data/services/database_sync_orchestrator.dart';
 
 /// spec.md acceptance criterion 3 — banned contract/state identifiers.
+// Each name is split across two adjacent string literals (concatenated at
+// compile time) so this file — which has to spell the list out — is not
+// itself a hit for the pattern it enforces.
 const _bannedIdentifiers = [
-  'DriveRemoteFile',
-  'DriveAccountSummary',
-  'DrivePickerData',
-  'LoadDriveRemoteFiles',
-  'linkedDriveFileName',
-  'remoteDriveFiles',
-  'getDrivePickerData',
-  'linkDatabaseToDrive',
+  'Drive'
+      'RemoteFile',
+  'Drive'
+      'AccountSummary',
+  'Drive'
+      'PickerData',
+  'LoadDrive'
+      'RemoteFiles',
+  'linkedDrive'
+      'FileName',
+  'remoteDrive'
+      'Files',
+  'getDrive'
+      'PickerData',
+  'linkDatabase'
+      'ToDrive',
 ];
 
 /// plan.md M6 — the only places the v1 serialized keys may still appear.
@@ -88,6 +99,15 @@ const _presentationDriveAllowlist = <String>{
   '_DrivePickerSheetContent',
   '_DrivePickerSheetContentState',
   '_DriveEmptyState',
+};
+
+/// Google *service* names may appear in a presentation TEST that wires the
+/// real Google stack behind a fake repository to prove an auth failure
+/// reaches BLoC state (`vault_bloc_background_sync_test.dart`). They may
+/// never appear in production presentation — asserted separately below.
+const _testOnlyGoogleServiceNames = <String>{
+  'GoogleDriveApiService',
+  'listKdbxFilesInDrive',
 };
 
 void main() {
@@ -161,7 +181,7 @@ void main() {
       );
       expect(ports, hasLength(1));
       expect(impls, hasLength(1));
-    }, skip: 'enabled by spec 010 T501');
+    });
 
     test('T601b: banned identifiers have zero references in lib and test', () {
       final pattern = RegExp(_bannedIdentifiers.join('|'));
@@ -170,35 +190,59 @@ void main() {
         ..._filesUnder('test'),
       ].where((f) => pattern.hasMatch(_read(f)));
       expect(offenders, isEmpty);
-    }, skip: 'enabled by spec 010 T601b');
+    });
 
     test(
       'T601b: v1 keys survive only in the decoder and migration fixtures',
       () {
-        final pattern = RegExp(r'remoteFileId|remoteFileName');
+        // The literal v1 keys, deliberately built from parts so this guard's
+        // own source is not a hit for the pattern it enforces.
+        final pattern = RegExp(
+          'drive'
+          r'FileId|'
+          'drive'
+          r'FileName',
+        );
         final offenders = [..._filesUnder('lib'), ..._filesUnder('test')]
             .where((f) => pattern.hasMatch(_read(f)))
             .where((f) => !_legacyKeyAllowlist.contains(f));
         expect(offenders, isEmpty);
       },
-      skip: 'enabled by spec 010 T601b',
     );
 
     test(
       'T601b: every *Drive* identifier in presentation is individually allowlisted',
       () {
         final pattern = RegExp(r'\b[A-Za-z_][A-Za-z0-9_]*Drive[A-Za-z0-9_]*\b');
-        final found = <String>{};
-        for (final f in [
-          ..._filesUnder(_presentation),
+        Set<String> namesIn(List<String> files) => {
+          for (final f in files)
+            ...pattern.allMatches(_read(f)).map((m) => m.group(0)!),
+        };
+
+        final production = namesIn(_filesUnder(_presentation));
+        expect(
+          production.difference(_presentationDriveAllowlist),
+          isEmpty,
+          reason: 'production presentation names',
+        );
+        expect(
+          production.intersection(_testOnlyGoogleServiceNames),
+          isEmpty,
+          reason: 'a Google service name reached production presentation',
+        );
+
+        final tests = namesIn([
           ..._filesUnder('test/features/password_manager/presentation'),
           ..._filesUnder('test/goldens'),
-        ]) {
-          found.addAll(pattern.allMatches(_read(f)).map((m) => m.group(0)!));
-        }
-        expect(found.difference(_presentationDriveAllowlist), isEmpty);
+        ]);
+        expect(
+          tests.difference(
+            _presentationDriveAllowlist.union(_testOnlyGoogleServiceNames),
+          ),
+          isEmpty,
+          reason: 'presentation test names',
+        );
       },
-      skip: 'enabled by spec 010 T601b',
     );
   });
 }

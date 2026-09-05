@@ -8,6 +8,11 @@ import 'package:password_manager/features/password_manager/data/datasources/data
 import 'package:password_manager/features/password_manager/data/datasources/secure_data_source.dart';
 import 'package:password_manager/features/password_manager/data/services/legacy_database_registry_migration.dart';
 import 'package:password_manager/features/password_manager/data/services/database_sync_orchestrator.dart';
+import 'package:password_manager/features/password_manager/data/services/database_path_mutex.dart';
+import 'package:password_manager/features/password_manager/data/services/google_drive_storage_provider.dart';
+import 'package:password_manager/features/password_manager/domain/repositories/cloud_storage_provider.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/link_database_to_remote_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/sync_database_now_usecase.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 import 'package:password_manager/injection_container.dart' as di;
@@ -212,6 +217,31 @@ void main() {
       preferences.containsKey(
         LegacyDatabaseRegistryMigration.recentDatabasePathsKey,
       ),
+      isTrue,
+    );
+  });
+
+  test('spec 010 T501/T502: one Google adapter is the sole provider port, '
+      'shared by the repository and the orchestrator', () async {
+    await di.init();
+
+    final adapter = di.sl<GoogleDriveStorageProvider>();
+    final port = di.sl<CloudStorageProvider>();
+
+    // One instance, bound directly — not a second construction and not a
+    // registry lookup.
+    expect(identical(port, adapter), isTrue);
+    expect(port.providerId, 'google_drive');
+    expect(identical(di.sl<CloudStorageProvider>(), port), isTrue);
+
+    // The two meaningful use cases resolve; no pass-through use case was
+    // added for the repository's simple getters.
+    expect(di.sl<LinkDatabaseToRemoteUseCase>(), isNotNull);
+    expect(di.sl<SyncDatabaseNowUseCase>(), isNotNull);
+
+    // The shared writer mutex stays one process-wide instance.
+    expect(
+      identical(di.sl<DatabasePathMutex>(), di.sl<DatabasePathMutex>()),
       isTrue,
     );
   });

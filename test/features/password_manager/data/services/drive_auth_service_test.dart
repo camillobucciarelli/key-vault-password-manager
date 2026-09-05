@@ -9,7 +9,6 @@ import 'package:password_manager/features/password_manager/data/services/desktop
 import 'package:password_manager/features/password_manager/data/services/drive_auth_service.dart';
 import 'package:password_manager/features/password_manager/data/services/google_oauth_config.dart';
 import 'package:password_manager/features/password_manager/domain/errors/google_authorization_required_exception.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_account_summary.dart';
 
 /// spec-003 T4/C-2: desktop Drive-only OAuth cannot guarantee identity
 /// without expanding scopes, so it must always return the exact fallback
@@ -38,7 +37,7 @@ void main() {
 
       final summary = await service.getConnectedAccountSummary();
 
-      expect(summary, DriveAccountSummary.fallback);
+      expect(summary, DriveAuthService.fallbackAccount);
       expect(summary.displayLabel, 'Google Drive account');
       expect(summary.email, isNull);
     });
