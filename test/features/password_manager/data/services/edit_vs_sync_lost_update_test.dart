@@ -8,10 +8,10 @@ import 'package:kdbx/kdbx.dart';
 import 'package:password_manager/features/password_manager/data/datasources/sync_metadata_data_source.dart';
 import 'package:password_manager/features/password_manager/data/services/database_path_mutex.dart';
 import 'package:password_manager/features/password_manager/data/services/database_sync_orchestrator.dart';
-import 'package:password_manager/features/password_manager/data/services/google_drive_api_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/repositories/cloud_storage_provider.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 import 'package:path/path.dart' as p;
 
@@ -62,11 +62,12 @@ void main() {
       final mutex = DatabasePathMutex();
       final vaultService = VaultKdbxService(mutex: mutex);
       final metadata = _InMemoryMetadata();
-      final drive = _GatedDrive()
-        ..metadataResult = DriveRemoteFile(
+      final drive = _GatedProvider()
+        ..metadataResult = RemoteFile(
+          providerId: 'google_drive',
           id: 'remote-1',
           name: 'vault.kdbx',
-          md5Checksum: md5.convert(remoteBytes).toString(),
+          contentChecksum: md5.convert(remoteBytes).toString(),
         )
         ..downloadResult = Uint8List.fromList(remoteBytes);
       await metadata.upsertMapping(
@@ -86,7 +87,7 @@ void main() {
       final orchestrator = DatabaseSyncOrchestrator(
         resolveDatabaseId: (databasePath) async => databasePath,
         syncMetadataDataSource: metadata,
-        googleDriveApiService: drive,
+        cloudStorageProvider: drive,
         mutex: mutex,
       );
 
@@ -162,18 +163,21 @@ class _InMemoryMetadata implements SyncMetadataDataSource {
       throw UnimplementedError('${invocation.memberName} not needed here');
 }
 
-class _GatedDrive implements GoogleDriveApiService {
-  DriveRemoteFile? metadataResult;
+class _GatedProvider implements CloudStorageProvider {
+  RemoteFile? metadataResult;
   Uint8List? downloadResult;
   final Completer<void> downloadGate = Completer<void>();
   final Completer<void> downloadRequested = Completer<void>();
 
   @override
-  Future<DriveRemoteFile> getFileMetadata(String fileId) async =>
+  String get providerId => 'google_drive';
+
+  @override
+  Future<RemoteFile> getFileMetadata(String remoteFileId) async =>
       metadataResult!;
 
   @override
-  Future<Uint8List> downloadFile(String fileId) async {
+  Future<Uint8List> downloadFile(String remoteFileId) async {
     if (!downloadRequested.isCompleted) {
       downloadRequested.complete();
     }

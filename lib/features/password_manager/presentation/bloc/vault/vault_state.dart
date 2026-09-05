@@ -3,7 +3,7 @@ import 'package:path/path.dart' as p;
 
 import '../../../domain/models/apple_autofill_v2_models.dart';
 import '../../../domain/models/database_sync_status.dart';
-import '../../../domain/models/drive_remote_file.dart';
+import '../../../domain/models/remote_file.dart';
 import '../../../domain/models/duplicate_group.dart';
 import '../../../domain/models/sync_conflict.dart';
 import '../../../domain/models/sync_merge_models.dart';
@@ -126,7 +126,7 @@ class VaultState extends Equatable {
   /// destination can show it instead of a hard-coded null.
   final String? lastSyncedLocalChecksum;
   final SyncConflict? pendingSyncConflict;
-  final List<DriveRemoteFile> remoteDriveFiles;
+  final List<RemoteFile> remoteDriveFiles;
   final bool isLoadingRemoteDriveFiles;
   final String? remoteDriveFilesError;
   final bool remoteDriveFilesReconnectRequired;
@@ -216,7 +216,7 @@ class VaultState extends Equatable {
     DateTime? lastSyncAt,
     String? lastSyncedLocalChecksum,
     SyncConflict? pendingSyncConflict,
-    List<DriveRemoteFile>? remoteDriveFiles,
+    List<RemoteFile>? remoteDriveFiles,
     bool? isLoadingRemoteDriveFiles,
     String? remoteDriveFilesError,
     bool? remoteDriveFilesReconnectRequired,

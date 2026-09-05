@@ -12,7 +12,7 @@ import '../../domain/models/database_import_result.dart';
 import '../../domain/models/database_import_transaction.dart';
 import '../../domain/models/database_selection_item.dart';
 import '../../domain/models/database_sync_mapping.dart';
-import '../../domain/models/drive_account_summary.dart';
+import '../../domain/models/remote_file_selection_data.dart';
 import '../../domain/models/recent_database_removal_mode.dart';
 import '../../domain/repositories/database_file_repository.dart';
 import '../../domain/repositories/database_registry_repository.dart';
@@ -414,13 +414,13 @@ class DatabaseSessionCoordinator {
 
   /// C-2: Drive files for the picker plus the connected account summary
   /// (mobile email, or the exact desktop fallback).
-  Future<DrivePickerData> getDrivePickerData() async {
+  Future<RemoteFileSelectionData> getDrivePickerData() async {
     if (!await databaseSyncRepository.isConnected()) {
       await databaseSyncRepository.connect();
     }
     final files = await databaseSyncRepository.listRemoteFiles();
     final account = await databaseSyncRepository.getConnectedAccount();
-    return DrivePickerData(files: files, account: account);
+    return RemoteFileSelectionData(files: files, account: account);
   }
 
   /// spec 014 FR-5 recovery, user-initiated only: discards metadata no key
@@ -511,7 +511,7 @@ class DatabaseSessionCoordinator {
         await _clearSessionCredentials();
         final items = await _loadSelectionItems();
         if (staged.imported.sourceType == DatabaseSourceType.drive) {
-          await databaseSyncRepository.linkDatabaseToDrive(
+          await databaseSyncRepository.linkDatabaseToRemote(
             databasePath: duplicateRecord.canonicalPath,
             remoteFileId: staged.imported.sourceRef,
           );
@@ -618,7 +618,7 @@ class DatabaseSessionCoordinator {
       await _clearSessionCredentials();
       final items = await _loadSelectionItems();
       if (staged.imported.sourceType == DatabaseSourceType.drive) {
-        await databaseSyncRepository.linkDatabaseToDrive(
+        await databaseSyncRepository.linkDatabaseToRemote(
           databasePath: recordToSave.canonicalPath,
           remoteFileId: staged.imported.sourceRef,
         );
@@ -1241,7 +1241,7 @@ class DatabaseSessionCoordinator {
         duplicatePrompt.imported.sourceRef != null &&
         result.path != null) {
       try {
-        await databaseSyncRepository.linkDatabaseToDrive(
+        await databaseSyncRepository.linkDatabaseToRemote(
           databasePath: result.path!,
           remoteFileId: duplicatePrompt.imported.sourceRef!,
         );

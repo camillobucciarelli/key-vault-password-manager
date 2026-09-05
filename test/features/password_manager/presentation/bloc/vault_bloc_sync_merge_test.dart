@@ -7,8 +7,8 @@ import 'package:password_manager/features/password_manager/data/services/vault_c
 import 'package:password_manager/features/password_manager/data/services/vault_duplicate_service.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_status.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_account_summary.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/storage_account_summary.dart';
+import 'package:password_manager/features/password_manager/domain/models/remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/models/merge_field_display.dart';
 import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
 import 'package:password_manager/features/password_manager/domain/models/sync_merge_models.dart';
@@ -392,11 +392,11 @@ class _FakeSyncRepo implements DatabaseSyncRepository {
   }
 
   @override
-  Future<DriveAccountSummary> getConnectedAccount() async =>
-      DriveAccountSummary.fallback;
+  Future<StorageAccountSummary> getConnectedAccount() async =>
+      const StorageAccountSummary(displayLabel: 'Google Drive account');
 
   @override
-  Future<List<DriveRemoteFile>> listRemoteFiles({String? query}) async => [];
+  Future<List<RemoteFile>> listRemoteFiles({String? query}) async => [];
 
   @override
   Future<Uint8List> downloadRemoteFile(String id) async => Uint8List(0);

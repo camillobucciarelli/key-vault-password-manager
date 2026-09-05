@@ -2081,7 +2081,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       ),
     );
     try {
-      final mapping = await databaseSyncRepository.linkDatabaseToDrive(
+      final mapping = await databaseSyncRepository.linkDatabaseToRemote(
         databasePath: state.databasePath,
         remoteFileId: event.remoteFileId,
         remoteFileName: event.remoteFileName,

@@ -18,7 +18,7 @@ import 'package:path/path.dart' as p;
 import 'package:password_manager/features/password_manager/data/services/vault_csv_import_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_group.dart';
@@ -297,19 +297,22 @@ void main() {
     final repo = _ScenarioSyncRepository()
       ..connected = true
       ..remoteFiles = [
-        DriveRemoteFile(
+        RemoteFile(
+          providerId: 'google_drive',
           id: 'f1',
           name: 'Personal.kdbx',
           modifiedTime: DateTime(2026, 3, 12),
           size: 312000,
         ),
-        DriveRemoteFile(
+        RemoteFile(
+          providerId: 'google_drive',
           id: 'f2',
           name: 'Personal-old.kdbx',
           modifiedTime: DateTime(2024, 8, 4),
           size: 2400000,
         ),
-        DriveRemoteFile(
+        RemoteFile(
+          providerId: 'google_drive',
           id: 'f3',
           name: 'Work.kdbx',
           modifiedTime: DateTime(2026, 8, 2),

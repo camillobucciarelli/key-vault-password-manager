@@ -174,14 +174,14 @@ in this file.
 
 ## Phase 3 — Neutralize data workflow and repository
 
-- [ ] **T301 Inject provider port into orchestrator** — owner:
+- [x] **T301 Inject provider port into orchestrator** — owner:
   `senior-flutter-dev`  
   Files: `data/services/database_sync_orchestrator.dart`, tests/fakes.  
   Acceptance: no Google/Drive import or dependency; provider-neutral timeout name;
   same duration, lock scope, checksum fallback and sync branches.  
   Verify: T002 tests unchanged and green; review algorithm-only diff is empty.
 
-- [ ] **T302 Enforce mapping provider identity** — owner:
+- [x] **T302 Enforce mapping provider identity** — owner:
   `senior-flutter-dev`  
   Files: orchestrator and tests.  
   Acceptance: mapping/provider mismatch fails with safe unsupported-provider error
@@ -192,7 +192,7 @@ in this file.
   Verify: sentinel ID absent from exception/string/log/state/persistence; zero call
   counters and unchanged local/metadata/remote fixtures.
 
-- [ ] **T303 Neutralize application repository** — owner:
+- [x] **T303 Neutralize application repository** — owner:
   `senior-flutter-dev`  
   Files: `domain/repositories/database_sync_repository.dart`,
   `data/repositories/database_sync_repository_impl.dart`, repository fakes/tests.  
@@ -200,7 +200,7 @@ in this file.
   names; auth/account through provider, sync through orchestrator.  
   Verify: delegation tests and architecture guard.
 
-- [ ] **T304 Preserve mapping move/remove and auto-sync** — owner:
+- [x] **T304 Preserve mapping move/remove and auto-sync** — owner:
   `senior-flutter-dev`  
   Files: orchestrator, repository, metadata/rename/background-sync tests.  
   Acceptance: move/remove/toggle semantics and shared rename transaction remain

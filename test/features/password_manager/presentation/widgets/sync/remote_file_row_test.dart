@@ -1,9 +1,9 @@
-// FR-2 / T8: RemoteFileRow renders the real `DriveRemoteFile.size` when
+// FR-2 / T8: RemoteFileRow renders the real `RemoteFile.size` when
 // present, and omits it (no stray separator) when null.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/core/theme/app_theme.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/remote_file.dart';
 import 'package:password_manager/features/password_manager/presentation/widgets/sync/remote_file_row.dart';
 
 Widget _wrap(Widget child) {
@@ -18,7 +18,12 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         const RemoteFileRow(
-          file: DriveRemoteFile(id: 'f1', name: 'Personal.kdbx', size: 2400000),
+          file: RemoteFile(
+            providerId: 'google_drive',
+            id: 'f1',
+            name: 'Personal.kdbx',
+            size: 2400000,
+          ),
           selected: false,
           isLinkedElsewhere: false,
         ),
@@ -32,7 +37,11 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         const RemoteFileRow(
-          file: DriveRemoteFile(id: 'f1', name: 'Work.kdbx'),
+          file: RemoteFile(
+            providerId: 'google_drive',
+            id: 'f1',
+            name: 'Work.kdbx',
+          ),
           selected: false,
           isLinkedElsewhere: false,
         ),

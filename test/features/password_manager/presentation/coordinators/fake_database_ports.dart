@@ -12,8 +12,8 @@ import 'package:password_manager/features/password_manager/domain/entities/datab
 import 'package:password_manager/features/password_manager/domain/models/database_import_result.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_import_transaction.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_account_summary.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/storage_account_summary.dart';
+import 'package:password_manager/features/password_manager/domain/models/remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_file_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
@@ -287,10 +287,12 @@ class FakeDatabaseSecurityRepository implements DatabaseSecurityRepository {
 class FakeDatabaseSyncRepository implements DatabaseSyncRepository {
   bool connected = false;
   int connectCalls = 0;
-  List<DriveRemoteFile> remoteFiles = const [];
+  List<RemoteFile> remoteFiles = const [];
   Uint8List downloadBytes = Uint8List(0);
   final Map<String, DatabaseSyncMapping> mappings = {};
-  DriveAccountSummary account = DriveAccountSummary.fallback;
+  StorageAccountSummary account = const StorageAccountSummary(
+    displayLabel: 'Google Drive account',
+  );
 
   @override
   Future<void> connect() async {
@@ -318,7 +320,7 @@ class FakeDatabaseSyncRepository implements DatabaseSyncRepository {
   Future<bool> isConnected() async => connected;
 
   @override
-  Future<DatabaseSyncMapping> linkDatabaseToDrive({
+  Future<DatabaseSyncMapping> linkDatabaseToRemote({
     required String databasePath,
     String? remoteFileId,
     String? remoteFileName,
@@ -335,7 +337,7 @@ class FakeDatabaseSyncRepository implements DatabaseSyncRepository {
   }
 
   @override
-  Future<List<DriveRemoteFile>> listRemoteFiles({String? query}) async =>
+  Future<List<RemoteFile>> listRemoteFiles({String? query}) async =>
       remoteFiles;
 
   @override
@@ -384,7 +386,7 @@ class FakeDatabaseSyncRepository implements DatabaseSyncRepository {
   }) async => const SyncNowSuccess();
 
   @override
-  Future<DriveAccountSummary> getConnectedAccount() async => account;
+  Future<StorageAccountSummary> getConnectedAccount() async => account;
 }
 
 /// `UnlockDatabaseUseCase` reads real KDBX bytes off disk; tests override

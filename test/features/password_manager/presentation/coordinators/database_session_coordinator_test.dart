@@ -15,8 +15,8 @@ import 'package:password_manager/features/password_manager/domain/models/apple_a
 import 'package:password_manager/features/password_manager/domain/models/database_dedup_result.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_selection_item.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_account_summary.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/storage_account_summary.dart';
+import 'package:password_manager/features/password_manager/domain/models/remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
@@ -750,14 +750,21 @@ void main() {
 
     test('Drive listing connects before loading remote files', () async {
       syncRepository.remoteFiles = const [
-        DriveRemoteFile(id: 'remote-id', name: 'remote.kdbx'),
+        RemoteFile(
+          providerId: 'google_drive',
+          id: 'remote-id',
+          name: 'remote.kdbx',
+        ),
       ];
 
       final picker = await coordinator.getDrivePickerData();
 
       expect(syncRepository.connectCalls, 1);
       expect(picker.files.single.name, 'remote.kdbx');
-      expect(picker.account, DriveAccountSummary.fallback);
+      expect(
+        picker.account,
+        const StorageAccountSummary(displayLabel: 'Google Drive account'),
+      );
     });
 
     test('Drive duplicate cancel preserves file and mapping', () async {
@@ -1908,7 +1915,7 @@ class _FakeAppleAutofillV2Coordinator
 class _FakeSyncRepository implements DatabaseSyncRepository {
   Uint8List downloadBytes = Uint8List(0);
   final Map<String, DatabaseSyncMapping> mappings = {};
-  List<DriveRemoteFile> remoteFiles = const [];
+  List<RemoteFile> remoteFiles = const [];
   bool connected = false;
   int connectCalls = 0;
   _MappingMoveFailurePoint? failNextMoveAt;
@@ -1940,7 +1947,7 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
   Future<bool> isConnected() async => connected;
 
   @override
-  Future<DatabaseSyncMapping> linkDatabaseToDrive({
+  Future<DatabaseSyncMapping> linkDatabaseToRemote({
     required String databasePath,
     String? remoteFileId,
     String? remoteFileName,
@@ -1958,7 +1965,7 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
   }
 
   @override
-  Future<List<DriveRemoteFile>> listRemoteFiles({String? query}) async {
+  Future<List<RemoteFile>> listRemoteFiles({String? query}) async {
     return remoteFiles;
   }
 
@@ -2032,8 +2039,8 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
   }
 
   @override
-  Future<DriveAccountSummary> getConnectedAccount() async =>
-      DriveAccountSummary.fallback;
+  Future<StorageAccountSummary> getConnectedAccount() async =>
+      const StorageAccountSummary(displayLabel: 'Google Drive account');
 }
 
 enum _MappingMoveFailurePoint {

@@ -18,7 +18,8 @@ import 'package:password_manager/core/utils/mobile_file_storage.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_security_profile.dart';
 import 'package:password_manager/features/password_manager/domain/errors/database_access_failure.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_account_summary.dart';
+import 'package:password_manager/features/password_manager/domain/models/remote_file_selection_data.dart';
+import 'package:password_manager/features/password_manager/domain/models/storage_account_summary.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/database_unlock/database_unlock_bloc.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/database_unlock/database_unlock_event.dart';
 import 'package:password_manager/features/password_manager/presentation/widgets/database/database_selection_sheets.dart';
@@ -201,7 +202,7 @@ void main() {
           await showDrivePickerSheet(
             context,
             // Never resolves during this test: captures the skeleton state.
-            loadPickerData: () => Completer<DrivePickerData>().future,
+            loadPickerData: () => Completer<RemoteFileSelectionData>().future,
           );
         },
       ),
@@ -224,9 +225,9 @@ void main() {
         onOpen: (context) async {
           await showDrivePickerSheet(
             context,
-            loadPickerData: () async => const DrivePickerData(
+            loadPickerData: () async => const RemoteFileSelectionData(
               files: [],
-              account: DriveAccountSummary(
+              account: StorageAccountSummary(
                 displayLabel: 'jane@example.com',
                 email: 'jane@example.com',
               ),

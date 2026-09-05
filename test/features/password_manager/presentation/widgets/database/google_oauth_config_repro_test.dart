@@ -10,8 +10,9 @@ import 'package:password_manager/features/password_manager/data/services/desktop
 import 'package:password_manager/features/password_manager/data/services/drive_auth_service.dart';
 import 'package:password_manager/features/password_manager/data/services/google_oauth_config.dart';
 import 'package:password_manager/features/password_manager/domain/errors/google_authorization_required_exception.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_account_summary.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/remote_file_selection_data.dart';
+import 'package:password_manager/features/password_manager/domain/models/storage_account_summary.dart';
+import 'package:password_manager/features/password_manager/domain/models/remote_file.dart';
 import 'package:password_manager/features/password_manager/presentation/widgets/database/drive_picker_sheet.dart';
 import 'package:xml/xml.dart';
 
@@ -128,9 +129,17 @@ void main() {
           if (calls == 1) {
             throw const GoogleAuthorizationRequiredException();
           }
-          return const DrivePickerData(
-            files: [DriveRemoteFile(id: 'remote-1', name: 'Vault.kdbx')],
-            account: DriveAccountSummary.fallback,
+          return const RemoteFileSelectionData(
+            files: [
+              RemoteFile(
+                providerId: 'google_drive',
+                id: 'remote-1',
+                name: 'Vault.kdbx',
+              ),
+            ],
+            account: StorageAccountSummary(
+              displayLabel: 'Google Drive account',
+            ),
           );
         }),
       );
@@ -170,9 +179,15 @@ void main() {
         if (calls == 2) {
           throw Exception('Google sign-in cancelled.');
         }
-        return const DrivePickerData(
-          files: [DriveRemoteFile(id: 'remote-1', name: 'Vault.kdbx')],
-          account: DriveAccountSummary.fallback,
+        return const RemoteFileSelectionData(
+          files: [
+            RemoteFile(
+              providerId: 'google_drive',
+              id: 'remote-1',
+              name: 'Vault.kdbx',
+            ),
+          ],
+          account: StorageAccountSummary(displayLabel: 'Google Drive account'),
         );
       }),
     );
@@ -200,7 +215,7 @@ void main() {
 
   testWidgets('rapid reconnect taps start one retry', (tester) async {
     var calls = 0;
-    final retry = Completer<DrivePickerData>();
+    final retry = Completer<RemoteFileSelectionData>();
     await tester.pumpWidget(
       _driveSheetHost(() {
         calls += 1;
@@ -230,9 +245,15 @@ void main() {
     );
 
     retry.complete(
-      const DrivePickerData(
-        files: [DriveRemoteFile(id: 'remote-1', name: 'Vault.kdbx')],
-        account: DriveAccountSummary.fallback,
+      const RemoteFileSelectionData(
+        files: [
+          RemoteFile(
+            providerId: 'google_drive',
+            id: 'remote-1',
+            name: 'Vault.kdbx',
+          ),
+        ],
+        account: StorageAccountSummary(displayLabel: 'Google Drive account'),
       ),
     );
     await tester.pumpAndSettle();
@@ -262,7 +283,9 @@ XmlElement? _plistValue(XmlElement dictionary, String key) {
   return null;
 }
 
-Widget _driveSheetHost(Future<DrivePickerData> Function() loadPickerData) {
+Widget _driveSheetHost(
+  Future<RemoteFileSelectionData> Function() loadPickerData,
+) {
   return MaterialApp(
     theme: AppTheme.lightTheme,
     home: Builder(

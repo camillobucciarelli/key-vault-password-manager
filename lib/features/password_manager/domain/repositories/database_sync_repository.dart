@@ -1,6 +1,6 @@
 import '../models/database_sync_mapping.dart';
-import '../models/drive_account_summary.dart';
-import '../models/drive_remote_file.dart';
+import '../models/remote_file.dart';
+import '../models/storage_account_summary.dart';
 import '../models/sync_conflict.dart';
 import 'dart:typed_data';
 
@@ -35,14 +35,14 @@ abstract class DatabaseSyncRepository {
   /// file picker to warn when a file is already linked elsewhere.
   Future<List<DatabaseSyncMapping>> getAllMappings();
   Future<void> setAutoSync(String databasePath, bool enabled);
-  Future<List<DriveRemoteFile>> listRemoteFiles({String? query});
+  Future<List<RemoteFile>> listRemoteFiles({String? query});
   Future<Uint8List> downloadRemoteFile(String fileId);
 
   /// C-2: the connected Google account's display label/email, or the
   /// desktop fallback when identity cannot be determined without expanding
   /// OAuth scopes.
-  Future<DriveAccountSummary> getConnectedAccount();
-  Future<DatabaseSyncMapping> linkDatabaseToDrive({
+  Future<StorageAccountSummary> getConnectedAccount();
+  Future<DatabaseSyncMapping> linkDatabaseToRemote({
     required String databasePath,
     String? remoteFileId,
     String? remoteFileName,

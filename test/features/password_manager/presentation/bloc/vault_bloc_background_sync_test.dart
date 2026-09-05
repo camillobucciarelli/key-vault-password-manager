@@ -19,8 +19,8 @@ import 'package:password_manager/features/password_manager/data/services/vault_d
 import 'package:password_manager/features/password_manager/domain/models/apple_autofill_v2_models.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_status.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_account_summary.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/storage_account_summary.dart';
+import 'package:password_manager/features/password_manager/domain/models/remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
@@ -522,7 +522,10 @@ void main() {
       final repo = _FakeSyncRepo()
         ..mapping = _testMapping.copyWith(autoSyncEnabled: false)
         ..isConnectedResult = true
-        ..listRemoteFilesOverride = (_) => api.listKdbxFilesInDrive();
+        ..listRemoteFilesOverride = (_) async {
+          await api.listKdbxFilesInDrive();
+          fail('token refresh must fail before any listing is returned');
+        };
       final bloc = _makeBloc(repo, _FakeVaultKdbxService());
       addTearDown(bloc.close);
 
@@ -1116,8 +1119,7 @@ class _FakeSyncRepo implements DatabaseSyncRepository {
   /// [syncResult] — lets tests exercise `SocketException` (offline) vs any
   /// other error (HTTP-status-like) without a real network stack.
   Object? syncNowError;
-  Future<List<DriveRemoteFile>> Function(String? query)?
-  listRemoteFilesOverride;
+  Future<List<RemoteFile>> Function(String? query)? listRemoteFilesOverride;
 
   @override
   Future<bool> isConnected() async => isConnectedResult;
@@ -1178,7 +1180,7 @@ class _FakeSyncRepo implements DatabaseSyncRepository {
   Future<void> setAutoSync(String p, bool e) async {}
 
   @override
-  Future<List<DriveRemoteFile>> listRemoteFiles({String? query}) async {
+  Future<List<RemoteFile>> listRemoteFiles({String? query}) async {
     return listRemoteFilesOverride?.call(query) ?? [];
   }
 
@@ -1187,15 +1189,15 @@ class _FakeSyncRepo implements DatabaseSyncRepository {
       throw UnimplementedError();
 
   @override
-  Future<DatabaseSyncMapping> linkDatabaseToDrive({
+  Future<DatabaseSyncMapping> linkDatabaseToRemote({
     required String databasePath,
     String? remoteFileId,
     String? remoteFileName,
   }) async => throw UnimplementedError();
 
   @override
-  Future<DriveAccountSummary> getConnectedAccount() async =>
-      DriveAccountSummary.fallback;
+  Future<StorageAccountSummary> getConnectedAccount() async =>
+      const StorageAccountSummary(displayLabel: 'Google Drive account');
 }
 
 class _StoredGoogleTokenDataSource implements GoogleTokenDataSource {

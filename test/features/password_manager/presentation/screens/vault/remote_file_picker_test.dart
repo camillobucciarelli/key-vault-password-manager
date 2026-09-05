@@ -13,8 +13,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:password_manager/features/password_manager/domain/errors/google_authorization_required_exception.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_account_summary.dart';
-import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/storage_account_summary.dart';
+import 'package:password_manager/features/password_manager/domain/models/remote_file.dart';
 import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/google_drive_reconnect_coordinator.dart';
@@ -26,8 +26,16 @@ import 'package:password_manager/injection_container.dart' as di;
 import '../../coordinators/fake_database_ports.dart';
 import 'vault_shell_test_utils.dart';
 
-const _fileA = DriveRemoteFile(id: 'a1', name: 'Alpha.kdbx');
-const _fileB = DriveRemoteFile(id: 'b1', name: 'Beta.kdbx');
+const _fileA = RemoteFile(
+  providerId: 'google_drive',
+  id: 'a1',
+  name: 'Alpha.kdbx',
+);
+const _fileB = RemoteFile(
+  providerId: 'google_drive',
+  id: 'b1',
+  name: 'Beta.kdbx',
+);
 
 void _usePhoneViewport(WidgetTester tester) {
   tester.view.physicalSize = const Size(390, 844);
@@ -51,11 +59,11 @@ class _FakeUnlinkedSyncRepository extends FakeDatabaseSyncRepository {
   Future<List<DatabaseSyncMapping>> getAllMappings() async => const [];
 
   @override
-  Future<DriveAccountSummary> getConnectedAccount() async =>
-      DriveAccountSummary.fallback;
+  Future<StorageAccountSummary> getConnectedAccount() async =>
+      const StorageAccountSummary(displayLabel: 'Google Drive account');
 
   @override
-  Future<List<DriveRemoteFile>> listRemoteFiles({String? query}) async {
+  Future<List<RemoteFile>> listRemoteFiles({String? query}) async {
     const all = [_fileA, _fileB];
     if (query == null || query.isEmpty) return all;
     return all
@@ -79,7 +87,7 @@ class _RecoveringUnlinkedSyncRepository extends _FakeUnlinkedSyncRepository {
   }
 
   @override
-  Future<List<DriveRemoteFile>> listRemoteFiles({String? query}) async {
+  Future<List<RemoteFile>> listRemoteFiles({String? query}) async {
     listCalls += 1;
     queries.add(query);
     if (listCalls <= authorizationFailures) {

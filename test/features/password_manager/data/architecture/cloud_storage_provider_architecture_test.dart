@@ -148,7 +148,7 @@ void main() {
         isFalse,
       );
       expect(source, contains('CloudStorageProvider'));
-    }, skip: 'enabled by spec 010 T301');
+    });
 
     test('T501: exactly one port, exactly one production implementation', () {
       final ports = _filesUnder(
