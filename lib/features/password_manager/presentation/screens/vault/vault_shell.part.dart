@@ -946,7 +946,7 @@ bool _syncStatusStripBuildWhen(VaultState previous, VaultState current) {
   return previous.databasePath != current.databasePath ||
       previous.isDriveConnected != current.isDriveConnected ||
       previous.isDriveLinked != current.isDriveLinked ||
-      previous.linkedDriveFileName != current.linkedDriveFileName ||
+      previous.linkedRemoteFileName != current.linkedRemoteFileName ||
       previous.syncStatus != current.syncStatus ||
       previous.lastSyncAt != current.lastSyncAt ||
       previous.lastSyncedLocalChecksum != current.lastSyncedLocalChecksum ||

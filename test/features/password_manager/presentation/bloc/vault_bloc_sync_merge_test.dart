@@ -20,6 +20,8 @@ import 'package:password_manager/features/password_manager/presentation/bloc/vau
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_event.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/sync_merge_coordinator.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/link_database_to_remote_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/sync_database_now_usecase.dart';
 
 import 'vault/vault_bloc_harness.dart';
 
@@ -43,6 +45,8 @@ void main() {
       vaultCsvImportService: VaultCsvImportService(),
       vaultDuplicateService: VaultDuplicateService(),
       databaseSyncRepository: sync,
+      linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(sync),
+      syncDatabaseNow: SyncDatabaseNowUseCase(sync),
       syncMergeCoordinator: SyncMergeCoordinator(
         startReview: StartSyncMergeReviewUseCase(port),
         updateDecision: UpdateSyncMergeDecisionUseCase(port),
@@ -173,6 +177,8 @@ void main() {
         vaultCsvImportService: VaultCsvImportService(),
         vaultDuplicateService: VaultDuplicateService(),
         databaseSyncRepository: sync,
+        linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(sync),
+        syncDatabaseNow: SyncDatabaseNowUseCase(sync),
       );
       addTearDown(bare.close);
 

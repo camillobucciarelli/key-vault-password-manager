@@ -31,6 +31,7 @@ import 'package:password_manager/features/password_manager/presentation/bloc/dat
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/database_session_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/link_database_to_remote_usecase.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:path/path.dart' as p;
@@ -102,6 +103,7 @@ void main() {
           registryRepository,
         ),
         databaseSyncRepository: syncRepository,
+        linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(syncRepository),
         unlockDatabaseUseCase: UnlockDatabaseUseCase(),
         createDatabaseUseCase: CreateDatabaseUseCase(
           databaseFileRepository: databaseImportService,
@@ -136,6 +138,7 @@ void main() {
             registryRepository,
           ),
           databaseSyncRepository: syncRepository,
+          linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(syncRepository),
           unlockDatabaseUseCase: unlockUseCase,
           createDatabaseUseCase: CreateDatabaseUseCase(
             databaseFileRepository: databaseImportService,
@@ -275,6 +278,7 @@ void main() {
             registryRepository,
           ),
           databaseSyncRepository: syncRepository,
+          linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(syncRepository),
           unlockDatabaseUseCase: unlockUseCase,
           createDatabaseUseCase:
               createDatabaseUseCase ??
@@ -757,7 +761,7 @@ void main() {
         ),
       ];
 
-      final picker = await coordinator.getDrivePickerData();
+      final picker = await coordinator.getRemoteFileSelectionData();
 
       expect(syncRepository.connectCalls, 1);
       expect(picker.files.single.name, 'remote.kdbx');
@@ -1396,6 +1400,7 @@ void main() {
             registryRepository,
           ),
           databaseSyncRepository: syncRepository,
+          linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(syncRepository),
           unlockDatabaseUseCase: UnlockDatabaseUseCase(),
           createDatabaseUseCase: _FailingCreateDatabaseUseCase(
             databaseFileRepository: databaseImportService,
@@ -1449,6 +1454,7 @@ void main() {
             registryRepository,
           ),
           databaseSyncRepository: syncRepository,
+          linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(syncRepository),
           unlockDatabaseUseCase: UnlockDatabaseUseCase(),
           createDatabaseUseCase: CreateDatabaseUseCase(
             databaseFileRepository: databaseImportService,

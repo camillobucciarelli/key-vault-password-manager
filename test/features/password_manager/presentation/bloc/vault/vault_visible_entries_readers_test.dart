@@ -33,6 +33,8 @@ import 'package:password_manager/features/password_manager/presentation/bloc/vau
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_event.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/link_database_to_remote_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/sync_database_now_usecase.dart';
 
 const _dbPath = '/vault.kdbx';
 const _root = 'root';
@@ -79,6 +81,7 @@ void main() {
     duplicates = _SpyDuplicateService();
     health = _SpyHealthService();
     autofill = _SpyAutofill();
+    final syncRepository = _FakeSyncRepo();
     bloc = VaultBloc(
       databasePath: _dbPath,
       getSelectedKeyFilePath: () async => null,
@@ -86,7 +89,9 @@ void main() {
       vaultKdbxService: _FakeKdbx(),
       vaultCsvImportService: VaultCsvImportService(),
       vaultDuplicateService: duplicates,
-      databaseSyncRepository: _FakeSyncRepo(),
+      databaseSyncRepository: syncRepository,
+      linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(syncRepository),
+      syncDatabaseNow: SyncDatabaseNowUseCase(syncRepository),
       appleAutofillV2Coordinator: autofill,
       vaultHealthService: health,
     );

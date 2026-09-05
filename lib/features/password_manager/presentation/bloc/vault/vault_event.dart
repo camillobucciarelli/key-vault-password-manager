@@ -451,8 +451,8 @@ class ClearVaultSyncFeedback extends VaultEvent {
   const ClearVaultSyncFeedback();
 }
 
-class LoadDriveRemoteFiles extends VaultEvent {
-  const LoadDriveRemoteFiles({this.query});
+class LoadRemoteFiles extends VaultEvent {
+  const LoadRemoteFiles({this.query});
 
   final String? query;
 

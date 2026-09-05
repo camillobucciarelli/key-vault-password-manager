@@ -56,7 +56,7 @@ class _VaultSyncDestinationState extends State<_VaultSyncDestination> {
                 status: state.syncStatus,
                 isDriveConnected: state.isDriveConnected,
                 isDriveLinked: state.isDriveLinked,
-                linkedDriveFileName: state.linkedDriveFileName,
+                linkedRemoteFileName: state.linkedRemoteFileName,
                 lastSyncAt: state.lastSyncAt,
                 localChecksum: state.lastSyncedLocalChecksum,
                 autoSyncEnabled: state.autoSyncEnabled,
@@ -135,7 +135,7 @@ void _createNewDriveFile(BuildContext context, VaultState state) {
 
 Future<void> _pickExistingDriveFile(BuildContext context) async {
   final bloc = context.read<VaultBloc>();
-  bloc.add(const LoadDriveRemoteFiles());
+  bloc.add(const LoadRemoteFiles());
 
   final result = await VaultShellRouterScope.of(context).open<DriveLinkResult>(
     context: context,
@@ -187,9 +187,13 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
     });
   }
 
-  bool _isLinkedElsewhere(String remoteFileId) {
+  /// spec 010 T105: remote identity is the `(providerId, id)` tuple — the
+  /// same opaque id under another provider is not "already linked".
+  bool _isLinkedElsewhere(RemoteFile file) {
     return _otherMappings.any(
-      (mapping) => mapping.remoteFileId == remoteFileId,
+      (mapping) =>
+          mapping.providerId == file.providerId &&
+          mapping.remoteFileId == file.id,
     );
   }
 
@@ -199,9 +203,9 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
     final valid =
         selectedId != null &&
         state.isDriveConnected &&
-        !state.isLoadingRemoteDriveFiles &&
-        state.remoteDriveFilesError == null &&
-        state.remoteDriveFiles.any((file) => file.id == selectedId);
+        !state.isLoadingRemoteFiles &&
+        state.remoteFilesError == null &&
+        state.remoteFiles.any((file) => file.id == selectedId);
     if (!valid) {
       if (_selectedId != null) {
         setState(() => _selectedId = null);
@@ -277,28 +281,27 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
                   final bloc = context.read<VaultBloc>();
                   final state = bloc.state;
                   if (_isReconnecting ||
-                      state.remoteDriveFilesError != null ||
+                      state.remoteFilesError != null ||
                       !state.isDriveConnected) {
                     return;
                   }
-                  bloc.add(LoadDriveRemoteFiles(query: value));
+                  bloc.add(LoadRemoteFiles(query: value));
                 },
               ),
             ),
             Expanded(
               child: BlocBuilder<VaultBloc, VaultState>(
                 buildWhen: (p, n) =>
-                    p.remoteDriveFiles != n.remoteDriveFiles ||
-                    p.isLoadingRemoteDriveFiles !=
-                        n.isLoadingRemoteDriveFiles ||
-                    p.remoteDriveFilesError != n.remoteDriveFilesError ||
-                    p.remoteDriveFilesReconnectRequired !=
-                        n.remoteDriveFilesReconnectRequired,
+                    p.remoteFiles != n.remoteFiles ||
+                    p.isLoadingRemoteFiles != n.isLoadingRemoteFiles ||
+                    p.remoteFilesError != n.remoteFilesError ||
+                    p.remoteFilesReconnectRequired !=
+                        n.remoteFilesReconnectRequired,
                 builder: (context, state) {
-                  final syncError = state.remoteDriveFilesError;
+                  final syncError = state.remoteFilesError;
                   if (syncError != null) {
                     final reconnectRequired =
-                        state.remoteDriveFilesReconnectRequired;
+                        state.remoteFilesReconnectRequired;
                     return Center(
                       child: Padding(
                         padding: const EdgeInsets.all(24),
@@ -348,7 +351,7 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
                       ),
                     );
                   }
-                  if (state.isLoadingRemoteDriveFiles) {
+                  if (state.isLoadingRemoteFiles) {
                     return const Center(child: CircularProgressIndicator());
                   }
                   // If the list changed (e.g. the user filtered by typing) and
@@ -359,12 +362,12 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
                   // that narrows the list to zero results is exactly the
                   // case where the selection needs clearing.
                   if (_selectedId != null &&
-                      !state.remoteDriveFiles.any(
+                      !state.remoteFiles.any(
                         (file) => file.id == _selectedId,
                       )) {
                     _selectedId = null;
                   }
-                  if (state.remoteDriveFiles.isEmpty) {
+                  if (state.remoteFiles.isEmpty) {
                     return Center(
                       child: Text(
                         'No .kdbx files found.',
@@ -376,14 +379,14 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
                   }
                   return ListView.separated(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
-                    itemCount: state.remoteDriveFiles.length,
+                    itemCount: state.remoteFiles.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 9),
                     itemBuilder: (context, index) {
-                      final file = state.remoteDriveFiles[index];
+                      final file = state.remoteFiles[index];
                       return RemoteFileRow(
                         file: file,
                         selected: _selectedId == file.id,
-                        isLinkedElsewhere: _isLinkedElsewhere(file.id),
+                        isLinkedElsewhere: _isLinkedElsewhere(file),
                         onTap: () => setState(
                           () => _selectedId = _selectedId == file.id
                               ? null

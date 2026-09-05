@@ -22,6 +22,8 @@ import 'package:password_manager/features/password_manager/domain/services/vault
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_bloc.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/link_database_to_remote_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/sync_database_now_usecase.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const testDatabasePath = '/vault.kdbx';
@@ -53,6 +55,7 @@ VaultBloc buildTestVaultBloc({
   SharedPreferences? folderExpansionPreferences,
   String databasePath = testDatabasePath,
 }) {
+  final syncRepository = FakeSyncRepository();
   return VaultBloc(
     databasePath: databasePath,
     getSelectedKeyFilePath: () async => null,
@@ -65,7 +68,9 @@ VaultBloc buildTestVaultBloc({
         ),
     vaultCsvImportService: VaultCsvImportService(),
     vaultDuplicateService: duplicateService ?? VaultDuplicateService(),
-    databaseSyncRepository: FakeSyncRepository(),
+    databaseSyncRepository: syncRepository,
+    linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(syncRepository),
+    syncDatabaseNow: SyncDatabaseNowUseCase(syncRepository),
     appleAutofillV2Coordinator:
         autofill ?? const NoopAppleAutofillV2Coordinator(),
     vaultHealthService: healthService ?? const VaultHealthService(),

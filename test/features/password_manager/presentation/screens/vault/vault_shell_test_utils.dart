@@ -31,6 +31,8 @@ import 'package:password_manager/features/password_manager/presentation/coordina
 import 'package:password_manager/features/password_manager/presentation/coordinators/vault_session_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/screens/vault_screen.dart';
 import 'package:password_manager/injection_container.dart' as di;
+import 'package:password_manager/features/password_manager/domain/usecases/link_database_to_remote_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/sync_database_now_usecase.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const kTestDatabasePath = '/tmp/vault_shell_test.kdbx';
@@ -115,6 +117,8 @@ Future<Widget> pumpableVaultShell({
       vaultCsvImportService: VaultCsvImportService(),
       vaultDuplicateService: VaultDuplicateService(),
       databaseSyncRepository: resolvedSyncRepository,
+      linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(resolvedSyncRepository),
+      syncDatabaseNow: SyncDatabaseNowUseCase(resolvedSyncRepository),
       appleAutofillV2Coordinator:
           appleAutofillV2Coordinator ?? const NoopAppleAutofillV2Coordinator(),
     ),

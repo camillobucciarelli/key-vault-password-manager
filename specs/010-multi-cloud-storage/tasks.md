@@ -131,7 +131,7 @@ in this file.
   Verify: decode legacy fixture, mutate, inspect JSON, decode again; assert vault
   fixture checksum/mtime unchanged.
 
-- [ ] **T105 Make remote identity a tuple everywhere** — owner:
+- [x] **T105 Make remote identity a tuple everywhere** — owner:
   `senior-flutter-dev`  
   Files: neutral remote model, mapping/conflict, repository/orchestrator, picker,
   `vault_sync.part.dart`, metadata/picker/coordinator tests and shared fakes.  
@@ -209,7 +209,7 @@ in this file.
 
 ## Phase 4 — Use cases, coordinators and presentation vocabulary
 
-- [ ] **T401 Add meaningful atomic use cases** — owner:
+- [x] **T401 Add meaningful atomic use cases** — owner:
   `senior-flutter-dev`  
   Files: new `domain/usecases/link_database_to_remote_usecase.dart`,
   `sync_database_now_usecase.dart`; use-case tests.  
@@ -217,7 +217,7 @@ in this file.
   use case added for simple getters/toggles.  
   Verify: policy/outcome tests, not constructor-only tests.
 
-- [ ] **T402 Move touched multi-step flow to coordinators** — owner:
+- [x] **T402 Move touched multi-step flow to coordinators** — owner:
   `senior-flutter-dev`  
   Files: `database_session_coordinator.dart`, `vault_session_coordinator.dart`,
   coordinator tests.  
@@ -226,13 +226,13 @@ in this file.
   presentation.  
   Verify: coordinator tests cover success/failure/cancellation parity.
 
-- [ ] **T403 Keep VaultBloc thin** — owner: `senior-flutter-dev`  
+- [x] **T403 Keep VaultBloc thin** — owner: `senior-flutter-dev`  
   Files: `vault_bloc.dart`, `vault_event.dart`, `vault_state.dart`, DI/tests.  
   Acceptance: touched handlers delegate sequencing and emit state; no OAuth,
   provider selection or remote operation chain in BLoC.  
   Verify: background sync, status and error-state tests.
 
-- [ ] **T404 Neutralize touched model names in UI** — owner:
+- [x] **T404 Neutralize touched model names in UI** — owner:
   `senior-flutter-dev`  
   Files: `presentation/screens/database_selection_screen.dart`,
   `vault_sync.part.dart`, `vault_dialogs.part.dart`, `vault_navigation.part.dart`,
@@ -263,7 +263,7 @@ in this file.
   orchestrator, shared existing mutex unchanged; no registry/factory/map.  
   Verify: GetIt resolution test and architecture guard.
 
-- [ ] **T502 Wire use cases/coordinators** — owner: `senior-flutter-dev`  
+- [x] **T502 Wire use cases/coordinators** — owner: `senior-flutter-dev`  
   Files: `di/password_manager_domain_di.dart`,
   `di/password_manager_presentation_di.dart`.  
   Acceptance: two meaningful use cases registered; coordinators/BLoC resolve;

@@ -49,6 +49,7 @@ import '../../data/services/vault_duplicate_service.dart';
 import '../../domain/models/database_sync_mapping.dart';
 import '../../domain/models/duplicate_group.dart';
 import '../../domain/models/merge_preview.dart';
+import '../../domain/models/remote_file.dart';
 import '../../domain/models/database_sync_status.dart';
 import '../../domain/models/vault_health_report.dart';
 import '../../domain/services/url_field_keys.dart';

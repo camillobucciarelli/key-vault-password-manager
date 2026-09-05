@@ -47,11 +47,11 @@ class VaultState extends Equatable {
     this.lastSyncAt,
     this.lastSyncedLocalChecksum,
     this.pendingSyncConflict,
-    this.remoteDriveFiles = const [],
-    this.isLoadingRemoteDriveFiles = false,
-    this.remoteDriveFilesError,
-    this.remoteDriveFilesReconnectRequired = false,
-    this.linkedDriveFileName,
+    this.remoteFiles = const [],
+    this.isLoadingRemoteFiles = false,
+    this.remoteFilesError,
+    this.remoteFilesReconnectRequired = false,
+    this.linkedRemoteFileName,
     this.isSyncing = false,
     this.isSyncReloadPending = false,
     this.isOffline = false,
@@ -126,11 +126,11 @@ class VaultState extends Equatable {
   /// destination can show it instead of a hard-coded null.
   final String? lastSyncedLocalChecksum;
   final SyncConflict? pendingSyncConflict;
-  final List<RemoteFile> remoteDriveFiles;
-  final bool isLoadingRemoteDriveFiles;
-  final String? remoteDriveFilesError;
-  final bool remoteDriveFilesReconnectRequired;
-  final String? linkedDriveFileName;
+  final List<RemoteFile> remoteFiles;
+  final bool isLoadingRemoteFiles;
+  final String? remoteFilesError;
+  final bool remoteFilesReconnectRequired;
+  final String? linkedRemoteFileName;
   final bool isSyncing;
   final bool isSyncReloadPending;
 
@@ -216,11 +216,11 @@ class VaultState extends Equatable {
     DateTime? lastSyncAt,
     String? lastSyncedLocalChecksum,
     SyncConflict? pendingSyncConflict,
-    List<RemoteFile>? remoteDriveFiles,
-    bool? isLoadingRemoteDriveFiles,
-    String? remoteDriveFilesError,
-    bool? remoteDriveFilesReconnectRequired,
-    String? linkedDriveFileName,
+    List<RemoteFile>? remoteFiles,
+    bool? isLoadingRemoteFiles,
+    String? remoteFilesError,
+    bool? remoteFilesReconnectRequired,
+    String? linkedRemoteFileName,
     bool? isSyncing,
     bool? isSyncReloadPending,
     bool? isOffline,
@@ -237,7 +237,7 @@ class VaultState extends Equatable {
     bool clearError = false,
     bool clearInfo = false,
     bool clearSyncError = false,
-    bool clearRemoteDriveFilesError = false,
+    bool clearRemoteFilesError = false,
     bool clearSyncConflict = false,
     bool clearSyncReloadPending = false,
     bool clearCsvImportOutcome = false,
@@ -280,17 +280,15 @@ class VaultState extends Equatable {
       pendingSyncConflict: clearSyncConflict
           ? null
           : pendingSyncConflict ?? this.pendingSyncConflict,
-      remoteDriveFiles: remoteDriveFiles ?? this.remoteDriveFiles,
-      isLoadingRemoteDriveFiles:
-          isLoadingRemoteDriveFiles ?? this.isLoadingRemoteDriveFiles,
-      remoteDriveFilesError: clearRemoteDriveFilesError
+      remoteFiles: remoteFiles ?? this.remoteFiles,
+      isLoadingRemoteFiles: isLoadingRemoteFiles ?? this.isLoadingRemoteFiles,
+      remoteFilesError: clearRemoteFilesError
           ? null
-          : remoteDriveFilesError ?? this.remoteDriveFilesError,
-      remoteDriveFilesReconnectRequired: clearRemoteDriveFilesError
+          : remoteFilesError ?? this.remoteFilesError,
+      remoteFilesReconnectRequired: clearRemoteFilesError
           ? false
-          : remoteDriveFilesReconnectRequired ??
-                this.remoteDriveFilesReconnectRequired,
-      linkedDriveFileName: linkedDriveFileName ?? this.linkedDriveFileName,
+          : remoteFilesReconnectRequired ?? this.remoteFilesReconnectRequired,
+      linkedRemoteFileName: linkedRemoteFileName ?? this.linkedRemoteFileName,
       isSyncing: isSyncing ?? this.isSyncing,
       isSyncReloadPending: clearSyncReloadPending
           ? false
@@ -390,11 +388,11 @@ class VaultState extends Equatable {
     lastSyncAt,
     lastSyncedLocalChecksum,
     pendingSyncConflict,
-    remoteDriveFiles,
-    isLoadingRemoteDriveFiles,
-    remoteDriveFilesError,
-    remoteDriveFilesReconnectRequired,
-    linkedDriveFileName,
+    remoteFiles,
+    isLoadingRemoteFiles,
+    remoteFilesError,
+    remoteFilesReconnectRequired,
+    linkedRemoteFileName,
     isSyncing,
     isSyncReloadPending,
     isOffline,
@@ -444,12 +442,12 @@ class VaultState extends Equatable {
         'driveReconnectRequired: $driveReconnectRequired, '
         'lastSyncAt: $lastSyncAt, '
         'pendingSyncConflict: $pendingSyncConflict, '
-        'remoteDriveFiles: ${remoteDriveFiles.length}, '
-        'isLoadingRemoteDriveFiles: $isLoadingRemoteDriveFiles, '
-        'remoteDriveFilesError: $remoteDriveFilesError, '
-        'remoteDriveFilesReconnectRequired: '
-        '$remoteDriveFilesReconnectRequired, '
-        'linkedDriveFileName: $linkedDriveFileName, '
+        'remoteFiles: ${remoteFiles.length}, '
+        'isLoadingRemoteFiles: $isLoadingRemoteFiles, '
+        'remoteFilesError: $remoteFilesError, '
+        'remoteFilesReconnectRequired: '
+        '$remoteFilesReconnectRequired, '
+        'linkedRemoteFileName: $linkedRemoteFileName, '
         'isSyncing: $isSyncing, '
         'isSyncReloadPending: $isSyncReloadPending, '
         'isOffline: $isOffline, '

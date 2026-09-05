@@ -29,6 +29,8 @@ import 'package:password_manager/features/password_manager/presentation/coordina
 import 'package:password_manager/features/password_manager/presentation/coordinators/vault_session_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/screens/vault_screen.dart';
 import 'package:password_manager/injection_container.dart' as di;
+import 'package:password_manager/features/password_manager/domain/usecases/link_database_to_remote_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/sync_database_now_usecase.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const kEntryTestDatabasePath = '/tmp/entry_editor_generator_test.kdbx';
@@ -169,6 +171,7 @@ Future<Widget> pumpableEntryScreen({
       () => PasswordGeneratorService(random: math.Random(42)),
     );
   }
+  final syncRepository = _FakeDatabaseSyncRepository();
   di.sl.registerFactoryParam<VaultBloc, String, void>(
     (path, _) => VaultBloc(
       databasePath: path,
@@ -177,7 +180,9 @@ Future<Widget> pumpableEntryScreen({
       vaultKdbxService: _FakeVaultKdbxService(resolvedHarness),
       vaultCsvImportService: VaultCsvImportService(),
       vaultDuplicateService: VaultDuplicateService(),
-      databaseSyncRepository: _FakeDatabaseSyncRepository(),
+      databaseSyncRepository: syncRepository,
+      linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(syncRepository),
+      syncDatabaseNow: SyncDatabaseNowUseCase(syncRepository),
     ),
   );
 

@@ -18,6 +18,8 @@ import 'package:password_manager/features/password_manager/presentation/bloc/vau
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/sync_merge_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/widgets/sync/sync_merge_screen.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/link_database_to_remote_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/sync_database_now_usecase.dart';
 
 import '../../bloc/vault/vault_bloc_harness.dart';
 
@@ -218,6 +220,7 @@ class FixtureMergePort implements SyncMergeRepository {
 class MergeScreenHarness {
   MergeScreenHarness({List<RedactedMergeDecision>? decisions})
     : port = FixtureMergePort(decisions: decisions) {
+    final syncRepository = FakeSyncRepository();
     bloc = VaultBloc(
       databasePath: mergeFixtureDatabasePath,
       getSelectedKeyFilePath: () async => null,
@@ -225,7 +228,9 @@ class MergeScreenHarness {
       vaultKdbxService: FakeVaultKdbxService(snapshot: nestedSnapshot()),
       vaultCsvImportService: VaultCsvImportService(),
       vaultDuplicateService: VaultDuplicateService(),
-      databaseSyncRepository: FakeSyncRepository(),
+      databaseSyncRepository: syncRepository,
+      linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(syncRepository),
+      syncDatabaseNow: SyncDatabaseNowUseCase(syncRepository),
       syncMergeCoordinator: SyncMergeCoordinator(
         startReview: StartSyncMergeReviewUseCase(port),
         updateDecision: UpdateSyncMergeDecisionUseCase(port),

@@ -13,6 +13,7 @@ import 'package:password_manager/features/password_manager/presentation/bloc/dat
 import 'package:password_manager/features/password_manager/presentation/bloc/database_selection/database_selection_state.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/database_session_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/link_database_to_remote_usecase.dart';
 
 import '../coordinators/fake_database_ports.dart';
 
@@ -39,6 +40,7 @@ void main() {
         databaseRegistryRepository: registryRepository,
         databaseSecurityRepository: securityRepository,
         databaseSyncRepository: syncRepository,
+        linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(syncRepository),
         getActiveDatabaseUseCase: GetActiveDatabaseUseCase(registryRepository),
         resolveDatabaseDuplicateUseCase: ResolveDatabaseDuplicateUseCase(
           registryRepository,

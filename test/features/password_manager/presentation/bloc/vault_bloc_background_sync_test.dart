@@ -17,6 +17,7 @@ import 'package:password_manager/features/password_manager/data/services/vault_k
 import 'package:password_manager/features/password_manager/data/services/vault_csv_import_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_duplicate_service.dart';
 import 'package:password_manager/features/password_manager/domain/models/apple_autofill_v2_models.dart';
+import 'package:password_manager/features/password_manager/domain/models/cloud_storage_error.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_status.dart';
 import 'package:password_manager/features/password_manager/domain/models/storage_account_summary.dart';
@@ -30,6 +31,8 @@ import 'package:password_manager/features/password_manager/presentation/bloc/vau
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_event.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_state.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/link_database_to_remote_usecase.dart';
+import 'package:password_manager/features/password_manager/domain/usecases/sync_database_now_usecase.dart';
 
 void main() {
   _autoSyncAfterMutationTests();
@@ -533,8 +536,8 @@ void main() {
       await _waitUntil(
         () => bloc.state.isDriveConnected && bloc.state.isDriveLinked,
       );
-      bloc.add(const LoadDriveRemoteFiles());
-      await _waitUntil(() => bloc.state.remoteDriveFilesError != null);
+      bloc.add(const LoadRemoteFiles());
+      await _waitUntil(() => bloc.state.remoteFilesError != null);
 
       final request = refreshRequest;
       expect(request, isNotNull);
@@ -549,10 +552,10 @@ void main() {
       expect(bloc.state.isDriveConnected, isFalse);
       expect(bloc.state.isDriveLinked, isFalse);
       expect(
-        bloc.state.remoteDriveFilesError,
+        bloc.state.remoteFilesError,
         'Google authorization expired. Reconnect Google Drive to continue.',
       );
-      expect(bloc.state.remoteDriveFilesReconnectRequired, isTrue);
+      expect(bloc.state.remoteFilesReconnectRequired, isTrue);
     },
   );
 
@@ -799,6 +802,183 @@ void main() {
           isFalse,
           reason: 'a transient server error must never look like "offline"',
         );
+      },
+    );
+  });
+  // spec 010 Phase 4: the provider port converts every remote failure into a
+  // typed `CloudStorageException`; presentation maps by code and never shows
+  // `toString()`.
+  group('CloudStorageException mapping', () {
+    const authRequired = CloudStorageException(
+      CloudStorageErrorCode.authorizationRequired,
+    );
+    const authMessage =
+        'Google authorization expired. Reconnect Google Drive to continue.';
+
+    Future<VaultBloc> connectedBloc(_FakeSyncRepo repo) async {
+      final bloc = _makeBloc(repo, _FakeVaultKdbxService());
+      addTearDown(bloc.close);
+      bloc.add(const InitializeVault());
+      await _waitUntil(() => bloc.state.isDriveConnected);
+      return bloc;
+    }
+
+    for (final (code, expected) in [
+      (CloudStorageErrorCode.cancelled, 'Google sign-in cancelled.'),
+      (CloudStorageErrorCode.forbidden, 'Google Drive permission not granted.'),
+      (
+        CloudStorageErrorCode.serverFailure,
+        'Cloud storage service is temporarily unavailable.',
+      ),
+    ]) {
+      test('connect with $code shows "$expected"', () async {
+        final repo = _FakeSyncRepo()
+          ..connectError = CloudStorageException(code);
+        final bloc = _makeBloc(repo, _FakeVaultKdbxService());
+        addTearDown(bloc.close);
+
+        bloc.add(const ConnectGoogleDrive());
+        await _waitUntil(
+          () => bloc.state.syncStatus == DatabaseSyncStatus.error,
+        );
+
+        expect(bloc.state.syncError, expected);
+      });
+    }
+
+    test('syncNow with authorizationRequired requires reconnect', () async {
+      final repo = _FakeSyncRepo()
+        ..mapping = _testMapping.copyWith(autoSyncEnabled: false)
+        ..isConnectedResult = true
+        ..syncNowError = authRequired;
+      final bloc = await connectedBloc(repo);
+      await _waitUntil(() => bloc.state.isDriveLinked);
+
+      bloc.add(const SyncCurrentDatabaseNow());
+      await _waitUntil(() => bloc.state.driveReconnectRequired);
+
+      expect(bloc.state.syncError, authMessage);
+      expect(bloc.state.isDriveConnected, isFalse);
+    });
+
+    test('syncNow with networkUnavailable is offline, not error', () async {
+      final repo = _FakeSyncRepo()
+        ..mapping = _testMapping.copyWith(autoSyncEnabled: false)
+        ..isConnectedResult = true
+        ..syncNowError = const CloudStorageException(
+          CloudStorageErrorCode.networkUnavailable,
+        );
+      final bloc = await connectedBloc(repo);
+      await _waitUntil(() => bloc.state.isDriveLinked);
+
+      bloc.add(const SyncCurrentDatabaseNow());
+      await _waitUntil(() => bloc.state.isOffline);
+
+      expect(bloc.state.syncStatus, DatabaseSyncStatus.idle);
+      expect(bloc.state.syncError, isNull);
+    });
+
+    test('syncNow with timeout is a plain error, never offline', () async {
+      final repo = _FakeSyncRepo()
+        ..mapping = _testMapping.copyWith(autoSyncEnabled: false)
+        ..isConnectedResult = true
+        ..syncNowError = const CloudStorageException(
+          CloudStorageErrorCode.timeout,
+        );
+      final bloc = await connectedBloc(repo);
+      await _waitUntil(() => bloc.state.isDriveLinked);
+
+      bloc.add(const SyncCurrentDatabaseNow());
+      await _waitUntil(() => bloc.state.syncStatus == DatabaseSyncStatus.error);
+
+      expect(bloc.state.isOffline, isFalse);
+      expect(bloc.state.syncError, 'Unable to sync with Google Drive.');
+    });
+
+    test(
+      'BackgroundDriveSync with authorizationRequired requires reconnect',
+      () async {
+        final repo = _FakeSyncRepo()
+          ..mapping = _testMapping
+          ..isConnectedResult = true
+          ..syncNowError = authRequired;
+        final bloc = _makeBloc(repo, _FakeVaultKdbxService());
+        addTearDown(bloc.close);
+
+        bloc.add(const BackgroundDriveSync());
+        await _waitUntil(() => bloc.state.driveReconnectRequired);
+
+        expect(bloc.state.syncError, authMessage);
+        expect(bloc.state.isDriveConnected, isFalse);
+      },
+    );
+
+    test(
+      'BackgroundDriveSync with networkUnavailable is offline, not error',
+      () async {
+        final repo = _FakeSyncRepo()
+          ..mapping = _testMapping
+          ..isConnectedResult = true
+          ..syncNowError = const CloudStorageException(
+            CloudStorageErrorCode.networkUnavailable,
+          );
+        final bloc = _makeBloc(repo, _FakeVaultKdbxService());
+        addTearDown(bloc.close);
+
+        bloc.add(const BackgroundDriveSync());
+        await _waitUntil(() => bloc.state.isOffline);
+
+        expect(bloc.state.syncStatus, DatabaseSyncStatus.idle);
+      },
+    );
+
+    test(
+      'connect with authorizationRequired shows copy without reconnect flag',
+      () async {
+        final repo = _FakeSyncRepo()..connectError = authRequired;
+        final bloc = _makeBloc(repo, _FakeVaultKdbxService());
+        addTearDown(bloc.close);
+
+        bloc.add(const ConnectGoogleDrive());
+        await _waitUntil(
+          () => bloc.state.syncStatus == DatabaseSyncStatus.error,
+        );
+
+        expect(
+          bloc.state.syncError,
+          'Google account not connected. Reconnect Google Drive.',
+        );
+        expect(bloc.state.driveReconnectRequired, isFalse);
+      },
+    );
+
+    test('link with authorizationRequired requires reconnect', () async {
+      final repo = _FakeSyncRepo()
+        ..isConnectedResult = true
+        ..linkError = authRequired;
+      final bloc = await connectedBloc(repo);
+
+      bloc.add(const LinkCurrentDatabaseToDrive(remoteFileId: 'remote-1'));
+      await _waitUntil(() => bloc.state.driveReconnectRequired);
+
+      expect(bloc.state.syncError, authMessage);
+      expect(bloc.state.isDriveConnected, isFalse);
+    });
+
+    test(
+      'LoadRemoteFiles with authorizationRequired flags reconnect',
+      () async {
+        final repo = _FakeSyncRepo()
+          ..isConnectedResult = true
+          ..listRemoteFilesOverride = (_) async => throw authRequired;
+        final bloc = await connectedBloc(repo);
+
+        bloc.add(const LoadRemoteFiles());
+        await _waitUntil(() => bloc.state.remoteFilesError != null);
+
+        expect(bloc.state.remoteFilesReconnectRequired, isTrue);
+        expect(bloc.state.remoteFilesError, authMessage);
+        expect(bloc.state.isDriveConnected, isFalse);
       },
     );
   });
@@ -1188,12 +1368,15 @@ class _FakeSyncRepo implements DatabaseSyncRepository {
   Future<Uint8List> downloadRemoteFile(String id) async =>
       throw UnimplementedError();
 
+  /// When set, `linkDatabaseToRemote` throws this instead of succeeding.
+  Object? linkError;
+
   @override
   Future<DatabaseSyncMapping> linkDatabaseToRemote({
     required String databasePath,
     String? remoteFileId,
     String? remoteFileName,
-  }) async => throw UnimplementedError();
+  }) async => throw linkError ?? UnimplementedError();
 
   @override
   Future<StorageAccountSummary> getConnectedAccount() async =>
@@ -1237,6 +1420,8 @@ VaultBloc _makeBloc(
     vaultCsvImportService: VaultCsvImportService(),
     vaultDuplicateService: VaultDuplicateService(),
     databaseSyncRepository: repo,
+    linkDatabaseToRemote: LinkDatabaseToRemoteUseCase(repo),
+    syncDatabaseNow: SyncDatabaseNowUseCase(repo),
     appleAutofillV2Coordinator: appleAutofillV2Coordinator,
   );
 }

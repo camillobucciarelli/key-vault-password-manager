@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:password_manager/features/password_manager/domain/models/cloud_storage_error.dart';
 import 'package:password_manager/features/password_manager/presentation/widgets/database/drive_picker_sheet.dart';
 
 void main() {
@@ -24,6 +25,36 @@ void main() {
       expect(
         driveOpenErrorMessage(Exception('something else entirely')),
         'Unable to open database from Google Drive.',
+      );
+    });
+
+    // spec 010: typed provider failures map by code, never by toString().
+    test('typed CloudStorageException maps by code', () {
+      expect(
+        driveOpenErrorMessage(
+          const CloudStorageException(CloudStorageErrorCode.cancelled),
+        ),
+        'Google sign-in was cancelled during authorization. Please try again and grant Drive permissions.',
+      );
+      expect(
+        driveOpenErrorMessage(
+          const CloudStorageException(CloudStorageErrorCode.forbidden),
+        ),
+        'Google Drive permission was not granted. Enable Drive access and try again.',
+      );
+      expect(
+        driveOpenErrorMessage(
+          const CloudStorageException(
+            CloudStorageErrorCode.authorizationRequired,
+          ),
+        ),
+        'Google Drive session expired or unavailable. Use Reconnect below to sign in again.',
+      );
+      expect(
+        driveOpenErrorMessage(
+          const CloudStorageException(CloudStorageErrorCode.serverFailure),
+        ),
+        'Cloud storage service is temporarily unavailable.',
       );
     });
   });
