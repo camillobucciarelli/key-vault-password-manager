@@ -418,6 +418,9 @@ class DatabaseSyncOrchestrator {
     if (mapping == null) {
       throw Exception('Current database is not linked to Google Drive.');
     }
+    // Toggling auto-sync is a mapping mutation, so T302's guard applies here
+    // too: a mapping this build cannot execute must not be rewritten.
+    _requireSupportedProvider(mapping);
     await _upsertMappingKeyed(mapping.copyWith(autoSyncEnabled: enabled));
   }
 

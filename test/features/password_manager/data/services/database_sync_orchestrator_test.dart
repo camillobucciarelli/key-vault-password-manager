@@ -429,6 +429,51 @@ void main() {
         expect(after.lastError, isNull);
         expect(await metadata.getAllMappings(), hasLength(1));
       });
+
+      test(
+        'T302 setAutoSync refuses an unsupported provider mapping too',
+        () async {
+          final localFile = await _createTempDatabase(
+            Uint8List.fromList([1, 2]),
+          );
+          addTearDown(() => localFile.parent.delete(recursive: true));
+          const stored = DatabaseSyncMapping(
+            databasePath: 'placeholder',
+            providerId: 'SENTINEL-provider-id',
+            remoteFileId: 'remote-1',
+            remoteFileName: 'vault.kdbx',
+            autoSyncEnabled: true,
+          );
+          await metadata.upsertMapping(
+            localFile.path,
+            stored.copyWith(databasePath: localFile.path),
+          );
+          final before = await metadata.getMapping(localFile.path);
+
+          await expectLater(
+            orchestrator.setAutoSync(localFile.path, false),
+            throwsA(
+              isA<CloudStorageException>()
+                  .having(
+                    (e) => e.code,
+                    'code',
+                    CloudStorageErrorCode.unsupportedProvider,
+                  )
+                  .having(
+                    (e) => e.toString(),
+                    'toString',
+                    isNot(contains('SENTINEL')),
+                  ),
+            ),
+          );
+
+          expect(
+            await metadata.getMapping(localFile.path),
+            before,
+            reason: 'the mapping must not be rewritten',
+          );
+        },
+      );
     }
 
     test('new links store the injected provider id', () async {
