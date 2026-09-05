@@ -11,6 +11,7 @@ import 'package:password_manager/features/password_manager/data/services/safe_va
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:password_manager/features/password_manager/domain/models/drive_remote_file.dart';
+import 'package:password_manager/features/password_manager/domain/models/sync_conflict.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 
@@ -141,6 +142,214 @@ void main() {
     expect(updated!.lastSyncedLocalChecksum, checksum);
     expect(updated.lastSyncedRemoteChecksum, checksum);
   });
+
+  // ---------------------------------------------------------------------------
+  // spec 010 T002 — sync algorithm characterization. These pin the decision
+  // branches of `syncNow` against the unmodified production code so the
+  // provider-port refactor can prove it changed no branch.
+  // ---------------------------------------------------------------------------
+
+  Future<({File localFile, String remoteFileId})> seedBaseline({
+    required Uint8List localBytes,
+    required Uint8List remoteBytes,
+    required String previousLocalChecksum,
+    required String previousRemoteChecksum,
+  }) async {
+    final localFile = await _createTempDatabase(localBytes);
+    addTearDown(() => localFile.parent.delete(recursive: true));
+    const remoteFileId = 'remote-baseline';
+    await metadata.upsertMapping(
+      localFile.path,
+      DatabaseSyncMapping(
+        databasePath: localFile.path,
+        driveFileId: remoteFileId,
+        driveFileName: 'vault.kdbx',
+        lastSyncedLocalChecksum: previousLocalChecksum,
+        lastSyncedRemoteChecksum: previousRemoteChecksum,
+        lastSyncAt: DateTime(2026),
+        lastError: 'stale error',
+      ),
+    );
+    driveApi.setFile(
+      id: remoteFileId,
+      name: 'vault.kdbx',
+      bytes: remoteBytes,
+      md5Checksum: md5.convert(remoteBytes).toString(),
+    );
+    return (localFile: localFile, remoteFileId: remoteFileId);
+  }
+
+  test(
+    'T002 no-change: neither side moved -> no transfer, stamp only',
+    () async {
+      final bytes = Uint8List.fromList([1, 2, 3]);
+      final sum = md5.convert(bytes).toString();
+      final seed = await seedBaseline(
+        localBytes: bytes,
+        remoteBytes: bytes,
+        previousLocalChecksum: sum,
+        previousRemoteChecksum: sum,
+      );
+
+      final result = await orchestrator.syncNow(seed.localFile.path);
+
+      expect(result, isA<SyncNowSuccess>());
+      expect(driveApi.updateCalls, 0);
+      expect(driveApi.downloadCalls, 0);
+      final updated = (await metadata.getMapping(seed.localFile.path))!;
+      expect(updated.lastSyncedLocalChecksum, sum);
+      expect(updated.lastSyncedRemoteChecksum, sum);
+      expect(updated.lastError, isNull, reason: 'success clears lastError');
+      expect(updated.lastSyncAt!.isAfter(DateTime(2026)), isTrue);
+    },
+  );
+
+  test('T002 local-only: upload, remote baseline follows upload', () async {
+    final oldBytes = Uint8List.fromList([1, 2, 3]);
+    final newLocal = Uint8List.fromList([4, 5, 6]);
+    final oldSum = md5.convert(oldBytes).toString();
+    final seed = await seedBaseline(
+      localBytes: newLocal,
+      remoteBytes: oldBytes,
+      previousLocalChecksum: oldSum,
+      previousRemoteChecksum: oldSum,
+    );
+
+    final result = await orchestrator.syncNow(seed.localFile.path);
+
+    expect(result, isA<SyncNowSuccess>());
+    expect(driveApi.updateCalls, 1);
+    expect(driveApi.downloadCalls, 0);
+    expect(await driveApi.downloadFile(seed.remoteFileId), newLocal);
+    final updated = (await metadata.getMapping(seed.localFile.path))!;
+    final newSum = md5.convert(newLocal).toString();
+    expect(updated.lastSyncedLocalChecksum, newSum);
+    expect(updated.lastSyncedRemoteChecksum, newSum);
+    expect(await seed.localFile.readAsBytes(), newLocal);
+  });
+
+  test(
+    'T002 remote-only: download replaces local, local baseline follows',
+    () async {
+      final oldBytes = Uint8List.fromList([1, 2, 3]);
+      final newRemote = Uint8List.fromList([7, 8, 9]);
+      final oldSum = md5.convert(oldBytes).toString();
+      final seed = await seedBaseline(
+        localBytes: oldBytes,
+        remoteBytes: newRemote,
+        previousLocalChecksum: oldSum,
+        previousRemoteChecksum: oldSum,
+      );
+
+      final result = await orchestrator.syncNow(seed.localFile.path);
+
+      expect(result, isA<SyncNowSuccess>());
+      expect(driveApi.updateCalls, 0);
+      expect(driveApi.downloadCalls, 1);
+      expect(await seed.localFile.readAsBytes(), newRemote);
+      final updated = (await metadata.getMapping(seed.localFile.path))!;
+      final newSum = md5.convert(newRemote).toString();
+      expect(updated.lastSyncedLocalChecksum, newSum);
+      expect(updated.lastSyncedRemoteChecksum, newSum);
+    },
+  );
+
+  group('T002 conflict with baseline (both sides moved)', () {
+    final oldBytes = Uint8List.fromList([1, 2, 3]);
+    final newLocal = Uint8List.fromList([4, 5, 6]);
+    final newRemote = Uint8List.fromList([7, 8, 9]);
+    final oldSum = md5.convert(oldBytes).toString();
+
+    Future<({File localFile, String remoteFileId})> seedConflict() =>
+        seedBaseline(
+          localBytes: newLocal,
+          remoteBytes: newRemote,
+          previousLocalChecksum: oldSum,
+          previousRemoteChecksum: oldSum,
+        );
+
+    for (final resolution in [null, SyncConflictResolution.cancel]) {
+      test(
+        'resolution=$resolution -> conflict returned, nothing written',
+        () async {
+          final seed = await seedConflict();
+          final before = await metadata.getMapping(seed.localFile.path);
+
+          final result = await orchestrator.syncNow(
+            seed.localFile.path,
+            resolution: resolution,
+          );
+
+          expect(result, isA<SyncNowConflict>());
+          final conflict = (result as SyncNowConflict).conflict;
+          expect(conflict.firstSyncWithoutBaseline, isFalse);
+          expect(conflict.localChanged, isTrue);
+          expect(conflict.remoteChanged, isTrue);
+          expect(conflict.previousLocalChecksum, oldSum);
+          expect(conflict.previousRemoteChecksum, oldSum);
+          expect(conflict.remoteChecksumComputedFromDownload, isFalse);
+          expect(driveApi.updateCalls, 0);
+          expect(driveApi.downloadCalls, 0);
+          expect(await seed.localFile.readAsBytes(), newLocal);
+          expect(await metadata.getMapping(seed.localFile.path), before);
+        },
+      );
+    }
+
+    test('keepLocal -> upload local, remote baseline follows upload', () async {
+      final seed = await seedConflict();
+
+      final result = await orchestrator.syncNow(
+        seed.localFile.path,
+        resolution: SyncConflictResolution.keepLocal,
+      );
+
+      expect(result, isA<SyncNowSuccess>());
+      expect(driveApi.updateCalls, 1);
+      expect(driveApi.downloadCalls, 0);
+      expect(await driveApi.downloadFile(seed.remoteFileId), newLocal);
+      expect(await seed.localFile.readAsBytes(), newLocal);
+      final updated = (await metadata.getMapping(seed.localFile.path))!;
+      final newSum = md5.convert(newLocal).toString();
+      expect(updated.lastSyncedLocalChecksum, newSum);
+      expect(updated.lastSyncedRemoteChecksum, newSum);
+      expect(updated.lastError, isNull);
+    });
+
+    test(
+      'useRemote -> download replaces local, local baseline follows',
+      () async {
+        final seed = await seedConflict();
+
+        final result = await orchestrator.syncNow(
+          seed.localFile.path,
+          resolution: SyncConflictResolution.useRemote,
+        );
+
+        expect(result, isA<SyncNowSuccess>());
+        expect(driveApi.updateCalls, 0);
+        expect(driveApi.downloadCalls, 1);
+        expect(await seed.localFile.readAsBytes(), newRemote);
+        final updated = (await metadata.getMapping(seed.localFile.path))!;
+        final newSum = md5.convert(newRemote).toString();
+        expect(updated.lastSyncedLocalChecksum, newSum);
+        expect(updated.lastSyncedRemoteChecksum, newSum);
+        expect(updated.lastError, isNull);
+      },
+    );
+  });
+
+  test(
+    'T002 syncNow on an unlinked database throws before any remote call',
+    () async {
+      final localFile = await _createTempDatabase(Uint8List.fromList([1]));
+      addTearDown(() => localFile.parent.delete(recursive: true));
+
+      await expectLater(orchestrator.syncNow(localFile.path), throwsException);
+      expect(driveApi.updateCalls, 0);
+      expect(driveApi.downloadCalls, 0);
+    },
+  );
 
   test('a Drive-linked mapping moves exactly, restorable on failure', () async {
     final destination = DatabaseSyncMapping(
@@ -500,8 +709,12 @@ class _FakeGoogleDriveApiService implements GoogleDriveApiService {
     return getFileMetadata(id);
   }
 
+  int downloadCalls = 0;
+  int updateCalls = 0;
+
   @override
   Future<Uint8List> downloadFile(String fileId) async {
+    downloadCalls += 1;
     final file = _files[fileId];
     if (file == null) {
       throw Exception('Missing file state for $fileId');
@@ -542,6 +755,7 @@ class _FakeGoogleDriveApiService implements GoogleDriveApiService {
     required String fileId,
     required Uint8List bytes,
   }) async {
+    updateCalls += 1;
     final current = _files[fileId];
     if (current == null) {
       throw Exception('Missing file state for $fileId');

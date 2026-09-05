@@ -11,14 +11,14 @@ in this file.
 
 ## Phase 0 — Baseline and coordination
 
-- [ ] **T001 Reconcile active spec 008** — owner: `senior-flutter-dev`  
+- [x] **T001 Reconcile active spec 008** — owner: `senior-flutter-dev`  
   Files: `specs/008-per-field-conflict-resolution/{spec,plan,tasks}.md`, current
   orchestrator/mapping/DI/mutex changes.  
   Acceptance: implementation base includes latest shared singleton mutex and any
   landed safe-writer work; no 010 branch forks those invariants.  
   Verify: inspect diff/history; run current writer-routing and model suites.
 
-- [ ] **T001b Fix spec 013 sequencing** — owner: `senior-flutter-dev`  
+- [x] **T001b Fix spec 013 sequencing** — owner: `senior-flutter-dev`  
   Files: `specs/013-google-drive-per-file-access/{spec,tasks}.md`, this file.  
   **Decision (2026-08-28): 010 lands first in production; 013 rebases onto the
   neutral models.** 013's Gate 0-A spike runs in parallel on its own
@@ -40,7 +40,7 @@ in this file.
   Verify: order recorded; the selection-surface tasks name which surface they
   target; selection suites listed in the rebase step.
 
-- [ ] **T002 Characterize sync algorithm before edits** — owner:
+- [x] **T002 Characterize sync algorithm before edits** — owner:
   `senior-flutter-dev`  
   Files: `test/features/password_manager/data/services/database_sync_orchestrator_test.dart`,
   `edit_vs_sync_lost_update_test.dart`, `database_writer_lock_routing_test.dart`.  
@@ -49,7 +49,7 @@ in this file.
   lock release.  
   Verify: targeted tests green against unmodified production code.
 
-- [ ] **T003 Characterize Google adapter inputs/outputs** — owner:
+- [x] **T003 Characterize Google adapter inputs/outputs** — owner:
   `senior-flutter-dev`  
   Files: `test/features/password_manager/data/services/google_drive_api_service_test.dart`,
   auth service tests if present.  
@@ -58,7 +58,7 @@ in this file.
   dynamic provider-derived error detail.  
   Verify: targeted Google service tests green; no live account needed.
 
-- [ ] **T004 Add architecture guard (green from the first commit)** — owner:
+- [x] **T004 Add architecture guard (green from the first commit)** — owner:
   `senior-flutter-dev`  
   Files: new
   `test/features/password_manager/data/architecture/cloud_storage_provider_architecture_test.dart`.  
@@ -74,7 +74,7 @@ in this file.
   Verify: `flutter test <this file>` green on the untouched baseline; every
   disabled assertion names the task ID that turns it on; no broad false positives.
 
-- [ ] **T005 Freeze complete legacy-identifier inventory** — owner:
+- [x] **T005 Freeze complete legacy-identifier inventory** — owner:
   `senior-flutter-dev`  
   Files: every production/test path listed in `plan.md` M0, including
   `presentation/screens/database_selection_screen.dart`, shared
