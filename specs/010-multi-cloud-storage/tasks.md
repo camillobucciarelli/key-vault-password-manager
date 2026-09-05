@@ -90,7 +90,7 @@ in this file.
 
 ## Phase 1 — Generic models and mapping migration
 
-- [ ] **T101 Add provider-neutral remote models** — owner:
+- [x] **T101 Add provider-neutral remote models** — owner:
   `senior-flutter-dev`  
   Files: new `domain/models/remote_file.dart`,
   `domain/models/storage_account_summary.dart`,
@@ -103,7 +103,7 @@ in this file.
   dropped instead of renamed and T404 records that.  
   Verify: model tests and `flutter analyze`.
 
-- [ ] **T102 Rename mapping/conflict vocabulary** — owner:
+- [x] **T102 Rename mapping/conflict vocabulary** — owner:
   `senior-flutter-dev`  
   Files: `domain/models/database_sync_mapping.dart`,
   `domain/models/sync_conflict.dart`,
@@ -115,7 +115,7 @@ in this file.
   Verify: constructor/copy/equality tests; source search finds no legacy fields in
   public domain contracts.
 
-- [ ] **T103 Implement exact v1/v2 decode** — owner: `senior-flutter-dev`  
+- [x] **T103 Implement exact v1/v2 decode** — owner: `senior-flutter-dev`  
   Files: `database_sync_mapping.dart`, `sync_metadata_data_source.dart`, metadata
   tests/fixtures.  
   Acceptance: absent provider defaults to `google_drive`; generic values win;
@@ -123,7 +123,7 @@ in this file.
   fails closed without rewrite or vault access.  
   Verify: table-driven migration test for every spec decode rule.
 
-- [ ] **T104 Write mappings forward to v2** — owner: `senior-flutter-dev`  
+- [x] **T104 Write mappings forward to v2** — owner: `senior-flutter-dev`  
   Files: same mapping/data-source files and portable-path tests.  
   Acceptance: successful metadata mutation writes `schemaVersion: 2`, generic
   identity keys and no legacy keys; all non-identity values and portable paths

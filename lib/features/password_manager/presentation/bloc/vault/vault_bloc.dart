@@ -199,7 +199,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         emit,
         state.copyWith(
           isDriveLinked: true,
-          linkedDriveFileName: mapping.driveFileName,
+          linkedDriveFileName: mapping.remoteFileName,
           autoSyncEnabled: mapping.autoSyncEnabled,
           lastSyncAt: mapping.lastSyncAt,
           lastSyncedLocalChecksum: mapping.lastSyncedLocalChecksum,
@@ -1979,7 +1979,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       state.copyWith(
         isDriveConnected: connected,
         isDriveLinked: mapping != null,
-        linkedDriveFileName: mapping?.driveFileName,
+        linkedDriveFileName: mapping?.remoteFileName,
         autoSyncEnabled: mapping?.autoSyncEnabled ?? true,
         lastSyncAt: mapping?.lastSyncAt,
         lastSyncedLocalChecksum: mapping?.lastSyncedLocalChecksum,
@@ -2090,12 +2090,12 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         emit,
         state.copyWith(
           isDriveLinked: true,
-          linkedDriveFileName: mapping.driveFileName,
+          linkedDriveFileName: mapping.remoteFileName,
           autoSyncEnabled: mapping.autoSyncEnabled,
           lastSyncAt: mapping.lastSyncAt,
           lastSyncedLocalChecksum: mapping.lastSyncedLocalChecksum,
           syncStatus: DatabaseSyncStatus.success,
-          infoMessage: 'Database linked to ${mapping.driveFileName}.',
+          infoMessage: 'Database linked to ${mapping.remoteFileName}.',
         ),
       );
     } catch (e, st) {
@@ -2339,7 +2339,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       state.copyWith(
         isDriveConnected: connected,
         isDriveLinked: mapping != null,
-        linkedDriveFileName: mapping?.driveFileName,
+        linkedDriveFileName: mapping?.remoteFileName,
         autoSyncEnabled: mapping?.autoSyncEnabled ?? true,
         lastSyncAt: mapping?.lastSyncAt,
         lastSyncedLocalChecksum: mapping?.lastSyncedLocalChecksum,
@@ -2877,7 +2877,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
         emit,
         state.copyWith(
           syncStatus: DatabaseSyncStatus.success,
-          linkedDriveFileName: mapping?.driveFileName,
+          linkedDriveFileName: mapping?.remoteFileName,
           lastSyncAt: mapping?.lastSyncAt ?? DateTime.now(),
           lastSyncedLocalChecksum: mapping?.lastSyncedLocalChecksum,
           isOffline: false,

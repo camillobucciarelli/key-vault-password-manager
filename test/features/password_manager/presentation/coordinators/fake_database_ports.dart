@@ -325,8 +325,9 @@ class FakeDatabaseSyncRepository implements DatabaseSyncRepository {
   }) async {
     final mapping = DatabaseSyncMapping(
       databasePath: databasePath,
-      driveFileId: remoteFileId ?? 'remote-id',
-      driveFileName: remoteFileName ?? 'remote.kdbx',
+      providerId: 'google_drive',
+      remoteFileId: remoteFileId ?? 'remote-id',
+      remoteFileName: remoteFileName ?? 'remote.kdbx',
       autoSyncEnabled: true,
     );
     mappings[databasePath] = mapping;

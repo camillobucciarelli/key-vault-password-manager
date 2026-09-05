@@ -73,8 +73,9 @@ void main() {
         databasePath,
         DatabaseSyncMapping(
           databasePath: databasePath,
-          driveFileId: 'remote-1',
-          driveFileName: 'vault.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: 'remote-1',
+          remoteFileName: 'vault.kdbx',
           // Local unchanged, remote changed -> download+replace branch.
           lastSyncedLocalChecksum: md5.convert(localBytes).toString(),
           lastSyncedRemoteChecksum: 'stale-remote-checksum',

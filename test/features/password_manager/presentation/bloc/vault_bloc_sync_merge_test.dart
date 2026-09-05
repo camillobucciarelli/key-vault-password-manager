@@ -192,8 +192,9 @@ void main() {
       sync.connected = true;
       sync.mapping = DatabaseSyncMapping(
         databasePath: _dbPath,
-        driveFileId: 'drive-1',
-        driveFileName: 'db.kdbx',
+        providerId: 'google_drive',
+        remoteFileId: 'drive-1',
+        remoteFileName: 'db.kdbx',
       );
       // The bloc only syncs once it believes Drive is connected and linked.
       bloc.add(const BackgroundDriveSync());
@@ -233,8 +234,8 @@ void main() {
       sync.syncResult = SyncNowConflict(
         SyncConflict(
           databasePath: _dbPath,
-          driveFileId: 'drive-1',
-          driveFileName: 'db.kdbx',
+          remoteFileId: 'drive-1',
+          remoteFileName: 'db.kdbx',
           localChecksum: 'aaa',
           remoteChecksum: 'bbb',
         ),

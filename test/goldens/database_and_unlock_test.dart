@@ -250,8 +250,10 @@ void main() {
 
     await tester.pumpWidget(
       pumpableSheetHost(
-        onOpen: (context) =>
-            showInvalidDatabaseFileDialog(context, basename: 'not-a-vault.kdbx'),
+        onOpen: (context) => showInvalidDatabaseFileDialog(
+          context,
+          basename: 'not-a-vault.kdbx',
+        ),
       ),
     );
     await tester.pumpAndSettle();

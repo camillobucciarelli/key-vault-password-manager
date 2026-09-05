@@ -300,7 +300,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       // comparator.
       final DriveRemoteFile remoteMeta;
       try {
-        remoteMeta = await _drive.getFileMetadata(mapping.driveFileId);
+        remoteMeta = await _drive.getFileMetadata(mapping.remoteFileId);
       } on Object {
         return MergeRejected(
           MergeFailureCode.uploadOutcomeAmbiguous,
@@ -314,7 +314,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
         // candidate yet to short-circuit against, so the only sound move is
         // to re-merge against what the remote actually holds now.
         try {
-          remoteBytes = await _sync.downloadRemoteFile(mapping.driveFileId);
+          remoteBytes = await _sync.downloadRemoteFile(mapping.remoteFileId);
         } on Object {
           return MergeRejected(
             MergeFailureCode.uploadOutcomeAmbiguous,
@@ -423,7 +423,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       // questions of them.
       final pending = PendingMergeUpload(
         databasePath: session.canonicalPath,
-        remoteFileId: mapping.driveFileId,
+        remoteFileId: mapping.remoteFileId,
         mergedChecksum: localCandidateChecksum,
         localCommittedChecksum: localCandidateChecksum,
         expectedOldRemoteChecksum: expectedRemoteChecksum,
@@ -448,7 +448,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       final DriveRemoteFile updated;
       try {
         updated = await _drive.updateFile(
-          fileId: mapping.driveFileId,
+          fileId: mapping.remoteFileId,
           bytes: candidateBytes,
         );
       } on Object {
@@ -507,7 +507,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       // spending a re-merge round on it.
       final Uint8List redownloaded;
       try {
-        redownloaded = await _sync.downloadRemoteFile(mapping.driveFileId);
+        redownloaded = await _sync.downloadRemoteFile(mapping.remoteFileId);
       } on Object {
         // The write went out and the read-back showed divergence, so the
         // outcome is exactly as unknown as the two paths above — mark it the
@@ -805,7 +805,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
     // re-send and no `versionHistory` revision to fetch, so the step-3
     // re-read plus the step-5 verification carry the whole safety here.
     final mapping = await _sync.getMapping(record.canonicalPath);
-    if (mapping == null || mapping.driveFileId != pending.remoteFileId) {
+    if (mapping == null || mapping.remoteFileId != pending.remoteFileId) {
       // The mapping moved under the record; nothing can be verified against
       // it. Keep the evidence and stay ambiguous rather than guess.
       await _markPendingAmbiguous(pending);
@@ -960,7 +960,7 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       throw const SyncMergeFailure(MergeFailureCode.mergePreconditionFailed);
     }
     try {
-      return await _sync.downloadRemoteFile(mapping.driveFileId);
+      return await _sync.downloadRemoteFile(mapping.remoteFileId);
     } on SyncMergeFailure {
       rethrow;
     } on Object {

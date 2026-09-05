@@ -5,8 +5,8 @@ enum SyncConflictResolution { keepLocal, useRemote, cancel }
 class SyncConflict extends Equatable {
   const SyncConflict({
     required this.databasePath,
-    required this.driveFileId,
-    required this.driveFileName,
+    required this.remoteFileId,
+    required this.remoteFileName,
     required this.localChecksum,
     required this.remoteChecksum,
     this.remoteModifiedTime,
@@ -19,8 +19,8 @@ class SyncConflict extends Equatable {
   });
 
   final String databasePath;
-  final String driveFileId;
-  final String driveFileName;
+  final String remoteFileId;
+  final String remoteFileName;
   final String localChecksum;
   final String remoteChecksum;
   final DateTime? remoteModifiedTime;
@@ -34,8 +34,8 @@ class SyncConflict extends Equatable {
   @override
   List<Object?> get props => [
     databasePath,
-    driveFileId,
-    driveFileName,
+    remoteFileId,
+    remoteFileName,
     localChecksum,
     remoteChecksum,
     remoteModifiedTime,

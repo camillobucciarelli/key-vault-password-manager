@@ -782,7 +782,7 @@ void main() {
 
       expect(resolved.status, DatabaseSessionStatus.unselected);
       expect(await File(existingPath).readAsBytes(), originalBytes);
-      expect(syncRepository.mappings[existingPath]!.driveFileId, 'old-remote');
+      expect(syncRepository.mappings[existingPath]!.remoteFileId, 'old-remote');
       expect(registryRepository.records, hasLength(1));
     });
 
@@ -806,7 +806,7 @@ void main() {
 
       expect(resolved.path, existingPath);
       expect(await File(existingPath).readAsBytes(), originalBytes);
-      expect(syncRepository.mappings[existingPath]!.driveFileId, 'remote-id');
+      expect(syncRepository.mappings[existingPath]!.remoteFileId, 'remote-id');
       expect(registryRepository.records, hasLength(1));
     });
 
@@ -830,8 +830,8 @@ void main() {
       expect(resolved.path, isNot(existingPath));
       expect(await File(resolved.path!).exists(), isTrue);
       expect(registryRepository.records, hasLength(2));
-      expect(syncRepository.mappings[existingPath]!.driveFileId, 'old-remote');
-      expect(syncRepository.mappings[resolved.path]!.driveFileId, 'remote-id');
+      expect(syncRepository.mappings[existingPath]!.remoteFileId, 'old-remote');
+      expect(syncRepository.mappings[resolved.path]!.remoteFileId, 'remote-id');
     });
 
     test(
@@ -861,7 +861,10 @@ void main() {
           await File(existingPath).readAsBytes(),
           syncRepository.downloadBytes,
         );
-        expect(syncRepository.mappings[existingPath]!.driveFileId, 'remote-id');
+        expect(
+          syncRepository.mappings[existingPath]!.remoteFileId,
+          'remote-id',
+        );
         expect(registryRepository.records, hasLength(1));
         expect(registryRepository.records.single.canonicalPath, existingPath);
       },
@@ -1105,8 +1108,9 @@ void main() {
         );
         syncRepository.mappings[missingPath] = DatabaseSyncMapping(
           databasePath: missingPath,
-          driveFileId: 'remote-1',
-          driveFileName: 'missing.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: 'remote-1',
+          remoteFileName: 'missing.kdbx',
           autoSyncEnabled: true,
         );
 
@@ -1139,7 +1143,7 @@ void main() {
           isFalse,
           reason: 'the stale mapping key must be moved, not duplicated',
         );
-        expect(syncRepository.mappings[foundPath]?.driveFileId, 'remote-1');
+        expect(syncRepository.mappings[foundPath]?.remoteFileId, 'remote-1');
 
         final locatedItem = result.items.firstWhere(
           (item) => item.databaseId == 'db-1',
@@ -1253,16 +1257,18 @@ void main() {
               .toString();
           final source = DatabaseSyncMapping(
             databasePath: missingPath,
-            driveFileId: 'source-remote-id',
-            driveFileName: 'source.kdbx',
+            providerId: 'google_drive',
+            remoteFileId: 'source-remote-id',
+            remoteFileName: 'source.kdbx',
           );
           // Destination already has a mapping to a DIFFERENT Drive file —
           // a blind reverse move would overwrite it with the source's
           // remote id instead of restoring it.
           final destination = DatabaseSyncMapping(
             databasePath: foundPath,
-            driveFileId: 'destination-remote-id',
-            driveFileName: 'destination.kdbx',
+            providerId: 'google_drive',
+            remoteFileId: 'destination-remote-id',
+            remoteFileName: 'destination.kdbx',
           );
           registryRepository.records = [
             _record(
@@ -1305,13 +1311,15 @@ void main() {
             .toString();
         final source = DatabaseSyncMapping(
           databasePath: missingPath,
-          driveFileId: 'source-remote-id',
-          driveFileName: 'source.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: 'source-remote-id',
+          remoteFileName: 'source.kdbx',
         );
         final destination = DatabaseSyncMapping(
           databasePath: foundPath,
-          driveFileId: 'destination-remote-id',
-          driveFileName: 'destination.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: 'destination-remote-id',
+          remoteFileName: 'destination.kdbx',
         );
         registryRepository.records = [
           _record(
@@ -1629,8 +1637,9 @@ Future<String> _prepareDriveDuplicate(
   ]);
   syncRepository.mappings[existingPath] = DatabaseSyncMapping(
     databasePath: existingPath,
-    driveFileId: 'old-remote',
-    driveFileName: 'old.kdbx',
+    providerId: 'google_drive',
+    remoteFileId: 'old-remote',
+    remoteFileName: 'old.kdbx',
     lastSyncAt: null,
     autoSyncEnabled: true,
   );
@@ -1938,8 +1947,9 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
   }) async {
     final mapping = DatabaseSyncMapping(
       databasePath: databasePath,
-      driveFileId: remoteFileId ?? 'remote-id',
-      driveFileName: remoteFileName ?? 'remote.kdbx',
+      providerId: 'google_drive',
+      remoteFileId: remoteFileId ?? 'remote-id',
+      remoteFileName: remoteFileName ?? 'remote.kdbx',
       lastSyncAt: null,
       autoSyncEnabled: true,
     );

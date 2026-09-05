@@ -2943,8 +2943,9 @@ class _Harness {
           ? null
           : DatabaseSyncMapping(
               databasePath: databasePath,
-              driveFileId: _driveFileId,
-              driveFileName: 'fixture.kdbx',
+              providerId: 'google_drive',
+              remoteFileId: _driveFileId,
+              remoteFileName: 'fixture.kdbx',
             ),
       remote: remote,
     );
@@ -3172,7 +3173,7 @@ class _FakeSyncRepository implements DatabaseSyncRepository {
 
   @override
   Future<Uint8List> downloadRemoteFile(String fileId) async {
-    if (fileId != mapping?.driveFileId) {
+    if (fileId != mapping?.remoteFileId) {
       throw StateError('unexpected remote file id');
     }
     if (remote.downloadError != null) throw remote.downloadError!;

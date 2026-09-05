@@ -348,7 +348,6 @@ class DatabaseSelectionScreen extends StatelessWidget {
     );
   }
 
-
   Future<void> _handleDuplicateDecisionPrompt(
     BuildContext context,
     DatabaseSelectionDuplicateDecisionRequired state,

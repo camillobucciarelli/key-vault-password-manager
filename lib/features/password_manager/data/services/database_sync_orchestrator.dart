@@ -92,8 +92,9 @@ class DatabaseSyncOrchestrator {
       remote = await _googleDriveApiService.getFileMetadata(remoteFileId);
       mapping = DatabaseSyncMapping(
         databasePath: databasePath,
-        driveFileId: remote.id,
-        driveFileName: remote.name,
+        providerId: 'google_drive',
+        remoteFileId: remote.id,
+        remoteFileName: remote.name,
         lastSyncedLocalChecksum: null,
         lastSyncedRemoteChecksum: null,
         lastSyncedRemoteModifiedTime: remote.modifiedTime,
@@ -113,8 +114,9 @@ class DatabaseSyncOrchestrator {
       final checksum = md5.convert(bytes).toString();
       mapping = DatabaseSyncMapping(
         databasePath: databasePath,
-        driveFileId: remote.id,
-        driveFileName: remote.name,
+        providerId: 'google_drive',
+        remoteFileId: remote.id,
+        remoteFileName: remote.name,
         lastSyncedLocalChecksum: checksum,
         lastSyncedRemoteChecksum: remote.md5Checksum ?? checksum,
         lastSyncedRemoteModifiedTime: remote.modifiedTime,
@@ -172,10 +174,10 @@ class DatabaseSyncOrchestrator {
     final localBytes = await dbFile.readAsBytes();
     final localChecksum = md5.convert(localBytes).toString();
     final remote = await _remote(
-      _googleDriveApiService.getFileMetadata(mapping.driveFileId),
+      _googleDriveApiService.getFileMetadata(mapping.remoteFileId),
     );
     final remoteChecksumSnapshot = await _resolveRemoteChecksum(
-      remoteFileId: mapping.driveFileId,
+      remoteFileId: mapping.remoteFileId,
       metadataChecksum: remote.md5Checksum,
     );
     final remoteChecksum = remoteChecksumSnapshot.value;
@@ -203,7 +205,7 @@ class DatabaseSyncOrchestrator {
 
       _logSyncConflict(
         databasePath: databasePath,
-        driveFileName: mapping.driveFileName,
+        remoteFileName: mapping.remoteFileName,
         localChecksum: localChecksum,
         remoteChecksum: remoteChecksum,
         previousLocalChecksum: previousLocal,
@@ -219,8 +221,8 @@ class DatabaseSyncOrchestrator {
         return SyncNowConflict(
           SyncConflict(
             databasePath: databasePath,
-            driveFileId: mapping.driveFileId,
-            driveFileName: mapping.driveFileName,
+            remoteFileId: mapping.remoteFileId,
+            remoteFileName: mapping.remoteFileName,
             localChecksum: localChecksum,
             remoteChecksum: remoteChecksum,
             remoteModifiedTime: remote.modifiedTime,
@@ -238,7 +240,7 @@ class DatabaseSyncOrchestrator {
       if (resolution == SyncConflictResolution.keepLocal) {
         final updated = await _remote(
           _googleDriveApiService.updateFile(
-            fileId: mapping.driveFileId,
+            fileId: mapping.remoteFileId,
             bytes: localBytes,
           ),
         );
@@ -255,7 +257,7 @@ class DatabaseSyncOrchestrator {
       }
 
       final downloaded = await _remote(
-        _googleDriveApiService.downloadFile(mapping.driveFileId),
+        _googleDriveApiService.downloadFile(mapping.remoteFileId),
       );
       await _replaceLocalDatabase(databasePath, downloaded);
       final refreshedLocal = md5.convert(downloaded).toString();
@@ -280,7 +282,7 @@ class DatabaseSyncOrchestrator {
     if (localChanged && remoteChanged) {
       _logSyncConflict(
         databasePath: databasePath,
-        driveFileName: mapping.driveFileName,
+        remoteFileName: mapping.remoteFileName,
         localChecksum: localChecksum,
         remoteChecksum: remoteChecksum,
         previousLocalChecksum: previousLocal,
@@ -296,8 +298,8 @@ class DatabaseSyncOrchestrator {
         return SyncNowConflict(
           SyncConflict(
             databasePath: databasePath,
-            driveFileId: mapping.driveFileId,
-            driveFileName: mapping.driveFileName,
+            remoteFileId: mapping.remoteFileId,
+            remoteFileName: mapping.remoteFileName,
             localChecksum: localChecksum,
             remoteChecksum: remoteChecksum,
             remoteModifiedTime: remote.modifiedTime,
@@ -315,7 +317,7 @@ class DatabaseSyncOrchestrator {
       if (resolution == SyncConflictResolution.keepLocal) {
         final updated = await _remote(
           _googleDriveApiService.updateFile(
-            fileId: mapping.driveFileId,
+            fileId: mapping.remoteFileId,
             bytes: localBytes,
           ),
         );
@@ -332,7 +334,7 @@ class DatabaseSyncOrchestrator {
       }
 
       final downloaded = await _remote(
-        _googleDriveApiService.downloadFile(mapping.driveFileId),
+        _googleDriveApiService.downloadFile(mapping.remoteFileId),
       );
       await _replaceLocalDatabase(databasePath, downloaded);
       final refreshedLocal = md5.convert(downloaded).toString();
@@ -352,7 +354,7 @@ class DatabaseSyncOrchestrator {
     if (localChanged) {
       final updated = await _remote(
         _googleDriveApiService.updateFile(
-          fileId: mapping.driveFileId,
+          fileId: mapping.remoteFileId,
           bytes: localBytes,
         ),
       );
@@ -370,7 +372,7 @@ class DatabaseSyncOrchestrator {
 
     if (remoteChanged) {
       final downloaded = await _remote(
-        _googleDriveApiService.downloadFile(mapping.driveFileId),
+        _googleDriveApiService.downloadFile(mapping.remoteFileId),
       );
       await _replaceLocalDatabase(databasePath, downloaded);
       final refreshedLocal = md5.convert(downloaded).toString();
@@ -492,7 +494,7 @@ class DatabaseSyncOrchestrator {
 
   void _logSyncConflict({
     required String databasePath,
-    required String driveFileName,
+    required String remoteFileName,
     required String localChecksum,
     required String remoteChecksum,
     required String? previousLocalChecksum,
@@ -504,7 +506,7 @@ class DatabaseSyncOrchestrator {
   }) {
     logWarning(
       'Sync conflict details '
-      '(db: $databasePath, file: $driveFileName, '
+      '(db: $databasePath, file: $remoteFileName, '
       'localChanged: $localChanged, remoteChanged: $remoteChanged, '
       'firstSyncWithoutBaseline: $firstSyncWithoutBaseline, '
       'remoteChecksumComputedFromDownload: '

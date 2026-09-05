@@ -282,8 +282,9 @@ void main() {
         ..connected = true
         ..mappings[kTestDatabasePath] = DatabaseSyncMapping(
           databasePath: kTestDatabasePath,
-          driveFileId: 'file-123',
-          driveFileName: 'Personal.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: 'file-123',
+          remoteFileName: 'Personal.kdbx',
           lastSyncAt: DateTime(2026, 8, 8),
         );
       addTearDown(resetVaultShellTestDi);
@@ -446,8 +447,8 @@ class _ConflictSyncRepository extends FakeDatabaseSyncRepository {
   }) async => SyncNowConflict(
     SyncConflict(
       databasePath: databasePath,
-      driveFileId: 'file-123',
-      driveFileName: 'Personal.kdbx',
+      remoteFileId: 'file-123',
+      remoteFileName: 'Personal.kdbx',
       localChecksum: 'a91f',
       remoteChecksum: '3d0c',
     ),

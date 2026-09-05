@@ -45,8 +45,9 @@ void main() {
         localFile.path,
         DatabaseSyncMapping(
           databasePath: localFile.path,
-          driveFileId: remoteFileId,
-          driveFileName: 'vault.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: remoteFileId,
+          remoteFileName: 'vault.kdbx',
           lastSyncedLocalChecksum: null,
           lastSyncedRemoteChecksum: null,
           lastSyncedRemoteModifiedTime: null,
@@ -86,8 +87,9 @@ void main() {
         localFile.path,
         DatabaseSyncMapping(
           databasePath: localFile.path,
-          driveFileId: remoteFileId,
-          driveFileName: 'vault.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: remoteFileId,
+          remoteFileName: 'vault.kdbx',
         ),
       );
 
@@ -122,8 +124,9 @@ void main() {
       localFile.path,
       DatabaseSyncMapping(
         databasePath: localFile.path,
-        driveFileId: remoteFileId,
-        driveFileName: 'vault.kdbx',
+        providerId: 'google_drive',
+        remoteFileId: remoteFileId,
+        remoteFileName: 'vault.kdbx',
       ),
     );
 
@@ -162,8 +165,9 @@ void main() {
       localFile.path,
       DatabaseSyncMapping(
         databasePath: localFile.path,
-        driveFileId: remoteFileId,
-        driveFileName: 'vault.kdbx',
+        providerId: 'google_drive',
+        remoteFileId: remoteFileId,
+        remoteFileName: 'vault.kdbx',
         lastSyncedLocalChecksum: previousLocalChecksum,
         lastSyncedRemoteChecksum: previousRemoteChecksum,
         lastSyncAt: DateTime(2026),
@@ -354,13 +358,15 @@ void main() {
   test('a Drive-linked mapping moves exactly, restorable on failure', () async {
     final destination = DatabaseSyncMapping(
       databasePath: '/tmp/dest.kdbx',
-      driveFileId: 'destination-remote-id',
-      driveFileName: 'destination.kdbx',
+      providerId: 'google_drive',
+      remoteFileId: 'destination-remote-id',
+      remoteFileName: 'destination.kdbx',
     );
     final source = DatabaseSyncMapping(
       databasePath: '/tmp/source.kdbx',
-      driveFileId: 'source-remote-id',
-      driveFileName: 'source.kdbx',
+      providerId: 'google_drive',
+      remoteFileId: 'source-remote-id',
+      remoteFileName: 'source.kdbx',
     );
     await metadata.upsertMapping(source.databasePath, source);
     await metadata.upsertMapping(destination.databasePath, destination);
@@ -374,7 +380,7 @@ void main() {
     // mapping's PATH payload and drops the mapping that occupied the
     // destination path.
     final moved = await metadata.getMapping(source.databasePath);
-    expect(moved?.driveFileId, 'source-remote-id');
+    expect(moved?.remoteFileId, 'source-remote-id');
     expect(moved?.databasePath, destination.databasePath);
     expect(await metadata.getMapping(destination.databasePath), isNull);
 
@@ -387,7 +393,7 @@ void main() {
       source.databasePath,
     );
     expect(
-      (await metadata.getMapping(destination.databasePath))?.driveFileId,
+      (await metadata.getMapping(destination.databasePath))?.remoteFileId,
       'destination-remote-id',
     );
   });
@@ -489,8 +495,9 @@ Future<_HashSyncHarness> _createHashSyncHarness({
     localFile.path,
     DatabaseSyncMapping(
       databasePath: localFile.path,
-      driveFileId: remoteFileId,
-      driveFileName: 'vault.kdbx',
+      providerId: 'google_drive',
+      remoteFileId: remoteFileId,
+      remoteFileName: 'vault.kdbx',
       lastSyncedLocalChecksum: localHash,
       lastSyncedRemoteChecksum: localHash,
     ),

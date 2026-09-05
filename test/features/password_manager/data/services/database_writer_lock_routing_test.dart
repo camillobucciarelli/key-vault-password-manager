@@ -987,8 +987,9 @@ void main() {
         localFile.path,
         DatabaseSyncMapping(
           databasePath: localFile.path,
-          driveFileId: 'remote-1',
-          driveFileName: 'vault.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: 'remote-1',
+          remoteFileName: 'vault.kdbx',
           // Remote changed, local unchanged -> download+replace branch.
           lastSyncedLocalChecksum: localChecksum,
           lastSyncedRemoteChecksum: 'stale-remote-checksum',
@@ -1052,8 +1053,9 @@ void main() {
         localFile.path,
         DatabaseSyncMapping(
           databasePath: localFile.path,
-          driveFileId: 'remote-1',
-          driveFileName: 'vault.kdbx',
+          providerId: 'google_drive',
+          remoteFileId: 'remote-1',
+          remoteFileName: 'vault.kdbx',
           lastSyncedLocalChecksum: null,
           lastSyncedRemoteChecksum: null,
           lastSyncedRemoteModifiedTime: null,

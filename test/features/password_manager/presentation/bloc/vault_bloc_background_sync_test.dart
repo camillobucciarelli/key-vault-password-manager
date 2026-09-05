@@ -919,8 +919,9 @@ final _emptySnapshot = VaultSnapshot(
 
 const _testMapping = DatabaseSyncMapping(
   databasePath: _kDbPath,
-  driveFileId: 'file-123',
-  driveFileName: 'test.kdbx',
+  providerId: 'google_drive',
+  remoteFileId: 'file-123',
+  remoteFileName: 'test.kdbx',
   autoSyncEnabled: true,
 );
 

@@ -188,7 +188,9 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
   }
 
   bool _isLinkedElsewhere(String remoteFileId) {
-    return _otherMappings.any((mapping) => mapping.driveFileId == remoteFileId);
+    return _otherMappings.any(
+      (mapping) => mapping.remoteFileId == remoteFileId,
+    );
   }
 
   void _completeSelectedLink() {
@@ -544,7 +546,7 @@ class _SyncConflictSheet extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'This device and "${conflict.driveFileName}" on Drive were both '
+            'This device and "${conflict.remoteFileName}" on Drive were both '
             'edited since the last sync. Pick which one to keep — the '
             'other is not deleted, it stays as a Drive revision.',
             style: AppTextStyles.body.copyWith(color: colors.textSecondary),

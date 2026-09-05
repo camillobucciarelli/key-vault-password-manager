@@ -34,9 +34,8 @@ const _bannedIdentifiers = [
 /// plan.md M6 — the only places the v1 serialized keys may still appear.
 const _legacyKeyAllowlist = [
   '$_domain/models/database_sync_mapping.dart',
+  'test/features/password_manager/domain/models/database_sync_mapping_test.dart',
   'test/features/password_manager/data/datasources/sync_metadata_data_source_test.dart',
-  'test/features/password_manager/data/portable_path_regression_qa_test.dart',
-  'test/features/password_manager/data/portable_path_serialization_test.dart',
 ];
 
 /// plan.md M6 — every `*Drive*` identifier presentation may still use, each
@@ -176,7 +175,7 @@ void main() {
     test(
       'T601b: v1 keys survive only in the decoder and migration fixtures',
       () {
-        final pattern = RegExp(r'driveFileId|driveFileName');
+        final pattern = RegExp(r'remoteFileId|remoteFileName');
         final offenders = [..._filesUnder('lib'), ..._filesUnder('test')]
             .where((f) => pattern.hasMatch(_read(f)))
             .where((f) => !_legacyKeyAllowlist.contains(f));

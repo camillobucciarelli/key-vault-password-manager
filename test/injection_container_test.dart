@@ -163,8 +163,7 @@ void main() {
     // The record is stored PortablePath-encoded, which is exactly what a
     // raw data-source read cannot compare against an absolute path.
     expect(
-      (await di.sl<DatabaseRegistryLocalDataSource>()
-              .getRecords())
+      (await di.sl<DatabaseRegistryLocalDataSource>().getRecords())
           .single['canonicalPath'],
       isNot(database.path),
     );

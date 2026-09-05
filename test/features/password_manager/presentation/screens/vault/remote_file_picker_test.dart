@@ -94,8 +94,9 @@ class _BackgroundReconnectSyncRepository extends FakeDatabaseSyncRepository {
     connected = true;
     mappings[kTestDatabasePath] = const DatabaseSyncMapping(
       databasePath: kTestDatabasePath,
-      driveFileId: 'remote-1',
-      driveFileName: 'Vault.kdbx',
+      providerId: 'google_drive',
+      remoteFileId: 'remote-1',
+      remoteFileName: 'Vault.kdbx',
       autoSyncEnabled: true,
     );
   }

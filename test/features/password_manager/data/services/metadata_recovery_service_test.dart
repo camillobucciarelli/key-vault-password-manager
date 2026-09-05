@@ -39,9 +39,9 @@ void main() {
         secureDataSource: secure,
       );
 
-  List<File> metadataFiles() =>
-      Directory(p.join(tempDir.path, 'metadata')).listSync().whereType<File>()
-          .toList();
+  List<File> metadataFiles() => Directory(
+    p.join(tempDir.path, 'metadata'),
+  ).listSync().whereType<File>().toList();
 
   test('nothing to recover when there is no metadata at all', () async {
     expect(await service.hasUnreadableMetadata(), isFalse);

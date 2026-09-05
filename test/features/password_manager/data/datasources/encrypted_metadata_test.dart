@@ -105,8 +105,9 @@ void main() {
           'db_1',
           const DatabaseSyncMapping(
             databasePath: '/secret/place/vaultfile',
-            driveFileId: 'remote-123',
-            driveFileName: 'My Secret Vault.kdbx',
+            providerId: 'google_drive',
+            remoteFileId: 'remote-123',
+            remoteFileName: 'My Secret Vault.kdbx',
           ),
         );
 
@@ -134,7 +135,7 @@ void main() {
           (await security.getProfile('db_1'))!['keyFilePath'],
           '/secret/place/keyfile',
         );
-        expect((await sync.getAllMappings()).single.driveFileId, 'remote-123');
+        expect((await sync.getAllMappings()).single.remoteFileId, 'remote-123');
       },
     );
   });
