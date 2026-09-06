@@ -29,6 +29,50 @@ This delivery does **not** add multi-cloud product behavior. It creates only the
 boundary needed to add a second provider later without leaking its SDK, OAuth or
 wire model through the application.
 
+## Clarifications
+
+### Session 2026-09-04
+
+- Q: When a single mapping in `sync_mappings.json` has missing or invalid remote
+  identity, does the decode failure scope the whole file or only that entry, and
+  how does an undecodable entry survive the version-2 write-forward? → A:
+  **Per-entry with quarantine.** Valid mappings still decode and are returned;
+  the invalid entry is retained as opaque raw JSON and re-emitted unchanged by
+  the version-2 serializer; the decode error is exposed only as non-blocking
+  diagnostic state. Rationale: one corrupt record must not disable sync for every
+  other database, and “must not silently drop a mapping” is only enforceable if
+  the undecodable entry is carried through the rewrite.
+- Q: Does the `mapping.providerId` guard also block purely local metadata
+  operations — remove, move, restore, auto-sync toggle — or only operations that
+  touch the remote? → A: **Only remote I/O and vault writes.** Local metadata
+  operations stay available. Rationale: blocking them would make a mapping with
+  an unknown provider ID unremovable from the app, leaving no UI exit short of
+  hand-editing the metadata file; it also resolves the contradiction between
+  dependency rule 7 (“before remote I/O”) and the previous “mapping mutation”
+  wording.
+- Q: After the refactor, who owns the per-call timeout, and must the orchestrator
+  convert its own `TimeoutException` into a `CloudStorageException`? → A:
+  **Timeout stays in the orchestrator, wrapped as `CloudStorageException(timeout)`
+  before it propagates.** Rationale: the plan requires the timeout's duration and
+  placement to be unchanged, and wrapping is the only way to keep a non
+  provider-neutral exception from crossing the data boundary and to give the
+  dynamic error slot a `safeMessage` for the timeout case.
+- Q: For an HTTP `403`, is body inspection for rate-limit reasons mandatory or
+  optional, and what takes precedence between a status-code row and the
+  `malformedResponse` row? → A: **Mandatory inspection on `403`; HTTP status
+  classifies first; `malformedResponse` applies only to `2xx` payloads that fail
+  to parse; an unreadable `403` body falls back to `forbidden`.** Rationale: the
+  mapping is declared exhaustive and precedence-ordered, so a `may` left the
+  `rateLimited`-from-`403` row non-deterministic and untestable.
+- Q: Must the v2-tolerant reader ship in a release before the v2 writer, or is a
+  reactive compatibility patch on rollback acceptable? → A: **Single release plus
+  a preventive dated backup of the version-1 `sync_mappings.json` taken before
+  the first version-2 rewrite.** Rationale: constitution principle VII requires a
+  dated backup before an irreversible operation, and the first v2 rewrite is
+  irreversible for older binaries; the backup turns rollback into a metadata
+  restore instead of an emergency patch, without the two-release sequencing the
+  plan's “reader and writer in the same release” rule forbids.
+
 ## Problem and current state
 
 Cloud sync is hard-coded to Google Drive across layers:
@@ -85,9 +129,12 @@ the new provider port, never on Google services.
 - No provider migration/switch flow.
 - No registry, resolver, factory, keyed DI map or dynamic plugin system.
 - No speculative split into auth, account, metadata and object-operation ports.
-- No sync algorithm, conflict policy, checksum algorithm, timeout or UI behavior
-  change. No static/unrelated copy change; only unsafe dynamic provider error
-  detail is replaced by the fixed safe messages below.
+- No sync algorithm, conflict policy, checksum algorithm or UI behavior change.
+  The per-call timeout keeps its duration and its placement in the orchestrator;
+  the only change is that the exception it raises is normalized to
+  `CloudStorageException(timeout)` so the data boundary stays provider-neutral.
+  No static/unrelated copy change; only unsafe dynamic provider error detail is
+  replaced by the fixed safe messages below.
 - No native platform code change.
 - No feature split or refolder: everything stays under
   `features/password_manager/{data,domain,presentation}`.
@@ -130,6 +177,12 @@ Rules:
 7. A mapping carries `providerId`. With one injected implementation, an operation
    must verify `mapping.providerId == provider.providerId` before remote I/O.
    Unsupported IDs return a safe typed error and perform no local/remote write.
+   The guard covers exactly remote I/O and vault writes. Purely local metadata
+   operations — `removeMapping`, `moveMappingPath`, `restoreMappingPathMove` and
+   the auto-sync toggle — are never blocked by it, so a mapping with an unknown
+   provider ID always remains removable and movable from the UI. Enabling
+   auto-sync on such a mapping is therefore permitted; the sync run it would
+   trigger still fails closed at the guard.
 8. Atomic business actions with policy or transaction value use use cases. In
    this slice, link and sync-now qualify. Do not create pass-through use cases for
    every repository getter/toggle solely for symmetry.
@@ -223,7 +276,13 @@ provider and sync behavior through `DatabaseSyncOrchestrator`. The orchestrator:
 
 - reads mapping provider identity before remote I/O;
 - uses `remoteFileId`/`remoteFileName` only;
-- retains current per-call timeout, renamed provider-neutrally;
+- retains current per-call timeout — same duration, same placement — renamed
+  provider-neutrally. The orchestrator keeps ownership of that timeout and wraps
+  the `TimeoutException` it raises in `CloudStorageException(timeout)` before
+  propagating, so no non provider-neutral exception crosses the data boundary.
+  This is a normalization of the exception type only: the timeout is not moved
+  into the adapter, no second timeout budget is added, and the failing branch,
+  lock release and retry behavior are unchanged;
 - retains current MD5 baseline/fallback-download behavior;
 - retains current conflict branches, backups, mapping updates and auto-sync;
 - retains the shared singleton `DatabasePathMutex` and all lock boundaries.
@@ -277,9 +336,17 @@ For each mapping:
    current Google-only DI.
 5. Conflicting generic and legacy values use valid generic values and ignore
    legacy aliases. Tests pin this deterministic rule.
-6. Missing/invalid required identity returns a safe metadata-decoding failure.
-   It must not silently drop a mapping, connect a different object, rewrite the
-   metadata file or touch vault bytes.
+6. Missing/invalid required identity fails **per entry, not per file**. Reading
+   the metadata file returns every entry that decodes; the entry that does not
+   decode is quarantined — retained verbatim as opaque raw JSON that no caller
+   interprets, that is never executable and that is never matched by a database
+   path or remote identity lookup. The failure is surfaced as a safe non-blocking
+   metadata-decoding diagnostic, not as a thrown failure of the whole read. It
+   must not silently drop a mapping, connect a different object, rewrite the
+   metadata file or touch vault bytes. Quarantine applies to every entry the
+   decoder cannot turn into a mapping, including an entry that is not a JSON
+   object at all: the current silent `.whereType<Map>()` drop is a defect this
+   rule closes.
 7. Existing portable-path decode/encode behavior is unchanged.
 
 ### Write-forward
@@ -289,16 +356,27 @@ For each mapping:
   sync result) serializes all retained mappings as version 2.
 - Version 2 writes only `providerId`, `remoteFileId` and `remoteFileName`; legacy
   Drive keys are not emitted.
-- Migration writes only `sync_mappings.json`. It never opens, decrypts, copies,
-  renames or rewrites a `.kdbx`.
+- A quarantined entry is re-emitted unchanged. The serializer copies its retained
+  raw JSON through byte-for-byte: it is not upgraded to version 2, not given a
+  `providerId`, not reordered into a decoded shape and not dropped. A write that
+  cannot preserve it fails instead of losing it.
+- Before the first version-2 rewrite of a given metadata file, the writer stores
+  a dated copy of the existing version-1 `sync_mappings.json` alongside it. The
+  backup is taken once, before the mutation, and the mutation does not proceed if
+  the backup cannot be written. It contains metadata only — no vault bytes, no
+  credential — and is a plain restore target for a rolled-back binary.
+- Migration writes only `sync_mappings.json` and that dated backup. It never
+  opens, decrypts, copies, renames or rewrites a `.kdbx`.
 - Failed serialization/write leaves current metadata behavior intact: error
   propagates safely and no vault operation is added as compensation.
 
 Backout consequence is explicit: an older binary cannot decode a mapping once it
-has been written as version 2. Backout must ship a compatibility patch that reads
-version 2 or restore metadata from an operator/user backup; never downgrade or
-rewrite vault bytes. Local vault usability is unaffected if sync mapping is
-temporarily unavailable.
+has been written as version 2. Reader and writer ship in the same release; the
+dated version-1 backup above is the preventive mitigation, so backout restores
+that file rather than requiring a compatibility patch to be built reactively.
+Shipping a compatibility patch that reads version 2 remains an alternative;
+never downgrade or rewrite vault bytes. Local vault usability is unaffected if
+sync mapping is temporarily unavailable.
 
 ## Error and security requirements
 
@@ -356,13 +434,14 @@ Google mapping is exhaustive and precedence-ordered:
 | Explicit user-cancel result or `GoogleSignInExceptionCode.canceled` | `cancelled` |
 | Sign-in/configuration failure, missing credentials, token acquisition failure or refresh failure before an HTTP response | `authenticationFailed` |
 | HTTP `401` after the existing single token-refresh attempt | `authorizationRequired` |
-| HTTP `403`, except reason `rateLimitExceeded`, `userRateLimitExceeded`, `dailyLimitExceeded` or `quotaExceeded` | `forbidden` otherwise, `rateLimited` for those four reasons |
+| HTTP `403` whose body reason is `rateLimitExceeded`, `userRateLimitExceeded`, `dailyLimitExceeded` or `quotaExceeded` | `rateLimited` |
+| Every other HTTP `403`, including one whose body is absent, unparsable or carries an unrecognized reason | `forbidden` |
 | HTTP `404` | `notFound` |
 | HTTP `409` or `412` | `conflict` |
 | HTTP `429` | `rateLimited` |
 | HTTP `408` or `TimeoutException` | `timeout` |
 | `SocketException`, connection-level `http.ClientException`, DNS/offline/no-response failure | `networkUnavailable` |
-| `FormatException`, invalid JSON/type, or missing required response field | `malformedResponse` |
+| `FormatException`, invalid JSON/type, or missing required response field, **in a `2xx` response** | `malformedResponse` |
 | HTTP `500..599` | `serverFailure` |
 | Every unmapped exception/status | `unknown` |
 
@@ -370,13 +449,34 @@ Google mapping is exhaustive and precedence-ordered:
 a persisted mapping has a syntactically valid non-empty `providerId`, but current
 build has no wired adapter for it. In Google-only build this is exactly
 `mapping.providerId != injectedProvider.providerId`. Check occurs before auth,
-remote I/O, backup, local vault write or mapping mutation. Exception contains only
+remote I/O, backup or local vault write. It does **not** gate purely local
+metadata operations: remove, path move, move restore and the auto-sync toggle
+stay available on a mapping with an unsupported provider ID, per dependency rule
+7, so the user always has a way to unlink or relocate it. Exception contains only
 the enum; `safeCode`, `safeMessage`, `toString`, logs and UI never interpolate or
 otherwise reveal raw persisted provider ID.
 
+Precedence is resolved as follows, and every row is deterministic:
+
+1. An HTTP response is classified by its status code first. `malformedResponse`
+   is reachable only from a `2xx` response whose payload cannot be parsed or is
+   missing a required field; a non-`2xx` response keeps its status-derived code
+   even when its body is invalid JSON — a `500` with an unparsable body is
+   `serverFailure`, never `malformedResponse`.
+2. Body inspection is **mandatory for `403`** and is the only case where the body
+   affects classification. The adapter reads the reason, maps the four
+   rate-limit reasons above to `rateLimited`, and maps every other `403` —
+   including an absent, unparsable or unrecognized reason — to `forbidden`. There
+   is no implementation freedom here: the `rateLimited`-from-`403` row is
+   testable as one exact expectation.
+3. `TimeoutException` in this table means a transport-level timeout observed
+   inside the adapter. The orchestrator's own per-call timeout is owned and
+   wrapped by the orchestrator, as specified in §Application repository and
+   workflow semantics; both paths surface the same `timeout` code and message.
+
 The existing one-time `401` token refresh remains unchanged; this table does not
-add retries. Status/body inspection may classify a known rate-limit reason, but
-the body is discarded immediately and never copied into the exception.
+add retries. The inspected body is discarded immediately and never copied into
+the exception.
 
 Existing static UI copy, action labels (including reconnect guidance) and state
 transitions remain byte-identical. Only the dynamic error-detail slot changes: it
@@ -484,21 +584,32 @@ provider selection, OAuth or remote sequencing.
    Drive keys.
 7. Legacy fixtures without `providerId` decode to `google_drive`, preserve every
    checksum/timestamp/auto-sync/error value, and write forward on the next
-   successful metadata mutation.
+   successful metadata mutation. A fixture mixing valid mappings with one
+   undecodable entry returns every valid mapping, quarantines the bad entry, and
+   re-emits that entry unchanged after a write-forward. The first version-2
+   rewrite leaves a dated copy of the version-1 file, and the restored copy
+   decodes back to the original mappings.
 8. Remote identity and duplicate-link checks use `(providerId, remoteFileId)`.
    Tests prove equal opaque IDs under different providers are not duplicates.
 9. A valid mapping whose provider ID has no wired adapter throws exactly
-   `unsupportedProvider`, exposes only its fixed code/message, never includes raw
-   ID, and performs no auth, remote call, backup, metadata mutation or `.kdbx`
-   write. Malformed mappings also perform no remote/local write.
+   `unsupportedProvider` from remote-I/O and vault-write paths, exposes only its
+   fixed code/message, never includes raw ID, and performs no auth, remote call,
+   backup, metadata mutation or `.kdbx` write. On that same mapping, remove, path
+   move, move restore and the auto-sync toggle succeed normally and throw
+   nothing. Malformed mappings also perform no remote/local write.
 10. Google auth/API failures map exhaustively to the exact enum/code/message table
-    above, including deterministic `unknown`; raw errors and token-bearing values
+    above, including deterministic `unknown`, both `403` rows and the `2xx`-only
+    scope of `malformedResponse`; the orchestrator's per-call timeout surfaces as
+    `CloudStorageException(timeout)` and no bare `TimeoutException` escapes the
+    data layer; raw errors and token-bearing values
     cannot appear in domain/presentation models, logs, mapping JSON or
     user-visible error state.
 11. Pre-refactor characterization tests and post-refactor parity tests cover all
     FR-6 branches and remain green.
-12. Shared `DatabasePathMutex`, remote timeout and existing backup/local-write
-    boundaries remain unchanged. No sync algorithm or checksum branch changes.
+12. Shared `DatabasePathMutex` and existing backup/local-write boundaries remain
+    unchanged. The remote timeout keeps its duration, its placement and its lock
+    behavior; only its exception type is normalized per criterion 10. No sync
+    algorithm or checksum branch changes.
 13. Existing UI strings and widget behavior remain byte-identical except explicit
     normalization of unsafe dynamic error detail to fixed safe messages; no provider
     picker or new settings appear. Remote file selection copy and behavior are
@@ -516,10 +627,10 @@ provider selection, OAuth or remote sequencing.
 | Area | Required evidence |
 | --- | --- |
 | Architecture | source/dependency test rejects Google/Drive imports and identifiers in orchestrator/domain contracts; confirms one port/implementation and no registry |
-| Mapping migration | v1 missing provider, mixed legacy/generic, v2, unknown provider, malformed identity, portable path, write-forward/no-legacy-output, `(providerId, remoteFileId)` preservation |
+| Mapping migration | v1 missing provider, mixed legacy/generic, v2, unknown provider, malformed identity, non-object entry, per-entry quarantine and verbatim re-emission, dated v1 backup on first v2 rewrite and its restore, portable path, write-forward/no-legacy-output, `(providerId, remoteFileId)` preservation |
 | Provider contract | fake provider proves tuple identity, checksum-null fallback, immutable list, fresh metadata, exact typed errors and `unsupportedProvider` fail-closed behavior |
 | Google adapter | auth/account fallback, list/query, metadata/create/update/download mapping, 401 refresh path, every exhaustive error row and unknown fallback |
-| Orchestrator | unchanged first-sync, local-only, remote-only, conflict/cancel/keep-local/use-remote, checksum-download fallback and timeout branches |
+| Orchestrator | unchanged first-sync, local-only, remote-only, conflict/cancel/keep-local/use-remote, checksum-download fallback and timeout branches; per-call timeout surfaces as `CloudStorageException(timeout)` with unchanged duration, placement and lock release; unsupported provider blocks remote I/O but not remove/move/restore/auto-sync toggle |
 | Concurrency/safety | existing edit-vs-sync, writer lock routing, shared mutex identity and backup tests remain green |
 | Repository/use cases | neutral delegation, provider-ID guard, link and sync-now atomic behavior |
 | Presentation | existing picker, duplicate-link tuple identity (including same opaque ID/different provider), coordinators, background auto-sync, conflict and status tests pass with renamed models only |
@@ -559,7 +670,8 @@ Every platform run covers the same checklist:
 5. restart, then verify persisted mapping and auto-sync after a local edit;
 6. force conflict and exercise Keep local, Use remote and Cancel;
 7. disconnect, revoke authorization externally, observe safe failure, reconnect;
-8. load a legacy mapping without `providerId`, sync it, and verify write-forward;
+8. load a legacy mapping without `providerId`, sync it, verify write-forward and
+   verify the dated version-1 backup exists next to the migrated file;
 9. inspect redacted metadata for schema v2, `google_drive`, generic identity keys,
    no legacy output keys and no credential/raw provider detail;
 10. open resulting remote `.kdbx` in a KeePass-compatible client.
@@ -579,10 +691,11 @@ Do not combine this with spec 008 algorithm/merge changes. Rebase and re-run the
 008 writer/safety suites after any concurrent 008 work touching orchestrator,
 mapping, DI or mutex code.
 
-Backout never rewrites a vault. Code rollback is safe for local `.kdbx` data, but
-version-2 metadata needs a reader-compatible rollback build as described above.
-If mapping metadata is unavailable, disable sync and retain local vault rather
-than guessing Google identity.
+Backout never rewrites a vault. Code rollback is safe for local `.kdbx` data.
+Version-2 metadata is handled by restoring the dated version-1 backup that the
+first write-forward left behind; a reader-compatible rollback build remains the
+fallback when that backup is absent. If mapping metadata is unavailable, disable
+sync and retain local vault rather than guessing Google identity.
 
 ## Risks and dependencies
 
@@ -593,7 +706,8 @@ than guessing Google identity.
 | Raw Google error leaks token/body | Adapter-owned closed error mapping; tests with token-like sentinel strings |
 | Port grows into speculative framework | One interface, one adapter, direct DI; defer registry/capabilities/picker |
 | Active spec 008 changes same files | Sequence/rebase explicitly; preserve singleton mutex and safe-writer invariants; run 008 gates |
-| Old binary cannot read v2 metadata | Reader-compatible rollback build; never touch vault bytes to downgrade |
+| Old binary cannot read v2 metadata | Dated version-1 backup written before the first v2 rewrite, restored on rollback; reader-compatible rollback build as fallback; never touch vault bytes to downgrade |
+| One corrupt mapping record disables sync for every database | Per-entry decode with quarantine; valid mappings keep working and the bad entry is preserved verbatim rather than dropped |
 | Presentation rename expands scope | Rename only touched Drive-shaped data identifiers; preserve literal Google UI copy |
 | Spec 013 replaces the selection surface this refactor renames | Sequence the two explicitly; 013 owns scope and picking, 010 owns the port shape; rebase and re-run the selection suites after either lands |
 
@@ -715,7 +829,8 @@ single-file eligibility gate before release.
 ## Definition of done — immediate slice
 
 - All immediate acceptance criteria pass.
-- Mapping migration and safe-error tests pass.
+- Mapping migration and safe-error tests pass, including per-entry quarantine and
+  the dated version-1 backup taken before the first write-forward.
 - Targeted sync, mutex/writer, coordinator, BLoC and widget suites pass.
 - `flutter analyze` and full `flutter test` pass.
 - Android, iOS, macOS, Windows and Linux manual rows are recorded; no row is
