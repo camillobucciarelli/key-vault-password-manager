@@ -771,6 +771,28 @@ void main() {
       );
     });
 
+    test('Drive reconnect re-authorizes even while still signed in', () async {
+      // The mobile failure this guards: a lapsed Drive scope leaves the Google
+      // account signed in, so `isConnected()` stays true and the plain load
+      // never re-authorizes — every retry reproduces the same failure.
+      syncRepository.connected = true;
+      syncRepository.remoteFiles = const [
+        RemoteFile(
+          providerId: 'google_drive',
+          id: 'remote-id',
+          name: 'remote.kdbx',
+        ),
+      ];
+
+      await coordinator.getRemoteFileSelectionData();
+      expect(syncRepository.connectCalls, 0);
+
+      final picker = await coordinator.reconnectRemoteFileSelectionData();
+
+      expect(syncRepository.connectCalls, 1);
+      expect(picker.files.single.name, 'remote.kdbx');
+    });
+
     test('Drive duplicate cancel preserves file and mapping', () async {
       final existingPath = await _prepareDriveDuplicate(
         tempDir,
