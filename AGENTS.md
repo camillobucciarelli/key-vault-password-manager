@@ -125,6 +125,41 @@ Both channels run the App Store Connect (TestFlight) and Chrome Web Store publis
 
 The `-beta` suffix lives in the tag only; `pubspec.yaml` stays numeric because `CFBundleShortVersionString` rejects pre-release suffixes. Run it with `gh workflow run release.yml -f channel=beta` (or `release`) from `main`.
 
+### Branch model
+
+`main` is the trunk and the default base for every branch: features, fixes and
+spec work all target it, and its `version:` is the line that ships next. Beta is
+a **channel, not a branch** — `release.yml` takes it as a dispatch input, so a
+beta needs no base branch of its own; what a beta changes is the tag suffix and
+the GitHub pre-release flag, not where the code lives.
+
+A `release/X.Y.x` branch exists for exactly one situation: a fix has to ship on a
+version line that is already published while `main` has moved past it. Do not
+create one preemptively — a line with nothing to fix does not need a branch.
+
+When that situation arrives:
+
+1. Branch `release/X.Y.x` from the released tag it continues (`vX.Y.Z+N`), never
+   from `main` — `main` carries a higher `version:`, and basing a maintenance
+   line on it would ship a version that moves backwards.
+2. Do the work on `hotfix/X.Y.Z` cut from that branch, and open the PR **into
+   `release/X.Y.x`**. A PR from this base into `main` reads as a revert of
+   everything merged since the tag.
+3. Bump the patch on that line in the same PR (`X.Y.Z` → `X.Y.Z+1`), resetting
+   `+N` per the rule above — safe here precisely because the new patch version
+   has published nothing yet — and mirror `_kApplicationVersion` in the settings
+   screen, as any version bump does.
+4. Dispatch `release.yml` **from `release/X.Y.x`** to ship it: the workflow bumps
+   and tags whichever branch it is dispatched on, so nothing else is needed.
+5. **Port the fix to `main`** in its own PR, by cherry-pick. This step is not
+   optional: a fix that lives only on a maintenance line is a bug the next
+   version reintroduces. Never merge `release/X.Y.x` into `main` — that drags the
+   older line's `pubspec.yaml` back with it. Expect the cherry-pick to conflict
+   where the two lines have diverged, and resolve in favour of the target
+   branch's own API.
+
+The branch stays after the release, so the next fix on that line has a base.
+
 ## Agent skills
 
 ### Issue tracker
@@ -161,6 +196,7 @@ After a spec change, run the script (`PROJECT_NUMBER=2 tool/sync_spec_project.sh
 
 - Before changing files for an isolated development task, create a dedicated branch from `origin/main`, unless the user names another base.
 - Use branch names `feat/<slug>`, `fix/<slug>`, `refactor/<slug>`, or `chore/<slug>`.
+- A fix for an already-published version line uses `hotfix/<X.Y.Z>` cut from `release/X.Y.x`, not from `origin/main`. See **Branch model** above for the whole sequence, including the mandatory port back to `main`.
 - If the shared worktree contains unrelated changes, do not switch branches. Create a separate Git worktree for the task instead.
 - Do not reuse or modify another agent's branch or worktree.
 - Do not push, merge, rebase, delete branches, open pull requests, or commit unless the user explicitly requests it.
