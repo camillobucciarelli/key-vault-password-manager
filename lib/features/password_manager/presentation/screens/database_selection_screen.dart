@@ -53,6 +53,7 @@ class DatabaseSelectionScreen extends StatelessWidget {
     final result = await showDrivePickerSheet(
       context,
       loadPickerData: coordinator.getDrivePickerData,
+      reconnectPickerData: coordinator.reconnectDrivePickerData,
     );
     if (result == null || !context.mounted) {
       return;

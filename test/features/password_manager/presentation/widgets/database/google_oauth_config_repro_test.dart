@@ -198,6 +198,101 @@ void main() {
     expect(find.text('Vault.kdbx'), findsOneWidget);
   });
 
+  testWidgets(
+    'a stale mobile grant reads as expired authorization, not a plain retry',
+    (tester) async {
+      await tester.pumpWidget(
+        _driveSheetHost(
+          () async => throw Exception(
+            'Google Drive authorization needs to be renewed with full Drive access.',
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Connect Google Drive'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Google authorization expired'), findsOneWidget);
+      expect(find.text('Unable to connect to Google Drive'), findsNothing);
+      expect(
+        find.text(
+          'Google Drive session expired or unavailable. Use Reconnect below to sign in again.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Reconnect'), findsOneWidget);
+      expect(find.text('Retry'), findsNothing);
+      expect(find.bySemanticsLabel('Reconnect Google Drive'), findsOneWidget);
+    },
+  );
+
+  testWidgets('Reconnect runs the forced-reconnect loader, not the plain load', (
+    tester,
+  ) async {
+    var loads = 0;
+    var reconnects = 0;
+    await tester.pumpWidget(
+      _driveSheetHost(
+        () async {
+          loads += 1;
+          throw Exception('Google account not connected. Please reconnect.');
+        },
+        reconnectPickerData: () async {
+          reconnects += 1;
+          return const DrivePickerData(
+            files: [DriveRemoteFile(id: 'remote-1', name: 'Vault.kdbx')],
+            account: DriveAccountSummary.fallback,
+          );
+        },
+      ),
+    );
+
+    await tester.tap(find.text('Connect Google Drive'));
+    await tester.pumpAndSettle();
+    expect(loads, 1);
+
+    await tester.tap(find.bySemanticsLabel('Reconnect Google Drive'));
+    await tester.pumpAndSettle();
+
+    expect(loads, 1);
+    expect(reconnects, 1);
+    expect(find.text('Vault.kdbx'), findsOneWidget);
+  });
+
+  testWidgets('a non-authorization failure still retries the plain load', (
+    tester,
+  ) async {
+    var loads = 0;
+    var reconnects = 0;
+    await tester.pumpWidget(
+      _driveSheetHost(
+        () async {
+          loads += 1;
+          if (loads == 1) {
+            throw Exception('Google sign-in cancelled.');
+          }
+          return const DrivePickerData(
+            files: [DriveRemoteFile(id: 'remote-1', name: 'Vault.kdbx')],
+            account: DriveAccountSummary.fallback,
+          );
+        },
+        reconnectPickerData: () async {
+          reconnects += 1;
+          throw StateError('reconnect must not run for a cancelled sign-in');
+        },
+      ),
+    );
+
+    await tester.tap(find.text('Connect Google Drive'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+
+    expect(reconnects, 0);
+    expect(loads, 2);
+    expect(find.text('Vault.kdbx'), findsOneWidget);
+  });
+
   testWidgets('rapid reconnect taps start one retry', (tester) async {
     var calls = 0;
     final retry = Completer<DrivePickerData>();
@@ -262,13 +357,19 @@ XmlElement? _plistValue(XmlElement dictionary, String key) {
   return null;
 }
 
-Widget _driveSheetHost(Future<DrivePickerData> Function() loadPickerData) {
+Widget _driveSheetHost(
+  Future<DrivePickerData> Function() loadPickerData, {
+  Future<DrivePickerData> Function()? reconnectPickerData,
+}) {
   return MaterialApp(
     theme: AppTheme.lightTheme,
     home: Builder(
       builder: (context) => TextButton(
-        onPressed: () =>
-            showDrivePickerSheet(context, loadPickerData: loadPickerData),
+        onPressed: () => showDrivePickerSheet(
+          context,
+          loadPickerData: loadPickerData,
+          reconnectPickerData: reconnectPickerData,
+        ),
         child: const Text('Connect Google Drive'),
       ),
     ),

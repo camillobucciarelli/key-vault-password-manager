@@ -760,6 +760,21 @@ void main() {
       expect(picker.account, DriveAccountSummary.fallback);
     });
 
+    test('Drive reconnect re-authorizes even while still signed in', () async {
+      syncRepository.connected = true;
+      syncRepository.remoteFiles = const [
+        DriveRemoteFile(id: 'remote-id', name: 'remote.kdbx'),
+      ];
+
+      await coordinator.getDrivePickerData();
+      expect(syncRepository.connectCalls, 0);
+
+      final picker = await coordinator.reconnectDrivePickerData();
+
+      expect(syncRepository.connectCalls, 1);
+      expect(picker.files.single.name, 'remote.kdbx');
+    });
+
     test('Drive duplicate cancel preserves file and mapping', () async {
       final existingPath = await _prepareDriveDuplicate(
         tempDir,
