@@ -47,7 +47,11 @@ fi
 
 existing=$(gh issue list --repo "$REPO" --label "$LABEL" --state all --limit 200 \
   --json number,title,state)
-open_prs=$(gh pr list --repo "$REPO" --state open --limit 1000 \
+# `--base main` on purpose: the board tracks the roadmap on the trunk. A hotfix
+# PR into a release/X.Y.x maintenance line can touch specs/ without that spec's
+# roadmap work being underway, and counting it would flip the card to
+# In Progress for work that is not heading to main.
+open_prs=$(gh pr list --repo "$REPO" --state open --limit 1000 --base main \
   --json number,title,url,files)
 
 for spec in specs/[0-9]*/spec.md; do

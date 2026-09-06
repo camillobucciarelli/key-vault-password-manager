@@ -123,7 +123,7 @@ Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `ci:`), s
 
 Both channels run the App Store Connect (TestFlight) and Chrome Web Store publish jobs — there is no separate staged/beta track on those stores, so a beta dispatch reaches their users too. Only the GitHub release's pre-release flag and the tag suffix differ.
 
-The `-beta` suffix lives in the tag only; `pubspec.yaml` stays numeric because `CFBundleShortVersionString` rejects pre-release suffixes. Run it with `gh workflow run release.yml -f channel=beta` (or `release`) from `main`.
+The `-beta` suffix lives in the tag only; `pubspec.yaml` stays numeric because `CFBundleShortVersionString` rejects pre-release suffixes. Run it with `gh workflow run release.yml -f channel=beta` (or `release`) from `main` — or from `release/X.Y.x` for a maintenance release, since the workflow bumps and tags whichever branch it is dispatched on (see **Branch model** below).
 
 ### Branch model
 
