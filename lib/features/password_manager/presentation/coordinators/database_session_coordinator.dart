@@ -421,6 +421,20 @@ class DatabaseSessionCoordinator {
     if (!await databaseSyncRepository.isConnected()) {
       await databaseSyncRepository.connect();
     }
+    return _loadRemoteFileSelectionData();
+  }
+
+  /// The picker's reconnect action. A withdrawn or expired Drive grant leaves
+  /// the Google account itself signed in on mobile, so `isConnected()` stays
+  /// true and [getRemoteFileSelectionData] never re-authorizes — repeating it
+  /// just reproduces the same failure. Connecting unconditionally re-requests
+  /// the scope interactively.
+  Future<RemoteFileSelectionData> reconnectRemoteFileSelectionData() async {
+    await databaseSyncRepository.connect();
+    return _loadRemoteFileSelectionData();
+  }
+
+  Future<RemoteFileSelectionData> _loadRemoteFileSelectionData() async {
     final files = await databaseSyncRepository.listRemoteFiles();
     final account = await databaseSyncRepository.getConnectedAccount();
     return RemoteFileSelectionData(files: files, account: account);

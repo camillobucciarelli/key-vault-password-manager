@@ -39,10 +39,14 @@ class DrivePickerSheetResult {
 Future<DrivePickerSheetResult?> showDrivePickerSheet(
   BuildContext context, {
   required Future<RemoteFileSelectionData> Function() loadPickerData,
+  Future<RemoteFileSelectionData> Function()? reconnectPickerData,
 }) {
   return KvBottomSheet.show<DrivePickerSheetResult>(
     context: context,
-    builder: (_) => _DrivePickerSheetContent(loadPickerData: loadPickerData),
+    builder: (_) => _DrivePickerSheetContent(
+      loadPickerData: loadPickerData,
+      reconnectPickerData: reconnectPickerData,
+    ),
   );
 }
 
@@ -108,9 +112,18 @@ String driveOpenErrorMessage(Object error) {
 }
 
 class _DrivePickerSheetContent extends StatefulWidget {
-  const _DrivePickerSheetContent({required this.loadPickerData});
+  const _DrivePickerSheetContent({
+    required this.loadPickerData,
+    this.reconnectPickerData,
+  });
 
   final Future<RemoteFileSelectionData> Function() loadPickerData;
+
+  /// Reconnect action for an expired or withdrawn Drive grant. The plain load
+  /// only connects when the account is signed out, so on mobile — where the
+  /// account stays signed in after the scope lapses — repeating it can never
+  /// recover; this one forces an interactive re-authorization.
+  final Future<RemoteFileSelectionData> Function()? reconnectPickerData;
 
   @override
   State<_DrivePickerSheetContent> createState() =>
@@ -128,13 +141,16 @@ class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool reconnect = false}) async {
     if (_isLoading) return;
     setState(() {
       _isLoading = true;
     });
     try {
-      final data = await widget.loadPickerData();
+      final loader = reconnect
+          ? (widget.reconnectPickerData ?? widget.loadPickerData)
+          : widget.loadPickerData;
+      final data = await loader();
       if (!mounted) return;
       setState(() {
         _data = data;
@@ -154,6 +170,9 @@ class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
     final data = _data;
+    final error = _error;
+    final requiresReconnect =
+        error != null && isCloudAuthorizationRequired(error);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 26),
@@ -169,9 +188,9 @@ class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
             ),
           ),
           const SizedBox(height: 14),
-          if (_error != null) ...[
+          if (error != null) ...[
             Text(
-              isCloudAuthorizationRequired(_error!)
+              requiresReconnect
                   ? 'Google authorization expired'
                   : 'Unable to connect to Google Drive',
               textAlign: TextAlign.center,
@@ -181,7 +200,7 @@ class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
             ),
             const SizedBox(height: 8),
             Text(
-              driveOpenErrorMessage(_error!),
+              driveOpenErrorMessage(error),
               textAlign: TextAlign.center,
               style: AppTextStyles.body.copyWith(color: colors.attentionText),
             ),
@@ -190,17 +209,19 @@ class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
               container: true,
               button: true,
               enabled: !_isLoading,
-              label: isCloudAuthorizationRequired(_error!)
+              label: requiresReconnect
                   ? 'Reconnect Google Drive'
                   : 'Retry Google Drive connection',
               child: ExcludeSemantics(
                 child: KvPillButton(
                   label: _isLoading
                       ? 'Connecting...'
-                      : isCloudAuthorizationRequired(_error!)
+                      : requiresReconnect
                       ? 'Reconnect'
                       : 'Retry',
-                  onPressed: _isLoading ? null : _load,
+                  onPressed: _isLoading
+                      ? null
+                      : () => _load(reconnect: requiresReconnect),
                 ),
               ),
             ),
