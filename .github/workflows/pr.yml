@@ -2,7 +2,12 @@ name: PR Checks
 
 on:
   pull_request:
-    branches: [ main ]
+    # `main` plus the maintenance lines: a PR into release/X.Y.x ships to users
+    # exactly like one into main, so it gets the same gate. Without the second
+    # pattern a hotfix PR runs no analyze, no tests and no random-order job --
+    # which is what happened to the 0.5.1 PR that produced the branch model in
+    # AGENTS.md.
+    branches: [ main, 'release/**' ]
 
 permissions:
   contents: read
