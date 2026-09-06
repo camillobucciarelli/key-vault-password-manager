@@ -145,10 +145,11 @@ When that situation arrives:
 2. Do the work on `hotfix/X.Y.Z` cut from that branch, and open the PR **into
    `release/X.Y.x`**. A PR from this base into `main` reads as a revert of
    everything merged since the tag.
-3. Bump the patch on that line in the same PR (`X.Y.Z` → `X.Y.Z+1`), resetting
-   `+N` per the rule above — safe here precisely because the new patch version
-   has published nothing yet — and mirror `_kApplicationVersion` in the settings
-   screen, as any version bump does.
+3. Bump the patch digit on that line in the same PR — `0.5.0` → `0.5.1`, never
+   the build counter after the `+` — and reset `+N` per the rule above, safe
+   here precisely because the new patch version has published nothing yet
+   (`version: 0.5.0+4` becomes `version: 0.5.1+1`). Mirror
+   `_kApplicationVersion` in the settings screen, as any version bump does.
 4. Dispatch `release.yml` **from `release/X.Y.x`** to ship it: the workflow bumps
    and tags whichever branch it is dispatched on, so nothing else is needed.
 5. **Port the fix to `main`** in its own PR, by cherry-pick. This step is not
