@@ -37,11 +37,30 @@ class DrivePickerSheetResult {
 Future<DrivePickerSheetResult?> showDrivePickerSheet(
   BuildContext context, {
   required Future<DrivePickerData> Function() loadPickerData,
+  Future<DrivePickerData> Function()? reconnectPickerData,
 }) {
   return KvBottomSheet.show<DrivePickerSheetResult>(
     context: context,
-    builder: (_) => _DrivePickerSheetContent(loadPickerData: loadPickerData),
+    builder: (_) => _DrivePickerSheetContent(
+      loadPickerData: loadPickerData,
+      reconnectPickerData: reconnectPickerData,
+    ),
   );
+}
+
+/// One predicate for the whole error panel: the heading, the body copy and
+/// the button label used to disagree because the heading/button tested the
+/// exception type while the body matched on the message, so a stale mobile
+/// grant (a plain `Exception`) rendered "Unable to connect" + "Retry" above
+/// copy that told the user to press "Reconnect".
+bool driveErrorRequiresReconnect(Object error) {
+  if (error is GoogleAuthorizationRequiredException) {
+    return true;
+  }
+  final normalized = error.toString().toLowerCase();
+  return normalized.contains('authorization needs to be renewed') ||
+      normalized.contains('authorization is outdated') ||
+      normalized.contains('google account not connected');
 }
 
 /// Preserves the former dialog's exact granular OAuth error copy (moved
@@ -78,9 +97,7 @@ String driveOpenErrorMessage(Object error) {
   if (normalized.contains('authorization was not granted')) {
     return 'Google Drive permission was not granted. Enable Drive access and try again.';
   }
-  if (normalized.contains('authorization needs to be renewed') ||
-      normalized.contains('authorization is outdated') ||
-      normalized.contains('google account not connected')) {
+  if (driveErrorRequiresReconnect(error)) {
     return 'Google Drive session expired or unavailable. Use Reconnect below to sign in again.';
   }
   if (normalized.contains('google sign-in failed')) {
@@ -93,9 +110,18 @@ String driveOpenErrorMessage(Object error) {
 }
 
 class _DrivePickerSheetContent extends StatefulWidget {
-  const _DrivePickerSheetContent({required this.loadPickerData});
+  const _DrivePickerSheetContent({
+    required this.loadPickerData,
+    this.reconnectPickerData,
+  });
 
   final Future<DrivePickerData> Function() loadPickerData;
+
+  /// Reconnect action for an expired/withdrawn Drive grant. The plain load
+  /// only connects when the account is signed out, so on mobile — where the
+  /// account stays signed in after the Drive scope lapses — repeating it can
+  /// never recover; this one forces an interactive re-authorization.
+  final Future<DrivePickerData> Function()? reconnectPickerData;
 
   @override
   State<_DrivePickerSheetContent> createState() =>
@@ -113,13 +139,16 @@ class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool reconnect = false}) async {
     if (_isLoading) return;
     setState(() {
       _isLoading = true;
     });
     try {
-      final data = await widget.loadPickerData();
+      final loader = reconnect
+          ? (widget.reconnectPickerData ?? widget.loadPickerData)
+          : widget.loadPickerData;
+      final data = await loader();
       if (!mounted) return;
       setState(() {
         _data = data;
@@ -139,6 +168,9 @@ class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
     final data = _data;
+    final error = _error;
+    final requiresReconnect =
+        error != null && driveErrorRequiresReconnect(error);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 26),
@@ -154,9 +186,9 @@ class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
             ),
           ),
           const SizedBox(height: 14),
-          if (_error != null) ...[
+          if (error != null) ...[
             Text(
-              _error is GoogleAuthorizationRequiredException
+              requiresReconnect
                   ? 'Google authorization expired'
                   : 'Unable to connect to Google Drive',
               textAlign: TextAlign.center,
@@ -166,7 +198,7 @@ class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
             ),
             const SizedBox(height: 8),
             Text(
-              driveOpenErrorMessage(_error!),
+              driveOpenErrorMessage(error),
               textAlign: TextAlign.center,
               style: AppTextStyles.body.copyWith(color: colors.attentionText),
             ),
@@ -175,17 +207,19 @@ class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
               container: true,
               button: true,
               enabled: !_isLoading,
-              label: _error is GoogleAuthorizationRequiredException
+              label: requiresReconnect
                   ? 'Reconnect Google Drive'
                   : 'Retry Google Drive connection',
               child: ExcludeSemantics(
                 child: KvPillButton(
                   label: _isLoading
                       ? 'Connecting...'
-                      : _error is GoogleAuthorizationRequiredException
+                      : requiresReconnect
                       ? 'Reconnect'
                       : 'Retry',
-                  onPressed: _isLoading ? null : _load,
+                  onPressed: _isLoading
+                      ? null
+                      : () => _load(reconnect: requiresReconnect),
                 ),
               ),
             ),
