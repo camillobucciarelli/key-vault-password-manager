@@ -380,8 +380,11 @@ jobs:
           # upload whose version is not strictly higher than the published one,
           # and the extension carries its own version line (independent of
           # pubspec.yaml), so this is the first thing to check on a rejection.
-          uploaded_version=$(unzip -p desktop/browser_extension/dist/keyvault-browser-extension.zip manifest.json | jq -r '.version')
-          echo "Uploading browser extension version ${uploaded_version}"
+if ! uploaded_version=$(unzip -p desktop/browser_extension/dist/keyvault-browser-extension.zip manifest.json | jq -er '.version'); then
+  echo "::error::Chrome Web Store: failed to read a valid manifest.json version from the extension ZIP."
+  exit 1
+fi
+echo "Uploading browser extension version ${uploaded_version}"
 
           # Each response body is captured into a variable, so a bare
           # `--fail-with-body` swallows the reason and the log shows only
