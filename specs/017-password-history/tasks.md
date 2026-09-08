@@ -177,7 +177,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   Verify: `flutter test test/goldens --test-randomize-ordering-seed=$RANDOM`
   passes, since golden order-independence is only ever checked locally.
 
-- [ ] **T502** [P] Contrast and target assertions — owner: `senior-tester`
+- [x] **T502** [P] Contrast and target assertions — owner: `senior-tester`
   Files: `test/features/password_manager/presentation/screens/vault_entry_history_a11y_test.dart` (new).
   Acceptance: every text/background pairing in the view is ≥ 4.5:1 in light and
   dark, including the smallest secondary text; rows are ≥ 44 dp; every focusable
