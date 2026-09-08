@@ -175,6 +175,17 @@ class _StubDatabaseSessionCoordinator implements DatabaseSessionCoordinator {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// The view formats in local time (`_formatEntryDateTime`), so the expected
+/// label is computed the same way — CI runs in UTC, a desk does not.
+String _saved(DateTime utc) {
+  final l = utc.toLocal();
+  String two(int v) => v.toString().padLeft(2, '0');
+  return '${two(l.day)}-${two(l.month)}-${l.year} ${two(l.hour)}:${two(l.minute)}';
+}
+
+final _newestSaved = _saved(DateTime.utc(2026, 3, 2, 10, 30));
+final _olderSaved = _saved(DateTime.utc(2026, 3, 1, 9, 15));
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   tearDown(resetVaultShellTestDi);
@@ -226,8 +237,8 @@ void main() {
     // FR-015: read only when asked for, and then exactly once.
     expect(service.historyReads, [NavigationFixtureVaultKdbxService.gmail.id]);
 
-    final newest = find.text('Saved 02-03-2026 11:30');
-    final older = find.text('Saved 01-03-2026 10:15');
+    final newest = find.text('Saved $_newestSaved');
+    final older = find.text('Saved $_olderSaved');
     expect(newest, findsOneWidget);
     expect(older, findsOneWidget);
     // FR-001: newest first.
@@ -352,7 +363,7 @@ void main() {
 
       expect(find.text('Restore this version?'), findsOneWidget);
       expect(find.textContaining('“Gmail”'), findsOneWidget);
-      expect(find.textContaining('saved 02-03-2026 11:30'), findsOneWidget);
+      expect(find.textContaining('saved $_newestSaved'), findsOneWidget);
       // Gmail has no attachments and neither does the revision: no
       // attachment warning (FR-006a says "whenever they differ").
       expect(find.textContaining('Attachments are not restored'), findsNothing);
@@ -431,7 +442,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Delete this version?'), findsOneWidget);
-      expect(find.textContaining('saved 02-03-2026 11:30'), findsOneWidget);
+      expect(find.textContaining('saved $_newestSaved'), findsOneWidget);
       expect(find.bySemanticsLabel('Warning'), findsOneWidget);
       // No backup for a single deletion (FR-009), and the dialog says
       // nothing of one.
@@ -454,8 +465,8 @@ void main() {
       );
       expect(find.text('Previous version deleted.'), findsOneWidget);
       // The list reflects the file: one revision left.
-      expect(find.text('Saved 02-03-2026 11:30'), findsNothing);
-      expect(find.text('Saved 01-03-2026 10:15'), findsOneWidget);
+      expect(find.text('Saved $_newestSaved'), findsNothing);
+      expect(find.text('Saved $_olderSaved'), findsOneWidget);
     });
 
     testWidgets('clearing warns, names what goes, promises a backup', (
