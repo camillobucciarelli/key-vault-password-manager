@@ -168,7 +168,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
 
 ## Phase 5 — Verification gate
 
-- [ ] **T501** [P] Goldens — owner: `senior-flutter-dev`
+- [x] **T501** [P] Goldens — owner: `senior-flutter-dev`
   Files: `test/goldens/vault_entry_history_*_test.dart` (new).
   Acceptance: the inventory in `plan.md` — list at 390×844 and 1024×768 in light
   and dark, the empty state, and a revealed revision using a fixed fake secret
