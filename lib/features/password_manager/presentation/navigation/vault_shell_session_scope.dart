@@ -33,8 +33,13 @@ final class VaultShellSession {
   /// Locks the vault and hands the user to the unlock screen, replacing the
   /// *shell's* route whatever is stacked above it — the caller's own route is
   /// not necessarily the one to replace.
-  Future<void> lockAndReauthenticate(String databasePath) async =>
-      _lockAndReauthenticate?.call(databasePath);
+  ///
+  /// After [dispose] there is no shell to lock: a no-op, by design.
+  Future<void> lockAndReauthenticate(String databasePath) async {
+    final lock = _lockAndReauthenticate;
+    if (lock == null) return;
+    await lock(databasePath);
+  }
 
   void dispose() {
     _onUserActivity = null;

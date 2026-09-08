@@ -27,6 +27,7 @@ class _FakeVaultKdbxService implements VaultKdbxService {
     String? keyFilePath,
     required String entryId,
     required DateTime replacedAt,
+    int ordinal = 0,
   }) async {
     if (restoreError != null) throw restoreError!;
     restores.add((entryId, replacedAt));

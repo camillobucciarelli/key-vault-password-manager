@@ -21,14 +21,22 @@ class VaultEntryRevision extends Equatable {
     this.customFields = const [],
     this.attachmentNames = const [],
     this.otpUri,
+    this.ordinal = 0,
   });
 
   /// The parent entry's UUID. Shared by every revision of that entry, so it
-  /// does not identify the revision; `(entryId, replacedAt)` does.
+  /// does not identify the revision; `(entryId, replacedAt, ordinal)` does.
   final String entryId;
 
-  /// The revision's last-modification time, in UTC.
+  /// The revision's last-modification time, in UTC. Second-precision in
+  /// KDBX, so two revisions can share it — see [ordinal].
   final DateTime replacedAt;
+
+  /// Position among the revisions of this entry that share [replacedAt], in
+  /// the newest-first order the service returns (0 for the first, and for
+  /// every revision whose timestamp is unique). What tells same-second
+  /// revisions apart when one is restored or deleted.
+  final int ordinal;
 
   final String title;
   final String username;
@@ -48,6 +56,7 @@ class VaultEntryRevision extends Equatable {
   List<Object?> get props => [
     entryId,
     replacedAt,
+    ordinal,
     title,
     username,
     RedactedValue(password),
@@ -66,6 +75,7 @@ class VaultEntryRevision extends Equatable {
     return 'VaultEntryRevision('
         'entryId: $entryId, '
         'replacedAt: $replacedAt, '
+        'ordinal: $ordinal, '
         'title: $title, '
         'username: $username, '
         'password: <redacted>, '

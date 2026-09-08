@@ -231,6 +231,7 @@ class NavigationFixtureVaultKdbxService implements VaultKdbxService {
     String? keyFilePath,
     required String entryId,
     required DateTime replacedAt,
+    int ordinal = 0,
   }) async {
     calls.add(
       RecordedVaultCall('deleteRevision', entryId, {

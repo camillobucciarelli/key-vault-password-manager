@@ -184,6 +184,7 @@ class _EntryHistoryDialogState extends State<_EntryHistoryDialog> {
       RestoreEntryRevision(
         entryId: widget.entryId,
         replacedAt: revision.replacedAt,
+        ordinal: revision.ordinal,
       ),
     );
   }
@@ -204,6 +205,7 @@ class _EntryHistoryDialogState extends State<_EntryHistoryDialog> {
       DeleteEntryRevision(
         entryId: widget.entryId,
         replacedAt: revision.replacedAt,
+        ordinal: revision.ordinal,
       ),
     );
   }

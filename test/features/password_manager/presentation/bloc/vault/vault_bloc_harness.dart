@@ -57,12 +57,14 @@ VaultBloc buildTestVaultBloc({
   SharedPreferences? folderExpansionPreferences,
   String databasePath = testDatabasePath,
   EntryHistoryCoordinator? entryHistoryCoordinator,
+  SessionSecretHolder? sessionSecretHolder,
 }) {
   final syncRepository = FakeSyncRepository();
   return VaultBloc(
     databasePath: databasePath,
     getSelectedKeyFilePath: () async => null,
-    sessionSecretHolder: SessionSecretHolder()..set('secret'),
+    sessionSecretHolder:
+        sessionSecretHolder ?? (SessionSecretHolder()..set('secret')),
     vaultKdbxService:
         kdbx ??
         FakeVaultKdbxService(
@@ -234,6 +236,7 @@ class FakeVaultKdbxService implements VaultKdbxService {
     String? keyFilePath,
     required String entryId,
     required DateTime replacedAt,
+    int ordinal = 0,
   }) async {
     final failure = deleteRevisionError;
     if (failure != null) {

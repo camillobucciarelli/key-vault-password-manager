@@ -611,24 +611,36 @@ class ClearEntryHistory extends VaultEvent {
 ///
 /// The confirmation happened in the view; this is the act.
 class RestoreEntryRevision extends VaultEvent {
-  const RestoreEntryRevision({required this.entryId, required this.replacedAt});
+  const RestoreEntryRevision({
+    required this.entryId,
+    required this.replacedAt,
+    this.ordinal = 0,
+  });
 
   final String entryId;
   final DateTime replacedAt;
 
+  /// Tells same-second revisions apart; see [VaultEntryRevision.ordinal].
+  final int ordinal;
+
   @override
-  List<Object?> get props => [entryId, replacedAt];
+  List<Object?> get props => [entryId, replacedAt, ordinal];
 }
 
 /// spec 017 T403 / FR-009 — remove one confirmed revision from the file.
 class DeleteEntryRevision extends VaultEvent {
-  const DeleteEntryRevision({required this.entryId, required this.replacedAt});
+  const DeleteEntryRevision({
+    required this.entryId,
+    required this.replacedAt,
+    this.ordinal = 0,
+  });
 
   final String entryId;
   final DateTime replacedAt;
+  final int ordinal;
 
   @override
-  List<Object?> get props => [entryId, replacedAt];
+  List<Object?> get props => [entryId, replacedAt, ordinal];
 }
 
 /// spec 017 T403 / FR-010 — empty an entry's history in the file, after the

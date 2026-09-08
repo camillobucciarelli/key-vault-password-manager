@@ -54,6 +54,7 @@ class EntryHistoryCoordinator {
     String? keyFilePath,
     required String entryId,
     required DateTime replacedAt,
+    int ordinal = 0,
   }) async {
     if (!sessionSecretHolder.hasSecret) {
       return const EntryHistoryRestoreResult(EntryHistoryOutcome.vaultLocked);
@@ -65,6 +66,7 @@ class EntryHistoryCoordinator {
         keyFilePath: keyFilePath,
         entryId: entryId,
         replacedAt: replacedAt,
+        ordinal: ordinal,
       );
       return const EntryHistoryRestoreResult(EntryHistoryOutcome.done);
     } catch (_) {

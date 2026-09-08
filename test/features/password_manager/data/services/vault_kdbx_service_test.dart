@@ -2023,6 +2023,7 @@ void main() {
           password: password,
           entryId: entryId,
           replacedAt: oldest.replacedAt,
+          ordinal: oldest.ordinal,
         );
 
         final entry = await current(entryId);
@@ -2075,11 +2076,45 @@ void main() {
         password: password,
         entryId: entryId,
         replacedAt: revision.replacedAt,
+        ordinal: revision.ordinal,
       );
 
       final entry = await current(entryId);
       expect(entry.password, 'p0');
       expect(entry.attachments.map((a) => a.name), ['key.pem']);
+    });
+
+    // Two revisions in the same second: the list tells them apart by
+    // `ordinal`, and restore must act on the one the list showed — not on
+    // whichever the file happens to hold first.
+    test('a same-second sibling is restored by its ordinal', () async {
+      final entryId = await createEntry();
+      await editEntry(entryId, 1);
+      await editEntry(entryId, 2);
+      final file = await KdbxFormat().read(
+        await File(databasePath).readAsBytes(),
+        Credentials(ProtectedValue.fromString(password)),
+      );
+      final entry = file.body.rootGroup.getAllEntries().single;
+      final sameSecond = DateTime.utc(2026, 3, 1, 12);
+      for (final revision in entry.history) {
+        revision.times.lastModificationTime.set(sameSecond);
+      }
+      await File(databasePath).writeAsBytes(await file.save());
+
+      final revisions = (await history(entryId)).revisions;
+      expect(revisions.map((r) => r.ordinal), [0, 1]);
+      expect(revisions.map((r) => r.password), ['p1', 'p0']);
+
+      await service.restoreEntryRevision(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        replacedAt: revisions[1].replacedAt,
+        ordinal: revisions[1].ordinal,
+      );
+
+      expect((await current(entryId)).password, 'p0');
     });
 
     test('an unknown timestamp throws and writes nothing', () async {
@@ -2206,6 +2241,38 @@ void main() {
         expect(await passwordsInHistory(entryId), ['p2', 'p0']);
       },
     );
+
+    test('a same-second sibling is deleted by its ordinal', () async {
+      final entryId = await createEntry();
+      await editEntry(entryId, 1);
+      await editEntry(entryId, 2);
+      final file = await KdbxFormat().read(
+        await File(databasePath).readAsBytes(),
+        Credentials(ProtectedValue.fromString(password)),
+      );
+      final entry = file.body.rootGroup.getAllEntries().single;
+      final sameSecond = DateTime.utc(2026, 3, 1, 12);
+      for (final revision in entry.history) {
+        revision.times.lastModificationTime.set(sameSecond);
+      }
+      await File(databasePath).writeAsBytes(await file.save());
+      final revisions = (await service.loadEntryHistory(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+      )).revisions;
+      expect(revisions.map((r) => r.password), ['p1', 'p0']);
+
+      await service.deleteEntryRevision(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        replacedAt: revisions[1].replacedAt,
+        ordinal: revisions[1].ordinal,
+      );
+
+      expect(await passwordsInHistory(entryId), ['p1']);
+    });
 
     test('an unknown timestamp throws and writes nothing', () async {
       final entryId = await entryWithThreeRevisions();

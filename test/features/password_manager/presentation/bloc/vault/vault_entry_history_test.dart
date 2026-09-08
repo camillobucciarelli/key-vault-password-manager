@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry_revision.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_event.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/entry_history_coordinator.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
 
 import 'vault_bloc_harness.dart';
 
@@ -201,6 +202,23 @@ void main() {
       expect(kdbx.historyReads, ['e-root', 'e-root']);
     });
 
+    test('a locked vault refuses without writing', () async {
+      final kdbx = FakeVaultKdbxService(snapshot: nestedSnapshot());
+      final bloc = buildTestVaultBloc(
+        snapshot: nestedSnapshot(),
+        kdbx: kdbx,
+        sessionSecretHolder: SessionSecretHolder(),
+      );
+      addTearDown(bloc.close);
+
+      bloc.add(DeleteEntryRevision(entryId: 'e-root', replacedAt: replacedAt));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(kdbx.deletedRevisions, isEmpty);
+      expect(bloc.state.errorMessage, contains('locked'));
+      expect(bloc.state.isSaving, isFalse);
+    });
+
     test('a failing delete reports a safe message', () async {
       final kdbx = FakeVaultKdbxService(snapshot: nestedSnapshot())
         ..deleteRevisionError = StateError('boom');
@@ -289,6 +307,7 @@ class _FakeEntryHistoryCoordinator implements EntryHistoryCoordinator {
     String? keyFilePath,
     required String entryId,
     required DateTime replacedAt,
+    int ordinal = 0,
   }) async {
     restores.add((entryId, replacedAt));
     return EntryHistoryRestoreResult(outcome);

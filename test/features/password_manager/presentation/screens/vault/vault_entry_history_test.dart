@@ -135,6 +135,7 @@ class _RecordingEntryHistoryCoordinator implements EntryHistoryCoordinator {
     String? keyFilePath,
     required String entryId,
     required DateTime replacedAt,
+    int ordinal = 0,
   }) async {
     restores.add((entryId, replacedAt));
     return const EntryHistoryRestoreResult(EntryHistoryOutcome.done);

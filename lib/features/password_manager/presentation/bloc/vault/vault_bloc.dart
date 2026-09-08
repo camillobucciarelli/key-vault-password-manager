@@ -1863,6 +1863,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       keyFilePath: _keyFilePath,
       entryId: event.entryId,
       replacedAt: event.replacedAt,
+      ordinal: event.ordinal,
     );
     switch (result.outcome) {
       case EntryHistoryOutcome.done:
@@ -1896,14 +1897,26 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     DeleteEntryRevision event,
     Emitter<VaultState> emit,
   ) async {
+    // The same refusal the coordinator gives restore and clear: the vault
+    // locked between the confirmation and the act.
+    if (!sessionSecretHolder.hasSecret) {
+      _safeEmit(
+        emit,
+        state.copyWith(
+          errorMessage: 'The vault is locked. Nothing was changed.',
+        ),
+      );
+      return;
+    }
     _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
     try {
       await vaultKdbxService.deleteEntryRevision(
         databasePath: state.databasePath,
-        password: _password,
+        password: sessionSecretHolder.read(),
         keyFilePath: _keyFilePath,
         entryId: event.entryId,
         replacedAt: event.replacedAt,
+        ordinal: event.ordinal,
       );
     } catch (e, st) {
       logError('Failed deleting entry revision.', e, st);

@@ -376,23 +376,8 @@ class VaultKdbxService {
         entryId,
       );
 
-      // The KDBX list is oldest first *when this app wrote it*, but
-      // `KdbxEntry.merge` appends the other side's revisions without
-      // reordering, so after a two-device sync file order is not
-      // chronological. FR-001 promises newest first, so order by the
-      // timestamp rather than by position. KDBX times are second-precision:
-      // ties keep reversed file order, so the result is deterministic even
-      // though `List.sort` is not stable.
-      final ordered =
-          [
-            for (final (index, revision) in entry.history.indexed)
-              (index, _mapRevision(entryId, revision)),
-          ]..sort((a, b) {
-            final byTime = b.$2.replacedAt.compareTo(a.$2.replacedAt);
-            return byTime != 0 ? byTime : b.$1.compareTo(a.$1);
-          });
       final revisions = [
-        for (final (_, revision) in ordered) revision,
+        for (final (_, revision) in _orderedHistory(entryId, entry)) revision,
       ].toList(growable: false);
 
       final meta = file.body.meta;
@@ -411,13 +396,15 @@ class VaultKdbxService {
   /// state to history (D5, FR-007). The OTP secret rides along in the custom
   /// fields, where it lives. Attachments are not touched (FR-006a).
   ///
-  /// Throws when no revision of [entryId] carries [replacedAt].
+  /// Throws when no revision of [entryId] carries [replacedAt] (and
+  /// [ordinal], for same-second revisions — see [VaultEntryRevision.ordinal]).
   Future<void> restoreEntryRevision({
     required String databasePath,
     required String password,
     String? keyFilePath,
     required String entryId,
     required DateTime replacedAt,
+    int ordinal = 0,
   }) {
     return _mutex.withDatabaseLock([databasePath], () async {
       final file = await _openFile(
@@ -430,16 +417,7 @@ class VaultKdbxService {
         file.body.rootGroup.getAllEntries(),
         entryId,
       );
-      // ponytail: KDBX times are whole seconds, so two revisions can share a
-      // timestamp; the first match wins. Add a position tiebreak if it bites.
-      final revision = entry.history
-          .map((candidate) => _mapRevision(entryId, candidate))
-          .firstWhere(
-            (candidate) => candidate.replacedAt == replacedAt.toUtc(),
-            orElse: () => throw StateError(
-              'No revision of entry $entryId at $replacedAt',
-            ),
-          );
+      final (_, revision) = _findRevision(entryId, entry, replacedAt, ordinal);
 
       entry.setString(KdbxKeyCommon.TITLE, PlainValue(revision.title));
       entry.setString(KdbxKeyCommon.USER_NAME, PlainValue(revision.username));
@@ -461,13 +439,14 @@ class VaultKdbxService {
   ///
   /// The list is edited directly, never through `modify`: `modify` is what
   /// appends a history entry, and removing one must not add one (FR-014).
-  /// Throws when no revision carries that timestamp.
+  /// Throws when no revision carries that timestamp (and [ordinal]).
   Future<void> deleteEntryRevision({
     required String databasePath,
     required String password,
     String? keyFilePath,
     required String entryId,
     required DateTime replacedAt,
+    int ordinal = 0,
   }) {
     return _mutex.withDatabaseLock([databasePath], () async {
       final file = await _openFile(
@@ -479,17 +458,63 @@ class VaultKdbxService {
         file.body.rootGroup.getAllEntries(),
         entryId,
       );
-      // ponytail: same first-match rule as restoreEntryRevision.
-      final index = entry.history.indexWhere(
-        (candidate) =>
-            _mapRevision(entryId, candidate).replacedAt == replacedAt.toUtc(),
-      );
-      if (index < 0) {
-        throw StateError('No revision of entry $entryId at $replacedAt');
-      }
-      entry.history.removeAt(index);
+      final (fileIndex, _) = _findRevision(entryId, entry, replacedAt, ordinal);
+      entry.history.removeAt(fileIndex);
       await _save(databasePath, file);
     });
+  }
+
+  /// The one ordering every history read and write shares, so what the list
+  /// shows is what a restore or delete acts on.
+  ///
+  /// The KDBX list is oldest first *when this app wrote it*, but
+  /// `KdbxEntry.merge` appends the other side's revisions without
+  /// reordering, so after a two-device sync file order is not chronological.
+  /// FR-001 promises newest first, so order by the timestamp rather than by
+  /// position. KDBX times are second-precision: ties keep reversed file
+  /// order (deterministic even though `List.sort` is not stable), and each
+  /// revision's [VaultEntryRevision.ordinal] is its place within that tie.
+  ///
+  /// Returns `(file index, revision)` pairs.
+  List<(int, VaultEntryRevision)> _orderedHistory(
+    String entryId,
+    KdbxEntry entry,
+  ) {
+    final ordered =
+        [
+          for (final (index, revision) in entry.history.indexed)
+            (index, _revisionTime(revision)),
+        ]..sort((a, b) {
+          final byTime = b.$2.compareTo(a.$2);
+          return byTime != 0 ? byTime : b.$1.compareTo(a.$1);
+        });
+    final result = <(int, VaultEntryRevision)>[];
+    var ordinal = 0;
+    for (var i = 0; i < ordered.length; i++) {
+      ordinal = i > 0 && ordered[i].$2 == ordered[i - 1].$2 ? ordinal + 1 : 0;
+      final fileIndex = ordered[i].$1;
+      result.add((
+        fileIndex,
+        _mapRevision(entryId, entry.history[fileIndex], ordinal: ordinal),
+      ));
+    }
+    return result;
+  }
+
+  (int, VaultEntryRevision) _findRevision(
+    String entryId,
+    KdbxEntry entry,
+    DateTime replacedAt,
+    int ordinal,
+  ) {
+    final wanted = replacedAt.toUtc();
+    for (final candidate in _orderedHistory(entryId, entry)) {
+      if (candidate.$2.replacedAt == wanted &&
+          candidate.$2.ordinal == ordinal) {
+        return candidate;
+      }
+    }
+    throw StateError('No revision of entry $entryId at $replacedAt#$ordinal');
   }
 
   /// spec 017 T401 — empty an entry's history (FR-010). The dated backup
@@ -1286,16 +1311,23 @@ class VaultKdbxService {
 
   /// spec 017 T103 — a KDBX history record projected onto the domain model.
   /// Attachment *names* only: a revision's bytes are never read (FR-006a).
-  VaultEntryRevision _mapRevision(String entryId, KdbxEntry revision) {
+  DateTime _revisionTime(KdbxEntry revision) =>
+      (revision.times.lastModificationTime.get() ??
+              revision.times.creationTime.get() ??
+              DateTime.fromMillisecondsSinceEpoch(0, isUtc: true))
+          .toUtc();
+
+  VaultEntryRevision _mapRevision(
+    String entryId,
+    KdbxEntry revision, {
+    int ordinal = 0,
+  }) {
     final customFields = _mapCustomFields(revision);
-    final replacedAt =
-        revision.times.lastModificationTime.get() ??
-        revision.times.creationTime.get() ??
-        DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
 
     return VaultEntryRevision(
       entryId: entryId,
-      replacedAt: replacedAt.toUtc(),
+      replacedAt: _revisionTime(revision),
+      ordinal: ordinal,
       title: revision.getString(KdbxKeyCommon.TITLE)?.getText() ?? '',
       username: revision.getString(KdbxKeyCommon.USER_NAME)?.getText() ?? '',
       password: revision.getString(KdbxKeyCommon.PASSWORD)?.getText() ?? '',
