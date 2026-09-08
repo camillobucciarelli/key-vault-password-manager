@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import '../../domain/models/vault_attachment.dart';
 import '../../domain/models/vault_custom_field.dart';
 import '../../domain/models/vault_entry.dart';
+import '../../domain/models/vault_entry_revision.dart';
 import '../../domain/models/vault_group.dart';
 import '../../domain/models/vault_snapshot.dart';
 import '../../domain/services/url_field_keys.dart';
@@ -346,6 +347,195 @@ class VaultKdbxService {
       entry.setString(_notesKey, PlainValue(notes));
       _setCustomFields(entry, customFields);
 
+      await _save(databasePath, file);
+    });
+  }
+
+  /// spec 017 T103 — the revisions the KDBX writer already recorded for an
+  /// entry, newest first (FR-001), together with the vault's retention limits
+  /// (FR-012), from one open of the file under one lock: two separate reads
+  /// could observe two different states of it.
+  ///
+  /// Read-only. An entry with no history yields an empty list, not an error
+  /// (FR-013); an unknown entry throws, like every other lookup here.
+  Future<VaultEntryHistory> loadEntryHistory({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
+
+      final entry = _findEntryById(
+        file.body.rootGroup.getAllEntries(),
+        entryId,
+      );
+
+      final revisions = [
+        for (final (_, revision) in _orderedHistory(entryId, entry)) revision,
+      ].toList(growable: false);
+
+      final meta = file.body.meta;
+      return VaultEntryHistory(
+        revisions: revisions,
+        retention: VaultHistoryRetention(
+          maxItems: meta.historyMaxItems.get(),
+          maxSizeBytes: meta.historyMaxSize.get(),
+        ),
+      );
+    });
+  }
+
+  /// spec 017 T301 — put a revision's fields back on the entry, with the same
+  /// setters [updateEntry] uses so the KDBX writer appends the pre-restore
+  /// state to history (D5, FR-007). The OTP secret rides along in the custom
+  /// fields, where it lives. Attachments are not touched (FR-006a).
+  ///
+  /// Throws when no revision of [entryId] carries [replacedAt] (and
+  /// [ordinal], for same-second revisions — see [VaultEntryRevision.ordinal]).
+  Future<void> restoreEntryRevision({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+    required DateTime replacedAt,
+    int ordinal = 0,
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
+
+      final entry = _findEntryById(
+        file.body.rootGroup.getAllEntries(),
+        entryId,
+      );
+      final (_, revision) = _findRevision(entryId, entry, replacedAt, ordinal);
+
+      entry.setString(KdbxKeyCommon.TITLE, PlainValue(revision.title));
+      entry.setString(KdbxKeyCommon.USER_NAME, PlainValue(revision.username));
+      entry.setString(
+        KdbxKeyCommon.PASSWORD,
+        ProtectedValue.fromString(revision.password),
+      );
+      entry.setString(KdbxKeyCommon.URL, PlainValue(revision.url));
+      entry.setString(_notesKey, PlainValue(revision.notes));
+      _setCustomFields(entry, revision.customFields);
+
+      await _save(databasePath, file);
+    });
+  }
+
+  /// spec 017 T401 — remove exactly the revision saved at [replacedAt]
+  /// (FR-009). The others keep their order. No backup here: that is the
+  /// coordinator's, so the backup and the warning stay together.
+  ///
+  /// The list is edited directly, never through `modify`: `modify` is what
+  /// appends a history entry, and removing one must not add one (FR-014).
+  /// Throws when no revision carries that timestamp (and [ordinal]).
+  Future<void> deleteEntryRevision({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+    required DateTime replacedAt,
+    int ordinal = 0,
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
+      final entry = _findEntryById(
+        file.body.rootGroup.getAllEntries(),
+        entryId,
+      );
+      final (fileIndex, _) = _findRevision(entryId, entry, replacedAt, ordinal);
+      entry.history.removeAt(fileIndex);
+      await _save(databasePath, file);
+    });
+  }
+
+  /// The one ordering every history read and write shares, so what the list
+  /// shows is what a restore or delete acts on.
+  ///
+  /// The KDBX list is oldest first *when this app wrote it*, but
+  /// `KdbxEntry.merge` appends the other side's revisions without
+  /// reordering, so after a two-device sync file order is not chronological.
+  /// FR-001 promises newest first, so order by the timestamp rather than by
+  /// position. KDBX times are second-precision: ties keep reversed file
+  /// order (deterministic even though `List.sort` is not stable), and each
+  /// revision's [VaultEntryRevision.ordinal] is its place within that tie.
+  ///
+  /// Returns `(file index, revision)` pairs.
+  List<(int, VaultEntryRevision)> _orderedHistory(
+    String entryId,
+    KdbxEntry entry,
+  ) {
+    final ordered =
+        [
+          for (final (index, revision) in entry.history.indexed)
+            (index, _revisionTime(revision)),
+        ]..sort((a, b) {
+          final byTime = b.$2.compareTo(a.$2);
+          return byTime != 0 ? byTime : b.$1.compareTo(a.$1);
+        });
+    final result = <(int, VaultEntryRevision)>[];
+    var ordinal = 0;
+    for (var i = 0; i < ordered.length; i++) {
+      ordinal = i > 0 && ordered[i].$2 == ordered[i - 1].$2 ? ordinal + 1 : 0;
+      final fileIndex = ordered[i].$1;
+      result.add((
+        fileIndex,
+        _mapRevision(entryId, entry.history[fileIndex], ordinal: ordinal),
+      ));
+    }
+    return result;
+  }
+
+  (int, VaultEntryRevision) _findRevision(
+    String entryId,
+    KdbxEntry entry,
+    DateTime replacedAt,
+    int ordinal,
+  ) {
+    final wanted = replacedAt.toUtc();
+    for (final candidate in _orderedHistory(entryId, entry)) {
+      if (candidate.$2.replacedAt == wanted &&
+          candidate.$2.ordinal == ordinal) {
+        return candidate;
+      }
+    }
+    throw StateError('No revision of entry $entryId at $replacedAt#$ordinal');
+  }
+
+  /// spec 017 T401 — empty an entry's history (FR-010). The dated backup
+  /// is the coordinator's, written before this is called.
+  Future<void> clearEntryHistory({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
+      final entry = _findEntryById(
+        file.body.rootGroup.getAllEntries(),
+        entryId,
+      );
+      entry.history.clear();
       await _save(databasePath, file);
     });
   }
@@ -1105,7 +1295,7 @@ class VaultKdbxService {
     return false;
   }
 
-  VaultEntry _mapEntry(String groupId, KdbxEntry entry) {
+  List<VaultCustomField> _mapCustomFields(KdbxEntry entry) {
     final customFields = <VaultCustomField>[];
     for (final stringEntry in entry.stringEntries) {
       final key = stringEntry.key.key;
@@ -1116,6 +1306,43 @@ class VaultKdbxService {
         VaultCustomField(key: key, value: stringEntry.value?.getText() ?? ''),
       );
     }
+    return customFields;
+  }
+
+  /// spec 017 T103 — a KDBX history record projected onto the domain model.
+  /// Attachment *names* only: a revision's bytes are never read (FR-006a).
+  DateTime _revisionTime(KdbxEntry revision) =>
+      (revision.times.lastModificationTime.get() ??
+              revision.times.creationTime.get() ??
+              DateTime.fromMillisecondsSinceEpoch(0, isUtc: true))
+          .toUtc();
+
+  VaultEntryRevision _mapRevision(
+    String entryId,
+    KdbxEntry revision, {
+    int ordinal = 0,
+  }) {
+    final customFields = _mapCustomFields(revision);
+
+    return VaultEntryRevision(
+      entryId: entryId,
+      replacedAt: _revisionTime(revision),
+      ordinal: ordinal,
+      title: revision.getString(KdbxKeyCommon.TITLE)?.getText() ?? '',
+      username: revision.getString(KdbxKeyCommon.USER_NAME)?.getText() ?? '',
+      password: revision.getString(KdbxKeyCommon.PASSWORD)?.getText() ?? '',
+      url: revision.getString(KdbxKeyCommon.URL)?.getText() ?? '',
+      notes: revision.getString(_notesKey)?.getText() ?? '',
+      customFields: customFields,
+      attachmentNames: revision.binaryEntries
+          .map((binaryEntry) => binaryEntry.key.key)
+          .toList(growable: false),
+      otpUri: _resolveOtpUri(customFields),
+    );
+  }
+
+  VaultEntry _mapEntry(String groupId, KdbxEntry entry) {
+    final customFields = _mapCustomFields(entry);
 
     final attachments = entry.binaryEntries
         .map(

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/responsive/breakpoints.dart';
 import '../../../../core/widgets/kv_bottom_sheet.dart';
+import 'vault_shell_session_scope.dart';
 import '../../domain/models/sync_conflict.dart';
 import '../../domain/models/vault_custom_field.dart';
 
@@ -722,6 +723,8 @@ final class VaultShellRouter {
     void Function(VoidCallback dismiss) mounted,
   ) async {
     final navigator = Navigator.of(context);
+    // Read now, synchronously, while `context` is certainly still mounted.
+    final session = VaultShellSessionScope.maybeOf(context);
     late final MaterialPageRoute<void> route;
     route = MaterialPageRoute<void>(
       // Re-provide VaultShellRouterScope inside the pushed route: routes on
@@ -732,10 +735,35 @@ final class VaultShellRouter {
       // surface tries to `.open()` on top of itself — e.g. the editor
       // (spec-004) opening its generator sheet on mobile, where the editor
       // itself is a pushed EntrySurface route.
-      builder: (routeContext) => VaultShellRouterScope(
-        router: this,
-        child: Scaffold(body: builder(routeContext)),
-      ),
+      builder: (routeContext) {
+        Widget hosted = VaultShellRouterScope(
+          router: this,
+          child: Scaffold(body: builder(routeContext)),
+        );
+        // Same rationale, same sibling problem: the shell's session (lock
+        // state, activity, re-authentication) is published inside the shell,
+        // so a pushed route cannot see it either — and below
+        // `VaultLayoutWidths.detailPane` the entry detail *is* a pushed
+        // route, which is where the history and the reveal gate are opened
+        // from.
+        if (session != null) {
+          hosted = VaultShellSessionScope(
+            session: session,
+            // The shell's own pointer `Listener` is inside its body, which a
+            // pushed route is not below — so on mobile, where every one of
+            // these surfaces (detail, editor, attachments, OTP scanner, merge
+            // preview) is a route, using them read as being idle and the
+            // inactivity timer locked the vault mid-use. Default
+            // `deferToChild` behaviour: this observes pointers, it does not
+            // take them from the children.
+            child: Listener(
+              onPointerDown: (_) => session.reportActivity(),
+              child: hosted,
+            ),
+          );
+        }
+        return hosted;
+      },
     );
     mounted(() {
       // If the router itself is being disposed (whole shell teardown, not
@@ -755,6 +783,17 @@ final class VaultShellRouter {
     await navigator.push<void>(route);
   }
 
+  // Activity reporting is asymmetric across the three default hosts, on
+  // purpose and for now only: `_defaultRouteHost` re-publishes
+  // `VaultShellSessionScope` and wraps its route in a pointer `Listener`, so
+  // pointers in a pushed surface feed the shell's inactivity timer. The sheet
+  // and dialog hosts below re-publish `VaultShellRouterScope` only — they do
+  // neither. Surfaces opened through them (password generator below
+  // `VaultLayoutWidths.generatorColumn`, key file manager, group edit, move
+  // target, sync conflict, confirmation, and the plain `showDialog` callers)
+  // therefore still read as idle while in use. Pre-existing; extending the
+  // route host's treatment to sheets and dialogs is separate work, not a
+  // property of these hosts that anyone should rely on.
   Future<void> _defaultSheetHost(
     BuildContext context,
     WidgetBuilder builder,

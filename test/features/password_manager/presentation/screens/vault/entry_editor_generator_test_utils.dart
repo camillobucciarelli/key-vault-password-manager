@@ -20,6 +20,7 @@ import 'package:password_manager/features/password_manager/domain/models/databas
 import 'package:password_manager/features/password_manager/domain/models/vault_attachment.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_entry_revision.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_group.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_snapshot.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
@@ -132,6 +133,10 @@ class EntryTestHarness {
   /// used to capture the biometric-gate sheet golden mid-flow.
   bool hangBiometricAuthenticate = false;
   bool biometricAuthenticateResult = true;
+
+  /// spec 017 T501: what `loadEntryHistory` answers, by entry id. An entry
+  /// absent here has no history — the empty state.
+  final Map<String, VaultEntryHistory> histories = {};
 }
 
 Future<Widget> pumpableEntryScreen({
@@ -220,6 +225,19 @@ class _FakeVaultKdbxService implements VaultKdbxService {
     required String password,
     String? keyFilePath,
   }) async => const [];
+
+  @override
+  Future<VaultEntryHistory> loadEntryHistory({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+  }) async =>
+      harness.histories[entryId] ??
+      const VaultEntryHistory(
+        revisions: [],
+        retention: VaultHistoryRetention(maxItems: 10),
+      );
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

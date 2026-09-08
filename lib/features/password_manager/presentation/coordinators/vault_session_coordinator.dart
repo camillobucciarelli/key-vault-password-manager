@@ -16,6 +16,7 @@ import '../../domain/repositories/database_sync_repository.dart';
 import '../../domain/models/sync_merge_models.dart' show MergeDatabaseId;
 import '../../../../core/utils/mobile_file_storage.dart';
 import 'apple_autofill_v2_coordinator.dart';
+import 'dated_backup_path.dart';
 import 'session_secret_holder.dart';
 import 'sync_merge_coordinator.dart';
 
@@ -438,19 +439,7 @@ class VaultSessionCoordinator {
       if (!await source.exists()) {
         return;
       }
-      final now = DateTime.now();
-      String two(int value) => value.toString().padLeft(2, '0');
-      final stamp =
-          '${now.year}${two(now.month)}${two(now.day)}-'
-          '${two(now.hour)}${two(now.minute)}${two(now.second)}-'
-          '${now.microsecond.toString().padLeft(6, '0')}';
-      final directory = p.dirname(databasePath);
-      final baseName = p.basenameWithoutExtension(databasePath);
-      final extension = p.extension(databasePath);
-      final backupPath = p.join(
-        directory,
-        '$baseName.$stamp.pre-rekey$extension',
-      );
+      final backupPath = datedBackupPath(databasePath, suffix: 'pre-rekey');
       await databaseFileRepository.copyFile(
         sourcePath: databasePath,
         targetPath: backupPath,

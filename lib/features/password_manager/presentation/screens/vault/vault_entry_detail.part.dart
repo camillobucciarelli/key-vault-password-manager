@@ -140,41 +140,10 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
     }
     if (_isCheckingBiometrics) return;
     setState(() => _isCheckingBiometrics = true);
-    bool biometricEnabled;
-    try {
-      biometricEnabled = await di
-          .sl<VaultSessionCoordinator>()
-          .getBiometricProtectionEnabledForPath(databasePath: databasePath);
-    } catch (_) {
-      biometricEnabled = false;
-    }
+    final allowed = await _resolveRevealPermission(context, databasePath);
     if (!mounted) return;
     setState(() => _isCheckingBiometrics = false);
-
-    if (!biometricEnabled) {
-      _revealController.reveal();
-      return;
-    }
-
-    // 2026-08-31 (user-directed): go straight to the OS biometric prompt —
-    // no intermediate sheet. The sheet only appears as a fallback when the
-    // prompt fails or is cancelled, offering retry and the password path.
-    bool authenticated;
-    try {
-      authenticated = await di.sl<BiometricDataSource>().authenticate(
-        reason: 'Reveal password',
-      );
-    } catch (_) {
-      authenticated = false;
-    }
-    if (!mounted) return;
-    if (authenticated) {
-      _revealController.reveal();
-      return;
-    }
-
-    final unlocked = await _showBiometricRevealGate(context, databasePath);
-    if (unlocked == true && mounted) {
+    if (allowed) {
       _revealController.reveal();
     }
   }
@@ -475,6 +444,34 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                 ),
               ],
             ),
+            // spec 017 T202: history is reached from the record the user is
+            // already looking at, and is read only when asked for (FR-015) —
+            // hence a chip and not a count, which would need the file read.
+            const SizedBox(height: 16),
+            Text(
+              'Password history',
+              style: AppTextStyles.labelUpper.copyWith(
+                color: colors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Previous versions of this record.',
+                    style: AppTextStyles.secondary.copyWith(
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                ),
+                _MoreChip(
+                  icon: AppGlyph.clock,
+                  label: 'View history',
+                  onTap: () => _showEntryHistoryDialog(context, entry.id),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -689,14 +686,71 @@ class _MetadataGrid extends StatelessWidget {
   }
 }
 
+/// The one reveal policy: is the user allowed to see a secret of this
+/// database right now?
+///
+/// Extracted from `_handleRevealTap` so spec 017's history view can call the
+/// same path rather than restate it (FR-003/D3) — a historical password is
+/// not less sensitive than the current one, and two copies of this rule
+/// would be two places to get it wrong.
+Future<bool> _resolveRevealPermission(
+  BuildContext context,
+  String databasePath,
+) async {
+  bool biometricEnabled;
+  try {
+    biometricEnabled = await di
+        .sl<VaultSessionCoordinator>()
+        .getBiometricProtectionEnabledForPath(databasePath: databasePath);
+  } catch (_) {
+    biometricEnabled = false;
+  }
+  if (!biometricEnabled) {
+    return true;
+  }
+
+  // 2026-08-31 (user-directed): go straight to the OS biometric prompt —
+  // no intermediate sheet. The sheet only appears as a fallback when the
+  // prompt fails or is cancelled, offering retry and the password path.
+  bool authenticated;
+  try {
+    authenticated = await di.sl<BiometricDataSource>().authenticate(
+      reason: 'Reveal password',
+    );
+  } catch (_) {
+    authenticated = false;
+  }
+  if (authenticated) {
+    return true;
+  }
+
+  if (!context.mounted) return false;
+  return await _showBiometricRevealGate(context, databasePath) == true;
+}
+
 Future<bool?> _showBiometricRevealGate(
   BuildContext context,
   String databasePath,
 ) {
+  // `KvBottomSheet` hosts on the root navigator, so the sheet is a sibling of
+  // whatever opened it and sees neither the shell nor the caller's scope —
+  // re-provided here so "Use password" reaches the shell's own session
+  // instead of the top route (see `_usePassword`).
+  final session = VaultShellSessionScope.of(context);
   return KvBottomSheet.show<bool>(
     context: context,
-    builder: (sheetContext) =>
-        _BiometricRevealGateSheet(databasePath: databasePath),
+    builder: (sheetContext) => VaultShellSessionScope(
+      session: session,
+      // ...and, for the same sibling reason, the gate is outside both the
+      // shell's pointer `Listener` and the route host's: reading the sheet or
+      // retrying biometrics read as idle and the inactivity timer locked the
+      // vault out from under it. Default `deferToChild`: observes pointers,
+      // does not take them.
+      child: Listener(
+        onPointerDown: (_) => session.reportActivity(),
+        child: _BiometricRevealGateSheet(databasePath: databasePath),
+      ),
+    ),
   );
 }
 
@@ -730,17 +784,15 @@ class _BiometricRevealGateSheetState extends State<_BiometricRevealGateSheet> {
   // Reuses the existing whole-vault lock+re-unlock flow — the codebase has
   // no separate "confirm just this reveal with a password" primitive, and
   // spec-004 explicitly asks not to invent new authentication logic.
+  ///
+  /// The lock-and-replace itself belongs to the shell: this sheet can be
+  /// opened from the detail (a pane, or a pushed route) or from the history
+  /// dialog, and `pushReplacement` here replaced whichever of those was on
+  /// top — leaving the unlocked shell alive underneath the unlock screen.
   Future<void> _usePassword() async {
-    final navigatorContext = context;
-    Navigator.of(navigatorContext).pop(false);
-    await di.sl<VaultSessionCoordinator>().lockVault(
-      currentDatabasePath: widget.databasePath,
-    );
-    if (!navigatorContext.mounted) return;
-    AppNavigation.pushFadeReplacement(
-      navigatorContext,
-      DatabaseUnlockScreen(databasePath: widget.databasePath),
-    );
+    final session = VaultShellSessionScope.of(context);
+    Navigator.of(context).pop(false);
+    await session.lockAndReauthenticate(widget.databasePath);
   }
 
   @override

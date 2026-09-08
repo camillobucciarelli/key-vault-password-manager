@@ -27,6 +27,8 @@ import 'package:password_manager/features/password_manager/data/services/safe_va
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_entry_revision.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 // `KdbxNode.node` is a public, exported `XmlElement`: constructs the library
 // does not model (entry colors' RGB value, entry AutoType) are read and
@@ -1721,6 +1723,658 @@ void main() {
       // parser fails earlier with a RangeError. Recorded verbatim so the
       // adapter does not assume a single exception type for "unsupported".
       expect(readWithMajor(2), throwsA(isA<RangeError>()));
+    });
+  });
+
+  group('loadEntryHistory (spec 017 T103)', () {
+    Future<String> createEntry({String entryPassword = 'p0'}) async {
+      final groupId = await _rootGroupId(service, databasePath, password);
+      return service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: groupId,
+        title: 'Mail 0',
+        username: 'ada',
+        entryPassword: entryPassword,
+        url: 'https://mail.example',
+        notes: 'notes 0',
+      );
+    }
+
+    Future<void> editEntry(String entryId, int revision) {
+      return service.updateEntry(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        title: 'Mail $revision',
+        username: 'ada',
+        entryPassword: 'p$revision',
+        url: 'https://mail.example',
+        notes: 'notes $revision',
+      );
+    }
+
+    test('three edits produce three revisions, newest first', () async {
+      final entryId = await createEntry();
+      for (var revision = 1; revision <= 3; revision++) {
+        await editEntry(entryId, revision);
+      }
+
+      // FR-015: reading the history is a read. Asserted on the bytes rather
+      // than by inspection, so a future write on this path fails here.
+      final digestBefore = sha256.convert(
+        await File(databasePath).readAsBytes(),
+      );
+
+      final history = await service.loadEntryHistory(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+      );
+
+      expect(
+        sha256.convert(await File(databasePath).readAsBytes()),
+        digestBefore,
+        reason: 'loadEntryHistory must not rewrite the vault',
+      );
+
+      expect(history.revisions, hasLength(3));
+      expect(history.revisions.map((revision) => revision.password), [
+        'p2',
+        'p1',
+        'p0',
+      ]);
+      expect(history.revisions.map((revision) => revision.title), [
+        'Mail 2',
+        'Mail 1',
+        'Mail 0',
+      ]);
+      expect(history.revisions.map((revision) => revision.notes), [
+        'notes 2',
+        'notes 1',
+        'notes 0',
+      ]);
+      expect(
+        history.revisions.every((revision) => revision.entryId == entryId),
+        isTrue,
+      );
+      expect(
+        history.revisions.every((revision) => revision.replacedAt.isUtc),
+        isTrue,
+      );
+    });
+
+    // FR-001: `KdbxEntry.merge` (kdbx 2.4.2 `kdbx_entry.dart`) appends the
+    // other side's revisions to `history` without reordering them, so after a
+    // two-device sync the stored order is not chronological. Reproduced here
+    // by rewriting the stored timestamps out of file order.
+    test(
+      'revisions are ordered by timestamp, not by position in the file',
+      () async {
+        final entryId = await createEntry();
+        for (var revision = 1; revision <= 3; revision++) {
+          await editEntry(entryId, revision);
+        }
+
+        final credentials = Credentials(ProtectedValue.fromString(password));
+        final file = await KdbxFormat().read(
+          await File(databasePath).readAsBytes(),
+          credentials,
+        );
+        final entry = file.body.rootGroup.getAllEntries().firstWhere(
+          (candidate) => candidate.uuid.uuid == entryId,
+        );
+        expect(entry.history, hasLength(3));
+        // File order stays p0, p1, p2; the timestamps say p0 is the newest and
+        // p1/p2 share a second (KDBX stores whole seconds).
+        final base = DateTime.utc(2026, 3, 1, 12);
+        entry.history[0].times.lastModificationTime.set(
+          base.add(const Duration(seconds: 30)),
+        );
+        entry.history[1].times.lastModificationTime.set(
+          base.add(const Duration(seconds: 20)),
+        );
+        entry.history[2].times.lastModificationTime.set(
+          base.add(const Duration(seconds: 20)),
+        );
+        await File(databasePath).writeAsBytes(await file.save());
+
+        final history = await service.loadEntryHistory(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+        );
+
+        final times = history.revisions
+            .map((revision) => revision.replacedAt)
+            .toList();
+        for (var i = 1; i < times.length; i++) {
+          expect(
+            times[i].isAfter(times[i - 1]),
+            isFalse,
+            reason: 'revisions must be newest first: $times',
+          );
+        }
+        // The tie between the two revisions of the same second resolves to
+        // reversed file order, deterministically — `List.sort` is not stable.
+        expect(history.revisions.map((revision) => revision.password), [
+          'p0',
+          'p2',
+          'p1',
+        ]);
+      },
+    );
+
+    test('an untouched entry returns an empty list, not an error', () async {
+      final entryId = await createEntry();
+
+      final history = await service.loadEntryHistory(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+      );
+
+      expect(history.revisions, isEmpty);
+      expect(history.retention, isNotNull);
+    });
+
+    test('retention matches meta.historyMaxItems / historyMaxSize', () async {
+      final entryId = await createEntry();
+
+      final file = await KdbxFormat().read(
+        await File(databasePath).readAsBytes(),
+        Credentials(ProtectedValue.fromString(password)),
+      );
+      final expectedMaxItems = file.body.meta.historyMaxItems.get();
+      final expectedMaxSize = file.body.meta.historyMaxSize.get();
+
+      final history = await service.loadEntryHistory(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+      );
+
+      expect(history.retention.maxItems, expectedMaxItems);
+      expect(history.retention.maxSizeBytes, expectedMaxSize);
+      expect(expectedMaxItems, isNotNull);
+      expect(expectedMaxSize, isNotNull);
+    });
+
+    test(
+      'a revision carries custom fields, otp and attachment names',
+      () async {
+        final groupId = await _rootGroupId(service, databasePath, password);
+        final entryId = await service.createEntry(
+          databasePath: databasePath,
+          password: password,
+          groupId: groupId,
+          title: 'Mail',
+          username: 'ada',
+          entryPassword: 'p0',
+          url: 'https://mail.example',
+          notes: 'notes',
+          customFields: const [
+            VaultCustomField(key: 'otp', value: 'otpauth://totp/Mail?secret=A'),
+          ],
+        );
+        final attachment = File('${tempDir.path}/key.pem');
+        await attachment.writeAsBytes(const [1, 2, 3]);
+        await service.addAttachment(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          filePath: attachment.path,
+        );
+        await service.updateEntry(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          title: 'Mail',
+          username: 'ada',
+          entryPassword: 'p1',
+          url: 'https://mail.example',
+          notes: 'notes',
+        );
+
+        final history = await service.loadEntryHistory(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+        );
+
+        final newest = history.revisions.first;
+        expect(newest.otpUri, 'otpauth://totp/Mail?secret=A');
+        expect(newest.customFields.map((field) => field.key), contains('otp'));
+        expect(newest.attachmentNames, ['key.pem']);
+      },
+    );
+
+    test('an unknown entry throws', () async {
+      await createEntry();
+
+      await expectLater(
+        service.loadEntryHistory(
+          databasePath: databasePath,
+          password: password,
+          entryId: 'not-an-entry',
+        ),
+        throwsA(anything),
+      );
+    });
+  });
+
+  group('restoreEntryRevision (spec 017 T301)', () {
+    Future<String> createEntry({
+      List<VaultCustomField> customFields = const [],
+    }) async {
+      final groupId = await _rootGroupId(service, databasePath, password);
+      return service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: groupId,
+        title: 'Mail 0',
+        username: 'ada',
+        entryPassword: 'p0',
+        url: 'https://mail.example',
+        notes: 'notes 0',
+        customFields: customFields,
+      );
+    }
+
+    Future<void> editEntry(String entryId, int revision) {
+      return service.updateEntry(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        title: 'Mail $revision',
+        username: 'ada',
+        entryPassword: 'p$revision',
+        url: 'https://mail.example',
+        notes: 'notes $revision',
+      );
+    }
+
+    Future<VaultEntryHistory> history(String entryId) =>
+        service.loadEntryHistory(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+        );
+
+    Future<VaultEntry> current(String entryId) async =>
+        (await service.loadAllEntries(
+          databasePath: databasePath,
+          password: password,
+        )).firstWhere((entry) => entry.id == entryId);
+
+    // FR-007: reversibility is a property of the KDBX writer, asserted here
+    // rather than assumed — the pre-restore state must land in history.
+    test(
+      'restores the fields and keeps the pre-restore state in history',
+      () async {
+        final entryId = await createEntry();
+        await editEntry(entryId, 1);
+        await editEntry(entryId, 2);
+        final oldest = (await history(entryId)).revisions.last;
+        expect(oldest.password, 'p0');
+
+        await service.restoreEntryRevision(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          replacedAt: oldest.replacedAt,
+          ordinal: oldest.ordinal,
+        );
+
+        final entry = await current(entryId);
+        expect(entry.title, 'Mail 0');
+        expect(entry.password, 'p0');
+        expect(entry.notes, 'notes 0');
+        final after = await history(entryId);
+        expect(after.revisions, hasLength(3));
+        expect(after.revisions.first.password, 'p2');
+      },
+    );
+
+    test('restores the OTP carried in the custom fields', () async {
+      final entryId = await createEntry(
+        customFields: const [
+          VaultCustomField(key: 'otp', value: 'otpauth://totp/Mail?secret=A'),
+        ],
+      );
+      await editEntry(entryId, 1); // updateEntry with no custom fields drops it
+      expect((await current(entryId)).otpUri, isNull);
+      final revision = (await history(entryId)).revisions.single;
+
+      await service.restoreEntryRevision(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        replacedAt: revision.replacedAt,
+      );
+
+      expect((await current(entryId)).otpUri, 'otpauth://totp/Mail?secret=A');
+    });
+
+    // FR-006a: attachments are outside the restore.
+    test('leaves attachments unchanged', () async {
+      final entryId = await createEntry();
+      await editEntry(entryId, 1);
+      final attachment = File('${tempDir.path}/key.pem');
+      await attachment.writeAsBytes(const [1, 2, 3]);
+      await service.addAttachment(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        filePath: attachment.path,
+      );
+      final revision = (await history(entryId)).revisions.last;
+      expect(revision.attachmentNames, isEmpty);
+
+      await service.restoreEntryRevision(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        replacedAt: revision.replacedAt,
+        ordinal: revision.ordinal,
+      );
+
+      final entry = await current(entryId);
+      expect(entry.password, 'p0');
+      expect(entry.attachments.map((a) => a.name), ['key.pem']);
+    });
+
+    // Two revisions in the same second: the list tells them apart by
+    // `ordinal`, and restore must act on the one the list showed — not on
+    // whichever the file happens to hold first.
+    test('a same-second sibling is restored by its ordinal', () async {
+      final entryId = await createEntry();
+      await editEntry(entryId, 1);
+      await editEntry(entryId, 2);
+      final file = await KdbxFormat().read(
+        await File(databasePath).readAsBytes(),
+        Credentials(ProtectedValue.fromString(password)),
+      );
+      final entry = file.body.rootGroup.getAllEntries().single;
+      final sameSecond = DateTime.utc(2026, 3, 1, 12);
+      for (final revision in entry.history) {
+        revision.times.lastModificationTime.set(sameSecond);
+      }
+      await File(databasePath).writeAsBytes(await file.save());
+
+      final revisions = (await history(entryId)).revisions;
+      expect(revisions.map((r) => r.ordinal), [0, 1]);
+      expect(revisions.map((r) => r.password), ['p1', 'p0']);
+
+      await service.restoreEntryRevision(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        replacedAt: revisions[1].replacedAt,
+        ordinal: revisions[1].ordinal,
+      );
+
+      expect((await current(entryId)).password, 'p0');
+    });
+
+    test('an unknown timestamp throws and writes nothing', () async {
+      final entryId = await createEntry();
+      await editEntry(entryId, 1);
+      final before = await File(databasePath).readAsBytes();
+
+      await expectLater(
+        service.restoreEntryRevision(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          replacedAt: DateTime.utc(1999),
+        ),
+        throwsStateError,
+      );
+
+      expect(await File(databasePath).readAsBytes(), before);
+      expect((await current(entryId)).password, 'p1');
+    });
+
+    // FR-011: the write goes through the protected writer.
+    test('a writer failure leaves the file untouched', () async {
+      final entryId = await createEntry();
+      await editEntry(entryId, 1);
+      final revision = (await history(entryId)).revisions.single;
+      final before = await File(databasePath).readAsBytes();
+
+      await expectLater(
+        VaultKdbxService(
+          safeWriter: _FailingSafeVaultFileWriter(),
+        ).restoreEntryRevision(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          replacedAt: revision.replacedAt,
+        ),
+        throwsException,
+      );
+
+      expect(await File(databasePath).readAsBytes(), before);
+    });
+  });
+
+  group('deleteEntryRevision / clearEntryHistory (spec 017 T401)', () {
+    Future<String> createEntry() async {
+      final groupId = await _rootGroupId(service, databasePath, password);
+      return service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: groupId,
+        title: 'Mail 0',
+        username: 'ada',
+        entryPassword: 'p0',
+        url: 'https://mail.example',
+        notes: 'notes 0',
+      );
+    }
+
+    Future<void> editEntry(String entryId, int revision) {
+      return service.updateEntry(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        title: 'Mail $revision',
+        username: 'ada',
+        entryPassword: 'p$revision',
+        url: 'https://mail.example',
+        notes: 'notes $revision',
+      );
+    }
+
+    /// A fresh service, so the read is a reopen of the file and not a view
+    /// on anything cached.
+    Future<List<String>> passwordsInHistory(String entryId) async =>
+        (await VaultKdbxService().loadEntryHistory(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+        )).revisions.map((revision) => revision.password).toList();
+
+    /// Three edits, so the history reads p2, p1, p0 (newest first).
+    Future<String> entryWithThreeRevisions() async {
+      final entryId = await createEntry();
+      for (var revision = 1; revision <= 3; revision++) {
+        await editEntry(entryId, revision);
+      }
+      // Distinct seconds, so each revision has its own timestamp.
+      final file = await KdbxFormat().read(
+        await File(databasePath).readAsBytes(),
+        Credentials(ProtectedValue.fromString(password)),
+      );
+      final entry = file.body.rootGroup.getAllEntries().single;
+      final base = DateTime.utc(2026, 3, 1, 12);
+      for (final (index, revision) in entry.history.indexed) {
+        revision.times.lastModificationTime.set(
+          base.add(Duration(minutes: index)),
+        );
+      }
+      await File(databasePath).writeAsBytes(await file.save());
+      return entryId;
+    }
+
+    // FR-009: exactly the named one goes; the outer two keep their order.
+    test(
+      'deleting the middle of three leaves the outer two in order',
+      () async {
+        final entryId = await entryWithThreeRevisions();
+        final middle = (await passwordsInHistory(entryId));
+        expect(middle, ['p2', 'p1', 'p0']);
+        final revisions = (await service.loadEntryHistory(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+        )).revisions;
+
+        await service.deleteEntryRevision(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          replacedAt: revisions[1].replacedAt,
+        );
+
+        expect(await passwordsInHistory(entryId), ['p2', 'p0']);
+      },
+    );
+
+    test('a same-second sibling is deleted by its ordinal', () async {
+      final entryId = await createEntry();
+      await editEntry(entryId, 1);
+      await editEntry(entryId, 2);
+      final file = await KdbxFormat().read(
+        await File(databasePath).readAsBytes(),
+        Credentials(ProtectedValue.fromString(password)),
+      );
+      final entry = file.body.rootGroup.getAllEntries().single;
+      final sameSecond = DateTime.utc(2026, 3, 1, 12);
+      for (final revision in entry.history) {
+        revision.times.lastModificationTime.set(sameSecond);
+      }
+      await File(databasePath).writeAsBytes(await file.save());
+      final revisions = (await service.loadEntryHistory(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+      )).revisions;
+      expect(revisions.map((r) => r.password), ['p1', 'p0']);
+
+      await service.deleteEntryRevision(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        replacedAt: revisions[1].replacedAt,
+        ordinal: revisions[1].ordinal,
+      );
+
+      expect(await passwordsInHistory(entryId), ['p1']);
+    });
+
+    test('an unknown timestamp throws and writes nothing', () async {
+      final entryId = await entryWithThreeRevisions();
+      final before = await File(databasePath).readAsBytes();
+
+      await expectLater(
+        service.deleteEntryRevision(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          replacedAt: DateTime.utc(1999),
+        ),
+        throwsStateError,
+      );
+
+      expect(await File(databasePath).readAsBytes(), before);
+    });
+
+    // FR-010: the list is emptied and stays empty across a reopen.
+    test('clearing leaves an empty list', () async {
+      final entryId = await entryWithThreeRevisions();
+
+      await service.clearEntryHistory(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+      );
+
+      expect(await passwordsInHistory(entryId), isEmpty);
+      // The entry itself is untouched.
+      final entry = (await service.loadAllEntries(
+        databasePath: databasePath,
+        password: password,
+      )).single;
+      expect(entry.password, 'p3');
+      expect(entry.title, 'Mail 3');
+    });
+
+    // FR-014: neither operation changes what the writer records afterwards.
+    test('an ordinary edit after a delete or clear records exactly one '
+        'revision', () async {
+      final entryId = await entryWithThreeRevisions();
+      final revisions = (await service.loadEntryHistory(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+      )).revisions;
+      await service.deleteEntryRevision(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        replacedAt: revisions[0].replacedAt,
+      );
+      expect(await passwordsInHistory(entryId), hasLength(2));
+
+      await editEntry(entryId, 4);
+      expect(await passwordsInHistory(entryId), hasLength(3));
+
+      await service.clearEntryHistory(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+      );
+      expect(await passwordsInHistory(entryId), isEmpty);
+
+      await editEntry(entryId, 5);
+      expect(await passwordsInHistory(entryId), ['p4']);
+    });
+
+    // FR-011: both writes go through the protected writer.
+    test('a writer failure leaves the file untouched', () async {
+      final entryId = await entryWithThreeRevisions();
+      final revisions = (await service.loadEntryHistory(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+      )).revisions;
+      final before = await File(databasePath).readAsBytes();
+      final failing = VaultKdbxService(
+        safeWriter: _FailingSafeVaultFileWriter(),
+      );
+
+      await expectLater(
+        failing.deleteEntryRevision(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          replacedAt: revisions[0].replacedAt,
+        ),
+        throwsException,
+      );
+      await expectLater(
+        failing.clearEntryHistory(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+        ),
+        throwsException,
+      );
+
+      expect(await File(databasePath).readAsBytes(), before);
+      expect(await passwordsInHistory(entryId), ['p2', 'p1', 'p0']);
     });
   });
 }

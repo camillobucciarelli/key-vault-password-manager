@@ -5,6 +5,7 @@ import 'dart:io' show SocketException;
 import 'package:crypto/crypto.dart' show sha256;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:loggy/loggy.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:stream_transform/stream_transform.dart';
 
@@ -28,6 +29,7 @@ import '../../../domain/usecases/link_database_to_remote_usecase.dart';
 import '../../../domain/usecases/sync_database_now_usecase.dart';
 import '../../coordinators/android_autofill_save_coordinator.dart';
 import '../../coordinators/apple_autofill_v2_coordinator.dart';
+import '../../coordinators/entry_history_coordinator.dart';
 import '../../coordinators/session_secret_holder.dart';
 import '../../coordinators/sync_merge_coordinator.dart';
 import '../../utils/cloud_storage_error_presentation.dart';
@@ -60,6 +62,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     this.vaultHealthService = const VaultHealthService(),
     this.folderExpansionPreferences,
     this.syncMergeCoordinator,
+    this.entryHistoryCoordinator,
     this.resolveDatabaseId,
     this.resolveDisplayName,
     this.now = DateTime.now,
@@ -131,6 +134,11 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<ConfirmAndroidAutofillCapture>(_onConfirmAndroidAutofillCapture);
     on<DeclineAndroidAutofillCapture>(_onDeclineAndroidAutofillCapture);
     on<CancelAndroidAutofillCapture>(_onCancelAndroidAutofillCapture);
+    on<LoadEntryHistory>(_onLoadEntryHistory);
+    on<ClearEntryHistory>(_onClearEntryHistory);
+    on<RestoreEntryRevision>(_onRestoreEntryRevision);
+    on<DeleteEntryRevision>(_onDeleteEntryRevision);
+    on<ClearEntryHistoryInFile>(_onClearEntryHistoryInFile);
     on<LoadDuplicates>(_onLoadDuplicates);
     on<DeleteDuplicateEntry>(_onDeleteDuplicateEntry);
     on<MergeDuplicateEntries>(_onMergeDuplicateEntries);
@@ -167,6 +175,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   /// spec-008 T505: every merge command is forwarded here. Null in hosts and
   /// tests that never merge — the events then report a precondition failure.
   final SyncMergeCoordinator? syncMergeCoordinator;
+
+  /// spec 017: restore and clear sequencing. Null only in tests that never
+  /// touch the history.
+  final EntryHistoryCoordinator? entryHistoryCoordinator;
 
   /// Maps the open database path to its registry id, the only identity the
   /// merge port accepts. Kept as a callback so this BLoC holds no registry.
@@ -1778,6 +1790,224 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       }
     }
     return ids;
+  }
+
+  /// spec 017 T201 / FR-015 — one read, on demand, for one entry.
+  ///
+  /// Thin by construction (Constitution II): the service returns revisions and
+  /// retention from a single open, so there is nothing to sequence here.
+  Future<void> _onLoadEntryHistory(
+    LoadEntryHistory event,
+    Emitter<VaultState> emit,
+  ) async {
+    _safeEmit(
+      emit,
+      state.copyWith(
+        entryHistoryEntryId: event.entryId,
+        isEntryHistoryLoading: true,
+        clearEntryHistoryError: true,
+      ),
+    );
+    try {
+      final history = await vaultKdbxService.loadEntryHistory(
+        databasePath: state.databasePath,
+        password: _password,
+        keyFilePath: _keyFilePath,
+        entryId: event.entryId,
+      );
+      // The view moved on (closed, or opened another entry) while the file
+      // was being read: its revisions are not this surface's to show.
+      if (state.entryHistoryEntryId != event.entryId) {
+        return;
+      }
+      _safeEmit(
+        emit,
+        state.copyWith(entryHistory: history, isEntryHistoryLoading: false),
+      );
+    } catch (e, st) {
+      logError('Failed loading entry history.', e, st);
+      if (state.entryHistoryEntryId != event.entryId) {
+        return;
+      }
+      _safeEmit(
+        emit,
+        state.copyWith(
+          isEntryHistoryLoading: false,
+          entryHistoryError: 'Unable to read this record\u2019s history.',
+        ),
+      );
+    }
+  }
+
+  void _onClearEntryHistory(ClearEntryHistory event, Emitter<VaultState> emit) {
+    _safeEmit(emit, state.copyWith(clearEntryHistory: true));
+  }
+
+  /// spec 017 T304 — translate and delegate: the coordinator sequences the
+  /// restore, this reloads and tells the user (Constitution II).
+  Future<void> _onRestoreEntryRevision(
+    RestoreEntryRevision event,
+    Emitter<VaultState> emit,
+  ) async {
+    final coordinator = entryHistoryCoordinator;
+    if (coordinator == null) {
+      _safeEmit(
+        emit,
+        state.copyWith(errorMessage: 'Unable to restore this version.'),
+      );
+      return;
+    }
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
+    final result = await coordinator.restore(
+      databasePath: state.databasePath,
+      keyFilePath: _keyFilePath,
+      entryId: event.entryId,
+      replacedAt: event.replacedAt,
+      ordinal: event.ordinal,
+    );
+    switch (result.outcome) {
+      case EntryHistoryOutcome.done:
+        await _afterHistoryWrite(
+          emit,
+          entryId: event.entryId,
+          info: 'Previous version restored.',
+        );
+      case EntryHistoryOutcome.vaultLocked:
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            errorMessage: 'The vault is locked. Nothing was changed.',
+          ),
+        );
+      case EntryHistoryOutcome.failed:
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            errorMessage: 'Unable to restore this version.',
+          ),
+        );
+    }
+  }
+
+  /// spec 017 T403 / FR-009 — one service call, no backup (the confirmation
+  /// is the safeguard, by design), so nothing to sequence in a coordinator.
+  Future<void> _onDeleteEntryRevision(
+    DeleteEntryRevision event,
+    Emitter<VaultState> emit,
+  ) async {
+    // The same refusal the coordinator gives restore and clear: the vault
+    // locked between the confirmation and the act.
+    if (!sessionSecretHolder.hasSecret) {
+      _safeEmit(
+        emit,
+        state.copyWith(
+          errorMessage: 'The vault is locked. Nothing was changed.',
+        ),
+      );
+      return;
+    }
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
+    try {
+      await vaultKdbxService.deleteEntryRevision(
+        databasePath: state.databasePath,
+        password: sessionSecretHolder.read(),
+        keyFilePath: _keyFilePath,
+        entryId: event.entryId,
+        replacedAt: event.replacedAt,
+        ordinal: event.ordinal,
+      );
+    } catch (e, st) {
+      logError('Failed deleting entry revision.', e, st);
+      _safeEmit(
+        emit,
+        state.copyWith(
+          isSaving: false,
+          errorMessage: 'Unable to delete this version.',
+        ),
+      );
+      return;
+    }
+    await _afterHistoryWrite(
+      emit,
+      entryId: event.entryId,
+      info: 'Previous version deleted.',
+    );
+  }
+
+  /// spec 017 T403 / FR-010 — the coordinator writes the dated backup first.
+  Future<void> _onClearEntryHistoryInFile(
+    ClearEntryHistoryInFile event,
+    Emitter<VaultState> emit,
+  ) async {
+    final coordinator = entryHistoryCoordinator;
+    if (coordinator == null) {
+      _safeEmit(
+        emit,
+        state.copyWith(errorMessage: 'Unable to clear this history.'),
+      );
+      return;
+    }
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
+    final result = await coordinator.clearHistory(
+      databasePath: state.databasePath,
+      keyFilePath: _keyFilePath,
+      entryId: event.entryId,
+    );
+    final backup = result.backupPath;
+    switch (result.outcome) {
+      case EntryHistoryOutcome.done:
+        await _afterHistoryWrite(
+          emit,
+          entryId: event.entryId,
+          info:
+              'History cleared. A backup was saved as ${p.basename(backup!)}.',
+        );
+      case EntryHistoryOutcome.vaultLocked:
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            errorMessage: 'The vault is locked. Nothing was changed.',
+          ),
+        );
+      case EntryHistoryOutcome.failed:
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            errorMessage: backup == null
+                ? 'Unable to clear this history. Nothing was changed.'
+                : 'Unable to clear this history. The backup '
+                      '${p.basename(backup)} was kept.',
+          ),
+        );
+    }
+  }
+
+  /// Reload, tell the user, and re-read the history if its view is still
+  /// open on this entry.
+  Future<void> _afterHistoryWrite(
+    Emitter<VaultState> emit, {
+    required String entryId,
+    required String info,
+  }) async {
+    try {
+      await _reload(
+        emit,
+        currentGroupId: state.currentGroupId,
+        keepLoadingFlag: false,
+      );
+      await _loadRecycleBinEntries(emit, isInitialLoad: true);
+      _scheduleAutoSync();
+    } catch (e, st) {
+      logError('Failed reloading after a history write.', e, st);
+    }
+    _safeEmit(emit, state.copyWith(isSaving: false, infoMessage: info));
+    if (state.entryHistoryEntryId == entryId) {
+      add(LoadEntryHistory(entryId));
+    }
   }
 
   void _onLoadDuplicates(LoadDuplicates event, Emitter<VaultState> emit) {

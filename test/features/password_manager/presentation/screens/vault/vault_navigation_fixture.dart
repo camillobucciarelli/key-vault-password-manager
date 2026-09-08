@@ -13,6 +13,7 @@ import 'package:password_manager/features/password_manager/data/services/vault_k
 import 'package:password_manager/features/password_manager/domain/models/vault_attachment.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_entry_revision.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_group.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_snapshot.dart';
 
@@ -195,6 +196,57 @@ class NavigationFixtureVaultKdbxService implements VaultKdbxService {
     );
     _duplicates.add(copy);
     return copy.id;
+  }
+
+  /// spec 017: this record's previous versions, by entry id. A record with
+  /// no entry here has an empty history — the same answer the real service
+  /// gives for one that was never edited.
+  final Map<String, VaultEntryHistory> histories =
+      <String, VaultEntryHistory>{};
+
+  /// Every entry whose history was read, in order.
+  final List<String> historyReads = <String>[];
+
+  @override
+  Future<VaultEntryHistory> loadEntryHistory({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+  }) async {
+    historyReads.add(entryId);
+    return histories[entryId] ??
+        const VaultEntryHistory(
+          revisions: [],
+          retention: VaultHistoryRetention(maxItems: 10),
+        );
+  }
+
+  /// spec 017 T403: recorded like every other mutating call; the next read
+  /// of that entry's history omits the revision, so the list updates.
+  @override
+  Future<void> deleteEntryRevision({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+    required DateTime replacedAt,
+    int ordinal = 0,
+  }) async {
+    calls.add(
+      RecordedVaultCall('deleteRevision', entryId, {
+        'replacedAt': replacedAt.toIso8601String(),
+      }),
+    );
+    final history = histories[entryId];
+    if (history == null) return;
+    histories[entryId] = VaultEntryHistory(
+      revisions: [
+        for (final revision in history.revisions)
+          if (revision.replacedAt != replacedAt) revision,
+      ],
+      retention: history.retention,
+    );
   }
 
   @override

@@ -8,6 +8,7 @@ import '../../../domain/models/duplicate_group.dart';
 import '../../../domain/models/sync_conflict.dart';
 import '../../../domain/models/sync_merge_models.dart';
 import '../../../domain/models/vault_entry.dart';
+import '../../../domain/models/vault_entry_revision.dart';
 import '../../../domain/models/vault_group.dart';
 import '../../../domain/models/vault_health_report.dart';
 import '../../coordinators/android_autofill_save_coordinator.dart';
@@ -65,6 +66,10 @@ class VaultState extends Equatable {
     this.mergeCommitOutcome,
     this.mergeFailureCode,
     this.isMergeBusy = false,
+    this.entryHistory,
+    this.entryHistoryEntryId,
+    this.isEntryHistoryLoading = false,
+    this.entryHistoryError,
   });
 
   factory VaultState.initial({required String databasePath}) {
@@ -168,6 +173,21 @@ class VaultState extends Equatable {
 
   final bool isMergeBusy;
 
+  /// spec 017 FR-015/D6 — the revisions of exactly one entry, read on demand
+  /// and dropped when the history view closes. Never part of the vault load:
+  /// historical secrets do not live in long-lived list state (Constitution I).
+  final VaultEntryHistory? entryHistory;
+
+  /// Which entry [entryHistory] belongs to. Also set while the read is in
+  /// flight, so a second request supersedes the first rather than racing it.
+  final String? entryHistoryEntryId;
+
+  final bool isEntryHistoryLoading;
+
+  /// A safe message. The underlying failure never carries a secret and this
+  /// never quotes one.
+  final String? entryHistoryError;
+
   int get duplicateGroupCount => duplicateGroups.length;
 
   /// spec-019 FR-002a — the number `All items` carries.
@@ -234,6 +254,12 @@ class VaultState extends Equatable {
     MergeCommitOutcome? mergeCommitOutcome,
     MergeFailureCode? mergeFailureCode,
     bool? isMergeBusy,
+    VaultEntryHistory? entryHistory,
+    String? entryHistoryEntryId,
+    bool? isEntryHistoryLoading,
+    String? entryHistoryError,
+    bool clearEntryHistory = false,
+    bool clearEntryHistoryError = false,
     bool clearError = false,
     bool clearInfo = false,
     bool clearSyncError = false,
@@ -314,6 +340,18 @@ class VaultState extends Equatable {
           ? null
           : mergeFailureCode ?? this.mergeFailureCode,
       isMergeBusy: isMergeBusy ?? this.isMergeBusy,
+      entryHistory: clearEntryHistory
+          ? null
+          : entryHistory ?? this.entryHistory,
+      entryHistoryEntryId: clearEntryHistory
+          ? null
+          : entryHistoryEntryId ?? this.entryHistoryEntryId,
+      isEntryHistoryLoading: clearEntryHistory
+          ? false
+          : isEntryHistoryLoading ?? this.isEntryHistoryLoading,
+      entryHistoryError: clearEntryHistory || clearEntryHistoryError
+          ? null
+          : entryHistoryError ?? this.entryHistoryError,
     );
   }
 
@@ -412,6 +450,16 @@ class VaultState extends Equatable {
     mergeCommitOutcome,
     mergeFailureCode,
     isMergeBusy,
+    // Deliberately NOT the revisions themselves, for the same reason
+    // `healthReport` is summarised above: equality would walk every revision
+    // of the entry on every state comparison. The id plus the count is what
+    // distinguishes one loaded history from another — a given entry's history
+    // is read once per open of the view.
+    entryHistoryEntryId,
+    entryHistory?.revisions.length,
+    entryHistory?.retention,
+    isEntryHistoryLoading,
+    entryHistoryError,
   ];
 
   @override
@@ -462,6 +510,11 @@ class VaultState extends Equatable {
         'mergeReview: ${mergeReview?.phase}, '
         'mergeCommitOutcome: ${mergeCommitOutcome?.runtimeType}, '
         'mergeFailureCode: $mergeFailureCode, '
-        'isMergeBusy: $isMergeBusy)';
+        'isMergeBusy: $isMergeBusy, '
+        // A count, never a revision (Constitution I / FR-004).
+        'entryHistoryEntryId: $entryHistoryEntryId, '
+        'entryHistoryRevisions: ${entryHistory?.revisions.length}, '
+        'isEntryHistoryLoading: $isEntryHistoryLoading, '
+        'entryHistoryError: $entryHistoryError)';
   }
 }

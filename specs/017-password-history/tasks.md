@@ -10,7 +10,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
 
 ## Phase 1 — Foundational (blocks every story)
 
-- [ ] **T101** Model the revision — owner: `senior-flutter-dev`
+- [x] **T101** Model the revision — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/domain/models/vault_entry_revision.dart` (new).
   Acceptance: `VaultEntryRevision`, `VaultEntryRevisionSummary` and
   `VaultHistoryRetention` per `data-model.md`. `password`, `notes` and `otpUri`
@@ -19,7 +19,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   Verify: unit test asserts a revision holding `'hunter2'` never renders it in
   `props` or `toString`, and that `otpUri` reports presence only.
 
-- [ ] **T102** [P] Compute what changed between revisions — owner: `senior-flutter-dev`
+- [x] **T102** [P] Compute what changed between revisions — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/domain/models/vault_entry_revision.dart`.
   Acceptance: a pure function producing `changedFields` for a revision against
   the one that replaced it (the next newer revision, or the current entry for the
@@ -28,7 +28,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   identical password across two revisions is not reported as changed; the newest
   revision is compared against the current entry.
 
-- [ ] **T103** Read history from the file — owner: `senior-flutter-dev`
+- [x] **T103** Read history from the file — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/data/services/vault_kdbx_service.dart`,
   `test/features/password_manager/data/services/vault_kdbx_service_test.dart`.
   Acceptance: one `loadEntryHistory` returning revisions **and** retention limits
@@ -45,7 +45,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
 
 **Independent test**: quickstart.md section A.
 
-- [ ] **T201** [US1] Carry history in the vault state — owner: `senior-flutter-dev`
+- [x] **T201** [US1] Carry history in the vault state — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/bloc/vault/{vault_event,vault_state,vault_bloc}.dart`.
   Acceptance: a `LoadEntryHistory` event and the resulting state, loaded on
   demand and cleared when the entry screen closes (FR-015, D6). No new BLoC
@@ -54,7 +54,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   Verify: bloc test — loading populates, closing clears, and `toString` holds no
   secret.
 
-- [ ] **T202** [US1] The history view — owner: `senior-flutter-dev`
+- [x] **T202** [US1] The history view — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/screens/vault/vault_entry_history.part.dart` (new),
   `lib/features/password_manager/presentation/screens/vault_screen.dart`,
   `lib/features/password_manager/presentation/screens/vault/vault_entry_detail.part.dart`.
@@ -69,7 +69,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   together these are the first half of SC-001, seeing the previous password
   without leaving KeyVault.
 
-- [ ] **T203** [US1] Reveal a revision through the existing gate — owner: `senior-flutter-dev`
+- [x] **T203** [US1] Reveal a revision through the existing gate — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/screens/vault/vault_entry_history.part.dart`.
   Acceptance: masked by default; revealing uses the same `RevealController` and
   `_showBiometricRevealGate` path as the current password, including the
@@ -84,7 +84,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
 
 **Independent test**: quickstart.md section B.
 
-- [ ] **T301** [US2] Restore a revision in the file — owner: `senior-flutter-dev`
+- [x] **T301** [US2] Restore a revision in the file — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/data/services/vault_kdbx_service.dart`,
   `test/features/password_manager/data/services/vault_kdbx_service_test.dart`.
   Acceptance: `restoreEntryRevision` writes the revision's title, username,
@@ -102,7 +102,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   The write goes through the write-tracking harness already used in this test
   file, which is what checks FR-011.
 
-- [ ] **T302** [US2] Sequence the restore — owner: `senior-flutter-dev`
+- [x] **T302** [US2] Sequence the restore — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/coordinators/entry_history_coordinator.dart` (new),
   `lib/features/password_manager/di/password_manager_presentation_di.dart`.
   Acceptance: `EntryHistoryCoordinator.restore` per its contract — refuses on a
@@ -112,13 +112,13 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   reports `vaultLocked`; a successful restore reports `done`; a failing write
   reports `failed`.
 
-- [ ] **T303** [P] [US2] Copy a revision's password — owner: `senior-flutter-dev`
+- [x] **T303** [P] [US2] Copy a revision's password — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/screens/vault/vault_entry_history.part.dart`.
   Acceptance: copying goes through the existing `ClipboardGuard` with the same
   toast and clearing behaviour as copying the current password (FR-005).
   Verify: widget test asserts the guard is used; quickstart B step 1.
 
-- [ ] **T304** [US2] Confirm before replacing — owner: `senior-flutter-dev`
+- [x] **T304** [US2] Confirm before replacing — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/screens/vault/vault_entry_history.part.dart`,
   `lib/features/password_manager/presentation/bloc/vault/vault_bloc.dart`.
   Acceptance: a restore is confirmed first, and the confirmation names what is
@@ -136,7 +136,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
 
 **Independent test**: quickstart.md section C.
 
-- [ ] **T401** [US3] Delete and clear in the file — owner: `senior-flutter-dev`
+- [x] **T401** [US3] Delete and clear in the file — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/data/services/vault_kdbx_service.dart`,
   `test/features/password_manager/data/services/vault_kdbx_service_test.dart`.
   Acceptance: `deleteEntryRevision` removes exactly the named revision and leaves
@@ -148,7 +148,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   write through the write-tracking harness (FR-011); and after either, an
   ordinary edit still records exactly one new revision (FR-014).
 
-- [ ] **T402** [US3] Back up before destroying — owner: `senior-flutter-dev`
+- [x] **T402** [US3] Back up before destroying — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/coordinators/entry_history_coordinator.dart`.
   Acceptance: `clearHistory` writes a dated backup **before** the file changes,
   reusing the existing dated-backup mechanism (FR-010, Constitution VII). A write
@@ -156,7 +156,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   Verify: coordinator test asserts the backup exists before the service is
   called, and that a failing write still reports the backup's path.
 
-- [ ] **T403** [US3] Ask before destroying — owner: `senior-flutter-dev`
+- [x] **T403** [US3] Ask before destroying — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/screens/vault/vault_entry_history.part.dart`.
   Acceptance: deleting one revision is confirmed (FR-009); clearing is confirmed
   with a warning that names what is destroyed and says a backup will be written
@@ -168,7 +168,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
 
 ## Phase 5 — Verification gate
 
-- [ ] **T501** [P] Goldens — owner: `senior-flutter-dev`
+- [x] **T501** [P] Goldens — owner: `senior-flutter-dev`
   Files: `test/goldens/vault_entry_history_*_test.dart` (new).
   Acceptance: the inventory in `plan.md` — list at 390×844 and 1024×768 in light
   and dark, the empty state, and a revealed revision using a fixed fake secret
@@ -177,7 +177,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   Verify: `flutter test test/goldens --test-randomize-ordering-seed=$RANDOM`
   passes, since golden order-independence is only ever checked locally.
 
-- [ ] **T502** [P] Contrast and target assertions — owner: `senior-tester`
+- [x] **T502** [P] Contrast and target assertions — owner: `senior-tester`
   Files: `test/features/password_manager/presentation/screens/vault_entry_history_a11y_test.dart` (new).
   Acceptance: every text/background pairing in the view is ≥ 4.5:1 in light and
   dark, including the smallest secondary text; rows are ≥ 44 dp; every focusable
@@ -203,7 +203,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   freshly changed.
   Verify: quickstart sections C and D.
 
-- [ ] **T505** Local gate — owner: `senior-flutter-dev`
+- [x] **T505** Local gate — owner: `senior-flutter-dev`
   Files: none.
   Acceptance: `dart format --set-exit-if-changed lib test tool`,
   `flutter analyze` and the full `flutter test` all clean and green

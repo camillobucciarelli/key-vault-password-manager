@@ -15,12 +15,14 @@ import 'package:password_manager/features/password_manager/domain/models/apple_a
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_entry_revision.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_group.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_snapshot.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 import 'package:password_manager/features/password_manager/domain/services/vault_health_service.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_bloc.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/entry_history_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/link_database_to_remote_usecase.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/sync_database_now_usecase.dart';
@@ -54,12 +56,15 @@ VaultBloc buildTestVaultBloc({
   FakeVaultKdbxService? kdbx,
   SharedPreferences? folderExpansionPreferences,
   String databasePath = testDatabasePath,
+  EntryHistoryCoordinator? entryHistoryCoordinator,
+  SessionSecretHolder? sessionSecretHolder,
 }) {
   final syncRepository = FakeSyncRepository();
   return VaultBloc(
     databasePath: databasePath,
     getSelectedKeyFilePath: () async => null,
-    sessionSecretHolder: SessionSecretHolder()..set('secret'),
+    sessionSecretHolder:
+        sessionSecretHolder ?? (SessionSecretHolder()..set('secret')),
     vaultKdbxService:
         kdbx ??
         FakeVaultKdbxService(
@@ -75,6 +80,7 @@ VaultBloc buildTestVaultBloc({
         autofill ?? const NoopAppleAutofillV2Coordinator(),
     vaultHealthService: healthService ?? const VaultHealthService(),
     folderExpansionPreferences: folderExpansionPreferences,
+    entryHistoryCoordinator: entryHistoryCoordinator,
   );
 }
 
@@ -187,6 +193,56 @@ class FakeVaultKdbxService implements VaultKdbxService {
       allEntries: all,
     );
     return copy.id;
+  }
+
+  /// spec 017 T201: what `loadEntryHistory` answers. The default is the
+  /// answer the real service gives for a record that was never edited — an
+  /// empty list, not an error.
+  VaultEntryHistory entryHistory = const VaultEntryHistory(
+    revisions: [],
+    retention: VaultHistoryRetention(),
+  );
+
+  /// Set to make the read fail, the way an unreadable file would.
+  Object? entryHistoryError;
+
+  /// Every entry whose history was asked for, in order — so a test can show
+  /// the read happened on demand and only then.
+  final List<String> historyReads = <String>[];
+
+  @override
+  Future<VaultEntryHistory> loadEntryHistory({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+  }) async {
+    historyReads.add(entryId);
+    final failure = entryHistoryError;
+    if (failure != null) {
+      throw failure;
+    }
+    return entryHistory;
+  }
+
+  /// spec 017 T403: recorded deletions, and a way to make one fail.
+  final List<(String, DateTime)> deletedRevisions = [];
+  Object? deleteRevisionError;
+
+  @override
+  Future<void> deleteEntryRevision({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+    required DateTime replacedAt,
+    int ordinal = 0,
+  }) async {
+    final failure = deleteRevisionError;
+    if (failure != null) {
+      throw failure;
+    }
+    deletedRevisions.add((entryId, replacedAt));
   }
 
   @override

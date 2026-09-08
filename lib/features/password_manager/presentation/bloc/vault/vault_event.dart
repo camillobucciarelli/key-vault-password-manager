@@ -586,3 +586,71 @@ class CancelSyncMerge extends VaultEvent {
 class ClearSyncMergeOutcome extends VaultEvent {
   const ClearSyncMergeOutcome();
 }
+
+/// spec 017 T201 / FR-015 — read one entry's previous versions.
+///
+/// On demand only: history is never part of the vault load, so an entry with
+/// hundreds of revisions costs nothing until the user asks to see them (D6).
+class LoadEntryHistory extends VaultEvent {
+  const LoadEntryHistory(this.entryId);
+
+  final String entryId;
+
+  @override
+  List<Object?> get props => [entryId];
+}
+
+/// spec 017 T201 / D6 — the history view closed; drop the revisions.
+///
+/// Historical secrets do not outlive the surface that showed them.
+class ClearEntryHistory extends VaultEvent {
+  const ClearEntryHistory();
+}
+
+/// spec 017 T304 / FR-006 — put a confirmed revision back on the entry.
+///
+/// The confirmation happened in the view; this is the act.
+class RestoreEntryRevision extends VaultEvent {
+  const RestoreEntryRevision({
+    required this.entryId,
+    required this.replacedAt,
+    this.ordinal = 0,
+  });
+
+  final String entryId;
+  final DateTime replacedAt;
+
+  /// Tells same-second revisions apart; see [VaultEntryRevision.ordinal].
+  final int ordinal;
+
+  @override
+  List<Object?> get props => [entryId, replacedAt, ordinal];
+}
+
+/// spec 017 T403 / FR-009 — remove one confirmed revision from the file.
+class DeleteEntryRevision extends VaultEvent {
+  const DeleteEntryRevision({
+    required this.entryId,
+    required this.replacedAt,
+    this.ordinal = 0,
+  });
+
+  final String entryId;
+  final DateTime replacedAt;
+  final int ordinal;
+
+  @override
+  List<Object?> get props => [entryId, replacedAt, ordinal];
+}
+
+/// spec 017 T403 / FR-010 — empty an entry's history in the file, after the
+/// warning. Distinct from [ClearEntryHistory], which only drops the
+/// revisions from state when the view closes.
+class ClearEntryHistoryInFile extends VaultEvent {
+  const ClearEntryHistoryInFile(this.entryId);
+
+  final String entryId;
+
+  @override
+  List<Object?> get props => [entryId];
+}

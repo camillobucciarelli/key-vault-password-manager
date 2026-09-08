@@ -26,6 +26,7 @@ import 'package:password_manager/features/password_manager/domain/repositories/d
 import 'package:password_manager/features/password_manager/domain/services/password_generator_service.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_bloc.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/entry_history_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/google_drive_reconnect_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/otpauth_deep_link_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/vault_session_coordinator.dart';
@@ -63,6 +64,9 @@ Future<Widget> pumpableVaultShell({
   // 009 / B005: lets a caller seed pending browser-generated records the
   // `_PendingGenerationBanner` resolves via `di.sl`.
   DesktopBrowserPendingGenerationService? pendingGenerationService,
+  // spec 017 T304: lets the history tests hand the bloc a recording
+  // coordinator, so "confirming calls it once" is assertable.
+  EntryHistoryCoordinator? entryHistoryCoordinator,
 }) async {
   SharedPreferences.setMockInitialValues({});
   final sharedPreferences = await SharedPreferences.getInstance();
@@ -121,6 +125,7 @@ Future<Widget> pumpableVaultShell({
       syncDatabaseNow: SyncDatabaseNowUseCase(resolvedSyncRepository),
       appleAutofillV2Coordinator:
           appleAutofillV2Coordinator ?? const NoopAppleAutofillV2Coordinator(),
+      entryHistoryCoordinator: entryHistoryCoordinator,
     ),
   );
 

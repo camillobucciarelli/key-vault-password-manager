@@ -205,8 +205,6 @@ After a spec change, run the script (`PROJECT_NUMBER=2 tool/sync_spec_project.sh
 
 ## Agent Memory
 
-- At the start of a task, recall relevant TokenSave decisions and inspect related Git history when prior intent matters.
-- Record reusable architecture, workflow, and product decisions with TokenSave, including the reason and affected files.
 - Update this file only when a repeated practice becomes a stable repository convention.
 - Do not persist passwords, tokens, personal data, private keys, or other secrets in agent memory.
 
