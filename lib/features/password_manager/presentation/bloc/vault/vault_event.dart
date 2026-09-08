@@ -606,3 +606,16 @@ class LoadEntryHistory extends VaultEvent {
 class ClearEntryHistory extends VaultEvent {
   const ClearEntryHistory();
 }
+
+/// spec 017 T304 / FR-006 — put a confirmed revision back on the entry.
+///
+/// The confirmation happened in the view; this is the act.
+class RestoreEntryRevision extends VaultEvent {
+  const RestoreEntryRevision({required this.entryId, required this.replacedAt});
+
+  final String entryId;
+  final DateTime replacedAt;
+
+  @override
+  List<Object?> get props => [entryId, replacedAt];
+}

@@ -112,13 +112,13 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   reports `vaultLocked`; a successful restore reports `done`; a failing write
   reports `failed`.
 
-- [ ] **T303** [P] [US2] Copy a revision's password — owner: `senior-flutter-dev`
+- [x] **T303** [P] [US2] Copy a revision's password — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/screens/vault/vault_entry_history.part.dart`.
   Acceptance: copying goes through the existing `ClipboardGuard` with the same
   toast and clearing behaviour as copying the current password (FR-005).
   Verify: widget test asserts the guard is used; quickstart B step 1.
 
-- [ ] **T304** [US2] Confirm before replacing — owner: `senior-flutter-dev`
+- [x] **T304** [US2] Confirm before replacing — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/screens/vault/vault_entry_history.part.dart`,
   `lib/features/password_manager/presentation/bloc/vault/vault_bloc.dart`.
   Acceptance: a restore is confirmed first, and the confirmation names what is

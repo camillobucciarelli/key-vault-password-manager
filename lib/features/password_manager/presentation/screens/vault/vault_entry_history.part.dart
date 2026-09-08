@@ -132,6 +132,62 @@ class _EntryHistoryDialogState extends State<_EntryHistoryDialog> {
   bool _isRevealed(int index) =>
       _revealController.isRevealed && _revealedIndex == index;
 
+  /// FR-005: the same guard, toast and clearing as the current password.
+  Future<void> _copyPassword(String password) async {
+    if (password.isEmpty) return;
+    await di.sl<ClipboardGuard>().copy(password);
+    if (!mounted) return;
+    _showCenteredCopyToast(context, 'Copied password.');
+  }
+
+  /// FR-008: confirmed first, naming what is replaced; FR-006a: says when
+  /// the attachments stay as they are. Then one event — the bloc reloads and
+  /// tells the user.
+  Future<void> _restore(
+    VaultEntryRevision revision,
+    VaultEntry currentEntry,
+  ) async {
+    // Names only, as the diff computes them (VaultEntryField.attachments).
+    final attachmentsDiffer = changedFieldsForRevision(
+      revision: revision,
+      currentEntry: currentEntry,
+    ).contains(VaultEntryField.attachments);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Restore this version?'),
+        insetPadding: _dialogInsetPadding(dialogContext),
+        contentPadding: _dialogContentPadding(dialogContext),
+        content: Text(
+          'The title, username, password, website, notes and custom fields '
+          'of “${currentEntry.title}” will be replaced with the version '
+          'saved ${_formatEntryDateTime(revision.replacedAt)}. The version '
+          'you have now is kept in the history.'
+          '${attachmentsDiffer ? '\n\nAttachments are not restored: the '
+                    'record keeps the attachments it has now.' : ''}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    _revealController.hide();
+    _bloc.add(
+      RestoreEntryRevision(
+        entryId: widget.entryId,
+        replacedAt: revision.replacedAt,
+      ),
+    );
+  }
+
   Future<void> _toggleReveal(int index, String databasePath) async {
     if (_isRevealed(index)) {
       _revealController.hide();
@@ -258,6 +314,10 @@ class _EntryHistoryDialogState extends State<_EntryHistoryDialog> {
                 onToggleReveal: _isCheckingBiometrics
                     ? null
                     : () => _toggleReveal(index, databasePath),
+                onCopy: () => _copyPassword(revision.password),
+                onRestore: state.isSaving
+                    ? null
+                    : () => _restore(revision, currentEntry),
               );
             },
           ),
@@ -304,6 +364,8 @@ class _RevisionCard extends StatelessWidget {
     required this.isRevealed,
     required this.remainingFraction,
     required this.onToggleReveal,
+    required this.onCopy,
+    required this.onRestore,
   });
 
   final VaultEntryRevision revision;
@@ -311,6 +373,8 @@ class _RevisionCard extends StatelessWidget {
   final bool isRevealed;
   final double remainingFraction;
   final VoidCallback? onToggleReveal;
+  final VoidCallback onCopy;
+  final VoidCallback? onRestore;
 
   @override
   Widget build(BuildContext context) {
@@ -376,6 +440,7 @@ class _RevisionCard extends StatelessWidget {
                 remainingSeconds:
                     (RevealController.revealSeconds * remainingFraction).ceil(),
                 onHide: onToggleReveal ?? () {},
+                onCopy: onCopy,
               )
             else
               KvFieldRow(
@@ -383,14 +448,35 @@ class _RevisionCard extends StatelessWidget {
                 value: '•' * 12,
                 backgroundColor: colors.surfaceNested,
                 showCopyButton: false,
-                trailing: KvCircleIconButton(
-                  glyph: AppGlyph.eye,
-                  tooltip: 'Show this version’s password',
-                  nested: true,
-                  iconSize: 17,
-                  onPressed: onToggleReveal,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    KvCircleIconButton(
+                      glyph: AppGlyph.copy,
+                      tooltip: 'Copy this version’s password',
+                      nested: true,
+                      iconSize: 17,
+                      onPressed: onCopy,
+                    ),
+                    const SizedBox(width: AppSpacing.s1),
+                    KvCircleIconButton(
+                      glyph: AppGlyph.eye,
+                      tooltip: 'Show this version’s password',
+                      nested: true,
+                      iconSize: 17,
+                      onPressed: onToggleReveal,
+                    ),
+                  ],
                 ),
               ),
+            const SizedBox(height: AppSpacing.s2),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: onRestore,
+                child: const Text('Restore this version'),
+              ),
+            ),
           ],
         ),
       ),

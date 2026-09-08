@@ -143,6 +143,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       // spec-019 FR-006g: the folder expansion set outlives the session.
       folderExpansionPreferences: sl<SharedPreferences>(),
       syncMergeCoordinator: sl(),
+      entryHistoryCoordinator: sl(),
       resolveDatabaseId: (databasePath) async {
         final records = await sl<DatabaseRegistryRepository>().list();
         for (final record in records) {

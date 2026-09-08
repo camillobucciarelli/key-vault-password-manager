@@ -3,6 +3,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry_revision.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_event.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/entry_history_coordinator.dart';
 
 import 'vault_bloc_harness.dart';
 
@@ -103,4 +104,98 @@ void main() {
     expect(bloc.state.entryHistoryError, isNotNull);
     expect(bloc.state.entryHistoryError, isNot(contains('boom')));
   });
+
+  // spec 017 T304 — the restore event: translate, delegate, reload, tell.
+  group('RestoreEntryRevision', () {
+    final replacedAt = DateTime.utc(2026, 3, 1);
+
+    test(
+      'done reloads, re-reads the open history and tells the user',
+      () async {
+        final kdbx = FakeVaultKdbxService(snapshot: nestedSnapshot());
+        final coordinator = _FakeEntryHistoryCoordinator(
+          EntryHistoryOutcome.done,
+        );
+        final bloc = buildTestVaultBloc(
+          snapshot: nestedSnapshot(),
+          kdbx: kdbx,
+          entryHistoryCoordinator: coordinator,
+        );
+        addTearDown(bloc.close);
+        bloc.add(const InitializeVault());
+        bloc.add(const LoadEntryHistory('e-root'));
+        await Future<void>.delayed(Duration.zero);
+        expect(kdbx.historyReads, ['e-root']);
+
+        bloc.add(
+          RestoreEntryRevision(entryId: 'e-root', replacedAt: replacedAt),
+        );
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(coordinator.restores, [('e-root', replacedAt)]);
+        expect(bloc.state.infoMessage, 'Previous version restored.');
+        expect(bloc.state.errorMessage, isNull);
+        expect(bloc.state.isSaving, isFalse);
+        // FR-007: the view still open shows the history as it now stands.
+        expect(kdbx.historyReads, ['e-root', 'e-root']);
+      },
+    );
+
+    test('vaultLocked reports without reloading', () async {
+      final kdbx = FakeVaultKdbxService(snapshot: nestedSnapshot());
+      final bloc = buildTestVaultBloc(
+        snapshot: nestedSnapshot(),
+        kdbx: kdbx,
+        entryHistoryCoordinator: _FakeEntryHistoryCoordinator(
+          EntryHistoryOutcome.vaultLocked,
+        ),
+      );
+      addTearDown(bloc.close);
+
+      bloc.add(RestoreEntryRevision(entryId: 'e-root', replacedAt: replacedAt));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(bloc.state.errorMessage, contains('locked'));
+      expect(bloc.state.infoMessage, isNull);
+      expect(bloc.state.isSaving, isFalse);
+    });
+
+    test('failed reports a safe message', () async {
+      final bloc = buildTestVaultBloc(
+        snapshot: nestedSnapshot(),
+        entryHistoryCoordinator: _FakeEntryHistoryCoordinator(
+          EntryHistoryOutcome.failed,
+        ),
+      );
+      addTearDown(bloc.close);
+
+      bloc.add(RestoreEntryRevision(entryId: 'e-root', replacedAt: replacedAt));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(bloc.state.errorMessage, 'Unable to restore this version.');
+      expect(bloc.state.isSaving, isFalse);
+    });
+  });
+}
+
+class _FakeEntryHistoryCoordinator implements EntryHistoryCoordinator {
+  _FakeEntryHistoryCoordinator(this.outcome);
+
+  final EntryHistoryOutcome outcome;
+  final List<(String, DateTime)> restores = [];
+
+  @override
+  Future<EntryHistoryRestoreResult> restore({
+    required String databasePath,
+    String? keyFilePath,
+    required String entryId,
+    required DateTime replacedAt,
+  }) async {
+    restores.add((entryId, replacedAt));
+    return EntryHistoryRestoreResult(outcome);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

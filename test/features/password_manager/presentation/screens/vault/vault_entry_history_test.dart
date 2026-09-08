@@ -4,12 +4,14 @@
 // Omitted axes (VR-002): behavioural, one width, light theme. The visual
 // treatment is the goldens' subject (T501).
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/core/widgets/kv_letter_avatar.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry_revision.dart';
 import 'package:password_manager/features/password_manager/data/datasources/biometric_data_source.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/database_unlock/database_unlock_bloc.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/database_session_coordinator.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/entry_history_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/vault_session_coordinator.dart';
 import 'package:password_manager/injection_container.dart' as di;
 
@@ -121,6 +123,26 @@ class _FixtureVaultSessionCoordinator implements VaultSessionCoordinator {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// Records restores instead of performing them: the assertion is "called
+/// once, with this revision", not the file's contents (T301 covers those).
+class _RecordingEntryHistoryCoordinator implements EntryHistoryCoordinator {
+  final List<(String, DateTime)> restores = [];
+
+  @override
+  Future<EntryHistoryRestoreResult> restore({
+    required String databasePath,
+    String? keyFilePath,
+    required String entryId,
+    required DateTime replacedAt,
+  }) async {
+    restores.add((entryId, replacedAt));
+    return const EntryHistoryRestoreResult(EntryHistoryOutcome.done);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 /// Enough of the coordinator for `DatabaseUnlockScreen` to reach its idle
 /// state; the unlock itself is not this test's subject.
 class _StubDatabaseSessionCoordinator implements DatabaseSessionCoordinator {
@@ -145,6 +167,7 @@ void main() {
   Future<NavigationFixtureVaultKdbxService> pumpVault(
     WidgetTester tester, {
     VaultSessionCoordinator? sessionCoordinator,
+    EntryHistoryCoordinator? historyCoordinator,
     Size size = const Size(1024, 900),
   }) async {
     tester.view.physicalSize = size;
@@ -156,6 +179,7 @@ void main() {
       await pumpableVaultShell(
         vaultKdbxService: service,
         vaultSessionCoordinator: sessionCoordinator,
+        entryHistoryCoordinator: historyCoordinator,
       ),
     );
     await tester.pumpAndSettle();
@@ -249,6 +273,131 @@ void main() {
       ),
       findsNWidgets(2),
     );
+  });
+
+  // spec 017 T303 / FR-005: the copy goes through `ClipboardGuard`, with the
+  // detail's own toast and the same 30 s clear.
+  testWidgets('copying a revision goes through the clipboard guard', (
+    tester,
+  ) async {
+    final copied = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied.add((call.arguments as Map)['text'] as String);
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    final service = await pumpVault(tester);
+    service.histories[NavigationFixtureVaultKdbxService.gmail.id] =
+        _gmailHistory();
+
+    await openHistory(tester, 'Gmail');
+    await tester.tap(find.byTooltip('Copy this version’s password').first);
+    await tester.pumpAndSettle();
+
+    expect(copied, [_oldSecret]);
+    expect(find.text('Copied password.'), findsOneWidget);
+    // Nothing was revealed by copying.
+    expect(find.text(_oldSecret), findsNothing);
+
+    // Drain the guard's 30 s clear timer: its presence is the point.
+    await tester.pump(const Duration(seconds: 31));
+    await tester.pumpAndSettle();
+  });
+
+  // spec 017 T304 / FR-008: confirmed first, naming what is replaced.
+  group('restore', () {
+    Future<_RecordingEntryHistoryCoordinator> openAndTapRestore(
+      WidgetTester tester, {
+      VaultEntryHistory? history,
+    }) async {
+      final coordinator = _RecordingEntryHistoryCoordinator();
+      final service = await pumpVault(tester, historyCoordinator: coordinator);
+      service.histories[NavigationFixtureVaultKdbxService.gmail.id] =
+          history ?? _gmailHistory();
+      await openHistory(tester, 'Gmail');
+      await tester.tap(find.text('Restore this version').first);
+      await tester.pumpAndSettle();
+      return coordinator;
+    }
+
+    testWidgets('the confirmation names the record and the version', (
+      tester,
+    ) async {
+      await openAndTapRestore(tester);
+
+      expect(find.text('Restore this version?'), findsOneWidget);
+      expect(find.textContaining('“Gmail”'), findsOneWidget);
+      expect(find.textContaining('saved 02-03-2026 11:30'), findsOneWidget);
+      // Gmail has no attachments and neither does the revision: no
+      // attachment warning (FR-006a says "whenever they differ").
+      expect(find.textContaining('Attachments are not restored'), findsNothing);
+    });
+
+    testWidgets('the confirmation warns when attachments differ', (
+      tester,
+    ) async {
+      final history = _gmailHistory();
+      await openAndTapRestore(
+        tester,
+        history: VaultEntryHistory(
+          revisions: [
+            VaultEntryRevision(
+              entryId: NavigationFixtureVaultKdbxService.gmail.id,
+              replacedAt: DateTime.utc(2026, 3, 2, 10, 30),
+              title: 'Gmail',
+              username: 'me@example.com',
+              password: _oldSecret,
+              url: 'mail.google.com',
+              notes: '',
+              attachmentNames: const ['old-recovery-codes.txt'],
+            ),
+          ],
+          retention: history.retention,
+        ),
+      );
+
+      expect(
+        find.textContaining('Attachments are not restored'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('dismissing writes nothing', (tester) async {
+      final coordinator = await openAndTapRestore(tester);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(coordinator.restores, isEmpty);
+      expect(find.text('Restore this version?'), findsNothing);
+    });
+
+    testWidgets('confirming calls the coordinator once and tells the user', (
+      tester,
+    ) async {
+      final coordinator = await openAndTapRestore(tester);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Restore'));
+      await tester.pumpAndSettle();
+
+      expect(coordinator.restores, [
+        (
+          NavigationFixtureVaultKdbxService.gmail.id,
+          DateTime.utc(2026, 3, 2, 10, 30),
+        ),
+      ]);
+      expect(find.text('Previous version restored.'), findsOneWidget);
+    });
   });
 
   testWidgets('without biometric protection the eye reveals in place', (

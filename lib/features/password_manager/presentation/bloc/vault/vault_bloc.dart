@@ -28,6 +28,7 @@ import '../../../domain/usecases/link_database_to_remote_usecase.dart';
 import '../../../domain/usecases/sync_database_now_usecase.dart';
 import '../../coordinators/android_autofill_save_coordinator.dart';
 import '../../coordinators/apple_autofill_v2_coordinator.dart';
+import '../../coordinators/entry_history_coordinator.dart';
 import '../../coordinators/session_secret_holder.dart';
 import '../../coordinators/sync_merge_coordinator.dart';
 import '../../utils/cloud_storage_error_presentation.dart';
@@ -60,6 +61,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     this.vaultHealthService = const VaultHealthService(),
     this.folderExpansionPreferences,
     this.syncMergeCoordinator,
+    this.entryHistoryCoordinator,
     this.resolveDatabaseId,
     this.resolveDisplayName,
     this.now = DateTime.now,
@@ -133,6 +135,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<CancelAndroidAutofillCapture>(_onCancelAndroidAutofillCapture);
     on<LoadEntryHistory>(_onLoadEntryHistory);
     on<ClearEntryHistory>(_onClearEntryHistory);
+    on<RestoreEntryRevision>(_onRestoreEntryRevision);
     on<LoadDuplicates>(_onLoadDuplicates);
     on<DeleteDuplicateEntry>(_onDeleteDuplicateEntry);
     on<MergeDuplicateEntries>(_onMergeDuplicateEntries);
@@ -169,6 +172,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   /// spec-008 T505: every merge command is forwarded here. Null in hosts and
   /// tests that never merge — the events then report a precondition failure.
   final SyncMergeCoordinator? syncMergeCoordinator;
+
+  /// spec 017: restore and clear sequencing. Null only in tests that never
+  /// touch the history.
+  final EntryHistoryCoordinator? entryHistoryCoordinator;
 
   /// Maps the open database path to its registry id, the only identity the
   /// merge port accepts. Kept as a callback so this BLoC holds no registry.
@@ -1831,6 +1838,71 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
 
   void _onClearEntryHistory(ClearEntryHistory event, Emitter<VaultState> emit) {
     _safeEmit(emit, state.copyWith(clearEntryHistory: true));
+  }
+
+  /// spec 017 T304 — translate and delegate: the coordinator sequences the
+  /// restore, this reloads and tells the user (Constitution II).
+  Future<void> _onRestoreEntryRevision(
+    RestoreEntryRevision event,
+    Emitter<VaultState> emit,
+  ) async {
+    final coordinator = entryHistoryCoordinator;
+    if (coordinator == null) {
+      _safeEmit(
+        emit,
+        state.copyWith(errorMessage: 'Unable to restore this version.'),
+      );
+      return;
+    }
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
+    final result = await coordinator.restore(
+      databasePath: state.databasePath,
+      keyFilePath: _keyFilePath,
+      entryId: event.entryId,
+      replacedAt: event.replacedAt,
+    );
+    switch (result.outcome) {
+      case EntryHistoryOutcome.done:
+        try {
+          await _reload(
+            emit,
+            currentGroupId: state.currentGroupId,
+            keepLoadingFlag: false,
+          );
+          await _loadRecycleBinEntries(emit, isInitialLoad: true);
+          _scheduleAutoSync();
+        } catch (e, st) {
+          logError('Failed reloading after restore.', e, st);
+        }
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            infoMessage: 'Previous version restored.',
+          ),
+        );
+        // The view is still open on this entry: show the history as it now
+        // stands, with the pre-restore state at the top (FR-007).
+        if (state.entryHistoryEntryId == event.entryId) {
+          add(LoadEntryHistory(event.entryId));
+        }
+      case EntryHistoryOutcome.vaultLocked:
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            errorMessage: 'The vault is locked. Nothing was changed.',
+          ),
+        );
+      case EntryHistoryOutcome.failed:
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            errorMessage: 'Unable to restore this version.',
+          ),
+        );
+    }
   }
 
   void _onLoadDuplicates(LoadDuplicates event, Emitter<VaultState> emit) {
