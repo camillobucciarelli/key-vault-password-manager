@@ -455,6 +455,66 @@ class VaultKdbxService {
     });
   }
 
+  /// spec 017 T401 — remove exactly the revision saved at [replacedAt]
+  /// (FR-009). The others keep their order. No backup here: that is the
+  /// coordinator's, so the backup and the warning stay together.
+  ///
+  /// The list is edited directly, never through `modify`: `modify` is what
+  /// appends a history entry, and removing one must not add one (FR-014).
+  /// Throws when no revision carries that timestamp.
+  Future<void> deleteEntryRevision({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+    required DateTime replacedAt,
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
+      final entry = _findEntryById(
+        file.body.rootGroup.getAllEntries(),
+        entryId,
+      );
+      // ponytail: same first-match rule as restoreEntryRevision.
+      final index = entry.history.indexWhere(
+        (candidate) =>
+            _mapRevision(entryId, candidate).replacedAt == replacedAt.toUtc(),
+      );
+      if (index < 0) {
+        throw StateError('No revision of entry $entryId at $replacedAt');
+      }
+      entry.history.removeAt(index);
+      await _save(databasePath, file);
+    });
+  }
+
+  /// spec 017 T401 — empty an entry's history (FR-010). The dated backup
+  /// is the coordinator's, written before this is called.
+  Future<void> clearEntryHistory({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
+      final entry = _findEntryById(
+        file.body.rootGroup.getAllEntries(),
+        entryId,
+      );
+      entry.history.clear();
+      await _save(databasePath, file);
+    });
+  }
+
   Future<void> mergeEntries({
     required String databasePath,
     required String password,

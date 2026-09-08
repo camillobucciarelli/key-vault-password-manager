@@ -136,7 +136,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
 
 **Independent test**: quickstart.md section C.
 
-- [ ] **T401** [US3] Delete and clear in the file — owner: `senior-flutter-dev`
+- [x] **T401** [US3] Delete and clear in the file — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/data/services/vault_kdbx_service.dart`,
   `test/features/password_manager/data/services/vault_kdbx_service_test.dart`.
   Acceptance: `deleteEntryRevision` removes exactly the named revision and leaves

@@ -2123,6 +2123,193 @@ void main() {
       expect(await File(databasePath).readAsBytes(), before);
     });
   });
+
+  group('deleteEntryRevision / clearEntryHistory (spec 017 T401)', () {
+    Future<String> createEntry() async {
+      final groupId = await _rootGroupId(service, databasePath, password);
+      return service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: groupId,
+        title: 'Mail 0',
+        username: 'ada',
+        entryPassword: 'p0',
+        url: 'https://mail.example',
+        notes: 'notes 0',
+      );
+    }
+
+    Future<void> editEntry(String entryId, int revision) {
+      return service.updateEntry(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        title: 'Mail $revision',
+        username: 'ada',
+        entryPassword: 'p$revision',
+        url: 'https://mail.example',
+        notes: 'notes $revision',
+      );
+    }
+
+    /// A fresh service, so the read is a reopen of the file and not a view
+    /// on anything cached.
+    Future<List<String>> passwordsInHistory(String entryId) async =>
+        (await VaultKdbxService().loadEntryHistory(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+        )).revisions.map((revision) => revision.password).toList();
+
+    /// Three edits, so the history reads p2, p1, p0 (newest first).
+    Future<String> entryWithThreeRevisions() async {
+      final entryId = await createEntry();
+      for (var revision = 1; revision <= 3; revision++) {
+        await editEntry(entryId, revision);
+      }
+      // Distinct seconds, so each revision has its own timestamp.
+      final file = await KdbxFormat().read(
+        await File(databasePath).readAsBytes(),
+        Credentials(ProtectedValue.fromString(password)),
+      );
+      final entry = file.body.rootGroup.getAllEntries().single;
+      final base = DateTime.utc(2026, 3, 1, 12);
+      for (final (index, revision) in entry.history.indexed) {
+        revision.times.lastModificationTime.set(
+          base.add(Duration(minutes: index)),
+        );
+      }
+      await File(databasePath).writeAsBytes(await file.save());
+      return entryId;
+    }
+
+    // FR-009: exactly the named one goes; the outer two keep their order.
+    test(
+      'deleting the middle of three leaves the outer two in order',
+      () async {
+        final entryId = await entryWithThreeRevisions();
+        final middle = (await passwordsInHistory(entryId));
+        expect(middle, ['p2', 'p1', 'p0']);
+        final revisions = (await service.loadEntryHistory(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+        )).revisions;
+
+        await service.deleteEntryRevision(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          replacedAt: revisions[1].replacedAt,
+        );
+
+        expect(await passwordsInHistory(entryId), ['p2', 'p0']);
+      },
+    );
+
+    test('an unknown timestamp throws and writes nothing', () async {
+      final entryId = await entryWithThreeRevisions();
+      final before = await File(databasePath).readAsBytes();
+
+      await expectLater(
+        service.deleteEntryRevision(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          replacedAt: DateTime.utc(1999),
+        ),
+        throwsStateError,
+      );
+
+      expect(await File(databasePath).readAsBytes(), before);
+    });
+
+    // FR-010: the list is emptied and stays empty across a reopen.
+    test('clearing leaves an empty list', () async {
+      final entryId = await entryWithThreeRevisions();
+
+      await service.clearEntryHistory(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+      );
+
+      expect(await passwordsInHistory(entryId), isEmpty);
+      // The entry itself is untouched.
+      final entry = (await service.loadAllEntries(
+        databasePath: databasePath,
+        password: password,
+      )).single;
+      expect(entry.password, 'p3');
+      expect(entry.title, 'Mail 3');
+    });
+
+    // FR-014: neither operation changes what the writer records afterwards.
+    test('an ordinary edit after a delete or clear records exactly one '
+        'revision', () async {
+      final entryId = await entryWithThreeRevisions();
+      final revisions = (await service.loadEntryHistory(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+      )).revisions;
+      await service.deleteEntryRevision(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        replacedAt: revisions[0].replacedAt,
+      );
+      expect(await passwordsInHistory(entryId), hasLength(2));
+
+      await editEntry(entryId, 4);
+      expect(await passwordsInHistory(entryId), hasLength(3));
+
+      await service.clearEntryHistory(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+      );
+      expect(await passwordsInHistory(entryId), isEmpty);
+
+      await editEntry(entryId, 5);
+      expect(await passwordsInHistory(entryId), ['p4']);
+    });
+
+    // FR-011: both writes go through the protected writer.
+    test('a writer failure leaves the file untouched', () async {
+      final entryId = await entryWithThreeRevisions();
+      final revisions = (await service.loadEntryHistory(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+      )).revisions;
+      final before = await File(databasePath).readAsBytes();
+      final failing = VaultKdbxService(
+        safeWriter: _FailingSafeVaultFileWriter(),
+      );
+
+      await expectLater(
+        failing.deleteEntryRevision(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          replacedAt: revisions[0].replacedAt,
+        ),
+        throwsException,
+      );
+      await expectLater(
+        failing.clearEntryHistory(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+        ),
+        throwsException,
+      );
+
+      expect(await File(databasePath).readAsBytes(), before);
+      expect(await passwordsInHistory(entryId), ['p2', 'p1', 'p0']);
+    });
+  });
 }
 
 // =============================================================================
