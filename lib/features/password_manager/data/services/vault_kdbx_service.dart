@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import '../../domain/models/vault_attachment.dart';
 import '../../domain/models/vault_custom_field.dart';
 import '../../domain/models/vault_entry.dart';
+import '../../domain/models/vault_entry_revision.dart';
 import '../../domain/models/vault_group.dart';
 import '../../domain/models/vault_snapshot.dart';
 import '../../domain/services/url_field_keys.dart';
@@ -347,6 +348,61 @@ class VaultKdbxService {
       _setCustomFields(entry, customFields);
 
       await _save(databasePath, file);
+    });
+  }
+
+  /// spec 017 T103 — the revisions the KDBX writer already recorded for an
+  /// entry, newest first (FR-001), together with the vault's retention limits
+  /// (FR-012), from one open of the file under one lock: two separate reads
+  /// could observe two different states of it.
+  ///
+  /// Read-only. An entry with no history yields an empty list, not an error
+  /// (FR-013); an unknown entry throws, like every other lookup here.
+  Future<VaultEntryHistory> loadEntryHistory({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
+
+      final entry = _findEntryById(
+        file.body.rootGroup.getAllEntries(),
+        entryId,
+      );
+
+      // The KDBX list is oldest first *when this app wrote it*, but
+      // `KdbxEntry.merge` appends the other side's revisions without
+      // reordering, so after a two-device sync file order is not
+      // chronological. FR-001 promises newest first, so order by the
+      // timestamp rather than by position. KDBX times are second-precision:
+      // ties keep reversed file order, so the result is deterministic even
+      // though `List.sort` is not stable.
+      final ordered =
+          [
+            for (final (index, revision) in entry.history.indexed)
+              (index, _mapRevision(entryId, revision)),
+          ]..sort((a, b) {
+            final byTime = b.$2.replacedAt.compareTo(a.$2.replacedAt);
+            return byTime != 0 ? byTime : b.$1.compareTo(a.$1);
+          });
+      final revisions = [
+        for (final (_, revision) in ordered) revision,
+      ].toList(growable: false);
+
+      final meta = file.body.meta;
+      return VaultEntryHistory(
+        revisions: revisions,
+        retention: VaultHistoryRetention(
+          maxItems: meta.historyMaxItems.get(),
+          maxSizeBytes: meta.historyMaxSize.get(),
+        ),
+      );
     });
   }
 
@@ -1105,7 +1161,7 @@ class VaultKdbxService {
     return false;
   }
 
-  VaultEntry _mapEntry(String groupId, KdbxEntry entry) {
+  List<VaultCustomField> _mapCustomFields(KdbxEntry entry) {
     final customFields = <VaultCustomField>[];
     for (final stringEntry in entry.stringEntries) {
       final key = stringEntry.key.key;
@@ -1116,6 +1172,36 @@ class VaultKdbxService {
         VaultCustomField(key: key, value: stringEntry.value?.getText() ?? ''),
       );
     }
+    return customFields;
+  }
+
+  /// spec 017 T103 — a KDBX history record projected onto the domain model.
+  /// Attachment *names* only: a revision's bytes are never read (FR-006a).
+  VaultEntryRevision _mapRevision(String entryId, KdbxEntry revision) {
+    final customFields = _mapCustomFields(revision);
+    final replacedAt =
+        revision.times.lastModificationTime.get() ??
+        revision.times.creationTime.get() ??
+        DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+
+    return VaultEntryRevision(
+      entryId: entryId,
+      replacedAt: replacedAt.toUtc(),
+      title: revision.getString(KdbxKeyCommon.TITLE)?.getText() ?? '',
+      username: revision.getString(KdbxKeyCommon.USER_NAME)?.getText() ?? '',
+      password: revision.getString(KdbxKeyCommon.PASSWORD)?.getText() ?? '',
+      url: revision.getString(KdbxKeyCommon.URL)?.getText() ?? '',
+      notes: revision.getString(_notesKey)?.getText() ?? '',
+      customFields: customFields,
+      attachmentNames: revision.binaryEntries
+          .map((binaryEntry) => binaryEntry.key.key)
+          .toList(growable: false),
+      otpUri: _resolveOtpUri(customFields),
+    );
+  }
+
+  VaultEntry _mapEntry(String groupId, KdbxEntry entry) {
+    final customFields = _mapCustomFields(entry);
 
     final attachments = entry.binaryEntries
         .map(

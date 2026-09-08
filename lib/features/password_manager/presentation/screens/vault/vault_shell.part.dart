@@ -113,7 +113,19 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   bool _hasDetailSession = false;
   DateTime? _backgroundedAt;
   bool _isBackground = false;
-  bool _isLocked = false;
+  // The one lock state of the shell, plus the two hooks a surface outside
+  // this subtree needs, published through `VaultShellSessionScope`.
+  // `_LockOverlay` is a widget inside this Scaffold's body, so anything
+  // hosted on the Navigator (a pushed detail, a dialog, a sheet) renders
+  // *above* it and would stay live and tappable while the vault is locked,
+  // and sits outside the pointer `Listener` that feeds the inactivity timer.
+  // This stays the only definition of "locked" (spec 017 FR-003).
+  late final VaultShellSession _session = VaultShellSession(
+    onUserActivity: _resetInactivityTimer,
+    lockAndReauthenticate: _lockAndReauthenticate,
+  );
+  bool get _isLocked => _session.isLocked;
+  set _isLocked(bool value) => _session.isLocked = value;
   // spec-006 T4: when the lock overlay engaged, so it can render "locked
   // for <duration>" (FR-3). Cleared on unlock.
   DateTime? _lockedAt;
@@ -194,6 +206,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     _inactivityTimer?.cancel();
     _otpAuthSubscription?.cancel();
     _otpAuthCoordinator.markVaultUnavailable();
+    _session.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -386,6 +399,30 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     _inactivityTimer = Timer(
       Duration(seconds: seconds),
       _triggerInactivityLock,
+    );
+  }
+
+  /// Lock now and send the user to the unlock screen, replacing *this*
+  /// shell's route.
+  ///
+  /// Owned here rather than by the surface that asks for it: the reveal gate
+  /// is a root-navigator sheet that can be opened from the detail (a pane, or
+  /// a pushed route) or from the history dialog, so `pushReplacement` on the
+  /// caller's Navigator replaced whichever of those happened to be on top and
+  /// left the unlocked shell alive underneath it.
+  Future<void> _lockAndReauthenticate(String databasePath) async {
+    await di.sl<VaultSessionCoordinator>().lockVault(
+      currentDatabasePath: databasePath,
+    );
+    if (!mounted) return;
+    final shellRoute = ModalRoute.of(context);
+    if (shellRoute != null) {
+      Navigator.of(context).popUntil((route) => route == shellRoute);
+    }
+    if (!mounted) return;
+    AppNavigation.pushFadeReplacement(
+      context,
+      DatabaseUnlockScreen(databasePath: databasePath),
     );
   }
 
@@ -697,245 +734,258 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final topInset = MediaQuery.paddingOf(context).top;
 
-    return VaultShellRouterScope(
-      router: _router,
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        body: Stack(
-          fit: StackFit.expand,
-          children: [
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: AppBackgrounds.gradient(context),
+    return VaultShellSessionScope(
+      session: _session,
+      child: VaultShellRouterScope(
+        router: _router,
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          body: Stack(
+            fit: StackFit.expand,
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: AppBackgrounds.gradient(context),
+                ),
               ),
-            ),
-            BlocListener<VaultBloc, VaultState>(
-              listener: (context, state) {
-                _markOtpAuthVaultAvailableIfReady(state);
-                if (state.errorMessage != null &&
-                    state.errorMessage!.isNotEmpty) {
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(SnackBar(content: Text(state.errorMessage!)));
-                  context.read<VaultBloc>().add(const ClearVaultError());
-                }
-                if (state.infoMessage != null &&
-                    state.infoMessage!.isNotEmpty) {
-                  final isSyncInfo =
-                      state.infoMessage!.toLowerCase().contains('sync') ||
-                      state.infoMessage!.toLowerCase().contains('google drive');
-                  if (isSyncInfo) {
+              BlocListener<VaultBloc, VaultState>(
+                listener: (context, state) {
+                  _markOtpAuthVaultAvailableIfReady(state);
+                  if (state.errorMessage != null &&
+                      state.errorMessage!.isNotEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(state.errorMessage!)),
+                    );
+                    context.read<VaultBloc>().add(const ClearVaultError());
+                  }
+                  if (state.infoMessage != null &&
+                      state.infoMessage!.isNotEmpty) {
+                    final isSyncInfo =
+                        state.infoMessage!.toLowerCase().contains('sync') ||
+                        state.infoMessage!.toLowerCase().contains(
+                          'google drive',
+                        );
+                    if (isSyncInfo) {
+                      _showSyncSnackBar(
+                        context,
+                        state.infoMessage!,
+                        status: state.syncStatus,
+                      );
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(state.infoMessage!)),
+                      );
+                    }
+                    context.read<VaultBloc>().add(const ClearVaultInfo());
+                  }
+                  if (state.syncError != null && state.syncError!.isNotEmpty) {
+                    final needsReconnectAction = state.driveReconnectRequired;
                     _showSyncSnackBar(
                       context,
-                      state.infoMessage!,
+                      state.syncError!,
                       status: state.syncStatus,
+                      action: needsReconnectAction
+                          ? SnackBarAction(
+                              label: 'Reconnect',
+                              onPressed: () {
+                                final bloc = context.read<VaultBloc>();
+                                unawaited(
+                                  di
+                                      .sl<GoogleDriveReconnectCoordinator>()
+                                      .reconnect(
+                                        owner: this,
+                                        bloc: bloc,
+                                        continuation:
+                                            GoogleDriveReconnectContinuation
+                                                .resumeSync,
+                                        isOwnerActive: () => context.mounted,
+                                      ),
+                                );
+                              },
+                            )
+                          : null,
                     );
-                  } else {
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(SnackBar(content: Text(state.infoMessage!)));
+                    context.read<VaultBloc>().add(
+                      const ClearVaultSyncFeedback(),
+                    );
                   }
-                  context.read<VaultBloc>().add(const ClearVaultInfo());
-                }
-                if (state.syncError != null && state.syncError!.isNotEmpty) {
-                  final needsReconnectAction = state.driveReconnectRequired;
-                  _showSyncSnackBar(
-                    context,
-                    state.syncError!,
-                    status: state.syncStatus,
-                    action: needsReconnectAction
-                        ? SnackBarAction(
-                            label: 'Reconnect',
-                            onPressed: () {
-                              final bloc = context.read<VaultBloc>();
-                              unawaited(
-                                di
-                                    .sl<GoogleDriveReconnectCoordinator>()
-                                    .reconnect(
-                                      owner: this,
-                                      bloc: bloc,
-                                      continuation:
-                                          GoogleDriveReconnectContinuation
-                                              .resumeSync,
-                                      isOwnerActive: () => context.mounted,
+                  // spec-008 T507/T608: a conflict found by a background or
+                  // auto sync stays a persistent status on the Sync tab. Only a
+                  // manual sync (which sets the conflict message) opens the
+                  // sheet, and only one sheet at a time.
+                  if (state.pendingSyncConflict != null &&
+                      state.syncError != null &&
+                      !_syncConflictSheetOpen) {
+                    _syncConflictSheetOpen = true;
+                    unawaited(
+                      _showSyncConflictDialog(
+                        context,
+                        state.pendingSyncConflict!,
+                      ).whenComplete(() => _syncConflictSheetOpen = false),
+                    );
+                  }
+                  _maybeShowAppleAutofillAssociationDialog(state);
+                  _maybePullAndroidAutofillCapture(context, state);
+                  _maybeShowAndroidAutofillSaveDialog(context, state);
+                },
+                child: BlocSelector<VaultBloc, VaultState, bool>(
+                  selector: (state) => state.isLoading,
+                  builder: (context, isLoading) {
+                    if (isLoading) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    return Stack(
+                      children: [
+                        Listener(
+                          onPointerDown: (_) => _resetInactivityTimer(),
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final spec = _VaultLayoutSpec.fromWidth(
+                                constraints.maxWidth,
+                              );
+
+                              final vaultPane = Padding(
+                                padding: EdgeInsets.fromLTRB(
+                                  spec.horizontalPadding,
+                                  topInset + spec.contentTopPadding,
+                                  spec.horizontalPadding,
+                                  spec.horizontalPadding,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    // spec-019 FR-013 / C-03-12: the database
+                                    // status card used to sit here, inside the
+                                    // records list, at every width. Its actions
+                                    // did not go away — they moved to the header
+                                    // below and to the folder column (FR-015).
+                                    if (!_effectiveLayout(
+                                      context,
+                                    ).hasFolderPane) ...[
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: _VaultNameHeader(
+                                              titleStyle:
+                                                  AppTextStyles.screenTitle,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          KvCircleIconButton(
+                                            glyph: AppGlyph.delete,
+                                            tooltip: 'Recycle bin',
+                                            size: 32,
+                                            onPressed: () => unawaited(
+                                              _showRecycleBinDialog(context),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          KvCircleIconButton(
+                                            glyph: AppGlyph.duplicates,
+                                            tooltip: 'Manage duplicates',
+                                            size: 32,
+                                            onPressed: () => unawaited(
+                                              _showDuplicatesDialog(context),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(
+                                        height: _VaultUiTokens.panelGap,
+                                      ),
+                                    ],
+                                    // 009 / B005: browser-generated pending
+                                    // secret awaiting the app's confirm/save.
+                                    const _PendingGenerationBanner(),
+                                    Expanded(
+                                      child: _VaultEntriesCardSection(
+                                        layout: _effectiveLayout(context),
+                                        onAddRecord: () =>
+                                            _createRecordInCurrentFolder(
+                                              context,
+                                            ),
+                                        selectedEntryId: _selectedEntryId,
+                                        onSelectEntry: (entryId) => unawaited(
+                                          _selectEntry(context, entryId),
+                                        ),
+                                        onVisibleEntriesChanged:
+                                            _dropSelectionIfNotVisible,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+
+                              return _VaultNavigationLayout(
+                                width: constraints.maxWidth,
+                                // spec-018 FR-002a: one classification, from
+                                // the window width, computed here and passed
+                                // down. No descendant re-derives it.
+                                layout: _effectiveLayout(context),
+                                selectedDestination: _selectedDestination,
+                                activePane: _activePane,
+                                vaultPane: vaultPane,
+                                onSelectDestination: _selectDestination,
+                                settingsNeedsAttention:
+                                    _inactivityTimeoutSeconds == null,
+                                onSecuritySettingsChanged:
+                                    _loadInactivityTimeout,
+                                onBackFromPane:
+                                    _router.requestCancelCurrentPane,
+                                onCloseDatabase: () =>
+                                    _closeCurrentDatabaseAndSelectAnother(
+                                      context,
+                                    ),
+                                onOpenRecycleBin: () {
+                                  unawaited(_showRecycleBinDialog(context));
+                                },
+                                onOpenDuplicates: () {
+                                  unawaited(_showDuplicatesDialog(context));
+                                },
+                                onChangeDatabase: () =>
+                                    _closeCurrentDatabaseAndSelectAnother(
+                                      context,
                                     ),
                               );
                             },
-                          )
-                        : null,
-                  );
-                  context.read<VaultBloc>().add(const ClearVaultSyncFeedback());
-                }
-                // spec-008 T507/T608: a conflict found by a background or
-                // auto sync stays a persistent status on the Sync tab. Only a
-                // manual sync (which sets the conflict message) opens the
-                // sheet, and only one sheet at a time.
-                if (state.pendingSyncConflict != null &&
-                    state.syncError != null &&
-                    !_syncConflictSheetOpen) {
-                  _syncConflictSheetOpen = true;
-                  unawaited(
-                    _showSyncConflictDialog(
-                      context,
-                      state.pendingSyncConflict!,
-                    ).whenComplete(() => _syncConflictSheetOpen = false),
-                  );
-                }
-                _maybeShowAppleAutofillAssociationDialog(state);
-                _maybePullAndroidAutofillCapture(context, state);
-                _maybeShowAndroidAutofillSaveDialog(context, state);
-              },
-              child: BlocSelector<VaultBloc, VaultState, bool>(
-                selector: (state) => state.isLoading,
-                builder: (context, isLoading) {
-                  if (isLoading) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
+                          ),
+                        ),
+                        BlocSelector<VaultBloc, VaultState, bool>(
+                          selector: (state) => state.isSaving,
+                          builder: (context, isSaving) {
+                            if (!isSaving) {
+                              return const SizedBox.shrink();
+                            }
 
-                  return Stack(
-                    children: [
-                      Listener(
-                        onPointerDown: (_) => _resetInactivityTimer(),
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            final spec = _VaultLayoutSpec.fromWidth(
-                              constraints.maxWidth,
-                            );
-
-                            final vaultPane = Padding(
-                              padding: EdgeInsets.fromLTRB(
-                                spec.horizontalPadding,
-                                topInset + spec.contentTopPadding,
-                                spec.horizontalPadding,
-                                spec.horizontalPadding,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  // spec-019 FR-013 / C-03-12: the database
-                                  // status card used to sit here, inside the
-                                  // records list, at every width. Its actions
-                                  // did not go away — they moved to the header
-                                  // below and to the folder column (FR-015).
-                                  if (!_effectiveLayout(
-                                    context,
-                                  ).hasFolderPane) ...[
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: _VaultNameHeader(
-                                            titleStyle:
-                                                AppTextStyles.screenTitle,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        KvCircleIconButton(
-                                          glyph: AppGlyph.delete,
-                                          tooltip: 'Recycle bin',
-                                          size: 32,
-                                          onPressed: () => unawaited(
-                                            _showRecycleBinDialog(context),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        KvCircleIconButton(
-                                          glyph: AppGlyph.duplicates,
-                                          tooltip: 'Manage duplicates',
-                                          size: 32,
-                                          onPressed: () => unawaited(
-                                            _showDuplicatesDialog(context),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(
-                                      height: _VaultUiTokens.panelGap,
-                                    ),
-                                  ],
-                                  // 009 / B005: browser-generated pending
-                                  // secret awaiting the app's confirm/save.
-                                  const _PendingGenerationBanner(),
-                                  Expanded(
-                                    child: _VaultEntriesCardSection(
-                                      layout: _effectiveLayout(context),
-                                      onAddRecord: () =>
-                                          _createRecordInCurrentFolder(context),
-                                      selectedEntryId: _selectedEntryId,
-                                      onSelectEntry: (entryId) => unawaited(
-                                        _selectEntry(context, entryId),
-                                      ),
-                                      onVisibleEntriesChanged:
-                                          _dropSelectionIfNotVisible,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-
-                            return _VaultNavigationLayout(
-                              width: constraints.maxWidth,
-                              // spec-018 FR-002a: one classification, from
-                              // the window width, computed here and passed
-                              // down. No descendant re-derives it.
-                              layout: _effectiveLayout(context),
-                              selectedDestination: _selectedDestination,
-                              activePane: _activePane,
-                              vaultPane: vaultPane,
-                              onSelectDestination: _selectDestination,
-                              settingsNeedsAttention:
-                                  _inactivityTimeoutSeconds == null,
-                              onSecuritySettingsChanged: _loadInactivityTimeout,
-                              onBackFromPane: _router.requestCancelCurrentPane,
-                              onCloseDatabase: () =>
-                                  _closeCurrentDatabaseAndSelectAnother(
-                                    context,
-                                  ),
-                              onOpenRecycleBin: () {
-                                unawaited(_showRecycleBinDialog(context));
-                              },
-                              onOpenDuplicates: () {
-                                unawaited(_showDuplicatesDialog(context));
-                              },
-                              onChangeDatabase: () =>
-                                  _closeCurrentDatabaseAndSelectAnother(
-                                    context,
-                                  ),
-                            );
+                            return const _SavingOverlay();
                           },
                         ),
-                      ),
-                      BlocSelector<VaultBloc, VaultState, bool>(
-                        selector: (state) => state.isSaving,
-                        builder: (context, isSaving) {
-                          if (!isSaving) {
-                            return const SizedBox.shrink();
-                          }
-
-                          return const _SavingOverlay();
-                        },
-                      ),
-                      if (_isBackground && !_isLocked) const PrivacyOverlay(),
-                      if (_isLocked)
-                        _LockOverlay(
-                          databasePath: context
-                              .read<VaultBloc>()
-                              .state
-                              .databasePath,
-                          databaseLabel: context
-                              .read<VaultBloc>()
-                              .state
-                              .databaseLabel,
-                          lockedAt: _lockedAt ?? debugLockOverlayNowOverride(),
-                          onUnlocked: _dismissLock,
-                          onCloseDatabase: () =>
-                              _closeCurrentDatabaseAndSelectAnother(context),
-                        ),
-                    ],
-                  );
-                },
+                        if (_isBackground && !_isLocked) const PrivacyOverlay(),
+                        if (_isLocked)
+                          _LockOverlay(
+                            databasePath: context
+                                .read<VaultBloc>()
+                                .state
+                                .databasePath,
+                            databaseLabel: context
+                                .read<VaultBloc>()
+                                .state
+                                .databaseLabel,
+                            lockedAt:
+                                _lockedAt ?? debugLockOverlayNowOverride(),
+                            onUnlocked: _dismissLock,
+                            onCloseDatabase: () =>
+                                _closeCurrentDatabaseAndSelectAnother(context),
+                          ),
+                      ],
+                    );
+                  },
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

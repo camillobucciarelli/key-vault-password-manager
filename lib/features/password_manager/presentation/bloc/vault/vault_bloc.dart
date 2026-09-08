@@ -131,6 +131,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<ConfirmAndroidAutofillCapture>(_onConfirmAndroidAutofillCapture);
     on<DeclineAndroidAutofillCapture>(_onDeclineAndroidAutofillCapture);
     on<CancelAndroidAutofillCapture>(_onCancelAndroidAutofillCapture);
+    on<LoadEntryHistory>(_onLoadEntryHistory);
+    on<ClearEntryHistory>(_onClearEntryHistory);
     on<LoadDuplicates>(_onLoadDuplicates);
     on<DeleteDuplicateEntry>(_onDeleteDuplicateEntry);
     on<MergeDuplicateEntries>(_onMergeDuplicateEntries);
@@ -1778,6 +1780,57 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
       }
     }
     return ids;
+  }
+
+  /// spec 017 T201 / FR-015 — one read, on demand, for one entry.
+  ///
+  /// Thin by construction (Constitution II): the service returns revisions and
+  /// retention from a single open, so there is nothing to sequence here.
+  Future<void> _onLoadEntryHistory(
+    LoadEntryHistory event,
+    Emitter<VaultState> emit,
+  ) async {
+    _safeEmit(
+      emit,
+      state.copyWith(
+        entryHistoryEntryId: event.entryId,
+        isEntryHistoryLoading: true,
+        clearEntryHistoryError: true,
+      ),
+    );
+    try {
+      final history = await vaultKdbxService.loadEntryHistory(
+        databasePath: state.databasePath,
+        password: _password,
+        keyFilePath: _keyFilePath,
+        entryId: event.entryId,
+      );
+      // The view moved on (closed, or opened another entry) while the file
+      // was being read: its revisions are not this surface's to show.
+      if (state.entryHistoryEntryId != event.entryId) {
+        return;
+      }
+      _safeEmit(
+        emit,
+        state.copyWith(entryHistory: history, isEntryHistoryLoading: false),
+      );
+    } catch (e, st) {
+      logError('Failed loading entry history.', e, st);
+      if (state.entryHistoryEntryId != event.entryId) {
+        return;
+      }
+      _safeEmit(
+        emit,
+        state.copyWith(
+          isEntryHistoryLoading: false,
+          entryHistoryError: 'Unable to read this record\u2019s history.',
+        ),
+      );
+    }
+  }
+
+  void _onClearEntryHistory(ClearEntryHistory event, Emitter<VaultState> emit) {
+    _safeEmit(emit, state.copyWith(clearEntryHistory: true));
   }
 
   void _onLoadDuplicates(LoadDuplicates event, Emitter<VaultState> emit) {

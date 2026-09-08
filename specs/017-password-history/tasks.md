@@ -10,7 +10,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
 
 ## Phase 1 — Foundational (blocks every story)
 
-- [ ] **T101** Model the revision — owner: `senior-flutter-dev`
+- [x] **T101** Model the revision — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/domain/models/vault_entry_revision.dart` (new).
   Acceptance: `VaultEntryRevision`, `VaultEntryRevisionSummary` and
   `VaultHistoryRetention` per `data-model.md`. `password`, `notes` and `otpUri`
@@ -19,7 +19,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   Verify: unit test asserts a revision holding `'hunter2'` never renders it in
   `props` or `toString`, and that `otpUri` reports presence only.
 
-- [ ] **T102** [P] Compute what changed between revisions — owner: `senior-flutter-dev`
+- [x] **T102** [P] Compute what changed between revisions — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/domain/models/vault_entry_revision.dart`.
   Acceptance: a pure function producing `changedFields` for a revision against
   the one that replaced it (the next newer revision, or the current entry for the
@@ -28,7 +28,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   identical password across two revisions is not reported as changed; the newest
   revision is compared against the current entry.
 
-- [ ] **T103** Read history from the file — owner: `senior-flutter-dev`
+- [x] **T103** Read history from the file — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/data/services/vault_kdbx_service.dart`,
   `test/features/password_manager/data/services/vault_kdbx_service_test.dart`.
   Acceptance: one `loadEntryHistory` returning revisions **and** retention limits
@@ -45,7 +45,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
 
 **Independent test**: quickstart.md section A.
 
-- [ ] **T201** [US1] Carry history in the vault state — owner: `senior-flutter-dev`
+- [x] **T201** [US1] Carry history in the vault state — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/bloc/vault/{vault_event,vault_state,vault_bloc}.dart`.
   Acceptance: a `LoadEntryHistory` event and the resulting state, loaded on
   demand and cleared when the entry screen closes (FR-015, D6). No new BLoC
@@ -54,7 +54,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   Verify: bloc test — loading populates, closing clears, and `toString` holds no
   secret.
 
-- [ ] **T202** [US1] The history view — owner: `senior-flutter-dev`
+- [x] **T202** [US1] The history view — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/screens/vault/vault_entry_history.part.dart` (new),
   `lib/features/password_manager/presentation/screens/vault_screen.dart`,
   `lib/features/password_manager/presentation/screens/vault/vault_entry_detail.part.dart`.
@@ -69,7 +69,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   together these are the first half of SC-001, seeing the previous password
   without leaving KeyVault.
 
-- [ ] **T203** [US1] Reveal a revision through the existing gate — owner: `senior-flutter-dev`
+- [x] **T203** [US1] Reveal a revision through the existing gate — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/screens/vault/vault_entry_history.part.dart`.
   Acceptance: masked by default; revealing uses the same `RevealController` and
   `_showBiometricRevealGate` path as the current password, including the

@@ -15,6 +15,7 @@ import 'package:password_manager/features/password_manager/domain/models/apple_a
 import 'package:password_manager/features/password_manager/domain/models/database_sync_mapping.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_entry_revision.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_group.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_snapshot.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
@@ -187,6 +188,36 @@ class FakeVaultKdbxService implements VaultKdbxService {
       allEntries: all,
     );
     return copy.id;
+  }
+
+  /// spec 017 T201: what `loadEntryHistory` answers. The default is the
+  /// answer the real service gives for a record that was never edited — an
+  /// empty list, not an error.
+  VaultEntryHistory entryHistory = const VaultEntryHistory(
+    revisions: [],
+    retention: VaultHistoryRetention(),
+  );
+
+  /// Set to make the read fail, the way an unreadable file would.
+  Object? entryHistoryError;
+
+  /// Every entry whose history was asked for, in order — so a test can show
+  /// the read happened on demand and only then.
+  final List<String> historyReads = <String>[];
+
+  @override
+  Future<VaultEntryHistory> loadEntryHistory({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+  }) async {
+    historyReads.add(entryId);
+    final failure = entryHistoryError;
+    if (failure != null) {
+      throw failure;
+    }
+    return entryHistory;
   }
 
   @override

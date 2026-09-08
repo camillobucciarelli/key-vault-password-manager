@@ -586,3 +586,23 @@ class CancelSyncMerge extends VaultEvent {
 class ClearSyncMergeOutcome extends VaultEvent {
   const ClearSyncMergeOutcome();
 }
+
+/// spec 017 T201 / FR-015 — read one entry's previous versions.
+///
+/// On demand only: history is never part of the vault load, so an entry with
+/// hundreds of revisions costs nothing until the user asks to see them (D6).
+class LoadEntryHistory extends VaultEvent {
+  const LoadEntryHistory(this.entryId);
+
+  final String entryId;
+
+  @override
+  List<Object?> get props => [entryId];
+}
+
+/// spec 017 T201 / D6 — the history view closed; drop the revisions.
+///
+/// Historical secrets do not outlive the surface that showed them.
+class ClearEntryHistory extends VaultEvent {
+  const ClearEntryHistory();
+}

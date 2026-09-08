@@ -1723,6 +1723,243 @@ void main() {
       expect(readWithMajor(2), throwsA(isA<RangeError>()));
     });
   });
+
+  group('loadEntryHistory (spec 017 T103)', () {
+    Future<String> createEntry({String entryPassword = 'p0'}) async {
+      final groupId = await _rootGroupId(service, databasePath, password);
+      return service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: groupId,
+        title: 'Mail 0',
+        username: 'ada',
+        entryPassword: entryPassword,
+        url: 'https://mail.example',
+        notes: 'notes 0',
+      );
+    }
+
+    Future<void> editEntry(String entryId, int revision) {
+      return service.updateEntry(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        title: 'Mail $revision',
+        username: 'ada',
+        entryPassword: 'p$revision',
+        url: 'https://mail.example',
+        notes: 'notes $revision',
+      );
+    }
+
+    test('three edits produce three revisions, newest first', () async {
+      final entryId = await createEntry();
+      for (var revision = 1; revision <= 3; revision++) {
+        await editEntry(entryId, revision);
+      }
+
+      // FR-015: reading the history is a read. Asserted on the bytes rather
+      // than by inspection, so a future write on this path fails here.
+      final digestBefore = sha256.convert(
+        await File(databasePath).readAsBytes(),
+      );
+
+      final history = await service.loadEntryHistory(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+      );
+
+      expect(
+        sha256.convert(await File(databasePath).readAsBytes()),
+        digestBefore,
+        reason: 'loadEntryHistory must not rewrite the vault',
+      );
+
+      expect(history.revisions, hasLength(3));
+      expect(history.revisions.map((revision) => revision.password), [
+        'p2',
+        'p1',
+        'p0',
+      ]);
+      expect(history.revisions.map((revision) => revision.title), [
+        'Mail 2',
+        'Mail 1',
+        'Mail 0',
+      ]);
+      expect(history.revisions.map((revision) => revision.notes), [
+        'notes 2',
+        'notes 1',
+        'notes 0',
+      ]);
+      expect(
+        history.revisions.every((revision) => revision.entryId == entryId),
+        isTrue,
+      );
+      expect(
+        history.revisions.every((revision) => revision.replacedAt.isUtc),
+        isTrue,
+      );
+    });
+
+    // FR-001: `KdbxEntry.merge` (kdbx 2.4.2 `kdbx_entry.dart`) appends the
+    // other side's revisions to `history` without reordering them, so after a
+    // two-device sync the stored order is not chronological. Reproduced here
+    // by rewriting the stored timestamps out of file order.
+    test(
+      'revisions are ordered by timestamp, not by position in the file',
+      () async {
+        final entryId = await createEntry();
+        for (var revision = 1; revision <= 3; revision++) {
+          await editEntry(entryId, revision);
+        }
+
+        final credentials = Credentials(ProtectedValue.fromString(password));
+        final file = await KdbxFormat().read(
+          await File(databasePath).readAsBytes(),
+          credentials,
+        );
+        final entry = file.body.rootGroup.getAllEntries().firstWhere(
+          (candidate) => candidate.uuid.uuid == entryId,
+        );
+        expect(entry.history, hasLength(3));
+        // File order stays p0, p1, p2; the timestamps say p0 is the newest and
+        // p1/p2 share a second (KDBX stores whole seconds).
+        final base = DateTime.utc(2026, 3, 1, 12);
+        entry.history[0].times.lastModificationTime.set(
+          base.add(const Duration(seconds: 30)),
+        );
+        entry.history[1].times.lastModificationTime.set(
+          base.add(const Duration(seconds: 20)),
+        );
+        entry.history[2].times.lastModificationTime.set(
+          base.add(const Duration(seconds: 20)),
+        );
+        await File(databasePath).writeAsBytes(await file.save());
+
+        final history = await service.loadEntryHistory(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+        );
+
+        final times = history.revisions
+            .map((revision) => revision.replacedAt)
+            .toList();
+        for (var i = 1; i < times.length; i++) {
+          expect(
+            times[i].isAfter(times[i - 1]),
+            isFalse,
+            reason: 'revisions must be newest first: $times',
+          );
+        }
+        // The tie between the two revisions of the same second resolves to
+        // reversed file order, deterministically — `List.sort` is not stable.
+        expect(history.revisions.map((revision) => revision.password), [
+          'p0',
+          'p2',
+          'p1',
+        ]);
+      },
+    );
+
+    test('an untouched entry returns an empty list, not an error', () async {
+      final entryId = await createEntry();
+
+      final history = await service.loadEntryHistory(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+      );
+
+      expect(history.revisions, isEmpty);
+      expect(history.retention, isNotNull);
+    });
+
+    test('retention matches meta.historyMaxItems / historyMaxSize', () async {
+      final entryId = await createEntry();
+
+      final file = await KdbxFormat().read(
+        await File(databasePath).readAsBytes(),
+        Credentials(ProtectedValue.fromString(password)),
+      );
+      final expectedMaxItems = file.body.meta.historyMaxItems.get();
+      final expectedMaxSize = file.body.meta.historyMaxSize.get();
+
+      final history = await service.loadEntryHistory(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+      );
+
+      expect(history.retention.maxItems, expectedMaxItems);
+      expect(history.retention.maxSizeBytes, expectedMaxSize);
+      expect(expectedMaxItems, isNotNull);
+      expect(expectedMaxSize, isNotNull);
+    });
+
+    test(
+      'a revision carries custom fields, otp and attachment names',
+      () async {
+        final groupId = await _rootGroupId(service, databasePath, password);
+        final entryId = await service.createEntry(
+          databasePath: databasePath,
+          password: password,
+          groupId: groupId,
+          title: 'Mail',
+          username: 'ada',
+          entryPassword: 'p0',
+          url: 'https://mail.example',
+          notes: 'notes',
+          customFields: const [
+            VaultCustomField(key: 'otp', value: 'otpauth://totp/Mail?secret=A'),
+          ],
+        );
+        final attachment = File('${tempDir.path}/key.pem');
+        await attachment.writeAsBytes(const [1, 2, 3]);
+        await service.addAttachment(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          filePath: attachment.path,
+        );
+        await service.updateEntry(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          title: 'Mail',
+          username: 'ada',
+          entryPassword: 'p1',
+          url: 'https://mail.example',
+          notes: 'notes',
+        );
+
+        final history = await service.loadEntryHistory(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+        );
+
+        final newest = history.revisions.first;
+        expect(newest.otpUri, 'otpauth://totp/Mail?secret=A');
+        expect(newest.customFields.map((field) => field.key), contains('otp'));
+        expect(newest.attachmentNames, ['key.pem']);
+      },
+    );
+
+    test('an unknown entry throws', () async {
+      await createEntry();
+
+      await expectLater(
+        service.loadEntryHistory(
+          databasePath: databasePath,
+          password: password,
+          entryId: 'not-an-entry',
+        ),
+        throwsA(anything),
+      );
+    });
+  });
 }
 
 // =============================================================================
