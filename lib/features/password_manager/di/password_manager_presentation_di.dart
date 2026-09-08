@@ -109,6 +109,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
     () => EntryHistoryCoordinator(
       vaultKdbxService: sl(),
       sessionSecretHolder: sl(),
+      databaseFileRepository: sl(),
     ),
   );
 

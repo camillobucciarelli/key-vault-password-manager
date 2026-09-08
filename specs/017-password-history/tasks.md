@@ -148,7 +148,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   write through the write-tracking harness (FR-011); and after either, an
   ordinary edit still records exactly one new revision (FR-014).
 
-- [ ] **T402** [US3] Back up before destroying — owner: `senior-flutter-dev`
+- [x] **T402** [US3] Back up before destroying — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/coordinators/entry_history_coordinator.dart`.
   Acceptance: `clearHistory` writes a dated backup **before** the file changes,
   reusing the existing dated-backup mechanism (FR-010, Constitution VII). A write
