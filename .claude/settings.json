@@ -1,9 +1,6 @@
 {
   "permissions": {
     "allow": [
-      "Bash(rtk ls *)",
-      "Bash(rtk read *)",
-      "Bash(rtk grep *)",
       "Bash(claude mcp *)"
     ]
   }
