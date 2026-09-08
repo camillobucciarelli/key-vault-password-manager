@@ -376,19 +376,46 @@ jobs:
             exit 1
           }
 
-          token_response=$(curl --fail-with-body --silent --show-error \
+          # The version actually being uploaded. The Chrome Web Store rejects an
+          # upload whose version is not strictly higher than the published one,
+          # and the extension carries its own version line (independent of
+          # pubspec.yaml), so this is the first thing to check on a rejection.
+          if ! uploaded_version=$(unzip -p desktop/browser_extension/dist/keyvault-browser-extension.zip manifest.json | jq -er '.version'); then
+            echo "::error::Chrome Web Store: failed to read a valid manifest.json version from the extension ZIP."
+            exit 1
+          fi
+          echo "Uploading browser extension version ${uploaded_version}"
+
+          # Each response body is captured into a variable, so a bare
+          # `--fail-with-body` swallows the reason and the log shows only
+          # `curl: (22) ... 400` with no way to tell which call failed.
+          # Print the body on failure; it carries the API's error message and
+          # never a credential. Success bodies stay unprinted (the token one
+          # holds the access token).
+          if ! token_response=$(curl --fail-with-body --silent --show-error \
             https://oauth2.googleapis.com/token \
             --data-urlencode "client_id=${CLIENT_ID}" \
             --data-urlencode "client_secret=${CLIENT_SECRET}" \
             --data-urlencode "refresh_token=${REFRESH_TOKEN}" \
-            --data-urlencode "grant_type=refresh_token")
+            --data-urlencode "grant_type=refresh_token"); then
+            echo "::error::Chrome Web Store: the OAuth token refresh was rejected."
+            jq -r '"  \(.error // "unknown"): \(.error_description // "no description")"' <<<"${token_response}" 2>/dev/null \
+              || echo "  response: ${token_response}"
+            echo "  invalid_grant usually means CHROME_WEB_STORE_REFRESH_TOKEN was revoked or expired; invalid_client means the id/secret pair no longer matches."
+            exit 1
+          fi
           access_token=$(jq -er '.access_token' <<<"${token_response}")
 
-          upload_response=$(curl --fail-with-body --silent --show-error \
+          if ! upload_response=$(curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer ${access_token}" \
             -X POST \
             -T desktop/browser_extension/dist/keyvault-browser-extension.zip \
-            "https://chromewebstore.googleapis.com/upload/v2/publishers/${PUBLISHER_ID}/items/${EXTENSION_ID}:upload")
+            "https://chromewebstore.googleapis.com/upload/v2/publishers/${PUBLISHER_ID}/items/${EXTENSION_ID}:upload"); then
+            echo "::error::Chrome Web Store: the upload of version ${uploaded_version} was rejected."
+            echo "  response: ${upload_response}"
+            echo "  A version that is not strictly higher than the published one is rejected here; bump \"version\" in desktop/browser_extension/manifest.json."
+            exit 1
+          fi
           upload_state=$(jq -er '.uploadState' <<<"${upload_response}")
 
           for _ in {1..60}; do
@@ -398,9 +425,13 @@ jobs:
               exit 1
             }
             sleep 5
-            status_response=$(curl --fail-with-body --silent --show-error \
+            if ! status_response=$(curl --fail-with-body --silent --show-error \
               -H "Authorization: Bearer ${access_token}" \
-              "https://chromewebstore.googleapis.com/v2/publishers/${PUBLISHER_ID}/items/${EXTENSION_ID}:fetchStatus")
+              "https://chromewebstore.googleapis.com/v2/publishers/${PUBLISHER_ID}/items/${EXTENSION_ID}:fetchStatus"); then
+              echo "::error::Chrome Web Store: the upload status check for version ${uploaded_version} was rejected."
+              echo "  response: ${status_response}"
+              exit 1
+            fi
             upload_state=$(jq -er '.lastAsyncUploadState' <<<"${status_response}")
           done
 
@@ -409,10 +440,15 @@ jobs:
             exit 1
           }
 
-          curl --fail-with-body --silent --show-error \
+          if ! publish_response=$(curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer ${access_token}" \
             -X POST \
-            "https://chromewebstore.googleapis.com/v2/publishers/${PUBLISHER_ID}/items/${EXTENSION_ID}:publish"
+            "https://chromewebstore.googleapis.com/v2/publishers/${PUBLISHER_ID}/items/${EXTENSION_ID}:publish"); then
+            echo "::error::Chrome Web Store: the publish call was rejected (the upload itself succeeded)."
+            echo "  response: ${publish_response}"
+            exit 1
+          fi
+          echo "${publish_response}"
 
   windows:
     needs: version
