@@ -203,7 +203,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   freshly changed.
   Verify: quickstart sections C and D.
 
-- [ ] **T505** Local gate — owner: `senior-flutter-dev`
+- [x] **T505** Local gate — owner: `senior-flutter-dev`
   Files: none.
   Acceptance: `dart format --set-exit-if-changed lib test tool`,
   `flutter analyze` and the full `flutter test` all clean and green
