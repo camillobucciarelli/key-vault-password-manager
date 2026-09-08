@@ -102,7 +102,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   The write goes through the write-tracking harness already used in this test
   file, which is what checks FR-011.
 
-- [ ] **T302** [US2] Sequence the restore — owner: `senior-flutter-dev`
+- [x] **T302** [US2] Sequence the restore — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/coordinators/entry_history_coordinator.dart` (new),
   `lib/features/password_manager/di/password_manager_presentation_di.dart`.
   Acceptance: `EntryHistoryCoordinator.restore` per its contract — refuses on a
