@@ -422,9 +422,9 @@ void main() {
         expect(await seed.localFile.readAsBytes(), bytesBefore);
         expect(await seed.localFile.lastModified(), mtimeBefore);
         expect(
-          seed.localFile.parent
-              .listSync()
-              .map((e) => e.path.split(RegExp(r'[/\\]')).last),
+          seed.localFile.parent.listSync().map(
+            (e) => e.path.split(RegExp(r'[/\\]')).last,
+          ),
           [seed.localFile.path.split(RegExp(r'[/\\]')).last],
           reason: 'no backup file created',
         );

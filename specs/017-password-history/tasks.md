@@ -156,7 +156,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
   Verify: coordinator test asserts the backup exists before the service is
   called, and that a failing write still reports the backup's path.
 
-- [ ] **T403** [US3] Ask before destroying — owner: `senior-flutter-dev`
+- [x] **T403** [US3] Ask before destroying — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/screens/vault/vault_entry_history.part.dart`.
   Acceptance: deleting one revision is confirmed (FR-009); clearing is confirmed
   with a warning that names what is destroyed and says a backup will be written

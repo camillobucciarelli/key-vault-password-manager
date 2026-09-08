@@ -223,6 +223,25 @@ class FakeVaultKdbxService implements VaultKdbxService {
     return entryHistory;
   }
 
+  /// spec 017 T403: recorded deletions, and a way to make one fail.
+  final List<(String, DateTime)> deletedRevisions = [];
+  Object? deleteRevisionError;
+
+  @override
+  Future<void> deleteEntryRevision({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+    required DateTime replacedAt,
+  }) async {
+    final failure = deleteRevisionError;
+    if (failure != null) {
+      throw failure;
+    }
+    deletedRevisions.add((entryId, replacedAt));
+  }
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

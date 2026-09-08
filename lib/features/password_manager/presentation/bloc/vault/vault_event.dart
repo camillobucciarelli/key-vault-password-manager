@@ -619,3 +619,26 @@ class RestoreEntryRevision extends VaultEvent {
   @override
   List<Object?> get props => [entryId, replacedAt];
 }
+
+/// spec 017 T403 / FR-009 — remove one confirmed revision from the file.
+class DeleteEntryRevision extends VaultEvent {
+  const DeleteEntryRevision({required this.entryId, required this.replacedAt});
+
+  final String entryId;
+  final DateTime replacedAt;
+
+  @override
+  List<Object?> get props => [entryId, replacedAt];
+}
+
+/// spec 017 T403 / FR-010 — empty an entry's history in the file, after the
+/// warning. Distinct from [ClearEntryHistory], which only drops the
+/// revisions from state when the view closes.
+class ClearEntryHistoryInFile extends VaultEvent {
+  const ClearEntryHistoryInFile(this.entryId);
+
+  final String entryId;
+
+  @override
+  List<Object?> get props => [entryId];
+}

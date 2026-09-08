@@ -127,6 +127,7 @@ class _FixtureVaultSessionCoordinator implements VaultSessionCoordinator {
 /// once, with this revision", not the file's contents (T301 covers those).
 class _RecordingEntryHistoryCoordinator implements EntryHistoryCoordinator {
   final List<(String, DateTime)> restores = [];
+  final List<String> clears = [];
 
   @override
   Future<EntryHistoryRestoreResult> restore({
@@ -137,6 +138,19 @@ class _RecordingEntryHistoryCoordinator implements EntryHistoryCoordinator {
   }) async {
     restores.add((entryId, replacedAt));
     return const EntryHistoryRestoreResult(EntryHistoryOutcome.done);
+  }
+
+  @override
+  Future<EntryHistoryClearResult> clearHistory({
+    required String databasePath,
+    String? keyFilePath,
+    required String entryId,
+  }) async {
+    clears.add(entryId);
+    return const EntryHistoryClearResult(
+      EntryHistoryOutcome.done,
+      backupPath: '/tmp/vault.20260301.pre-clear-history.kdbx',
+    );
   }
 
   @override
@@ -397,6 +411,93 @@ void main() {
         ),
       ]);
       expect(find.text('Previous version restored.'), findsOneWidget);
+    });
+  });
+
+  // spec 017 T403 / FR-009, FR-010, SC-005: every path that destroys history
+  // warns first, in words and with a glyph — never by colour alone.
+  group('delete and clear', () {
+    testWidgets('deleting one version is confirmed and then performed', (
+      tester,
+    ) async {
+      final coordinator = _RecordingEntryHistoryCoordinator();
+      final service = await pumpVault(tester, historyCoordinator: coordinator);
+      service.histories[NavigationFixtureVaultKdbxService.gmail.id] =
+          _gmailHistory();
+      await openHistory(tester, 'Gmail');
+
+      await tester.tap(find.text('Delete this version').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Delete this version?'), findsOneWidget);
+      expect(find.textContaining('saved 02-03-2026 11:30'), findsOneWidget);
+      expect(find.bySemanticsLabel('Warning'), findsOneWidget);
+      // No backup for a single deletion (FR-009), and the dialog says
+      // nothing of one.
+      expect(find.textContaining('backup'), findsNothing);
+
+      // Dismissing writes nothing.
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(service.calls, isEmpty);
+
+      await tester.tap(find.text('Delete this version').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete version'));
+      await tester.pumpAndSettle();
+
+      expect(service.calls.map((call) => call.kind), ['deleteRevision']);
+      expect(
+        service.calls.single.fields['replacedAt'],
+        DateTime.utc(2026, 3, 2, 10, 30).toIso8601String(),
+      );
+      expect(find.text('Previous version deleted.'), findsOneWidget);
+      // The list reflects the file: one revision left.
+      expect(find.text('Saved 02-03-2026 11:30'), findsNothing);
+      expect(find.text('Saved 01-03-2026 10:15'), findsOneWidget);
+    });
+
+    testWidgets('clearing warns, names what goes, promises a backup', (
+      tester,
+    ) async {
+      final coordinator = _RecordingEntryHistoryCoordinator();
+      final service = await pumpVault(tester, historyCoordinator: coordinator);
+      service.histories[NavigationFixtureVaultKdbxService.gmail.id] =
+          _gmailHistory();
+      await openHistory(tester, 'Gmail');
+
+      await tester.tap(find.byKey(const ValueKey('entry-history-clear')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Clear this record’s history?'), findsOneWidget);
+      expect(find.textContaining('All 2 previous versions'), findsOneWidget);
+      expect(find.textContaining('“Gmail”'), findsOneWidget);
+      expect(find.textContaining('dated backup'), findsOneWidget);
+      expect(find.bySemanticsLabel('Warning'), findsOneWidget);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(coordinator.clears, isEmpty);
+
+      await tester.tap(find.byKey(const ValueKey('entry-history-clear')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Clear history'));
+      await tester.pumpAndSettle();
+
+      expect(coordinator.clears, [NavigationFixtureVaultKdbxService.gmail.id]);
+      expect(find.textContaining('History cleared.'), findsOneWidget);
+      expect(
+        find.textContaining('vault.20260301.pre-clear-history.kdbx'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('an empty history offers nothing to clear', (tester) async {
+      await pumpVault(tester);
+      await openHistory(tester, 'Gmail');
+
+      expect(find.byKey(const ValueKey('entry-history-clear')), findsNothing);
+      expect(find.text('Delete this version'), findsNothing);
     });
   });
 

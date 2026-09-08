@@ -222,6 +222,32 @@ class NavigationFixtureVaultKdbxService implements VaultKdbxService {
         );
   }
 
+  /// spec 017 T403: recorded like every other mutating call; the next read
+  /// of that entry's history omits the revision, so the list updates.
+  @override
+  Future<void> deleteEntryRevision({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+    required DateTime replacedAt,
+  }) async {
+    calls.add(
+      RecordedVaultCall('deleteRevision', entryId, {
+        'replacedAt': replacedAt.toIso8601String(),
+      }),
+    );
+    final history = histories[entryId];
+    if (history == null) return;
+    histories[entryId] = VaultEntryHistory(
+      revisions: [
+        for (final revision in history.revisions)
+          if (revision.replacedAt != replacedAt) revision,
+      ],
+      retention: history.retention,
+    );
+  }
+
   @override
   Future<void> moveEntry({
     required String databasePath,

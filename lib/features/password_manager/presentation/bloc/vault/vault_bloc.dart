@@ -5,6 +5,7 @@ import 'dart:io' show SocketException;
 import 'package:crypto/crypto.dart' show sha256;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:loggy/loggy.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:stream_transform/stream_transform.dart';
 
@@ -136,6 +137,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<LoadEntryHistory>(_onLoadEntryHistory);
     on<ClearEntryHistory>(_onClearEntryHistory);
     on<RestoreEntryRevision>(_onRestoreEntryRevision);
+    on<DeleteEntryRevision>(_onDeleteEntryRevision);
+    on<ClearEntryHistoryInFile>(_onClearEntryHistoryInFile);
     on<LoadDuplicates>(_onLoadDuplicates);
     on<DeleteDuplicateEntry>(_onDeleteDuplicateEntry);
     on<MergeDuplicateEntries>(_onMergeDuplicateEntries);
@@ -1863,29 +1866,11 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     );
     switch (result.outcome) {
       case EntryHistoryOutcome.done:
-        try {
-          await _reload(
-            emit,
-            currentGroupId: state.currentGroupId,
-            keepLoadingFlag: false,
-          );
-          await _loadRecycleBinEntries(emit, isInitialLoad: true);
-          _scheduleAutoSync();
-        } catch (e, st) {
-          logError('Failed reloading after restore.', e, st);
-        }
-        _safeEmit(
+        await _afterHistoryWrite(
           emit,
-          state.copyWith(
-            isSaving: false,
-            infoMessage: 'Previous version restored.',
-          ),
+          entryId: event.entryId,
+          info: 'Previous version restored.',
         );
-        // The view is still open on this entry: show the history as it now
-        // stands, with the pre-restore state at the top (FR-007).
-        if (state.entryHistoryEntryId == event.entryId) {
-          add(LoadEntryHistory(event.entryId));
-        }
       case EntryHistoryOutcome.vaultLocked:
         _safeEmit(
           emit,
@@ -1902,6 +1887,113 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
             errorMessage: 'Unable to restore this version.',
           ),
         );
+    }
+  }
+
+  /// spec 017 T403 / FR-009 — one service call, no backup (the confirmation
+  /// is the safeguard, by design), so nothing to sequence in a coordinator.
+  Future<void> _onDeleteEntryRevision(
+    DeleteEntryRevision event,
+    Emitter<VaultState> emit,
+  ) async {
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
+    try {
+      await vaultKdbxService.deleteEntryRevision(
+        databasePath: state.databasePath,
+        password: _password,
+        keyFilePath: _keyFilePath,
+        entryId: event.entryId,
+        replacedAt: event.replacedAt,
+      );
+    } catch (e, st) {
+      logError('Failed deleting entry revision.', e, st);
+      _safeEmit(
+        emit,
+        state.copyWith(
+          isSaving: false,
+          errorMessage: 'Unable to delete this version.',
+        ),
+      );
+      return;
+    }
+    await _afterHistoryWrite(
+      emit,
+      entryId: event.entryId,
+      info: 'Previous version deleted.',
+    );
+  }
+
+  /// spec 017 T403 / FR-010 — the coordinator writes the dated backup first.
+  Future<void> _onClearEntryHistoryInFile(
+    ClearEntryHistoryInFile event,
+    Emitter<VaultState> emit,
+  ) async {
+    final coordinator = entryHistoryCoordinator;
+    if (coordinator == null) {
+      _safeEmit(
+        emit,
+        state.copyWith(errorMessage: 'Unable to clear this history.'),
+      );
+      return;
+    }
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
+    final result = await coordinator.clearHistory(
+      databasePath: state.databasePath,
+      keyFilePath: _keyFilePath,
+      entryId: event.entryId,
+    );
+    final backup = result.backupPath;
+    switch (result.outcome) {
+      case EntryHistoryOutcome.done:
+        await _afterHistoryWrite(
+          emit,
+          entryId: event.entryId,
+          info:
+              'History cleared. A backup was saved as ${p.basename(backup!)}.',
+        );
+      case EntryHistoryOutcome.vaultLocked:
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            errorMessage: 'The vault is locked. Nothing was changed.',
+          ),
+        );
+      case EntryHistoryOutcome.failed:
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            errorMessage: backup == null
+                ? 'Unable to clear this history. Nothing was changed.'
+                : 'Unable to clear this history. The backup '
+                      '${p.basename(backup)} was kept.',
+          ),
+        );
+    }
+  }
+
+  /// Reload, tell the user, and re-read the history if its view is still
+  /// open on this entry.
+  Future<void> _afterHistoryWrite(
+    Emitter<VaultState> emit, {
+    required String entryId,
+    required String info,
+  }) async {
+    try {
+      await _reload(
+        emit,
+        currentGroupId: state.currentGroupId,
+        keepLoadingFlag: false,
+      );
+      await _loadRecycleBinEntries(emit, isInitialLoad: true);
+      _scheduleAutoSync();
+    } catch (e, st) {
+      logError('Failed reloading after a history write.', e, st);
+    }
+    _safeEmit(emit, state.copyWith(isSaving: false, infoMessage: info));
+    if (state.entryHistoryEntryId == entryId) {
+      add(LoadEntryHistory(entryId));
     }
   }
 

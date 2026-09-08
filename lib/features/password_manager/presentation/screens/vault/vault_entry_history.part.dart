@@ -188,6 +188,91 @@ class _EntryHistoryDialogState extends State<_EntryHistoryDialog> {
     );
   }
 
+  /// FR-009: confirmed, no backup — the confirmation is the safeguard.
+  Future<void> _delete(VaultEntryRevision revision) async {
+    final confirmed = await _confirmDestructive(
+      title: 'Delete this version?',
+      body:
+          'The version saved ${_formatEntryDateTime(revision.replacedAt)} '
+          'will be removed from this record’s history. The other versions '
+          'and the record itself are not changed. This cannot be undone.',
+      confirmLabel: 'Delete version',
+    );
+    if (!confirmed || !mounted) return;
+    _revealController.hide();
+    _bloc.add(
+      DeleteEntryRevision(
+        entryId: widget.entryId,
+        replacedAt: revision.replacedAt,
+      ),
+    );
+  }
+
+  /// FR-010: names what is destroyed and says a backup will be written.
+  Future<void> _clearAll(int count, VaultEntry currentEntry) async {
+    final confirmed = await _confirmDestructive(
+      title: 'Clear this record’s history?',
+      body:
+          'All $count previous ${count == 1 ? 'version' : 'versions'} of '
+          '“${currentEntry.title}” — every earlier password, username, '
+          'website, notes and custom field — will be removed from the vault. '
+          'The record as it stands now is not changed.\n\n'
+          'A dated backup of the vault file is written before anything is '
+          'removed, next to the vault.',
+      confirmLabel: 'Clear history',
+    );
+    if (!confirmed || !mounted) return;
+    _revealController.hide();
+    _bloc.add(ClearEntryHistoryInFile(widget.entryId));
+  }
+
+  /// SC-005 / Constitution V: every path that destroys history warns first,
+  /// and the warning is carried by a glyph and its label, not by colour.
+  Future<bool> _confirmDestructive({
+    required String title,
+    required String body,
+    required String confirmLabel,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final colors = Theme.of(dialogContext).extension<KeyVaultColors>()!;
+        return AlertDialog(
+          title: Row(
+            children: [
+              KvIcon(
+                glyph: AppGlyph.warning,
+                size: 22,
+                color: colors.attentionText,
+                semanticLabel: 'Warning',
+              ),
+              const SizedBox(width: AppSpacing.s2),
+              Expanded(child: Text(title)),
+            ],
+          ),
+          insetPadding: _dialogInsetPadding(dialogContext),
+          contentPadding: _dialogContentPadding(dialogContext),
+          content: Text(body),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: colors.attentionText,
+                foregroundColor: colors.surface,
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(confirmLabel),
+            ),
+          ],
+        );
+      },
+    );
+    return confirmed == true;
+  }
+
   Future<void> _toggleReveal(int index, String databasePath) async {
     if (_isRevealed(index)) {
       _revealController.hide();
@@ -318,12 +403,25 @@ class _EntryHistoryDialogState extends State<_EntryHistoryDialog> {
                 onRestore: state.isSaving
                     ? null
                     : () => _restore(revision, currentEntry),
+                onDelete: state.isSaving ? null : () => _delete(revision),
               );
             },
           ),
         ),
         const SizedBox(height: AppSpacing.s3),
         _retentionLine(context, history.retention),
+        const SizedBox(height: AppSpacing.s2),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            key: const ValueKey('entry-history-clear'),
+            onPressed: state.isSaving
+                ? null
+                : () => _clearAll(revisions.length, currentEntry),
+            icon: const KvIcon(glyph: AppGlyph.deleteSweep, size: 18),
+            label: const Text('Clear history'),
+          ),
+        ),
       ],
     );
   }
@@ -366,6 +464,7 @@ class _RevisionCard extends StatelessWidget {
     required this.onToggleReveal,
     required this.onCopy,
     required this.onRestore,
+    required this.onDelete,
   });
 
   final VaultEntryRevision revision;
@@ -375,6 +474,7 @@ class _RevisionCard extends StatelessWidget {
   final VoidCallback? onToggleReveal;
   final VoidCallback onCopy;
   final VoidCallback? onRestore;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -470,12 +570,21 @@ class _RevisionCard extends StatelessWidget {
                 ),
               ),
             const SizedBox(height: AppSpacing.s2),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: onRestore,
-                child: const Text('Restore this version'),
-              ),
+            // Wrap, not Row: the two labels do not fit side by side on a
+            // phone, and a second line beats an overflow.
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: AppSpacing.s1,
+              children: [
+                TextButton(
+                  onPressed: onDelete,
+                  child: const Text('Delete this version'),
+                ),
+                TextButton(
+                  onPressed: onRestore,
+                  child: const Text('Restore this version'),
+                ),
+              ],
             ),
           ],
         ),

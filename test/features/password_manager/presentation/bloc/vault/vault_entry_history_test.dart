@@ -177,6 +177,103 @@ void main() {
       expect(bloc.state.isSaving, isFalse);
     });
   });
+
+  // spec 017 T403 — delete is one service call; clear goes through the
+  // coordinator and names the backup.
+  group('DeleteEntryRevision', () {
+    final replacedAt = DateTime.utc(2026, 3, 1);
+
+    test('deletes, reloads and tells the user', () async {
+      final kdbx = FakeVaultKdbxService(snapshot: nestedSnapshot());
+      final bloc = buildTestVaultBloc(snapshot: nestedSnapshot(), kdbx: kdbx);
+      addTearDown(bloc.close);
+      bloc.add(const InitializeVault());
+      bloc.add(const LoadEntryHistory('e-root'));
+      await Future<void>.delayed(Duration.zero);
+
+      bloc.add(DeleteEntryRevision(entryId: 'e-root', replacedAt: replacedAt));
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(kdbx.deletedRevisions, [('e-root', replacedAt)]);
+      expect(bloc.state.infoMessage, 'Previous version deleted.');
+      expect(bloc.state.isSaving, isFalse);
+      expect(kdbx.historyReads, ['e-root', 'e-root']);
+    });
+
+    test('a failing delete reports a safe message', () async {
+      final kdbx = FakeVaultKdbxService(snapshot: nestedSnapshot())
+        ..deleteRevisionError = StateError('boom');
+      final bloc = buildTestVaultBloc(snapshot: nestedSnapshot(), kdbx: kdbx);
+      addTearDown(bloc.close);
+
+      bloc.add(DeleteEntryRevision(entryId: 'e-root', replacedAt: replacedAt));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(bloc.state.errorMessage, 'Unable to delete this version.');
+      expect(bloc.state.errorMessage, isNot(contains('boom')));
+      expect(bloc.state.isSaving, isFalse);
+    });
+  });
+
+  group('ClearEntryHistoryInFile', () {
+    test('done names the backup', () async {
+      final coordinator = _FakeEntryHistoryCoordinator(
+        EntryHistoryOutcome.done,
+      );
+      final bloc = buildTestVaultBloc(
+        snapshot: nestedSnapshot(),
+        entryHistoryCoordinator: coordinator,
+      );
+      addTearDown(bloc.close);
+      bloc.add(const InitializeVault());
+      await Future<void>.delayed(Duration.zero);
+
+      bloc.add(const ClearEntryHistoryInFile('e-root'));
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(coordinator.clears, ['e-root']);
+      expect(
+        bloc.state.infoMessage,
+        'History cleared. A backup was saved as '
+        'vault.20260301-120000-000000.pre-clear-history.kdbx.',
+      );
+    });
+
+    test('failed after the backup says the backup was kept', () async {
+      final bloc = buildTestVaultBloc(
+        snapshot: nestedSnapshot(),
+        entryHistoryCoordinator: _FakeEntryHistoryCoordinator(
+          EntryHistoryOutcome.failed,
+        ),
+      );
+      addTearDown(bloc.close);
+
+      bloc.add(const ClearEntryHistoryInFile('e-root'));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(bloc.state.errorMessage, contains('was kept'));
+      expect(bloc.state.isSaving, isFalse);
+    });
+
+    test('vaultLocked reports without writing', () async {
+      final coordinator = _FakeEntryHistoryCoordinator(
+        EntryHistoryOutcome.vaultLocked,
+      );
+      final bloc = buildTestVaultBloc(
+        snapshot: nestedSnapshot(),
+        entryHistoryCoordinator: coordinator,
+      );
+      addTearDown(bloc.close);
+
+      bloc.add(const ClearEntryHistoryInFile('e-root'));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(bloc.state.errorMessage, contains('locked'));
+      expect(bloc.state.infoMessage, isNull);
+    });
+  });
 }
 
 class _FakeEntryHistoryCoordinator implements EntryHistoryCoordinator {
@@ -184,6 +281,7 @@ class _FakeEntryHistoryCoordinator implements EntryHistoryCoordinator {
 
   final EntryHistoryOutcome outcome;
   final List<(String, DateTime)> restores = [];
+  final List<String> clears = [];
 
   @override
   Future<EntryHistoryRestoreResult> restore({
@@ -194,6 +292,23 @@ class _FakeEntryHistoryCoordinator implements EntryHistoryCoordinator {
   }) async {
     restores.add((entryId, replacedAt));
     return EntryHistoryRestoreResult(outcome);
+  }
+
+  @override
+  Future<EntryHistoryClearResult> clearHistory({
+    required String databasePath,
+    String? keyFilePath,
+    required String entryId,
+  }) async {
+    clears.add(entryId);
+    // The coordinator reports the backup whenever it was written, which
+    // for these fakes is every outcome but a locked vault.
+    return EntryHistoryClearResult(
+      outcome,
+      backupPath: outcome == EntryHistoryOutcome.vaultLocked
+          ? null
+          : '/tmp/vault.20260301-120000-000000.pre-clear-history.kdbx',
+    );
   }
 
   @override
