@@ -27,6 +27,8 @@ import 'package:password_manager/features/password_manager/data/services/safe_va
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_entry_revision.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 // `KdbxNode.node` is a public, exported `XmlElement`: constructs the library
 // does not model (entry colors' RGB value, entry AutoType) are read and
@@ -1958,6 +1960,167 @@ void main() {
         ),
         throwsA(anything),
       );
+    });
+  });
+
+  group('restoreEntryRevision (spec 017 T301)', () {
+    Future<String> createEntry({
+      List<VaultCustomField> customFields = const [],
+    }) async {
+      final groupId = await _rootGroupId(service, databasePath, password);
+      return service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: groupId,
+        title: 'Mail 0',
+        username: 'ada',
+        entryPassword: 'p0',
+        url: 'https://mail.example',
+        notes: 'notes 0',
+        customFields: customFields,
+      );
+    }
+
+    Future<void> editEntry(String entryId, int revision) {
+      return service.updateEntry(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        title: 'Mail $revision',
+        username: 'ada',
+        entryPassword: 'p$revision',
+        url: 'https://mail.example',
+        notes: 'notes $revision',
+      );
+    }
+
+    Future<VaultEntryHistory> history(String entryId) =>
+        service.loadEntryHistory(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+        );
+
+    Future<VaultEntry> current(String entryId) async =>
+        (await service.loadAllEntries(
+          databasePath: databasePath,
+          password: password,
+        )).firstWhere((entry) => entry.id == entryId);
+
+    // FR-007: reversibility is a property of the KDBX writer, asserted here
+    // rather than assumed — the pre-restore state must land in history.
+    test(
+      'restores the fields and keeps the pre-restore state in history',
+      () async {
+        final entryId = await createEntry();
+        await editEntry(entryId, 1);
+        await editEntry(entryId, 2);
+        final oldest = (await history(entryId)).revisions.last;
+        expect(oldest.password, 'p0');
+
+        await service.restoreEntryRevision(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          replacedAt: oldest.replacedAt,
+        );
+
+        final entry = await current(entryId);
+        expect(entry.title, 'Mail 0');
+        expect(entry.password, 'p0');
+        expect(entry.notes, 'notes 0');
+        final after = await history(entryId);
+        expect(after.revisions, hasLength(3));
+        expect(after.revisions.first.password, 'p2');
+      },
+    );
+
+    test('restores the OTP carried in the custom fields', () async {
+      final entryId = await createEntry(
+        customFields: const [
+          VaultCustomField(key: 'otp', value: 'otpauth://totp/Mail?secret=A'),
+        ],
+      );
+      await editEntry(entryId, 1); // updateEntry with no custom fields drops it
+      expect((await current(entryId)).otpUri, isNull);
+      final revision = (await history(entryId)).revisions.single;
+
+      await service.restoreEntryRevision(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        replacedAt: revision.replacedAt,
+      );
+
+      expect((await current(entryId)).otpUri, 'otpauth://totp/Mail?secret=A');
+    });
+
+    // FR-006a: attachments are outside the restore.
+    test('leaves attachments unchanged', () async {
+      final entryId = await createEntry();
+      await editEntry(entryId, 1);
+      final attachment = File('${tempDir.path}/key.pem');
+      await attachment.writeAsBytes(const [1, 2, 3]);
+      await service.addAttachment(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        filePath: attachment.path,
+      );
+      final revision = (await history(entryId)).revisions.last;
+      expect(revision.attachmentNames, isEmpty);
+
+      await service.restoreEntryRevision(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        replacedAt: revision.replacedAt,
+      );
+
+      final entry = await current(entryId);
+      expect(entry.password, 'p0');
+      expect(entry.attachments.map((a) => a.name), ['key.pem']);
+    });
+
+    test('an unknown timestamp throws and writes nothing', () async {
+      final entryId = await createEntry();
+      await editEntry(entryId, 1);
+      final before = await File(databasePath).readAsBytes();
+
+      await expectLater(
+        service.restoreEntryRevision(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          replacedAt: DateTime.utc(1999),
+        ),
+        throwsStateError,
+      );
+
+      expect(await File(databasePath).readAsBytes(), before);
+      expect((await current(entryId)).password, 'p1');
+    });
+
+    // FR-011: the write goes through the protected writer.
+    test('a writer failure leaves the file untouched', () async {
+      final entryId = await createEntry();
+      await editEntry(entryId, 1);
+      final revision = (await history(entryId)).revisions.single;
+      final before = await File(databasePath).readAsBytes();
+
+      await expectLater(
+        VaultKdbxService(
+          safeWriter: _FailingSafeVaultFileWriter(),
+        ).restoreEntryRevision(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          replacedAt: revision.replacedAt,
+        ),
+        throwsException,
+      );
+
+      expect(await File(databasePath).readAsBytes(), before);
     });
   });
 }

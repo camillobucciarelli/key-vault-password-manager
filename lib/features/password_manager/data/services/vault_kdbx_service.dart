@@ -406,6 +406,55 @@ class VaultKdbxService {
     });
   }
 
+  /// spec 017 T301 — put a revision's fields back on the entry, with the same
+  /// setters [updateEntry] uses so the KDBX writer appends the pre-restore
+  /// state to history (D5, FR-007). The OTP secret rides along in the custom
+  /// fields, where it lives. Attachments are not touched (FR-006a).
+  ///
+  /// Throws when no revision of [entryId] carries [replacedAt].
+  Future<void> restoreEntryRevision({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+    required DateTime replacedAt,
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
+
+      final entry = _findEntryById(
+        file.body.rootGroup.getAllEntries(),
+        entryId,
+      );
+      // ponytail: KDBX times are whole seconds, so two revisions can share a
+      // timestamp; the first match wins. Add a position tiebreak if it bites.
+      final revision = entry.history
+          .map((candidate) => _mapRevision(entryId, candidate))
+          .firstWhere(
+            (candidate) => candidate.replacedAt == replacedAt.toUtc(),
+            orElse: () => throw StateError(
+              'No revision of entry $entryId at $replacedAt',
+            ),
+          );
+
+      entry.setString(KdbxKeyCommon.TITLE, PlainValue(revision.title));
+      entry.setString(KdbxKeyCommon.USER_NAME, PlainValue(revision.username));
+      entry.setString(
+        KdbxKeyCommon.PASSWORD,
+        ProtectedValue.fromString(revision.password),
+      );
+      entry.setString(KdbxKeyCommon.URL, PlainValue(revision.url));
+      entry.setString(_notesKey, PlainValue(revision.notes));
+      _setCustomFields(entry, revision.customFields);
+
+      await _save(databasePath, file);
+    });
+  }
+
   Future<void> mergeEntries({
     required String databasePath,
     required String password,

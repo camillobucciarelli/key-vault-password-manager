@@ -84,7 +84,7 @@ checked. Tick a box only when its own acceptance holds and its tests pass.
 
 **Independent test**: quickstart.md section B.
 
-- [ ] **T301** [US2] Restore a revision in the file — owner: `senior-flutter-dev`
+- [x] **T301** [US2] Restore a revision in the file — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/data/services/vault_kdbx_service.dart`,
   `test/features/password_manager/data/services/vault_kdbx_service_test.dart`.
   Acceptance: `restoreEntryRevision` writes the revision's title, username,
