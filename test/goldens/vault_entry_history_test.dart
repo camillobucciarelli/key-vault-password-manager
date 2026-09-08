@@ -19,7 +19,7 @@ import 'golden_asset_warmup.dart';
 /// Fixed fake secrets (Constitution IV): the revealed golden photographs
 /// [_revealedSecret], and nothing else ever should.
 const _revealedSecret = 'Fixture-Old-Pass-9z';
-const _olderSecret = 'Fixture-Older-Pass-8y';
+const _olderSecret = 'fixture-older-password';
 
 /// Three revisions of the GitHub fixture: a password change, a
 /// notes-and-custom-field change, and one with a different attachment set.

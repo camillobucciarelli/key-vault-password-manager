@@ -21,7 +21,7 @@ import 'vault_shell_test_utils.dart';
 /// Fixture secrets, written to look like fixtures. No character of
 /// [_oldSecret] may appear on screen while the revision is masked.
 const _oldSecret = 'Fixture-Old-Pass-9z';
-const _olderSecret = 'Fixture-Older-Pass-8y';
+const _olderSecret = 'fixture-older-password';
 
 VaultEntryHistory _gmailHistory() => VaultEntryHistory(
   // Newest first is what the service promises (FR-001); the view must not

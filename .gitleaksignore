@@ -5,3 +5,8 @@ c5ed2192a339013701a3b0b0ebf63772ae37740f:test/features/password_manager/presenta
 c5ed2192a339013701a3b0b0ebf63772ae37740f:test/features/password_manager/data/repositories/database_session_repository_impl_test.dart:generic-api-key:64
 # Spec 014 FR-3 test fixture: hex-looking legacy key filename, not a secret.
 21a7426839ddf7600815a2e71dbcf3fb330489fa:test/features/password_manager/data/datasources/key_file_names_data_source_test.dart:generic-api-key:80
+# Spec 017 test fixture: a made-up historical password (renamed at HEAD to a
+# low-entropy value); these fingerprints cover the commits it appeared in.
+0c0135d8d84fcabc9218c22d3b69c265e4719c1a:test/features/password_manager/presentation/screens/vault/vault_entry_history_test.dart:generic-api-key:22
+da6011494ef36238ed7e09cad00f286a1dd3467c:test/goldens/vault_entry_history_test.dart:generic-api-key:22
+2782fd24522790749e7b9c69d8d478e315f0d995:test/features/password_manager/presentation/screens/vault_entry_history_a11y_test.dart:generic-api-key:96

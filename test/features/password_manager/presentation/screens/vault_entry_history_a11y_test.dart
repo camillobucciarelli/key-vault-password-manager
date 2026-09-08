@@ -93,7 +93,7 @@ VaultEntryHistory _history() => VaultEntryHistory(
       replacedAt: DateTime.utc(2026, 1, 4, 8),
       title: 'GitHub',
       username: 'camillo@bucciarelli.dev',
-      password: 'Fixture-Older-Pass-8y',
+      password: 'fixture-older-password',
       url: 'https://github.com',
       notes: '',
     ),
