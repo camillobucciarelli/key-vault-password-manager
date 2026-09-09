@@ -1,6 +1,6 @@
 # 023 — Passkey management
 
-**Status**: Draft · **Kind**: Feature / Credentials
+**Status**: Planned (slices 1–2) · **Kind**: Feature / Credentials
 **Created**: 2026-08-29
 **Depends on**: 004 (entry editor), 006 (security & autofill extension), 008 (per-field conflict resolution — merge of the new fields)
 **Coordinates with**: 016 (Android autofill; passkeys were declared out of scope there), 005 (CSV import must not be able to inject passkey fields; attachment and backup export must not leak them), 017 (password history must not record passkey material), 019 (vault navigation model 1a — the entry detail surface the passkey section lands on), 020–022 (pixel passes; a new entry-detail section must be added in the restyled tokens, not ahead of them)
@@ -24,17 +24,20 @@ credentials, in three independently shippable slices:
    exist in the vault (typically created by KeePassXC on the desktop), without
    ever exposing the private key to the UI, the logs, an export or the
    plaintext caches.
-2. **Use them** — sign in with a stored passkey on iOS and macOS through the
-   existing AutoFill credential provider extension.
-3. **Create them** — register a brand-new passkey from the same extension, so a
+2. **Use them** — sign in with a stored passkey on every supported platform:
+   iOS and macOS through the existing AutoFill credential provider extension,
+   Android through a Credential Manager provider, Windows and Linux through the
+   desktop browser extension and native host.
+3. **Create them** — register a brand-new passkey from the Apple extension, so a
    site's "create a passkey" flow can choose KeyVault.
 
 Slice 1 alone delivers value (a KeePassXC user's vault stops being partially
-unreadable and unsafely handled in KeyVault); slices 2 and 3 turn KeyVault into
-a usable authenticator on Apple platforms.
+unreadable and unsafely handled in KeyVault); slice 2 turns KeyVault into a
+usable authenticator; slice 3 removes the dependency on KeePassXC for creating
+passkeys.
 
-Android (Credential Manager) and desktop browsers (WebAuthn interception in the
-browser extension) are deliberately **not** in this spec — see *Deferred scope*.
+**Beta scope**: slices 1 and 2. Slice 3 is specified here but not scheduled for
+the current beta.
 
 ### Why the private key needs new plumbing
 
@@ -52,8 +55,17 @@ this feature, not a checklist item at the end.
 
 - Q: Is user presence required on every assertion, or may a recent unlock satisfy it? → A: Every assertion — biometrics or device passcode each time; do not reuse the password autofill recent-unlock window.
 - Q: Where does passkey private key material live when the app is not running? → A: In the same sealed, device-local cache already used for passwords (excluded from backups), wiped when the database is locked or removed.
-- Q: Does Android's Credential Manager belong in this spec or its own? → A: Its own spec — 023 stops at Apple.
+- Q: Does Android's Credential Manager belong in this spec or its own? → A: Its own spec — 023 stops at Apple. *(Superseded on 2026-09-09, see below.)*
 - Q: Where is the key pair generated at registration? → A: In the credential provider extension using the platform cryptography APIs; this spec adds no Dart cryptography dependency.
+
+### Session 2026-09-09
+
+- Q: Which slices ship in the current beta, and on which targets? → A: Slices 1 and 2 (hold + sign-in) on every target: iOS and macOS via the credential provider extension, Android via a Credential Manager provider (API 34+, with a plain "not available on this device" state below it), Windows and Linux via the browser extension intercepting the site's WebAuthn sign-in call and the native host signing. Slice 3 (registration) stays in the spec but is not part of the beta.
+- Q: Does deleting a passkey ask first and back up, like the other destructive operations? → A: Yes — explicit confirmation stating the passkey cannot be recovered, and a dated local copy of the `.kdbx` written before the save, on the same path "empty bin" and merge use.
+- Q: Does cached passkey material have its own expiry? → A: No — same lifetime as the cached passwords; it is removed only when the database is locked or removed (FR-023). No separate "cache expired" state.
+- Q: How are passkey entries made findable, and what happens when a passkey-only entry and a password entry exist for the same site? → A: A passkey badge on the entry in the list and in the detail; no dedicated filter or search term. A passkey is an attribute of the ordinary entry (same record as user and password). When two existing entries for the same site split the two, Vault health's duplicate detection offers to merge them into one entry; the merge runs only on the user's confirmation, with a backup, never automatically on open.
+- Q: Where is the user told that a passkey's security is the vault's, not hardware isolation? → A: A fixed note in the passkey section of the entry detail; no one-time dialog and no persisted "already shown" state.
+- Q: Is field protection only passkey plumbing, or a user choice? → A: A user choice on every custom field. In insert and edit the user marks a custom field as secret; a secret field is stored protected in the file and treated like the password in view: masked, revealed through the same gate, copied through the same clipboard guard, never in logs. Fields that arrive protected from another client show as secret. Today's writer silently downgrades every protected custom field to plain on save; that is fixed in the same change.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -85,9 +97,11 @@ cleanly in KeePassXC.
 2. **Given** that entry, **When** the user attempts any copy, reveal, export or
    share action available on the entry, **Then** no action yields the private
    key or the credential seed.
-3. **Given** that entry, **When** the user deletes the passkey and saves,
-   **Then** the passkey fields are removed, all other fields are unchanged, and
-   KeePassXC opens the resulting file without error or warning.
+3. **Given** that entry, **When** the user deletes the passkey, **Then** the
+   app first asks for confirmation stating the passkey cannot be recovered and
+   writes a dated local copy of the vault; after the save the passkey fields are
+   removed, all other fields are unchanged, and KeePassXC opens the resulting
+   file without error or warning.
 4. **Given** two devices syncing the same vault where one added a passkey,
    **When** the vaults merge, **Then** the passkey arrives intact and the merge
    preview describes it as a passkey rather than listing its raw field values.
@@ -96,36 +110,95 @@ cleanly in KeePassXC.
 
 ---
 
-### User Story 2 - Sign in with a stored passkey on iOS and macOS (Priority: P2)
+### User Story 1b - Secret custom fields (Priority: P1)
 
-A user visits a site or app on iPhone or Mac that asks for a passkey. The system
-offers KeyVault among the credential providers; the user picks the KeyVault
-passkey for that site, confirms with biometrics or device passcode, and is
-signed in without typing anything.
+A user adds a custom field to an entry (a recovery code, a PIN, a security
+answer) and marks it as secret. From then on the field behaves like the
+password: stored protected in the file, masked in the entry detail, revealed
+through the same gate as the password, copied through the same clipboard
+guard, and never shown in a log or diagnostic. A custom field that another
+client already stored protected is shown as secret without the user doing
+anything.
 
-**Why this priority**: It is the payoff of holding the credential, and it reuses
-the credential provider extension that already exists for passwords, so it is
-the cheapest platform to reach.
+**Why this priority**: The passkey private key is a protected custom field, so
+the plumbing is shared; and today KeyVault silently strips the protection from
+any protected custom field on save, which is a data-safety bug with or without
+passkeys.
+
+**Independent Test**: Create a custom field marked secret, save, reopen in
+KeePassXC and confirm the attribute is protected; edit the entry's title in
+KeyVault, save, confirm the attribute is still protected; open the entry in
+KeyVault and confirm the value is masked until revealed.
+
+**Acceptance Scenarios**:
+
+1. **Given** the entry editor, **When** the user adds a custom field, **Then**
+   a per-field "secret" toggle is available, off by default.
+2. **Given** a custom field marked secret, **When** the entry is saved,
+   **Then** the field is stored protected in the file and another KeePass
+   client shows it as protected.
+3. **Given** an entry with a protected custom field written by another client,
+   **When** the user opens it in KeyVault, **Then** the field is shown as
+   secret and masked; **When** the user edits any other field and saves,
+   **Then** the field is still protected in the file.
+4. **Given** a secret custom field in the entry detail, **When** the user
+   reveals or copies it, **Then** the same reveal gate and clipboard guard as
+   the password apply, including auto-hide and clipboard clearing.
+5. **Given** a secret custom field, **When** the user turns the toggle off in
+   the editor and saves, **Then** the field is stored plain, after a
+   confirmation that says it will no longer be protected.
+
+---
+
+### User Story 2 - Sign in with a stored passkey on every platform (Priority: P2)
+
+A user visits a site or app that asks for a passkey. KeyVault is offered as the
+passkey source for that platform; the user picks the KeyVault passkey for that
+site, confirms with biometrics or device passcode, and is signed in without
+typing anything.
+
+The platform paths are:
+
+- **iOS and macOS**: the existing AutoFill credential provider extension.
+- **Android**: a Credential Manager provider, available on API 34 and later. On
+  an older device the app states plainly that passkey sign-in is not available
+  there; passkeys stay visible and manageable (Story 1).
+- **Windows and Linux**: the desktop browser extension intercepts the site's
+  passkey sign-in request in the page and the native host signs with the vault
+  credential. Only sites open in a browser with the extension installed are
+  served; native desktop apps are not.
+
+**Why this priority**: It is the payoff of holding the credential. Apple reuses
+the extension that already serves passwords; Android and desktop reuse the
+autofill integrations of specs 016 and 009 for their plumbing.
 
 **Independent Test**: With a passkey for a test relying party in the vault,
-trigger a passkey sign-in on iOS and on macOS and confirm the sign-in completes
+trigger a passkey sign-in on each platform and confirm the sign-in completes
 using KeyVault, and that a passkey for a *different* relying party is never
-offered or usable for that site.
+offered or usable for that site. On an Android device below API 34, confirm the
+"not available" state is shown and no provider is registered.
 
 **Acceptance Scenarios**:
 
 1. **Given** the vault holds a passkey for a site, **When** the site requests a
    passkey sign-in, **Then** KeyVault appears as an available provider and lists
    only passkeys whose relying party matches that site.
-2. **Given** the user selects a KeyVault passkey, **When** the user confirms with
+2. **Given** an Android device below API 34, **When** the user looks for passkey
+   sign-in, **Then** the app says it is not available on this device and no
+   Credential Manager provider is registered.
+3. **Given** a site open in a desktop browser with the extension installed,
+   **When** the site requests a passkey sign-in, **Then** the extension offers
+   the matching KeyVault passkeys and the response is signed by the native host,
+   with the private key never sent to the extension.
+4. **Given** the user selects a KeyVault passkey, **When** the user confirms with
    biometrics or device passcode, **Then** the sign-in succeeds.
-3. **Given** the user cancels or fails the confirmation, **When** the flow ends,
+5. **Given** the user cancels or fails the confirmation, **When** the flow ends,
    **Then** no assertion is produced and the site receives a cancellation, not an
    error implying the credential is missing.
-4. **Given** the vault holds no passkey for the requesting site, **When** the
+6. **Given** the vault holds no passkey for the requesting site, **When** the
    request arrives, **Then** KeyVault offers nothing for that request and does
    not present a misleading empty list.
-5. **Given** a passkey sign-in has completed, **When** the flow ends, **Then** no
+7. **Given** a passkey sign-in has completed, **When** the flow ends, **Then** no
    private key remains outside its protected storage.
 
 ---
@@ -186,7 +259,9 @@ correct site and account, and that signing in with it afterwards succeeds.
   let a merge produce a credential assembled from two different passkeys.
 - **Import paths.** CSV import must not be able to inject a passkey field set,
   and the duplicate detector must not treat two different passkeys as duplicates
-  because their surrounding fields match.
+  because their surrounding fields match. It may, however, pair a passkey-only
+  entry with a password entry for the same site and account and offer the merge
+  of FR-011a.
 - **Read-only or failed save.** If the vault cannot be written, a registration
   must fail before the site is told it succeeded.
 
@@ -200,8 +275,16 @@ correct site and account, and that signing in with it afterwards succeeds.
   field layout that KeePassXC reads as a passkey, and MUST read passkeys written
   by KeePassXC without conversion or migration.
 - **FR-002**: The system MUST store the passkey's private key material as a
-  protected value in the vault file, distinct from ordinary custom fields, which
-  are stored unprotected today.
+  protected value in the vault file.
+- **FR-002a**: Every custom field MUST carry a user-visible "secret" state.
+  The system MUST read that state from the file's protection attribute, MUST
+  write it back as read (never downgrading a protected field to plain on an
+  unrelated save), and MUST let the user set or clear it per field in the
+  entry editor. Clearing it MUST ask for confirmation.
+- **FR-002b**: A secret custom field MUST be handled like the password in
+  every view: masked by default, revealed through the same gate, copied through
+  the same clipboard guard, absent from logs and diagnostics, and represented
+  by name only in merge previews and history diffs.
 - **FR-003**: The system MUST preserve any passkey-related field it does not
   recognise, byte-for-byte, across open, edit and save of the entry.
 - **FR-004**: The system MUST keep an entry's passkey intact across sync, merge,
@@ -226,25 +309,46 @@ correct site and account, and that signing in with it afterwards succeeds.
 **Management in the app**
 
 - **FR-009**: Users MUST be able to see, on an entry that holds a passkey, that a
-  passkey exists and which relying party and account it belongs to.
+  passkey exists and which relying party and account it belongs to. The passkey
+  section MUST carry a fixed note stating that the passkey is protected by the
+  vault (master password, key file and sync destination), not by hardware key
+  isolation.
 - **FR-010**: Users MUST be able to delete a passkey from an entry without
-  affecting the entry's other fields.
-- **FR-011**: The system MUST make entries holding passkeys findable — a user
-  MUST be able to tell from the vault which of their credentials are passkeys.
+  affecting the entry's other fields. Deletion is destructive and irreversible
+  (no history is kept, FR-007): the system MUST ask for explicit confirmation
+  that states the passkey cannot be recovered, and MUST write a dated local copy
+  of the vault before the save, as the other destructive operations do
+  (constitution VII).
+- **FR-011**: The system MUST mark entries holding passkeys with a passkey badge
+  in the vault list and in the entry detail, so a user can tell which of their
+  credentials are passkeys. No dedicated filter or search term is added.
+- **FR-011a**: A passkey is an attribute of an ordinary entry, alongside its
+  username and password. When the vault holds a passkey-only entry and a
+  password entry for the same site and account, Vault health's duplicate
+  detection MUST offer to merge them into one entry holding both; the merge
+  MUST run only on the user's confirmation and with the dated backup of
+  constitution VII, and MUST NOT happen automatically on open.
 - **FR-012**: The system MUST show a passkey it cannot interpret as unusable, and
   MUST explain that it cannot be used for sign-in, rather than failing silently.
 
-**Sign-in (Apple platforms)**
+**Sign-in (all platforms)**
 
-- **FR-013**: The system MUST offer KeyVault as a passkey provider on iOS and
-  macOS for sign-in requests.
+- **FR-013**: The system MUST offer KeyVault as a passkey source for sign-in
+  requests on iOS and macOS (credential provider extension), Android API 34+
+  (Credential Manager provider), and Windows and Linux (browser extension +
+  native host). On Android below API 34 the system MUST state that passkey
+  sign-in is not available on the device and MUST NOT register a provider.
+- **FR-013a**: On Windows and Linux the private key MUST stay in the native host
+  process; the browser extension receives only the signed response and the
+  metadata needed to list matching passkeys.
 - **FR-014**: The system MUST offer, for a given request, only passkeys whose
   relying party matches the requesting site, and MUST NOT allow a passkey for one
   relying party to be used for another.
 - **FR-015**: The system MUST require user presence — biometrics or device
-  passcode — before producing **each** assertion. A recent successful vault
-  unlock MUST NOT satisfy this requirement, even though the password autofill
-  path reuses such a window today.
+  passcode, or on Windows and Linux an explicit in-app confirmation — before
+  producing **each** assertion. A recent successful vault unlock MUST NOT
+  satisfy this requirement, even though the password autofill path reuses such
+  a window today.
 - **FR-016**: The system MUST produce an assertion that the requesting site
   accepts as a valid WebAuthn response for the stored credential.
 - **FR-017**: On cancellation, failed confirmation, locked vault or missing
@@ -267,13 +371,16 @@ correct site and account, and that signing in with it afterwards succeeds.
 **Availability of the credential to the platform**
 
 - **FR-022**: Passkey private key material MUST be held in the same encrypted,
-  sealed cache the app already uses for passwords — device-local, readable only
-  while the device is unlocked, and excluded from device backups — so that a
-  system passkey request can be served while the app is not running. It MUST
-  NOT appear in the plaintext routing/display cache.
+  sealed cache the app already uses for passwords on that platform — device-local,
+  readable only while the device is unlocked, and excluded from device backups —
+  so that a system passkey request can be served while the app is not running.
+  It MUST NOT appear in the plaintext routing/display cache. On Windows and Linux,
+  where the native host serves requests only while the app has an unlocked
+  vault, no such cache is introduced.
 - **FR-023**: The system MUST remove a database's passkey material from that
   cache when the database is locked or removed, so a user has a way to stop a
-  device from being able to answer passkey requests.
+  device from being able to answer passkey requests. Cached passkey material has
+  the same lifetime as cached passwords and no separate expiry.
 
 ### Key Entities *(include if data involved)*
 
@@ -284,9 +391,11 @@ correct site and account, and that signing in with it afterwards succeeds.
 - **Vault entry**: The existing container. Gains the ability to hold passkeys
   alongside its password, custom fields and attachments, and to declare that it
   holds one.
-- **Protected custom field**: An entry field whose value is stored encrypted in
-  the vault file and is excluded from display, copy and export. New concept —
-  today every custom field is unprotected.
+- **Secret custom field**: An entry field whose value is stored protected in
+  the vault file. User-selectable per field; masked and gated like the password
+  in the app. The passkey's secret fields are secret custom fields the app
+  manages itself and never lists among the editable ones. New concept — today
+  every custom field is written unprotected.
 - **Passkey request**: A system-originated ask from a site — either "sign in" or
   "create" — carrying the relying party and, for sign-in, the acceptable
   credential identifiers.
@@ -302,8 +411,9 @@ correct site and account, and that signing in with it afterwards succeeds.
   artefact, yields passkey secret material — verified by an automated check that
   fails the build if a passkey secret reaches display, clipboard, export or log
   paths.
-- **SC-003**: A user can complete a passkey sign-in on iOS or macOS in under 15
-  seconds from the moment the site asks, without leaving the requesting app.
+- **SC-003**: A user can complete a passkey sign-in on each supported platform
+  in under 15 seconds from the moment the site asks, without leaving the
+  requesting app or browser.
 - **SC-004**: A passkey created in KeyVault is accepted by the site at
   registration and works for a subsequent sign-in on at least three independent
   relying parties used as conformance targets.
@@ -313,6 +423,8 @@ correct site and account, and that signing in with it afterwards succeeds.
   credentials across the interruption test matrix (cancel, lock, write failure).
 - **SC-007**: Opening and saving an entry that holds a passkey that KeyVault does not
   fully understand changes no byte of that passkey's stored fields.
+- **SC-008**: For any custom field, the protection attribute in the file after
+  an unrelated save equals the attribute before it — asserted for both states.
 
 ## Assumptions
 
@@ -321,10 +433,15 @@ correct site and account, and that signing in with it afterwards succeeds.
   vaults stay usable in both applications.
 - The security model of a passkey held here is the vault's security model —
   master password, key file and the sync destination — not hardware-backed key
-  isolation. This is a deliberate trade for portability and must be stated to the
-  user, not implied.
+  isolation. This is a deliberate trade for portability and is stated to the
+  user in the passkey section of the entry detail (FR-009).
 - Apple platforms are reached through the credential provider extension that
   already serves passwords; no second extension is introduced.
+- Android is reached through a Credential Manager provider added to the app;
+  the autofill service of spec 016 is untouched.
+- Windows and Linux are reached through the existing browser extension and
+  native host; the extension's permission change needed to intercept the page's
+  passkey request is user-visible and must be explained on update.
 - Existing user-facing copy and the current password autofill behaviour are
   unchanged by this feature (constitution VI).
 - The three existing BLoCs are sufficient; passkey work is expected to live in
@@ -343,15 +460,9 @@ correct site and account, and that signing in with it afterwards succeeds.
 
 Out of scope for 023, each to be its own spec if adopted:
 
-- **Android.** Passkeys are served by the Credential Manager provider API, a
-  different integration from the autofill service completed in spec 016, which
-  explicitly excluded them. It also has a floor of its own: a Credential Manager
-  provider needs a newer Android than this app's declared minimum, so a large
-  part of the supported range needs a "not available here" story that belongs in
-  that spec, not in a user story here.
-- **Desktop browsers.** Serving passkeys to a browser requires intercepting the
-  site's WebAuthn calls in the browser extension — a large compatibility and
-  security surface, and a change to the extension's permissions.
-- **Windows and Linux system-level passkey providers.**
+- **Passkey registration on Android, Windows and Linux.** Slice 3 covers the
+  Apple extension only.
+- **Windows and Linux system-level passkey providers** (serving native desktop
+  apps rather than browser pages).
 - **Attestation statements**, enterprise attestation and device-bound keys.
 - **Passkey export/backup as a standalone artefact** outside the `.kdbx`.
