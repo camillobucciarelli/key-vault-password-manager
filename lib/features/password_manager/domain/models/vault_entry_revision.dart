@@ -20,6 +20,7 @@ class VaultEntryRevision extends Equatable {
     required this.notes,
     this.customFields = const [],
     this.attachmentNames = const [],
+    this.passkeyDigest,
     this.otpUri,
     this.ordinal = 0,
   });
@@ -49,6 +50,10 @@ class VaultEntryRevision extends Equatable {
   /// does not move them (FR-006a).
   final List<String> attachmentNames;
 
+  /// Fingerprint of the revision's passkey fields, as [VaultEntry.passkeyDigest].
+  /// A revision never carries the passkey material itself (spec 023 FR-007).
+  final String? passkeyDigest;
+
   /// Derived from [customFields], exactly as [VaultEntry.otpUri] is.
   final String? otpUri;
 
@@ -64,6 +69,7 @@ class VaultEntryRevision extends Equatable {
     RedactedValue(notes, redaction: '<redacted notes>'),
     customFields,
     attachmentNames,
+    passkeyDigest,
     otpUri == null
         ? null
         : RedactedValue(otpUri, redaction: '<redacted otpUri>'),
@@ -97,6 +103,7 @@ enum VaultEntryField {
   customFields,
   attachments,
   otpUri,
+  passkey,
 }
 
 /// What the revision list shows without revealing anything.
@@ -195,6 +202,7 @@ Map<VaultEntryField, String?> _fieldsOfRevision(VaultEntryRevision revision) {
     VaultEntryField.customFields: _customFieldsKey(revision.customFields),
     VaultEntryField.attachments: _namesKey(revision.attachmentNames),
     VaultEntryField.otpUri: revision.otpUri,
+    VaultEntryField.passkey: revision.passkeyDigest,
   };
 }
 
@@ -210,6 +218,7 @@ Map<VaultEntryField, String?> _fieldsOfEntry(VaultEntry entry) {
       entry.attachments.map((attachment) => attachment.name),
     ),
     VaultEntryField.otpUri: entry.otpUri,
+    VaultEntryField.passkey: entry.passkeyDigest,
   };
 }
 

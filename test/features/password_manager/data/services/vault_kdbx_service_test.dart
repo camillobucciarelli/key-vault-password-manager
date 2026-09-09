@@ -35,6 +35,8 @@ import 'package:password_manager/features/password_manager/domain/repositories/d
 // written straight through it, with no implementation import needed.
 import 'package:xml/xml.dart';
 
+import '../../../../fixtures/passkeys/vectors.dart';
+
 void main() {
   const password = 'test-password';
 
@@ -618,6 +620,197 @@ void main() {
     expect(entry.createdAt, isNotNull);
     expect(entry.updatedAt, isNotNull);
     expect(entry.lastPasswordChangedAt, entry.createdAt);
+  });
+
+  group('passkey fields (spec 023 T013)', () {
+    const pemKey = 'KPEX_PASSKEY_PRIVATE_KEY_PEM';
+    const passkeyStrings = {
+      'KPEX_PASSKEY_RELYING_PARTY': ('webauthn.io', false),
+      'KPEX_PASSKEY_CREDENTIAL_ID': ('AQID', true),
+      'KPEX_PASSKEY_USER_HANDLE': ('BAUG', true),
+      'KPEX_PASSKEY_USERNAME': ('alice', false),
+      pemKey: (es256PrivateKeyPem, true),
+      'KPEX_PASSKEY_FLAG_BE': ('1', false),
+      'KPEX_PASSKEY_FLAG_BS': ('1', false),
+      // Not understood by the parser: must survive untouched (FR-003).
+      'KPEX_PASSKEY_PRF': ('opaque', true),
+    };
+
+    Future<Map<String, (String, bool)>> rawPasskeyStrings() async {
+      final file = await KdbxFormat().read(
+        await File(databasePath).readAsBytes(),
+        Credentials(ProtectedValue.fromString(password)),
+      );
+      final entry = file.body.rootGroup.getAllEntries().single;
+      return {
+        for (final s in entry.stringEntries)
+          if (s.key.key.startsWith('KPEX_PASSKEY_'))
+            s.key.key: (s.value?.getText() ?? '', s.value is ProtectedValue),
+      };
+    }
+
+    /// Writes the KeePassXC layout with the raw library, as KeePassXC would.
+    Future<String> createPasskeyEntry() async {
+      final credentials = Credentials(ProtectedValue.fromString(password));
+      final file = await KdbxFormat().read(
+        await File(databasePath).readAsBytes(),
+        credentials,
+      );
+      final entry = KdbxEntry.create(file, file.body.rootGroup)
+        ..setString(KdbxKeyCommon.TITLE, PlainValue('webauthn.io'))
+        ..setString(KdbxKeyCommon.USER_NAME, PlainValue('alice'))
+        ..setString(KdbxKey('Recovery'), ProtectedValue.fromString('r'));
+      for (final MapEntry(:key, value: (text, protected))
+          in passkeyStrings.entries) {
+        entry.setString(
+          KdbxKey(key),
+          protected ? ProtectedValue.fromString(text) : PlainValue(text),
+        );
+      }
+      file.body.rootGroup.addEntry(entry);
+      await File(databasePath).writeAsBytes(await file.save(), flush: true);
+      return entry.uuid.uuid;
+    }
+
+    test('reads passkeys and keeps them out of customFields', () async {
+      await createPasskeyEntry();
+      final entry = (await service.loadAllEntries(
+        databasePath: databasePath,
+        password: password,
+      )).single;
+
+      expect(entry.hasPasskey, isTrue);
+      expect(entry.passkeys.single.relyingPartyId, 'webauthn.io');
+      expect(entry.passkeys.single.usable, isTrue);
+      expect(entry.passkeyDigest, isNotNull);
+      expect(entry.customFields.map((f) => f.key), ['Recovery']);
+      expect(entry.toString(), isNot(contains('PRIVATE KEY')));
+    });
+
+    test(
+      'a title-only save leaves every passkey string byte-identical',
+      () async {
+        final entryId = await createPasskeyEntry();
+        final before = await rawPasskeyStrings();
+        final entry = (await service.loadAllEntries(
+          databasePath: databasePath,
+          password: password,
+        )).single;
+
+        await service.updateEntry(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          title: 'renamed',
+          username: entry.username,
+          entryPassword: entry.password,
+          url: entry.url,
+          notes: entry.notes,
+          customFields: entry.customFields,
+        );
+
+        expect(await rawPasskeyStrings(), before);
+        expect(before.keys, contains('KPEX_PASSKEY_PRF'));
+      },
+    );
+
+    test(
+      'a writer cannot inject passkey fields through customFields',
+      () async {
+        final rootGroupId = await _rootGroupId(service, databasePath, password);
+        await service.createEntry(
+          databasePath: databasePath,
+          password: password,
+          groupId: rootGroupId,
+          title: 'x',
+          username: 'u',
+          entryPassword: 'p',
+          url: '',
+          notes: '',
+          customFields: const [
+            VaultCustomField(key: pemKey, value: 'injected'),
+            VaultCustomField(key: 'ok', value: 'kept'),
+          ],
+        );
+        expect(await rawPasskeyStrings(), isEmpty);
+      },
+    );
+
+    test(
+      'history revisions carry no passkey material and diff by name',
+      () async {
+        final entryId = await createPasskeyEntry();
+        final entry = (await service.loadAllEntries(
+          databasePath: databasePath,
+          password: password,
+        )).single;
+        await service.updateEntry(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          title: 'renamed',
+          username: entry.username,
+          entryPassword: entry.password,
+          url: entry.url,
+          notes: entry.notes,
+          customFields: entry.customFields,
+        );
+
+        final history = await service.loadEntryHistory(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+        );
+        final revision = history.revisions.single;
+        expect(revision.customFields.map((f) => f.key), ['Recovery']);
+        expect(revision.toString(), isNot(contains('PRIVATE KEY')));
+        expect(revision.passkeyDigest, entry.passkeyDigest);
+
+        final renamed = (await service.loadAllEntries(
+          databasePath: databasePath,
+          password: password,
+        )).single;
+        expect(
+          changedFieldsForRevision(revision: revision, currentEntry: renamed),
+          {VaultEntryField.title},
+        );
+      },
+    );
+
+    test('restoring a revision leaves the passkey intact', () async {
+      final entryId = await createPasskeyEntry();
+      final before = await rawPasskeyStrings();
+      final entry = (await service.loadAllEntries(
+        databasePath: databasePath,
+        password: password,
+      )).single;
+      await service.updateEntry(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        title: 'renamed',
+        username: entry.username,
+        entryPassword: entry.password,
+        url: entry.url,
+        notes: entry.notes,
+        customFields: entry.customFields,
+      );
+      final revision = (await service.loadEntryHistory(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+      )).revisions.single;
+
+      await service.restoreEntryRevision(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        replacedAt: revision.replacedAt,
+        ordinal: revision.ordinal,
+      );
+
+      expect(await rawPasskeyStrings(), before);
+    });
   });
 
   group('protected custom fields (spec 023 T010, SC-008)', () {

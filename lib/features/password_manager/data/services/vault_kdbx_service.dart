@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:kdbx/kdbx.dart';
 import 'package:loggy/loggy.dart';
 import 'package:path/path.dart' as p;
@@ -10,10 +12,12 @@ import '../../domain/models/vault_custom_field.dart';
 import '../../domain/models/vault_entry.dart';
 import '../../domain/models/vault_entry_revision.dart';
 import '../../domain/models/vault_group.dart';
+import '../../domain/models/vault_passkey.dart';
 import '../../domain/models/vault_snapshot.dart';
 import '../../domain/services/url_field_keys.dart';
 import 'database_file_hash_recorder.dart';
 import 'database_path_mutex.dart';
+import 'passkey_parser.dart';
 import 'safe_vault_file_writer.dart';
 
 class KdbxCredentialChange {
@@ -1295,11 +1299,14 @@ class VaultKdbxService {
     return false;
   }
 
+  /// Every non-standard string except the `KPEX_PASSKEY_*` namespace, which
+  /// [_mapPasskeys] reads and no writer here touches (spec 023 T013).
   List<VaultCustomField> _mapCustomFields(KdbxEntry entry) {
     final customFields = <VaultCustomField>[];
     for (final stringEntry in entry.stringEntries) {
       final key = stringEntry.key.key;
-      if (_standardEntryKeys.contains(key.toLowerCase())) {
+      if (_standardEntryKeys.contains(key.toLowerCase()) ||
+          PasskeyParser.isPasskeyKey(key)) {
         continue;
       }
       customFields.add(
@@ -1311,6 +1318,32 @@ class VaultKdbxService {
       );
     }
     return customFields;
+  }
+
+  List<VaultCustomField> _passkeyRawFields(KdbxEntry entry) => [
+    for (final stringEntry in entry.stringEntries)
+      if (PasskeyParser.isPasskeyKey(stringEntry.key.key))
+        VaultCustomField(
+          key: stringEntry.key.key,
+          value: stringEntry.value?.getText() ?? '',
+          isProtected: stringEntry.value is ProtectedValue,
+        ),
+  ];
+
+  List<VaultPasskey> _mapPasskeys(KdbxEntry entry) =>
+      const PasskeyParser().parse(
+        _passkeyRawFields(entry),
+        createdAt: entry.times.creationTime.get()?.toLocal(),
+      );
+
+  /// Order-independent fingerprint of the raw passkey fields (values
+  /// included), so two revisions can be told apart without carrying the
+  /// material. `null` when the entry holds none.
+  String? _passkeyDigest(KdbxEntry entry) {
+    final raw = _passkeyRawFields(entry);
+    if (raw.isEmpty) return null;
+    final pairs = raw.map((f) => '${f.key} ${f.value}').toList()..sort();
+    return sha256.convert(utf8.encode(pairs.join(''))).toString();
   }
 
   /// spec 017 T103 — a KDBX history record projected onto the domain model.
@@ -1341,6 +1374,7 @@ class VaultKdbxService {
       attachmentNames: revision.binaryEntries
           .map((binaryEntry) => binaryEntry.key.key)
           .toList(growable: false),
+      passkeyDigest: _passkeyDigest(revision),
       otpUri: _resolveOtpUri(customFields),
     );
   }
@@ -1372,6 +1406,8 @@ class VaultKdbxService {
       notes: entry.getString(_notesKey)?.getText() ?? '',
       customFields: customFields,
       attachments: attachments,
+      passkeys: _mapPasskeys(entry),
+      passkeyDigest: _passkeyDigest(entry),
       otpUri: otpUri,
       createdAt: createdAt,
       updatedAt: updatedAt,
@@ -1445,10 +1481,17 @@ class VaultKdbxService {
     return null;
   }
 
+  /// Replaces the editable custom fields. The `KPEX_PASSKEY_*` namespace is
+  /// never removed or written here, so an ordinary edit leaves a passkey
+  /// byte-identical (spec 023 FR-003); only `deletePasskey` touches it.
   void _setCustomFields(KdbxEntry entry, List<VaultCustomField> customFields) {
     final keysToRemove = entry.stringEntries
         .map((entry) => entry.key)
-        .where((key) => !_standardEntryKeys.contains(key.key.toLowerCase()))
+        .where(
+          (key) =>
+              !_standardEntryKeys.contains(key.key.toLowerCase()) &&
+              !PasskeyParser.isPasskeyKey(key.key),
+        )
         .toList(growable: false);
 
     for (final key in keysToRemove) {
@@ -1457,7 +1500,7 @@ class VaultKdbxService {
 
     for (final field in customFields) {
       final normalizedKey = field.key.trim();
-      if (normalizedKey.isEmpty) {
+      if (normalizedKey.isEmpty || PasskeyParser.isPasskeyKey(normalizedKey)) {
         continue;
       }
       entry.setString(
