@@ -89,6 +89,14 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
   late final RevealController _revealController;
   bool _isCheckingBiometrics = false;
 
+  /// spec 023 US1b: what the one reveal countdown is showing — `null` for
+  /// the password, otherwise a secret custom field's position in the
+  /// entry's list. Position, not key: the editor keeps keys unique, but a
+  /// vault written elsewhere may carry two fields with the same name, and
+  /// one gate must never uncover both. One secret at a time: revealing a
+  /// field hides whatever else was revealed.
+  int? _revealedFieldIndex;
+
   @override
   void initState() {
     super.initState();
@@ -133,8 +141,8 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
     _showCenteredCopyToast(context, message);
   }
 
-  Future<void> _handleRevealTap(String databasePath) async {
-    if (_revealController.isRevealed) {
+  Future<void> _handleRevealTap(String databasePath, {int? fieldIndex}) async {
+    if (_revealController.isRevealed && _revealedFieldIndex == fieldIndex) {
       _revealController.hide();
       return;
     }
@@ -144,9 +152,13 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
     if (!mounted) return;
     setState(() => _isCheckingBiometrics = false);
     if (allowed) {
+      _revealedFieldIndex = fieldIndex;
       _revealController.reveal();
     }
   }
+
+  bool _isRevealed({int? fieldIndex}) =>
+      _revealController.isRevealed && _revealedFieldIndex == fieldIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -254,7 +266,7 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
             const SizedBox(height: 9),
             if (entry.password.isEmpty)
               const KvFieldRow(label: 'Password', value: 'Password not set')
-            else if (_revealController.isRevealed)
+            else if (_isRevealed())
               RevealedPasswordRow(
                 password: entry.password,
                 remainingFraction: _revealController.remainingFraction,
@@ -400,18 +412,73 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
             ],
             // 2026-08-31: custom fields are ordinary rows of the list, not a
             // count hidden behind a chip.
-            for (final field in customFields) ...[
+            for (final (index, field) in customFields.indexed) ...[
               const SizedBox(height: 9),
-              KvFieldRow(
-                label: field.key,
-                value: field.value.isEmpty ? 'Value not set' : field.value,
-                onCopy: field.value.isEmpty
-                    ? null
-                    : () => _copy(
-                        text: field.value,
-                        message: 'Copied ${field.key}.',
-                      ),
-              ),
+              // spec 023 US1b: a secret field takes the password's own
+              // treatment — masked, gated reveal on one shared countdown,
+              // guarded copy. The value never enters the tree while masked.
+              if (field.isProtected && field.value.isNotEmpty)
+                if (_isRevealed(fieldIndex: index))
+                  RevealedPasswordRow(
+                    label: field.key,
+                    hideTooltip: 'Hide value',
+                    password: field.value,
+                    remainingFraction: _revealController.remainingFraction,
+                    remainingSeconds:
+                        (RevealController.revealSeconds *
+                                _revealController.remainingFraction)
+                            .ceil(),
+                    onHide: () =>
+                        _handleRevealTap(databasePath, fieldIndex: index),
+                    onCopy: () => _copy(
+                      text: field.value,
+                      message: 'Copied ${field.key}.',
+                    ),
+                  )
+                else
+                  KvFieldRow(
+                    label: field.key,
+                    value: '••••••••••••',
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        KvCircleIconButton(
+                          glyph: AppGlyph.eye,
+                          tooltip: 'Show value',
+                          nested: true,
+                          iconSize: 17,
+                          onPressed: _isCheckingBiometrics
+                              ? null
+                              : () => _handleRevealTap(
+                                  databasePath,
+                                  fieldIndex: index,
+                                ),
+                        ),
+                        const SizedBox(width: 8),
+                        KvCircleIconButton(
+                          glyph: AppGlyph.copy,
+                          tooltip: 'Copy',
+                          nested: true,
+                          iconSize: 17,
+                          onPressed: () => _copy(
+                            text: field.value,
+                            message: 'Copied ${field.key}.',
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+              else
+                KvFieldRow(
+                  label: field.key,
+                  value: field.value.isEmpty ? 'Value not set' : field.value,
+                  onCopy: field.value.isEmpty
+                      ? null
+                      : () => _copy(
+                          text: field.value,
+                          message: 'Copied ${field.key}.',
+                        ),
+                ),
             ],
             // spec-020 (C-04-04): attachments are a permanent section with
             // their count — shown at zero too, so the first one can always be

@@ -5,11 +5,16 @@ class _CustomFieldFormRow {
     required this.id,
     required this.key,
     required this.value,
+    this.isProtected = false,
   });
 
   final int id;
   String key;
   String value;
+
+  /// spec 023 US1b: saved as a KDBX protected string and shown like the
+  /// password everywhere. The user's choice, per field.
+  bool isProtected;
 }
 
 /// FR-5 (spec-004): entry editor. Text-only header (`Cancel` — title —
@@ -123,8 +128,11 @@ class _EntryDialogState extends State<_EntryDialog> {
                   !_isOtpFieldKey(field.key) && !isUrlFieldKey(field.key),
             )
             .map(
-              (field) =>
-                  _buildCustomFieldRow(key: field.key, value: field.value),
+              (field) => _buildCustomFieldRow(
+                key: field.key,
+                value: field.value,
+                isProtected: field.isProtected,
+              ),
             )
             .toList(growable: true) ??
         <_CustomFieldFormRow>[];
@@ -170,11 +178,13 @@ class _EntryDialogState extends State<_EntryDialog> {
   _CustomFieldFormRow _buildCustomFieldRow({
     String key = '',
     String value = '',
+    bool isProtected = false,
   }) {
     return _CustomFieldFormRow(
       id: _nextCustomFieldId++,
       key: key,
       value: value,
+      isProtected: isProtected,
     );
   }
 
@@ -878,7 +888,7 @@ class _OptionalRow extends StatelessWidget {
   }
 }
 
-class _CustomFieldRowEditor extends StatelessWidget {
+class _CustomFieldRowEditor extends StatefulWidget {
   const _CustomFieldRowEditor({
     super.key,
     required this.row,
@@ -893,7 +903,49 @@ class _CustomFieldRowEditor extends StatelessWidget {
   final VoidCallback onRemove;
 
   @override
+  State<_CustomFieldRowEditor> createState() => _CustomFieldRowEditorState();
+}
+
+class _CustomFieldRowEditorState extends State<_CustomFieldRowEditor> {
+  /// spec 023 FR-002a: switching Secret off on a field that arrived
+  /// protected is the one edit here that lowers what the file protects, so
+  /// it asks first. A field made secret in this same session can be undone
+  /// freely.
+  late final bool _startedProtected;
+  bool _valueVisible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _startedProtected = widget.row.isProtected;
+  }
+
+  Future<void> _setProtected(bool value) async {
+    if (!value && _startedProtected) {
+      final confirmed = await showKvConfirmDialog(
+        context,
+        title: 'Stop protecting “${widget.row.key.trim()}”?',
+        body:
+            'Its value will be stored in the vault as plain text, like any '
+            'other custom field, and shown in clear everywhere.',
+        confirmLabel: 'Store as plain text',
+        cancelLabel: 'Keep secret',
+      );
+      if (confirmed != true || !mounted) return;
+    }
+    setState(() {
+      widget.row.isProtected = value;
+      _valueVisible = false;
+    });
+    widget.onChanged();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final row = widget.row;
+    final enabled = widget.enabled;
+    final onChanged = widget.onChanged;
+    final onRemove = widget.onRemove;
     final colors = Theme.of(context).extension<KeyVaultColors>()!;
     return Container(
       padding: const EdgeInsets.all(12),
@@ -937,10 +989,27 @@ class _CustomFieldRowEditor extends StatelessWidget {
             },
           ),
           const SizedBox(height: 12),
-          kvFieldLabel('Value', colors),
+          Row(
+            children: [
+              Expanded(child: kvFieldLabel('Value', colors)),
+              if (row.isProtected)
+                KvCircleIconButton(
+                  glyph: _valueVisible ? AppGlyph.eyeOff : AppGlyph.eye,
+                  tooltip: _valueVisible ? 'Hide value' : 'Show value',
+                  nested: true,
+                  size: 30,
+                  iconSize: 15,
+                  onPressed: enabled
+                      ? () => setState(() => _valueVisible = !_valueVisible)
+                      : null,
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
           TextFormField(
             initialValue: row.value,
             enabled: enabled,
+            obscureText: row.isProtected && !_valueVisible,
             decoration: kvFieldDecoration(
               colors,
               fillColor: colors.surfaceNested,
@@ -949,6 +1018,36 @@ class _CustomFieldRowEditor extends StatelessWidget {
               row.value = v;
               onChanged();
             },
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Secret',
+                      style: AppTextStyles.fieldValue.copyWith(
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      'Stored protected and shown like the password.',
+                      style: AppTextStyles.meta.copyWith(
+                        color: colors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              KvSwitch(
+                value: row.isProtected,
+                semanticLabel: 'Secret',
+                onChanged: enabled ? _setProtected : null,
+              ),
+            ],
           ),
         ],
       ),
