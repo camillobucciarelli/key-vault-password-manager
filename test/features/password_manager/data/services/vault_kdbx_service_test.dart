@@ -24,6 +24,7 @@ import 'package:kdbx/src/kdbx_object.dart' show KdbxObjectInternal;
 import 'package:kdbx/src/kdbx_xml.dart' show KdbxColor;
 import 'package:password_manager/features/password_manager/data/services/database_file_hash_recorder.dart';
 import 'package:password_manager/features/password_manager/data/services/safe_vault_file_writer.dart';
+import 'package:password_manager/features/password_manager/data/services/passkey_parser.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
@@ -685,6 +686,30 @@ void main() {
       expect(entry.passkeyDigest, isNotNull);
       expect(entry.customFields.map((f) => f.key), ['Recovery']);
       expect(entry.toString(), isNot(contains('PRIVATE KEY')));
+    });
+
+    test('passkeyDigest changes when a field loses its protection', () async {
+      final id = await createPasskeyEntry();
+      Future<String?> digest() async => (await service.loadAllEntries(
+        databasePath: databasePath,
+        password: password,
+      )).single.passkeyDigest;
+      final before = await digest();
+
+      // Same text, protection flipped: exactly what a downgrading writer does.
+      final credentials = Credentials(ProtectedValue.fromString(password));
+      final file = await KdbxFormat().read(
+        await File(databasePath).readAsBytes(),
+        credentials,
+      );
+      final entry = file.body.rootGroup.entries.singleWhere(
+        (e) => e.uuid.uuid == id,
+      );
+      final pemKey = KdbxKey(PasskeyParser.privateKeyPemKey);
+      entry.setString(pemKey, PlainValue(entry.getString(pemKey)!.getText()));
+      await File(databasePath).writeAsBytes(await file.save(), flush: true);
+
+      expect(await digest(), isNot(before));
     });
 
     test(

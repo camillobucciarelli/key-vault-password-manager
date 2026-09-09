@@ -1336,14 +1336,18 @@ class VaultKdbxService {
         createdAt: entry.times.creationTime.get()?.toLocal(),
       );
 
-  /// Order-independent fingerprint of the raw passkey fields (values
-  /// included), so two revisions can be told apart without carrying the
-  /// material. `null` when the entry holds none.
+  /// Order-independent fingerprint of the raw passkey fields (values and
+  /// protection flag included), so two revisions can be told apart without
+  /// carrying the material. `null` when the entry holds none.
   String? _passkeyDigest(KdbxEntry entry) {
     final raw = _passkeyRawFields(entry);
     if (raw.isEmpty) return null;
-    final pairs = raw.map((f) => '${f.key} ${f.value}').toList()..sort();
-    return sha256.convert(utf8.encode(pairs.join(''))).toString();
+    final pairs =
+        raw
+            .map((f) => '${f.key}\u0000${f.isProtected}\u0000${f.value}')
+            .toList()
+          ..sort();
+    return sha256.convert(utf8.encode(pairs.join('\u0001'))).toString();
   }
 
   /// spec 017 T103 — a KDBX history record projected onto the domain model.

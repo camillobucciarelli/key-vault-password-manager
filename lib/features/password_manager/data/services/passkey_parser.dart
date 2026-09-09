@@ -74,6 +74,9 @@ class PasskeyParser {
       }
     }
 
+    // WebAuthn forbids BS without BE; a record saying BE=0 with BS absent
+    // would otherwise sign 0x10 alone and get rejected by the relying party.
+    final backupEligible = group[flagBeKey] != '0';
     return VaultPasskey(
       relyingPartyId: rpId ?? '',
       credentialId: credentialBytes,
@@ -81,8 +84,8 @@ class PasskeyParser {
       username: group[usernameKey] ?? '',
       privateKeyPem: pem ?? '',
       algorithm: algorithm,
-      backupEligible: group[flagBeKey] != '0',
-      backupState: group[flagBsKey] != '0',
+      backupEligible: backupEligible,
+      backupState: backupEligible && group[flagBsKey] != '0',
       createdAt: createdAt,
       fieldSuffix: suffix,
       unusableReason: reason,

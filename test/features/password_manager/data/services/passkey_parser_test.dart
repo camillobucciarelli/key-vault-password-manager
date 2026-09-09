@@ -104,10 +104,10 @@ void main() {
     );
   });
 
-  test('reads backup flags and defaults them to true', () {
+  test('reads backup flags, defaults to true, never BS without BE', () {
     final off = parser.parse(group(es256PrivateKeyPem, flagBe: '0')).single;
     expect(off.backupEligible, isFalse);
-    expect(off.backupState, isTrue);
+    expect(off.backupState, isFalse, reason: 'BS must be 0 when BE is 0');
   });
 
   test('ignores fields outside the namespace and keeps no user handle', () {
