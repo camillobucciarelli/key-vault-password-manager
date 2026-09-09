@@ -408,7 +408,7 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                                 ? 'Scarica e installa il componente Chrome Support firmato per macOS.'
                                 : _hasNativeHostInstaller
                                 ? 'Configura automaticamente il collegamento sicuro con Chrome.'
-                                : 'Questa versione di KeyVault (Microsoft Store) non include il collegamento con Chrome. Usa lo zip della release GitHub per attivarlo.',
+                                : 'Questa versione di KeyVault non include il collegamento con Chrome (ad esempio la build Microsoft Store). Usa lo zip della release GitHub per attivarlo.',
                             status: _nativeHostStatus,
                             actionLabel:
                                 _nativeHostStatus == _StepStatus.loading

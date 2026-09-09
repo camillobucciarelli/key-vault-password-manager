@@ -98,7 +98,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('Microsoft Store'), findsOneWidget);
+      expect(
+        find.textContaining('non include il collegamento con Chrome'),
+        findsOneWidget,
+      );
       expect(find.text('Configura Chrome'), findsNothing);
 
       await tester.ensureVisible(find.text('Apri le release GitHub'));
