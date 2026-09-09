@@ -21,9 +21,13 @@ import '../widgets/styled_info_container.dart';
 ///
 /// Should only be shown on desktop platforms.
 class BrowserSetupScreen extends StatefulWidget {
-  const BrowserSetupScreen({super.key, this.service});
+  const BrowserSetupScreen({super.key, this.service, this.openUrl});
 
   final BrowserSetupService? service;
+
+  /// Test seam for the external-URL launches; defaults to [launchUrl].
+  @visibleForTesting
+  final Future<bool> Function(Uri url)? openUrl;
 
   static bool get shouldShow {
     if (kIsWeb) return false;
@@ -88,6 +92,16 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
   bool get _hasNativeHostInstaller =>
       _usesMacOSCompanionInstaller || _service.canRunNativeHostInstaller;
 
+  /// Issue #209: a build without the bundled installer (the Microsoft Store
+  /// MSIX) cannot register the native host, so step 2 sends the user to the
+  /// GitHub sideload zip instead of a dead "Configura Chrome" button.
+  bool get _usesSideloadFallback =>
+      !_usesMacOSCompanionInstaller && !_service.canRunNativeHostInstaller;
+
+  Future<bool> _openUrl(Uri url) =>
+      widget.openUrl?.call(url) ??
+      launchUrl(url, mode: LaunchMode.externalApplication);
+
   @override
   void initState() {
     super.initState();
@@ -125,9 +139,8 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
       _errorMessage = null;
     });
     try {
-      final opened = await launchUrl(
+      final opened = await _openUrl(
         Uri.parse(BrowserSetupService.chromeStoreListingUrl),
-        mode: LaunchMode.externalApplication,
       );
       if (!mounted) return;
       setState(() {
@@ -152,18 +165,22 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
       _errorMessage = null;
     });
 
-    if (_usesMacOSCompanionInstaller) {
+    if (_usesMacOSCompanionInstaller || _usesSideloadFallback) {
+      final url = _usesMacOSCompanionInstaller
+          ? BrowserSetupService.macOSChromeSupportPackageUrl
+          : BrowserSetupService.sideloadReleasesUrl;
       var opened = false;
       try {
-        opened = await launchUrl(
-          Uri.parse(BrowserSetupService.macOSChromeSupportPackageUrl),
-          mode: LaunchMode.externalApplication,
-        );
+        opened = await _openUrl(Uri.parse(url));
       } catch (_) {
         opened = false;
       }
       if (!mounted) return;
-      final message = opened
+      final message = _usesSideloadFallback
+          ? (opened
+                ? 'Scarica lo zip di KeyVault dalla release, avvialo e ripeti il passo 2 da quella versione.'
+                : 'Impossibile aprire la pagina delle release GitHub.')
+          : opened
           ? 'Apri il pacchetto scaricato, completa l’installazione e riavvia Chrome.'
           : 'Impossibile scaricare Chrome Support per macOS.';
       setState(() {
@@ -391,13 +408,15 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                                 ? 'Scarica e installa il componente Chrome Support firmato per macOS.'
                                 : _hasNativeHostInstaller
                                 ? 'Configura automaticamente il collegamento sicuro con Chrome.'
-                                : 'Installer Chrome non disponibile in questa versione di KeyVault.',
+                                : 'Questa versione di KeyVault (Microsoft Store) non include il collegamento con Chrome. Usa lo zip della release GitHub per attivarlo.',
                             status: _nativeHostStatus,
                             actionLabel:
                                 _nativeHostStatus == _StepStatus.loading
                                 ? 'Configurazione in corso…'
                                 : _usesMacOSCompanionInstaller
                                 ? 'Scarica Chrome Support'
+                                : _usesSideloadFallback
+                                ? 'Apri le release GitHub'
                                 : 'Configura Chrome',
                             onAction: _nativeHostStatus != _StepStatus.loading
                                 ? _installNativeHost
