@@ -162,7 +162,8 @@ the plaintext metadata cache; and the entry's presence in the cache is revocable
 from the app (locking or removing the database wipes it), so the user has a way
 back to "not on this device".
 
-**Android in or out (deferred scope)** — recommend **out**. *Overridden on
+**Android in or out (deferred scope)** — original recommendation, kept for
+record: **out**. *Superseded on
 2026-09-09: the beta ships sign-in on every target, so Android (Credential
 Manager, API 34+) and the desktop browser bridge (R7) are now in scope for
 slice 2; the constraints below still hold and become plan inputs.* A provider must

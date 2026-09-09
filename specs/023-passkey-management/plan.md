@@ -60,11 +60,13 @@ says so in the section copy rather than pretending otherwise.
 - **D3 — Two views of custom fields.** `VaultEntry.customFields` keeps its
   meaning for the UI (plain, editable) and **excludes** the `KPEX_PASSKEY_*`
   namespace entirely; `VaultEntry.passkeys` carries the parsed credentials and
-  `VaultEntry.passkeyRawFields` the untouched field set the writer re-emits.
-  The editor never sees passkey fields, so it cannot render, edit or drop them.
+  `VaultEntry.passkeyDigest` a fingerprint of the raw set. The raw strings are
+  not carried on the model: the writer never removes or writes the namespace,
+  so it stays in place in the `KdbxEntry`. The editor never sees passkey
+  fields, so it cannot render, edit or drop them.
 - **D4 — Unusable passkeys** (missing field, unparseable PEM, unsupported
   algorithm on this platform) are `VaultPasskey(usable: false, reason)`. They
-  are shown, never published to any platform cache, and re-emitted untouched.
+  are shown, never published to any platform cache, and left untouched.
 - **D5 — Signing lives where the request lands.** Apple: in the extension
   (CryptoKit `P256.Signing`, `Curve25519.Signing`; RSA via `SecKey`). Android:
   in the provider service (JCA `SHA256withECDSA`, `Ed25519`, `SHA256withRSA`).
@@ -110,15 +112,15 @@ says so in the section copy rather than pretending otherwise.
   standalone bug fix and is committed before any passkey code.
 - `VaultPasskey`, `VaultPasskeyAlgorithm` in `domain/models/`.
 - `VaultKdbxService`: `_mapCustomFields` also splits out the `KPEX_PASSKEY_*`
-  namespace; `_setCustomFields` re-emits `passkeyRawFields`;
+  namespace; `_setCustomFields` leaves that namespace in place;
   `deletePasskey(entryId, credentialId)`; `passkeyParser.dart` (pure) for
   PEM → algorithm, base64url decode, usability.
 - CSV import: a `secret` marker is not introduced; imported custom fields stay
   plain (no format defines one). Duplicate merge and revision restore carry
   `isProtected` through unchanged.
 - History: `_mapRevision` applies the same split so a revision never carries
-  the private key; `restoreEntryRevision` re-emits raw passkey fields of the
-  *current* entry (a restore never touches the passkey).
+  the private key; `restoreEntryRevision` leaves the *current* entry's passkey
+  namespace in place (a restore never touches the passkey).
 - CSV import drops any `KPEX_PASSKEY_*` column with a warning row.
 - Merge preview (`MergeFieldDisplay`) collapses the namespace into one
   "Passkey (rpId)" field with redacted sides.
@@ -265,6 +267,6 @@ focus ring on delete, that the section renders no character of the PEM.
 | Sign count 0 rejected by a strict RP | Documented WebAuthn-permitted behaviour; KeePassXC ships it. Conformance RPs (R10) are checked for it. |
 | RP expects `UV` and the desktop confirmation is not biometric | Flag set only after the modal; copy says it is an app confirmation. Accept the residual weakness on desktop, stated in the section note. |
 | A KeePassDX-written vault carries `_1` suffixed duplicates | Parser groups by suffix; each group is one `VaultPasskey`; unknown suffix layouts are unusable, never dropped. |
-| MAIN-world wrapper conflicts with the browser's own passkey UI | Wrapper defers to the platform when the vault has no match (FR-014 scenario 4) by calling the original function. |
+| MAIN-world wrapper conflicts with the browser's own passkey UI | Wrapper defers to the platform when the vault has no match (FR-014, US2 scenario 6) by calling the original function. |
 | Android component enable state drifts across upgrades | Re-evaluated on every app start; idempotent. |
 | Fixture vault with a real-looking key in the repo | Fixture key is generated for the fixture only and labelled as such; GitGuardian false positive expected, as with the existing fixtures. |

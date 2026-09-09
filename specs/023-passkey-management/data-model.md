@@ -109,6 +109,6 @@ all base64url.
 passkey in .kdbx ──open──▶ VaultEntry.passkeys (usable?) ──publish──▶ sealed cache
         ▲                          │                                    │
         │                     delete (confirm + backup)             lock/remove
-        └── writer re-emits raw ◀──┘                                    ▼
-                                                                     wiped
+        └─ ordinary edit: raw ◀────┘                                    ▼
+           strings left in place                                     wiped
 ```

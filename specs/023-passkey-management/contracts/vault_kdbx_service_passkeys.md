@@ -9,7 +9,7 @@ All methods take the existing `(path, credentials)` pair and run under
 
 - `customFields`: every non-standard string **except** keys starting
   `KPEX_PASSKEY_`, each with `isProtected` as read.
-- `passkeys`: `PasskeyParser.parse(rawPasskeyStrings)` — one `VaultPasskey`
+- `passkeys`: `PasskeyParser.parse(rawPasskeyFields)` — one `VaultPasskey`
   per suffix group (`""`, `_1`, `_2`, …); never throws; malformed → `usable:
   false`.
 - `passkeyDigest`: fingerprint of the raw strings, or `null`.
@@ -56,7 +56,7 @@ backup; the service does neither.
 ## `PasskeyParser` (pure, `data/services/passkey_parser.dart`)
 
 ```
-List<VaultPasskey> parse(List<VaultCustomField> raw)
+List<VaultPasskey> parse(List<VaultCustomField> rawPasskeyFields)
 VaultPasskeyAlgorithm algorithmOf(String pem)   // OID → enum, unknown otherwise
 Uint8List decodeBase64Url(String s)             // padded or unpadded
 ```

@@ -183,22 +183,22 @@ offered or usable for that site. On an Android device below API 34, confirm the
 1. **Given** the vault holds a passkey for a site, **When** the site requests a
    passkey sign-in, **Then** KeyVault appears as an available provider and lists
    only passkeys whose relying party matches that site.
-6. **Given** an Android device below API 34, **When** the user looks for passkey
+2. **Given** an Android device below API 34, **When** the user looks for passkey
    sign-in, **Then** the app says it is not available on this device and no
    Credential Manager provider is registered.
-7. **Given** a site open in a desktop browser with the extension installed,
+3. **Given** a site open in a desktop browser with the extension installed,
    **When** the site requests a passkey sign-in, **Then** the extension offers
    the matching KeyVault passkeys and the response is signed by the native host,
    with the private key never sent to the extension.
-2. **Given** the user selects a KeyVault passkey, **When** the user confirms with
+4. **Given** the user selects a KeyVault passkey, **When** the user confirms with
    biometrics or device passcode, **Then** the sign-in succeeds.
-3. **Given** the user cancels or fails the confirmation, **When** the flow ends,
+5. **Given** the user cancels or fails the confirmation, **When** the flow ends,
    **Then** no assertion is produced and the site receives a cancellation, not an
    error implying the credential is missing.
-4. **Given** the vault holds no passkey for the requesting site, **When** the
+6. **Given** the vault holds no passkey for the requesting site, **When** the
    request arrives, **Then** KeyVault offers nothing for that request and does
    not present a misleading empty list.
-5. **Given** a passkey sign-in has completed, **When** the flow ends, **Then** no
+7. **Given** a passkey sign-in has completed, **When** the flow ends, **Then** no
    private key remains outside its protected storage.
 
 ---

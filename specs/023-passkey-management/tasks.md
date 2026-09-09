@@ -85,12 +85,13 @@ pending dependency).
   `lib/features/password_manager/data/services/vault_kdbx_service.dart`,
   `test/features/password_manager/data/services/vault_kdbx_service_test.dart`.
   Acceptance: `VaultEntry.customFields` excludes keys starting
-  `KPEX_PASSKEY_`; `VaultEntry.passkeys` and `passkeyRawFields` populated per
-  the contract; `hasPasskey` getter. `_setCustomFields` re-emits
-  `passkeyRawFields` verbatim (value and protection) after `customFields`.
-  `VaultEntryRevision.customFields` applies the same exclusion and carries no
-  raw passkey fields; its diff reports `passkey` by name when the raw set
-  differs. `restoreEntryRevision` re-emits the current entry's raw fields.
+  `KPEX_PASSKEY_`; `VaultEntry.passkeys` and `passkeyDigest` populated per
+  the contract; `hasPasskey` getter. The raw strings are not carried on the
+  model: `_setCustomFields` never removes or writes the `KPEX_PASSKEY_*`
+  namespace, so it stays in place in the `KdbxEntry` untouched.
+  `VaultEntryRevision.customFields` applies the same exclusion and carries only
+  `passkeyDigest`; its diff reports `passkey` by name when the digest differs.
+  `restoreEntryRevision` likewise leaves the namespace in place.
   Verify: open the T001 fixture → E1, E3, E4 have `hasPasskey`, E2 not,
   E4 `usable == false`; no `KPEX_` key in any `customFields`; title-only
   save then byte-compare every `KPEX_*` string and its `Protected` attribute
