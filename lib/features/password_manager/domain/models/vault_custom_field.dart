@@ -11,10 +11,11 @@ class VaultCustomField extends Equatable {
   final String key;
   final String value;
 
-  /// Stored as a protected (memory-encrypted) string in the KDBX file, the
-  /// way the password is. Read from the file and written back exactly as
-  /// held: a save must never downgrade a protected field to plain (spec 023
-  /// T010, SC-008).
+  /// How the KDBX file persists this field: a `ProtectedValue` (the way the
+  /// password is stored) rather than a `PlainValue`. Says nothing about the
+  /// in-memory [value], which is a plain string like every other domain
+  /// field. Read from the file and written back exactly as held: a save must
+  /// never downgrade a protected field to plain (spec 023 T010, SC-008).
   final bool isProtected;
 
   @override
