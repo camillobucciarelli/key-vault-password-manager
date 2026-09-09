@@ -44,7 +44,7 @@ pending dependency).
 
 ## Phase 2 — Foundational (blocks every story)
 
-- [ ] **T010** Stop downgrading protected custom fields on save — owner: `senior-flutter-dev`
+- [x] **T010** Stop downgrading protected custom fields on save — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/domain/models/vault_custom_field.dart`,
   `lib/features/password_manager/data/services/vault_kdbx_service.dart`,
   `test/features/password_manager/data/services/vault_kdbx_service_test.dart`.
