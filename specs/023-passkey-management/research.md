@@ -162,7 +162,10 @@ the plaintext metadata cache; and the entry's presence in the cache is revocable
 from the app (locking or removing the database wipes it), so the user has a way
 back to "not on this device".
 
-**Android in or out (deferred scope)** — recommend **out**. A provider must
+**Android in or out (deferred scope)** — recommend **out**. *Overridden on
+2026-09-09: the beta ships sign-in on every target, so Android (Credential
+Manager, API 34+) and the desktop browser bridge (R7) are now in scope for
+slice 2; the constraints below still hold and become plan inputs.* A provider must
 implement `CredentialProviderService` from the Jetpack Credential Manager, a
 different integration from the `AutofillService` completed in spec 016, which
 excluded passkeys explicitly (`specs/016-android-autofill-completion/spec.md:291`).
@@ -186,15 +189,107 @@ needs its own graceful-absence story. That is a spec, not a user story.
 
 ## R8 — Open items before `plan.md`
 
-1. Confirm the KeePassXC field contract against a real vault: protection flag,
-   entry tag, base64url variant, PEM formatting (R1).
+1. ~~Confirm the KeePassXC field contract: protection flag, entry tag,
+   base64url variant (R1).~~ Done 2026-09-09 from source — see R9. The
+   real-vault fixture is a task in `tasks.md`.
 2. ~~Decide the three clarification questions (R6).~~ Done 2026-08-29.
-3. Choose the conformance relying parties for SC-004 (three independent sites).
+3. ~~Choose the conformance relying parties (three independent sites).~~ Done
+   2026-09-09 — R10: webauthn.io, passkeys.io, webauthn.me.
 4. ~~Decide where registration key generation happens.~~ Done 2026-08-29: in the
    extension, in CryptoKit — no Dart ECDSA/CBOR dependency in this spec.
 5. Name the manual QA harness for the Apple flows, following the precedent of
    the spec 008 and spec 011 harnesses, since neither slice can run in
    `flutter test`.
+6. ~~(Added 2026-09-09) Android and desktop surfaces.~~ Resolved in R11 and
+   R12 the same day; kept for the record: Android: confirm the Credential Manager provider API
+   surface (`CredentialProviderService`, API 34 floor) and how the sealed
+   secret cache of spec 016 can hold the private key. Desktop: confirm the
+   extension permission change needed to intercept `navigator.credentials.get`
+   in the page world on Chrome and Firefox, and the native host message shape
+   (metadata in, signed assertion out — never the key). Windows system-level
+   third-party passkey providers are out of scope; do not research them here.
+
+## R9 — KeePassXC field contract, verified against source (2026-09-09)
+
+Read from `src/browser/BrowserService.cpp` and `BrowserPasskeys.cpp` on the
+`develop` branch:
+
+- `addPasskeyToEntry` writes `KPEX_PASSKEY_USERNAME`, `_RELYING_PARTY`,
+  `_FLAG_BE = "1"`, `_FLAG_BS = "1"` **unprotected**, and
+  `_CREDENTIAL_ID`, `_PRIVATE_KEY_PEM`, `_USER_HANDLE` **protected**
+  (`set(key, value, true)`).
+- The entry gets `addTag(tr("Passkey"))` — a *translated* tag. Detection must
+  not depend on it (plan D1).
+- Credential id is base64url without padding
+  (`QByteArray::Base64UrlEncoding | OmitTrailingEquals` on decode). User handle
+  is passed through as received from the RP, which is base64url in WebAuthn
+  JSON; the parser accepts both padded and unpadded input.
+- Supported algorithms: COSE -7 ES256 (secp256r1), -8 EdDSA (Ed25519),
+  -257 RS256. Sign count is not persisted (always 0).
+
+**Decision**: parse the three required fields, treat the rest as optional,
+preserve everything, and accept both base64url variants.
+**Alternatives**: KeyVault-specific layout — rejected (interop is the point).
+**Still to confirm on a real file** (fixture task): that `kdbx` 2.5.0 reads the
+`Protected="True"` attribute of these strings as `ProtectedValue` (expected —
+it does for `Password`).
+
+## R10 — Signing per platform, no new dependency
+
+| Platform | Signer | ES256 | EdDSA | RS256 |
+|---|---|---|---|---|
+| iOS/macOS | CryptoKit `P256.Signing.PrivateKey(pemRepresentation:)`, `Curve25519.Signing.PrivateKey` (raw seed from PKCS#8), `SecKeyCreateWithData` + `SecKeyCreateSignature` | yes | yes | yes |
+| Android | JCA `KeyFactory("EC"/"Ed25519"/"RSA")` + `Signature("SHA256withECDSA"/"Ed25519"/"SHA256withRSA")` — Ed25519 in JCA from API 33 | yes | yes (API 33+) | yes |
+| Desktop (Dart, in app) | `pointycastle` 4.0.0 (already direct): `ECDSASigner` secp256r1, `RSASigner` SHA-256 | yes | **no** — pointycastle exports no Ed25519 | yes |
+
+**Decision**: EdDSA passkeys are `unusableReason: unsupportedOnPlatform` on
+Windows/Linux. Adding a Dart Ed25519 dependency is out of this spec's stated
+no-new-crypto constraint; revisit only if a KeePassXC user reports EdDSA
+passkeys in practice (KeePassXC defaults to ES256).
+**Alternatives**: `cryptography` package (adds a dependency, has Ed25519) —
+rejected for now on the constraint above.
+
+Conformance relying parties for SC-004 (slice 3, not planned yet) and for
+slice 2 sign-in checks: `webauthn.io`, `passkeys.io` (Hanko demo),
+`webauthn.me` (Auth0 debugger). All three accept sign count 0 and no
+attestation. A KeePassXC-created passkey on each is the slice 2 test input.
+
+## R11 — Android provider surface
+
+`androidx.credentials` `CredentialProviderService` (API 34 platform class
+`android.service.credentials.CredentialProviderService`) with
+`onBeginGetCredentialRequest` → `BeginGetCredentialResponse` of
+`PublicKeyCredentialEntry` items, each backed by a `PendingIntent`; the
+activity completes with `PendingIntentHandler.setGetCredentialResponse`
+carrying a `PublicKeyCredential(authenticationResponseJson)`. The JSON is the
+WebAuthn `PublicKeyCredential` JSON serialization (id, rawId, response
+{clientDataJSON, authenticatorData, signature, userHandle}, type). The
+`clientDataJSON` is built by the provider from `clientDataHash` semantics:
+Android supplies `PublicKeyCredentialRequestOptions` plus `callingAppInfo`;
+the provider constructs client data with origin from the calling app (web
+origin when `callingAppInfo.origin` is present, else `android:apk-key-hash:`).
+This is the same shape KeePassDX implements. The exact library version is
+pinned in the task that adds it, after checking the current stable on Maven.
+
+## R12 — Desktop interception surface
+
+`overlay_lifecycle.js` already registers content scripts with
+`scripting.registerContentScripts` in the `ISOLATED` world, on the optional
+host permissions the user granted. A `MAIN`-world script (MV3 supports `world:
+"MAIN"` in `registerContentScripts` on Chrome 111+ and Firefox 128+) can wrap
+`navigator.credentials.get` and post the `publicKey` options to the isolated
+script via `window.postMessage` with a per-page nonce. The response must be a
+`PublicKeyCredential`-compatible object: `id`, `rawId` (ArrayBuffer),
+`type: "public-key"`, `response` `{clientDataJSON, authenticatorData,
+signature, userHandle}` as ArrayBuffers, `getClientExtensionResults()`,
+`authenticatorAttachment: "cross-platform"`, and — since sites increasingly
+call it — `toJSON()`. The wrapper calls the original function when the vault
+has no matching credential, so the browser's own UI still appears.
+
+`clientDataJSON` on desktop is built by the app: `{type: "webauthn.get",
+challenge, origin, crossOrigin: false}` with `origin` taken from the tab URL
+the native host reports, and `rpId` checked to be the origin's effective
+domain or a registrable suffix of it.
 
 ## Sources
 
