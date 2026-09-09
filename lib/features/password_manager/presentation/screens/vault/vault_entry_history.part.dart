@@ -617,4 +617,5 @@ String _fieldLabel(VaultEntryField field) => switch (field) {
   VaultEntryField.customFields => 'custom fields',
   VaultEntryField.attachments => 'attachments',
   VaultEntryField.otpUri => 'one-time code',
+  VaultEntryField.passkey => 'passkey',
 };
