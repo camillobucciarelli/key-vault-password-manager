@@ -9,29 +9,30 @@ All methods take the existing `(path, credentials)` pair and run under
 
 - `customFields`: every non-standard string **except** keys starting
   `KPEX_PASSKEY_`, each with `isProtected` as read.
-- `passkeyRawFields`: every `KPEX_PASSKEY_*` string, `isProtected` as read,
-  order as read.
-- `passkeys`: `PasskeyParser.parse(passkeyRawFields)` — one `VaultPasskey`
+- `passkeys`: `PasskeyParser.parse(rawPasskeyStrings)` — one `VaultPasskey`
   per suffix group (`""`, `_1`, `_2`, …); never throws; malformed → `usable:
   false`.
+- `passkeyDigest`: fingerprint of the raw strings, or `null`.
 
-Invariant: `customFields ∩ passkeyRawFields = ∅`.
+Invariant: no `KPEX_PASSKEY_*` key ever appears in `customFields`.
 
 ## Write (`createEntry`, `updateEntry`, `restoreEntryRevision`, merge)
 
-`_setCustomFields(entry, customFields, passkeyRawFields)`:
+`_setCustomFields(entry, customFields)`:
 
-1. Remove every non-standard key.
+1. Remove every non-standard key **outside** the `KPEX_PASSKEY_*` namespace.
 2. Re-add `customFields` with `PlainValue` or `ProtectedValue` per
-   `isProtected`.
-3. Re-add `passkeyRawFields` the same way, verbatim.
+   `isProtected`, skipping any `KPEX_PASSKEY_*` key a caller passes in.
+
+The namespace is therefore left in the `KdbxEntry` exactly as opened.
 
 Invariant (SC-007): for an entry opened and saved without a passkey change,
 every `KPEX_PASSKEY_*` string has identical value and identical
-`Protected` attribute before and after.
+`Protected` attribute before and after — including keys the parser does not
+understand (`KPEX_PASSKEY_PRF`).
 
-`restoreEntryRevision` passes the **current** entry's `passkeyRawFields`,
-never the revision's (the revision has none).
+`restoreEntryRevision` restores the revision's editable fields only; the
+passkey strings of the current entry stay in place.
 
 ## `deletePasskey`
 

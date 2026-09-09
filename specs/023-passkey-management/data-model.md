@@ -41,15 +41,19 @@ backupEligible, backupState, usable]`. `toString` names rpId and username only.
 |---|---|---|
 | `customFields` | List<VaultCustomField> | now **excludes** every key starting `KPEX_PASSKEY_` (case-sensitive, as KeePassXC writes them) |
 | `passkeys` | List<VaultPasskey> | parsed; empty when none |
-| `passkeyRawFields` | List<VaultCustomField> | every `KPEX_PASSKEY_*` field as read, protection flags intact; re-emitted verbatim by the writer unless `deletePasskey` removed a group |
+| `passkeyDigest` | String? | SHA-256 of the sorted raw `KPEX_PASSKEY_*` key/value pairs; `null` when none. Lets history say "passkey changed" without carrying material |
 | `hasPasskey` | bool getter | `passkeys.isNotEmpty` — the badge input |
+
+The raw fields are **not** carried on the model (implemented in #218): the
+writer never removes or writes the `KPEX_PASSKEY_*` namespace, so the strings
+stay in the `KdbxEntry` untouched across every ordinary edit and restore.
+Only `deletePasskey` and the duplicate merge touch them, inside the service.
 
 ## VaultEntryRevision (modified)
 
 Same split as `VaultEntry`: `customFields` excludes the namespace, and the
-revision carries **no** raw passkey fields and no `VaultPasskey` (FR-007). The
-"changed fields" diff reports `passkey` as a single name when the raw set
-differs between revisions.
+revision carries only `passkeyDigest` — no raw fields and no `VaultPasskey`
+(FR-007). `VaultEntryField.passkey` is reported when the digest differs.
 
 ## DuplicateGroup (modified)
 

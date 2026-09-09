@@ -27,7 +27,7 @@ pending dependency).
   Verify: KeePassXC opens it and signs in on webauthn.io with E1 before it is
   committed.
 
-- [ ] **T002** [P] Test vectors for parsing and signing — owner: `senior-flutter-dev`
+- [x] **T002** [P] Test vectors for parsing and signing — owner: `senior-flutter-dev`
   Files: `test/fixtures/passkeys/vectors.dart` (new).
   Acceptance: one ES256, one EdDSA and one RS256 PKCS#8 PEM generated for the
   tests, with matching public keys; one truncated PEM; a known
@@ -57,7 +57,7 @@ pending dependency).
   custom field, saves a title-only edit, reopens and asserts both protection
   states unchanged (SC-008). A `VaultCustomField(isProtected: true)` round-trips.
 
-- [ ] **T011** [P] Passkey domain model — owner: `senior-flutter-dev`
+- [x] **T011** [P] Passkey domain model — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/domain/models/vault_passkey.dart` (new),
   `test/features/password_manager/domain/models/vault_passkey_test.dart` (new).
   Acceptance: `VaultPasskey`, `VaultPasskeyAlgorithm`, `VaultPasskeyUnusableReason`
@@ -66,7 +66,7 @@ pending dependency).
   Verify: unit test builds a passkey with a PEM containing `SENTINEL` and
   asserts `props.toString()` and `toString()` never contain it.
 
-- [ ] **T012** [P] Passkey parser — owner: `senior-flutter-dev`
+- [x] **T012** [P] Passkey parser — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/data/services/passkey_parser.dart` (new),
   `test/features/password_manager/data/services/passkey_parser_test.dart` (new).
   Acceptance: `parse(List<VaultCustomField>)` groups by suffix (`""`, `_1`, …),
@@ -79,7 +79,7 @@ pending dependency).
   `_1` suffixed second group parses as a second passkey; an unknown OID →
   `unsupportedAlgorithm`.
 
-- [ ] **T013** Split passkey fields out of the entry — owner: `senior-flutter-dev`
+- [x] **T013** Split passkey fields out of the entry — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/domain/models/vault_entry.dart`,
   `lib/features/password_manager/domain/models/vault_entry_revision.dart`,
   `lib/features/password_manager/data/services/vault_kdbx_service.dart`,
@@ -97,7 +97,7 @@ pending dependency).
   (SC-007); a revision of E1 contains no PEM; restoring E1's revision leaves
   the passkey intact.
 
-- [ ] **T014** [P] Desktop signer — owner: `senior-flutter-dev`
+- [x] **T014** [P] Desktop signer — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/data/services/desktop_passkey_signer.dart` (new),
   `test/features/password_manager/data/services/desktop_passkey_signer_test.dart` (new).
   Acceptance: builds `authenticatorData` per `data-model.md` and signs
