@@ -52,7 +52,11 @@ List<VaultCustomField> _buildCustomFields({
 }) {
   final fields = customFieldRows
       .map(
-        (row) => VaultCustomField(key: row.key.trim(), value: row.value.trim()),
+        (row) => VaultCustomField(
+          key: row.key.trim(),
+          value: row.value.trim(),
+          isProtected: row.isProtected,
+        ),
       )
       .where((field) => field.key.isNotEmpty)
       .where((field) => !_isOtpFieldKey(field.key))
