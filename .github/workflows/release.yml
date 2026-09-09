@@ -171,12 +171,27 @@ jobs:
           (( ${#archive[@]} == 1 )) || { echo "Expected one iOS archive, found ${#archive[@]}"; exit 1; }
           echo "archive_dir=$(dirname "${archive[0]}")" >> "$GITHUB_OUTPUT"
 
+      # The artifact service intermittently answers FinalizeArtifact with a 403
+      # (actions/upload-artifact#560, no fix upstream); one retry has always
+      # been enough. `overwrite` clears the half-created artifact from the
+      # first attempt so the retry does not fail with "already exists".
       - name: Upload xcarchive artifact
+        id: upload
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: ios-xcarchive
           path: ${{ steps.locate.outputs.archive_dir }}/Runner-ios.xcarchive
           retention-days: 1
+
+      - name: Upload xcarchive artifact (retry)
+        if: steps.upload.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-xcarchive
+          path: ${{ steps.locate.outputs.archive_dir }}/Runner-ios.xcarchive
+          retention-days: 1
+          overwrite: true
 
   ios-app-store-publish:
     needs: [ version, ios ]
@@ -270,12 +285,24 @@ jobs:
           (( ${#archive[@]} == 1 )) || { echo "Expected one macOS archive, found ${#archive[@]}"; exit 1; }
           tar -czf dist/macos-xcarchive.tar.gz -C "$(dirname "${archive[0]}")" "Runner.xcarchive"
 
+      # Same FinalizeArtifact 403 flake as the iOS job; see the comment there.
       - name: Upload xcarchive artifact
+        id: upload
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: macos-xcarchive
           path: dist/macos-xcarchive.tar.gz
           retention-days: 1
+
+      - name: Upload xcarchive artifact (retry)
+        if: steps.upload.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-xcarchive
+          path: dist/macos-xcarchive.tar.gz
+          retention-days: 1
+          overwrite: true
 
   macos-app-store-publish:
     needs: [ version, macos ]
