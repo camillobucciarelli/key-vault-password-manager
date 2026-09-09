@@ -442,7 +442,9 @@ jobs:
 
           if ! publish_response=$(curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer ${access_token}" \
+            -H "Content-Type: application/json" \
             -X POST \
+            --data '{"publishType":"DEFAULT_PUBLISH"}' \
             "https://chromewebstore.googleapis.com/v2/publishers/${PUBLISHER_ID}/items/${EXTENSION_ID}:publish"); then
             echo "::error::Chrome Web Store: the publish call was rejected (the upload itself succeeded)."
             echo "  response: ${publish_response}"
