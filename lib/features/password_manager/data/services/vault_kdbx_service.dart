@@ -1303,7 +1303,11 @@ class VaultKdbxService {
         continue;
       }
       customFields.add(
-        VaultCustomField(key: key, value: stringEntry.value?.getText() ?? ''),
+        VaultCustomField(
+          key: key,
+          value: stringEntry.value?.getText() ?? '',
+          isProtected: stringEntry.value is ProtectedValue,
+        ),
       );
     }
     return customFields;
@@ -1456,7 +1460,12 @@ class VaultKdbxService {
       if (normalizedKey.isEmpty) {
         continue;
       }
-      entry.setString(KdbxKey(normalizedKey), PlainValue(field.value));
+      entry.setString(
+        KdbxKey(normalizedKey),
+        field.isProtected
+            ? ProtectedValue.fromString(field.value)
+            : PlainValue(field.value),
+      );
     }
   }
 

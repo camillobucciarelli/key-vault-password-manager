@@ -620,6 +620,85 @@ void main() {
     expect(entry.lastPasswordChangedAt, entry.createdAt);
   });
 
+  group('protected custom fields (spec 023 T010, SC-008)', () {
+    Future<Map<String, bool>> protectionByKey() async {
+      final file = await KdbxFormat().read(
+        await File(databasePath).readAsBytes(),
+        Credentials(ProtectedValue.fromString(password)),
+      );
+      final entry = file.body.rootGroup.getAllEntries().single;
+      return {
+        for (final key in ['Recovery', 'Note'])
+          key: entry.getString(KdbxKey(key)) is ProtectedValue,
+      };
+    }
+
+    test('writes the flag as given and reads it back', () async {
+      final rootGroupId = await _rootGroupId(service, databasePath, password);
+      await service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: rootGroupId,
+        title: 'Bank',
+        username: 'user',
+        entryPassword: 'p',
+        url: '',
+        notes: '',
+        customFields: const [
+          VaultCustomField(key: 'Recovery', value: 'abc', isProtected: true),
+          VaultCustomField(key: 'Note', value: 'plain'),
+        ],
+      );
+
+      expect(await protectionByKey(), {'Recovery': true, 'Note': false});
+
+      final entry = (await service.loadAllEntries(
+        databasePath: databasePath,
+        password: password,
+      )).single;
+      final byKey = {for (final f in entry.customFields) f.key: f};
+      expect(byKey['Recovery']!.isProtected, isTrue);
+      expect(byKey['Recovery']!.value, 'abc');
+      expect(byKey['Note']!.isProtected, isFalse);
+    });
+
+    test('an unrelated save never downgrades a protected field', () async {
+      final rootGroupId = await _rootGroupId(service, databasePath, password);
+      await service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: rootGroupId,
+        title: 'Bank',
+        username: 'user',
+        entryPassword: 'p',
+        url: '',
+        notes: '',
+        customFields: const [
+          VaultCustomField(key: 'Recovery', value: 'abc', isProtected: true),
+          VaultCustomField(key: 'Note', value: 'plain'),
+        ],
+      );
+      final first = (await service.loadAllEntries(
+        databasePath: databasePath,
+        password: password,
+      )).single;
+
+      await service.updateEntry(
+        databasePath: databasePath,
+        password: password,
+        entryId: first.id,
+        title: 'Bank renamed',
+        username: first.username,
+        entryPassword: first.password,
+        url: first.url,
+        notes: first.notes,
+        customFields: first.customFields,
+      );
+
+      expect(await protectionByKey(), {'Recovery': true, 'Note': false});
+    });
+  });
+
   test(
     'keeps password change timestamp at creation when password does not change',
     () async {
