@@ -62,6 +62,14 @@ class BrowserSetupService {
       'https://github.com/camillobucciarelli/key-vault-password-manager/'
       'releases/latest/download/keyvault-chrome-support-macos.pkg';
 
+  /// Where a build that does not bundle the native host (the Microsoft Store
+  /// MSIX, see issue #209: MSIX virtualization hides the host's registry and
+  /// file writes from Chrome/Edge) sends the user to get the sideload zip,
+  /// which does bundle it.
+  static const sideloadReleasesUrl =
+      'https://github.com/camillobucciarelli/key-vault-password-manager/'
+      'releases/latest';
+
   final DesktopBrowserAutofillCacheStore _cacheStore;
   final Directory? _projectRoot;
   final BrowserSetupHostPlatform? _platformOverride;

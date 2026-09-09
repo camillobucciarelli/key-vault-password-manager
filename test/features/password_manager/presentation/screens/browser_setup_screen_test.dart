@@ -72,40 +72,42 @@ void main() {
       expect(find.textContaining('Tutto configurato'), findsNothing);
     });
 
-    testWidgets('explains when Chrome installer is unavailable', (
+    // Issue #209: the Microsoft Store MSIX does not bundle the native host
+    // installer, so step 2 must point at the GitHub sideload zip instead of
+    // running an installer that is not there.
+    testWidgets('sends to the GitHub release when the installer is missing', (
       tester,
     ) async {
       final service = _FakeBrowserSetupService(
         canRunInstaller: false,
         installResult: Future.value(NativeHostInstallResult.scriptNotFound),
       );
+      final opened = <Uri>[];
 
       await tester.pumpWidget(
         MaterialApp(
           theme: AppTheme.lightTheme,
-          home: BrowserSetupScreen(service: service),
+          home: BrowserSetupScreen(
+            service: service,
+            openUrl: (url) async {
+              opened.add(url);
+              return true;
+            },
+          ),
         ),
       );
       await tester.pumpAndSettle();
 
-      expect(
-        find.text(
-          'Installer Chrome non disponibile in questa versione di KeyVault.',
-        ),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Microsoft Store'), findsOneWidget);
+      expect(find.text('Configura Chrome'), findsNothing);
 
-      await tester.ensureVisible(find.text('Configura Chrome'));
-      await tester.tap(find.text('Configura Chrome'));
+      await tester.ensureVisible(find.text('Apri le release GitHub'));
+      await tester.tap(find.text('Apri le release GitHub'));
       await tester.pumpAndSettle();
 
-      expect(service.installCalls, 1);
-      expect(
-        find.text(
-          'Installer Chrome non disponibile in questa versione di KeyVault.',
-        ),
-        findsNWidgets(2),
-      );
+      expect(service.installCalls, 0);
+      expect(opened, [Uri.parse(BrowserSetupService.sideloadReleasesUrl)]);
+      expect(find.textContaining('Scarica lo zip di KeyVault'), findsOneWidget);
     });
   });
 }
