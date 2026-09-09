@@ -911,8 +911,14 @@ class _CustomFieldRowEditorState extends State<_CustomFieldRowEditor> {
   /// protected is the one edit here that lowers what the file protects, so
   /// it asks first. A field made secret in this same session can be undone
   /// freely.
-  late final bool _startedProtected = widget.row.isProtected;
+  late final bool _startedProtected;
   bool _valueVisible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _startedProtected = widget.row.isProtected;
+  }
 
   Future<void> _setProtected(bool value) async {
     if (!value && _startedProtected) {

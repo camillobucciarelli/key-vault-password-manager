@@ -67,7 +67,7 @@ class NavigationFixtureVaultKdbxService implements VaultKdbxService {
   /// Records created by `duplicateEntry`, appended to the vault by [entries].
   final List<VaultEntry> _duplicates = <VaultEntry>[];
 
-  /// Records a test seeds on top of the three fixed ones, so a scenario can
+  /// Extra entries seeded on top of the three fixed ones, so a scenario can
   /// bring the shape it needs (spec 023 US1b: a protected custom field)
   /// without every other test seeing it.
   final List<VaultEntry> extraEntries = <VaultEntry>[];

@@ -15,8 +15,8 @@ import 'entry_editor_generator_test_utils.dart';
 const _seed = 'abandon ability able about above absent';
 const _masked = '••••••••••••';
 
-VaultSnapshot _snapshot() {
-  const wallet = VaultEntry(
+VaultSnapshot _snapshot({List<VaultCustomField> extraFields = const []}) {
+  final wallet = VaultEntry(
     id: 'e-wallet',
     groupId: kRootGroupId,
     title: 'Wallet',
@@ -25,14 +25,15 @@ VaultSnapshot _snapshot() {
     url: '',
     notes: '',
     customFields: [
-      VaultCustomField(key: 'Seed', value: _seed, isProtected: true),
-      VaultCustomField(key: 'Network', value: 'mainnet'),
+      const VaultCustomField(key: 'Seed', value: _seed, isProtected: true),
+      const VaultCustomField(key: 'Network', value: 'mainnet'),
+      ...extraFields,
     ],
   );
-  return const VaultSnapshot(
+  return VaultSnapshot(
     rootGroupId: kRootGroupId,
     currentGroupId: kRootGroupId,
-    groups: [VaultGroup(id: kRootGroupId, name: 'Vault', parentId: null)],
+    groups: const [VaultGroup(id: kRootGroupId, name: 'Vault', parentId: null)],
     entries: [wallet],
     allEntries: [wallet],
   );
@@ -46,11 +47,13 @@ void main() {
     WidgetTester tester, {
     bool biometricGate = false,
     bool biometricResult = true,
+    List<VaultCustomField> extraFields = const [],
   }) async {
-    final harness = EntryTestHarness(snapshot: _snapshot())
-      ..biometricAvailable = biometricGate
-      ..biometricEnabledForDatabase = biometricGate
-      ..biometricAuthenticateResult = biometricResult;
+    final harness =
+        EntryTestHarness(snapshot: _snapshot(extraFields: extraFields))
+          ..biometricAvailable = biometricGate
+          ..biometricEnabledForDatabase = biometricGate
+          ..biometricAuthenticateResult = biometricResult;
     await tester.pumpWidget(await pumpableEntryScreen(harness: harness));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Wallet').first);
@@ -89,6 +92,26 @@ void main() {
     await tester.tap(find.byTooltip('Hide value'));
     await tester.pumpAndSettle();
     expect(find.text(_seed), findsNothing);
+  });
+
+  testWidgets('two secret fields sharing a name reveal one at a time', (
+    tester,
+  ) async {
+    // A vault written elsewhere may repeat a key; the editor never does.
+    // One gate uncovers one row, so the reveal is tracked by position.
+    await pumpDetail(
+      tester,
+      extraFields: const [
+        VaultCustomField(key: 'Seed', value: 'other-seed', isProtected: true),
+      ],
+    );
+    expect(find.byTooltip('Show value'), findsNWidgets(2));
+
+    await tester.tap(find.byTooltip('Show value').last);
+    await tester.pumpAndSettle();
+    expect(find.text('other-seed'), findsOneWidget);
+    expect(find.text(_seed), findsNothing);
+    expect(find.byTooltip('Hide value'), findsOneWidget);
   });
 
   testWidgets('a biometric-protected database gates the reveal', (

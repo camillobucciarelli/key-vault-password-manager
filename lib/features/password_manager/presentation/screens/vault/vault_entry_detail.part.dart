@@ -90,9 +90,12 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
   bool _isCheckingBiometrics = false;
 
   /// spec 023 US1b: what the one reveal countdown is showing — `null` for
-  /// the password, otherwise a secret custom field's key. One secret at a
-  /// time: revealing a field hides whatever else was revealed.
-  String? _revealedFieldKey;
+  /// the password, otherwise a secret custom field's position in the
+  /// entry's list. Position, not key: the editor keeps keys unique, but a
+  /// vault written elsewhere may carry two fields with the same name, and
+  /// one gate must never uncover both. One secret at a time: revealing a
+  /// field hides whatever else was revealed.
+  int? _revealedFieldIndex;
 
   @override
   void initState() {
@@ -138,8 +141,8 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
     _showCenteredCopyToast(context, message);
   }
 
-  Future<void> _handleRevealTap(String databasePath, {String? fieldKey}) async {
-    if (_revealController.isRevealed && _revealedFieldKey == fieldKey) {
+  Future<void> _handleRevealTap(String databasePath, {int? fieldIndex}) async {
+    if (_revealController.isRevealed && _revealedFieldIndex == fieldIndex) {
       _revealController.hide();
       return;
     }
@@ -149,13 +152,13 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
     if (!mounted) return;
     setState(() => _isCheckingBiometrics = false);
     if (allowed) {
-      _revealedFieldKey = fieldKey;
+      _revealedFieldIndex = fieldIndex;
       _revealController.reveal();
     }
   }
 
-  bool _isRevealed({String? fieldKey}) =>
-      _revealController.isRevealed && _revealedFieldKey == fieldKey;
+  bool _isRevealed({int? fieldIndex}) =>
+      _revealController.isRevealed && _revealedFieldIndex == fieldIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -409,13 +412,13 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
             ],
             // 2026-08-31: custom fields are ordinary rows of the list, not a
             // count hidden behind a chip.
-            for (final field in customFields) ...[
+            for (final (index, field) in customFields.indexed) ...[
               const SizedBox(height: 9),
               // spec 023 US1b: a secret field takes the password's own
               // treatment — masked, gated reveal on one shared countdown,
               // guarded copy. The value never enters the tree while masked.
               if (field.isProtected && field.value.isNotEmpty)
-                if (_isRevealed(fieldKey: field.key))
+                if (_isRevealed(fieldIndex: index))
                   RevealedPasswordRow(
                     label: field.key,
                     hideTooltip: 'Hide value',
@@ -426,7 +429,7 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                                 _revealController.remainingFraction)
                             .ceil(),
                     onHide: () =>
-                        _handleRevealTap(databasePath, fieldKey: field.key),
+                        _handleRevealTap(databasePath, fieldIndex: index),
                     onCopy: () => _copy(
                       text: field.value,
                       message: 'Copied ${field.key}.',
@@ -436,10 +439,6 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                   KvFieldRow(
                     label: field.key,
                     value: '••••••••••••',
-                    onCopy: () => _copy(
-                      text: field.value,
-                      message: 'Copied ${field.key}.',
-                    ),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -452,7 +451,7 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                               ? null
                               : () => _handleRevealTap(
                                   databasePath,
-                                  fieldKey: field.key,
+                                  fieldIndex: index,
                                 ),
                         ),
                         const SizedBox(width: 8),
