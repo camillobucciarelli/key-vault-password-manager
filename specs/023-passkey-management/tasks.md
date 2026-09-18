@@ -115,7 +115,7 @@ Goal: a user can mark any custom field secret; it is stored protected and
 treated like the password in every view.
 Independent test: quickstart A2.
 
-- [ ] **T101** [US1b] Secret toggle in the editor — owner: `senior-flutter-dev`
+- [x] **T101** [US1b] Secret toggle in the editor — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/screens/vault/vault_entry_editor.part.dart`,
   `test/features/password_manager/presentation/screens/vault/vault_entry_editor_test.dart`.
   Acceptance: `_CustomFieldFormRow.isProtected`, initialised from the field;
@@ -128,7 +128,7 @@ Independent test: quickstart A2.
   value; saving emits `isProtected: true`; toggling off a protected row shows
   the confirmation and cancel keeps it protected.
 
-- [ ] **T102** [US1b] Secret field in the entry detail — owner: `senior-flutter-dev`
+- [x] **T102** [US1b] Secret field in the entry detail — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/screens/vault/vault_entry_detail.part.dart`,
   `test/features/password_manager/presentation/screens/vault/vault_entry_detail_test.dart`.
   Acceptance: a custom field with `isProtected` renders masked, uses the
@@ -139,7 +139,7 @@ Independent test: quickstart A2.
   biometric-protected database; copy calls the guard; the raw value never
   appears in the tree while masked.
 
-- [ ] **T103** [P] [US1b] Secret fields in history and merge preview — owner: `senior-flutter-dev`
+- [x] **T103** [P] [US1b] Secret fields in history and merge preview — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/domain/models/vault_entry_revision.dart`,
   `lib/features/password_manager/domain/models/merge_field_display.dart`,
   `lib/features/password_manager/data/services/kdbx_merge_adapter.dart`,
@@ -151,7 +151,7 @@ Independent test: quickstart A2.
   Verify: unit tests on the display models; history widget test asserts the
   value is not rendered while masked.
 
-- [ ] **T104** [US1b] Goldens for the secret field — owner: `senior-tester`
+- [x] **T104** [US1b] Goldens for the secret field — owner: `senior-tester`
   Files: `test/goldens/editor_custom_field_secret_test.dart` (new),
   `test/goldens/vault_entry_detail_secret_field_test.dart` (new), PNGs.
   Acceptance: `editor_custom_field_secret` 390×844 light+dark,

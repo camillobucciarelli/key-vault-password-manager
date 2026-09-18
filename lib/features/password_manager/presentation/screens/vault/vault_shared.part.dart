@@ -49,10 +49,15 @@ List<VaultCustomField> _buildCustomFields({
   required List<_CustomFieldFormRow> customFieldRows,
   required String otpUri,
   List<String> extraUrls = const [],
+  bool otpProtected = false,
 }) {
   final fields = customFieldRows
       .map(
-        (row) => VaultCustomField(key: row.key.trim(), value: row.value.trim()),
+        (row) => VaultCustomField(
+          key: row.key.trim(),
+          value: row.value.trim(),
+          isProtected: row.isProtected,
+        ),
       )
       .where((field) => field.key.isNotEmpty)
       .where((field) => !_isOtpFieldKey(field.key))
@@ -62,21 +67,35 @@ List<VaultCustomField> _buildCustomFields({
   // KeePass2Android/KeePassXC convention, so other clients and our own
   // autofill matchers (isUrlFieldKey) pick them up. Renumbered on every
   // save so removals leave no gaps.
+  //
+  // A protected URL-keyed string stays a custom field row (it keeps its
+  // Secret switch there rather than being rebuilt as plain text), so it is
+  // already in `fields` under its original name. Renumbering steps over any
+  // name it holds, or the save would emit two fields called `KP2A_URL_1`.
+  final takenKeys = fields.map((field) => field.key.toLowerCase()).toSet();
   var urlIndex = 0;
   for (final url in extraUrls) {
     final trimmed = url.trim();
     if (trimmed.isEmpty) {
       continue;
     }
-    urlIndex++;
-    fields.add(
-      VaultCustomField(key: '$kp2aUrlKeyPrefix$urlIndex', value: trimmed),
-    );
+    String key;
+    do {
+      urlIndex++;
+      key = '$kp2aUrlKeyPrefix$urlIndex';
+    } while (takenKeys.contains(key.toLowerCase()));
+    fields.add(VaultCustomField(key: key, value: trimmed));
   }
 
   final trimmedOtpUri = otpUri.trim();
   if (trimmedOtpUri.isNotEmpty) {
-    fields.add(VaultCustomField(key: 'otp', value: trimmedOtpUri));
+    fields.add(
+      VaultCustomField(
+        key: 'otp',
+        value: trimmedOtpUri,
+        isProtected: otpProtected,
+      ),
+    );
   }
 
   return fields;

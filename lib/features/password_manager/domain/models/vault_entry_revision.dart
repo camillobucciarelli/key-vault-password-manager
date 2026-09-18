@@ -225,7 +225,12 @@ Map<VaultEntryField, String?> _fieldsOfEntry(VaultEntry entry) {
 String _customFieldsKey(List<VaultCustomField> fields) {
   final pairs =
       fields
-          .map((field) => '${field.key}\u0000${field.value}')
+          // spec 023 US1b: secret to plain (or back) is a change worth
+          // naming even when the text did not move.
+          .map(
+            (field) =>
+                '${field.key}\u0000${field.isProtected}\u0000${field.value}',
+          )
           .toList(growable: false)
         ..sort();
   return pairs.join('\u0001');

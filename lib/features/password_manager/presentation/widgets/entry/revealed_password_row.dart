@@ -21,9 +21,16 @@ class RevealedPasswordRow extends StatelessWidget {
     required this.remainingSeconds,
     required this.onHide,
     this.onCopy,
+    this.label = 'Password',
+    this.hideTooltip = 'Hide password',
   });
 
   final String password;
+
+  /// spec 023 US1b: a secret custom field reveals through this same row,
+  /// under its own key.
+  final String label;
+  final String hideTooltip;
   final double remainingFraction;
   final int remainingSeconds;
   final VoidCallback onHide;
@@ -55,7 +62,7 @@ class RevealedPasswordRow extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      'Password',
+                      label,
                       style: AppTextStyles.labelUpper.copyWith(
                         color: colors.attentionText,
                       ),
@@ -78,7 +85,7 @@ class RevealedPasswordRow extends StatelessWidget {
                 width: 36,
                 height: 36,
                 child: IconButton(
-                  tooltip: 'Hide password',
+                  tooltip: hideTooltip,
                   onPressed: onHide,
                   style: IconButton.styleFrom(
                     backgroundColor: colors.actionFill,

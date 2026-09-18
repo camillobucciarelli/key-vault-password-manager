@@ -28,11 +28,20 @@ import 'package:password_manager/features/password_manager/domain/models/vault_s
 
 /// One recorded mutating call against the vault.
 class RecordedVaultCall {
-  const RecordedVaultCall(this.kind, this.entryId, [this.fields = const {}]);
+  const RecordedVaultCall(
+    this.kind,
+    this.entryId, [
+    this.fields = const {},
+    this.customFields = const [],
+  ]);
 
   final String kind;
   final String entryId;
   final Map<String, String> fields;
+
+  /// spec 023 US1b: what the editor asked to persist, protection flag and
+  /// all.
+  final List<VaultCustomField> customFields;
 
   @override
   String toString() => 'RecordedVaultCall($kind, $entryId, $fields)';
@@ -57,6 +66,11 @@ class NavigationFixtureVaultKdbxService implements VaultKdbxService {
 
   /// Records created by `duplicateEntry`, appended to the vault by [entries].
   final List<VaultEntry> _duplicates = <VaultEntry>[];
+
+  /// Extra entries seeded on top of the three fixed ones, so a scenario can
+  /// bring the shape it needs (spec 023 US1b: a protected custom field)
+  /// without every other test seeing it.
+  final List<VaultEntry> extraEntries = <VaultEntry>[];
 
   static const gmail = VaultEntry(
     id: 'entry-gmail',
@@ -92,7 +106,7 @@ class NavigationFixtureVaultKdbxService implements VaultKdbxService {
   );
 
   List<VaultEntry> get entries => <VaultEntry>[
-    for (final entry in const [gmail, github, bank])
+    for (final entry in [gmail, github, bank, ...extraEntries])
       if (!_deleted.contains(entry.id)) _updated[entry.id] ?? entry,
     for (final entry in _duplicates)
       if (!_deleted.contains(entry.id)) _updated[entry.id] ?? entry,
@@ -144,7 +158,7 @@ class NavigationFixtureVaultKdbxService implements VaultKdbxService {
         'username': username,
         'url': url,
         'notes': notes,
-      }),
+      }, customFields),
     );
     final base =
         _updated[entryId] ??
@@ -157,6 +171,7 @@ class NavigationFixtureVaultKdbxService implements VaultKdbxService {
       password: entryPassword,
       url: url,
       notes: notes,
+      customFields: customFields,
     );
   }
 

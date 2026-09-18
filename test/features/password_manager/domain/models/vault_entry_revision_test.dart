@@ -166,6 +166,22 @@ void main() {
       expect(changed, isEmpty);
     });
 
+    test('a custom field losing its protection counts as a change', () {
+      // spec 023 US1b (T103): same key, same text, only the flag moved.
+      final changed = changedFieldsForRevision(
+        revision: revision(
+          customFields: const [
+            VaultCustomField(key: 'Seed', value: 'x', isProtected: true),
+          ],
+        ),
+        currentEntry: entry(
+          customFields: const [VaultCustomField(key: 'Seed', value: 'x')],
+        ),
+      );
+
+      expect(changed, {VaultEntryField.customFields});
+    });
+
     test('an attachment the entry no longer has is reported by name', () {
       final changed = changedFieldsForRevision(
         revision: revision(attachmentNames: const ['key.pem']),
