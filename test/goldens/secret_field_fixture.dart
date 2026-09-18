@@ -19,7 +19,7 @@ VaultSnapshot buildSecretFieldSnapshot() {
     groupId: kRootGroupId,
     title: 'Wallet',
     username: 'camillo',
-    password: 'Wallet-Pass-4d!ab',
+    password: 'Fixture-Pass-9d!z',
     url: 'https://wallet.example',
     notes: '',
     customFields: const [

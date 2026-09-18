@@ -21,7 +21,7 @@ VaultSnapshot _snapshot({List<VaultCustomField> extraFields = const []}) {
     groupId: kRootGroupId,
     title: 'Wallet',
     username: 'me',
-    password: 'Wallet-Pass-4d!ab',
+    password: 'Fixture-Pass-9d!z',
     url: '',
     notes: '',
     customFields: [
