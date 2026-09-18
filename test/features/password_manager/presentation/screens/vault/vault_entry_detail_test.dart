@@ -162,4 +162,27 @@ void main() {
     // Let the guard's 30 s clear timer run out inside the test.
     await tester.pump(const Duration(seconds: 31));
   });
+
+  testWidgets('a protected URL-keyed field is masked, not a website row', (
+    tester,
+  ) async {
+    await pumpDetail(
+      tester,
+      extraFields: const [
+        VaultCustomField(
+          key: 'KP2A_URL_1',
+          value: 'https://admin.example',
+          isProtected: true,
+        ),
+      ],
+    );
+
+    // Website rows print their URL and offer un-gated open and copy. A
+    // protected one takes the password's masked treatment instead
+    // (FR-002a), so its value is nowhere in the tree.
+    expect(find.text('https://admin.example'), findsNothing);
+    expect(find.text('admin.example'), findsNothing);
+    expect(find.text(_masked), findsNWidgets(3));
+    expect(find.byTooltip('Show value'), findsNWidgets(2));
+  });
 }

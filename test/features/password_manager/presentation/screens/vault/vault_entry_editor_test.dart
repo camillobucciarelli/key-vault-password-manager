@@ -29,17 +29,43 @@ const _wallet = VaultEntry(
   ],
 );
 
+/// A vault written elsewhere may protect a URL-keyed custom string. The
+/// editor's website list rebuilds its fields from plain text on save, so such
+/// a field is kept as a custom field row instead, where it holds both its
+/// Secret switch and its protection (FR-002a: never downgrade on an unrelated
+/// save).
+const _router = VaultEntry(
+  id: 'entry-router',
+  groupId: NavigationFixtureVaultKdbxService.rootId,
+  title: 'Router',
+  username: 'admin',
+  password: 'Fixture-Pass-2c!k',
+  url: '',
+  notes: '',
+  customFields: [
+    VaultCustomField(
+      key: 'KP2A_URL_1',
+      value: 'https://admin.example',
+      isProtected: true,
+    ),
+    VaultCustomField(key: 'KP2A_URL_2', value: 'https://plain.example'),
+  ],
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   tearDown(resetVaultShellTestDi);
 
-  Future<NavigationFixtureVaultKdbxService> pump(WidgetTester tester) async {
+  Future<NavigationFixtureVaultKdbxService> pump(
+    WidgetTester tester, {
+    List<VaultEntry> extraEntries = const [_wallet],
+  }) async {
     tester.view.physicalSize = const Size(1024, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final service = NavigationFixtureVaultKdbxService()
-      ..extraEntries.add(_wallet);
+      ..extraEntries.addAll(extraEntries);
     await tester.pumpWidget(
       await pumpableVaultShell(vaultKdbxService: service),
     );
@@ -181,6 +207,47 @@ void main() {
     expect(
       service.calls.last.customFields,
       contains(const VaultCustomField(key: 'Seed', value: _seed)),
+    );
+  });
+
+  testWidgets('a protected URL-keyed field keeps its flag across a save', (
+    tester,
+  ) async {
+    final service = await pump(tester, extraEntries: const [_router]);
+    await openEditor(tester, 'Router');
+
+    // It is a custom field row, switch on and value obscured — not a
+    // website row, which would have neither.
+    expect(tester.widget<KvSwitch>(switchIn(row(0))).value, isTrue);
+    expect(valueFieldIn(tester, row(0)).obscureText, isTrue);
+
+    await save(tester);
+
+    final saved = service.calls.last.customFields;
+    expect(
+      saved,
+      contains(
+        const VaultCustomField(
+          key: 'KP2A_URL_1',
+          value: 'https://admin.example',
+          isProtected: true,
+        ),
+      ),
+    );
+    // The plain website is renumbered around the name the protected field
+    // holds, so the save never emits the same key twice.
+    expect(
+      saved,
+      contains(
+        const VaultCustomField(
+          key: 'KP2A_URL_2',
+          value: 'https://plain.example',
+        ),
+      ),
+    );
+    expect(
+      saved.map((field) => field.key.toLowerCase()).toSet(),
+      hasLength(saved.length),
     );
   });
 }

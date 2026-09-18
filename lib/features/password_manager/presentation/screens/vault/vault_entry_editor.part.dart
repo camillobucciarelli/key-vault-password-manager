@@ -79,6 +79,12 @@ class _EntryDialogState extends State<_EntryDialog> {
   final List<TextEditingController> _extraUrlControllers = [];
   late final TextEditingController _notesController;
   late final TextEditingController _otpUriController;
+
+  /// Whether the entry's OTP string arrived protected. The OTP URI travels in
+  /// its own controller and is rebuilt as a plain field on save, so this
+  /// carries the file's protection attribute across that round trip
+  /// (spec 023 FR-002a: never downgrade on an unrelated save).
+  var _otpProtected = false;
   var _nextCustomFieldId = 0;
   late List<_CustomFieldFormRow> _customFieldRows;
   final List<String> _attachmentPaths = [];
@@ -115,17 +121,29 @@ class _EntryDialogState extends State<_EntryDialog> {
       _titleController.text = widget.initialOtpAuth!.title;
     }
 
+    // spec 023 FR-002a: every custom field carries a user-visible secret
+    // state, and an unrelated save never downgrades one. The website and OTP
+    // lists rebuild their fields from plain text on save, which would strip
+    // the flag, so a protected URL-keyed string stays a custom field row —
+    // where it keeps its Secret switch — rather than joining the website
+    // list. The OTP field has no row of its own, so its flag is carried.
     for (final field
         in widget.initial?.customFields ?? const <VaultCustomField>[]) {
-      if (isUrlFieldKey(field.key)) {
+      if (isUrlFieldKey(field.key) && !field.isProtected) {
         _extraUrlControllers.add(TextEditingController(text: field.value));
       }
     }
+    _otpProtected =
+        widget.initial?.customFields.any(
+          (field) => _isOtpFieldKey(field.key) && field.isProtected,
+        ) ??
+        false;
     _customFieldRows =
         widget.initial?.customFields
             .where(
               (field) =>
-                  !_isOtpFieldKey(field.key) && !isUrlFieldKey(field.key),
+                  !_isOtpFieldKey(field.key) &&
+                  (!isUrlFieldKey(field.key) || field.isProtected),
             )
             .map(
               (field) => _buildCustomFieldRow(
@@ -237,6 +255,7 @@ class _EntryDialogState extends State<_EntryDialog> {
           extraUrls: _extraUrlControllers
               .map((controller) => controller.text)
               .toList(growable: false),
+          otpProtected: _otpProtected,
         ),
         attachmentPaths: List<String>.unmodifiable(_attachmentPaths),
       ),

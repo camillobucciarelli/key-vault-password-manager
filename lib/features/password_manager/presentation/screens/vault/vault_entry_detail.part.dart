@@ -107,8 +107,15 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
   @override
   void didUpdateWidget(covariant _EntryDetailPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.entry.id != widget.entry.id) {
+    // The revealed field is identified by position, so any change to the
+    // custom-field list invalidates it: an insert, a removal or a reorder
+    // would otherwise leave a *different* field rendered revealed without its
+    // own biometric gate. Same entry id is not enough — editing an entry
+    // rebuilds its fields in place.
+    if (oldWidget.entry.id != widget.entry.id ||
+        !_sameCustomFieldShape(oldWidget.entry, widget.entry)) {
       _revealController.hide();
+      _revealedFieldIndex = null;
     }
     _configureTicker();
   }
@@ -119,6 +126,22 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
     _revealController.removeListener(_onRevealChanged);
     _revealController.dispose();
     super.dispose();
+  }
+
+  /// Whether two versions of an entry lay their custom fields out the same
+  /// way, so a reveal held by position still points at the field the user
+  /// gated. Keys and protection flags are compared, not values: editing a
+  /// revealed field's text leaves it the same field.
+  static bool _sameCustomFieldShape(VaultEntry before, VaultEntry after) {
+    if (before.customFields.length != after.customFields.length) return false;
+    for (var i = 0; i < before.customFields.length; i++) {
+      if (before.customFields[i].key != after.customFields[i].key ||
+          before.customFields[i].isProtected !=
+              after.customFields[i].isProtected) {
+        return false;
+      }
+    }
+    return true;
   }
 
   void _onRevealChanged() {
@@ -172,15 +195,25 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
         ? folderName
         : '$folderName · ${_hostFor(entry.url)}';
 
+    // spec 023 FR-002a: a protected field keeps the secret treatment whatever
+    // its key. A URL-keyed custom string marked protected in the file would
+    // otherwise render as an ordinary Website row — plaintext on screen, with
+    // un-gated open and copy actions — so it takes the masked path below
+    // instead of the website list.
     final extraUrls = entry.customFields
         .where(
-          (field) => isUrlFieldKey(field.key) && field.value.trim().isNotEmpty,
+          (field) =>
+              isUrlFieldKey(field.key) &&
+              !field.isProtected &&
+              field.value.trim().isNotEmpty,
         )
         .map((field) => field.value.trim())
         .toList(growable: false);
     final customFields = entry.customFields
         .where(
-          (field) => !_isOtpFieldKey(field.key) && !isUrlFieldKey(field.key),
+          (field) =>
+              !_isOtpFieldKey(field.key) &&
+              (!isUrlFieldKey(field.key) || field.isProtected),
         )
         .toList(growable: false);
     final totpData = entry.otpUri == null
