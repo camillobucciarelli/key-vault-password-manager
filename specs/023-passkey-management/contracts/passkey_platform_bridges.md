@@ -6,26 +6,34 @@ cache, a method-channel error, a native-messaging frame or a log line.**
 
 ## Publish payload (Dart → Apple / Android channel `publishCredentials`)
 
-Existing entry object gains an optional key:
+Existing entry object gains a key, always present, empty for an ordinary
+login. A list, not a single object: one entry can hold several passkeys
+(KeePassDX writes `_1`, `_2`, … groups) and a single block would silently
+drop all but one.
 
 ```
-"passkey": {
+"passkeys": [{
   "rpId": "example.com",
-  "credentialId": "<base64url>",
-  "userHandle": "<base64url>" | null,
+  "credentialId": "<base64url, unpadded>",
+  "userHandle": "<base64url, unpadded>" | null,
   "username": "alice",
   "privateKeyPem": "-----BEGIN PRIVATE KEY-----…",
   "algorithm": "ES256" | "EdDSA" | "RS256",
   "be": true, "bs": true
-}
+}]
 ```
+
+`credentialId` and `userHandle` are re-encoded from the stored bytes rather
+than passed through: KeePassXC omits base64url padding, and the extension
+compares `credentialId` against `allowedCredentials`, so both sides must
+spell it the same way.
 
 Only `usable` passkeys are sent. An entry with a passkey and an empty password
 is **published** (today's `entry_without_password_skipped` warning must not
 drop it). The channel result adds `passkeyPublishedCount`.
 
-Sealed record: same object. Plaintext metadata: `hasPasskey`, `passkeyRpId`,
-`passkeyCredentialId` only.
+Sealed record: same objects. Plaintext metadata: `hasPasskey` and, per
+passkey, `passkeyRpId` and `passkeyCredentialId` only — never the PEM.
 
 ## Apple extension
 

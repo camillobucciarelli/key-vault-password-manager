@@ -44,6 +44,74 @@ class AppleAutofillV2ServiceIdentifier extends Equatable {
   List<Object?> get props => [type, value];
 }
 
+/// spec 023 T301 — one stored passkey, on its way to the Apple sealed cache
+/// (`contracts/passkey_platform_bridges.md`).
+///
+/// [privateKeyPem] is the secret. It is absent from [props] and [toString],
+/// and it is written only into the channel map that the native side seals:
+/// it must never reach a plaintext metadata file, a log line or a channel
+/// error (Constitution I).
+class AppleAutofillV2Passkey extends Equatable {
+  const AppleAutofillV2Passkey({
+    required this.relyingPartyId,
+    required this.credentialId,
+    required this.username,
+    required this.privateKeyPem,
+    required this.algorithm,
+    this.userHandle,
+    this.backupEligible = true,
+    this.backupState = true,
+  });
+
+  final String relyingPartyId;
+
+  /// base64url, as stored — the extension matches `allowedCredentials`
+  /// against this string, so it is never re-encoded on the way.
+  final String credentialId;
+  final String? userHandle;
+  final String username;
+  final String privateKeyPem;
+
+  /// `ES256` | `EdDSA` | `RS256`.
+  final String algorithm;
+  final bool backupEligible;
+  final bool backupState;
+
+  Map<String, Object?> toChannelMap() => {
+    'rpId': relyingPartyId,
+    'credentialId': credentialId,
+    'userHandle': userHandle,
+    'username': username,
+    'privateKeyPem': privateKeyPem,
+    'algorithm': algorithm,
+    'be': backupEligible,
+    'bs': backupState,
+  };
+
+  @override
+  List<Object?> get props => [
+    relyingPartyId,
+    credentialId,
+    userHandle,
+    username,
+    RedactedValue(privateKeyPem),
+    algorithm,
+    backupEligible,
+    backupState,
+  ];
+
+  @override
+  String toString() =>
+      'AppleAutofillV2Passkey('
+      'relyingPartyId: $relyingPartyId, '
+      'credentialId: $credentialId, '
+      'username: $username, '
+      'privateKeyPem: <redacted>, '
+      'algorithm: $algorithm, '
+      'be: $backupEligible, '
+      'bs: $backupState)';
+}
+
 class AppleAutofillV2Credential extends Equatable {
   const AppleAutofillV2Credential({
     required this.id,
@@ -52,6 +120,7 @@ class AppleAutofillV2Credential extends Equatable {
     required this.password,
     required this.url,
     required this.serviceIdentifiers,
+    this.passkeys = const [],
   });
 
   final String id;
@@ -60,6 +129,12 @@ class AppleAutofillV2Credential extends Equatable {
   final String password;
   final String? url;
   final List<AppleAutofillV2ServiceIdentifier> serviceIdentifiers;
+
+  /// spec 023 T301 — the entry's usable passkeys, sealed alongside the
+  /// password. Empty for an ordinary login. A credential with an empty
+  /// [password] and a non-empty list is still published: it has something to
+  /// sign with, even though it has nothing to fill.
+  final List<AppleAutofillV2Passkey> passkeys;
 
   Map<String, Object?> toChannelMap() {
     return {
@@ -70,6 +145,9 @@ class AppleAutofillV2Credential extends Equatable {
       'url': url,
       'serviceIdentifiers': serviceIdentifiers
           .map((identifier) => identifier.toChannelMap())
+          .toList(growable: false),
+      'passkeys': passkeys
+          .map((passkey) => passkey.toChannelMap())
           .toList(growable: false),
     };
   }
@@ -82,6 +160,7 @@ class AppleAutofillV2Credential extends Equatable {
     RedactedValue(password),
     url,
     serviceIdentifiers,
+    passkeys,
   ];
 
   @override
@@ -92,7 +171,8 @@ class AppleAutofillV2Credential extends Equatable {
         'username: $username, '
         'password: <redacted>, '
         'url: $url, '
-        'serviceIdentifiers: $serviceIdentifiers)';
+        'serviceIdentifiers: $serviceIdentifiers, '
+        'passkeys: ${passkeys.length})';
   }
 }
 
@@ -102,6 +182,7 @@ class AppleAutofillV2PublishResult extends Equatable {
     required this.skippedCount,
     required this.identityCount,
     required this.identityStoreSynced,
+    this.passkeyPublishedCount = 0,
     this.warnings = const [],
   });
 
@@ -111,6 +192,9 @@ class AppleAutofillV2PublishResult extends Equatable {
       skippedCount: _readInt(map, 'skippedCount'),
       identityCount: _readInt(map, 'identityCount'),
       identityStoreSynced: _readBool(map, 'identityStoreSynced'),
+      // Absent from an older native side, which then reports zero rather
+      // than claiming passkeys it did not store.
+      passkeyPublishedCount: _readInt(map, 'passkeyPublishedCount'),
       warnings: _readStringList(map, 'warnings'),
     );
   }
@@ -128,6 +212,9 @@ class AppleAutofillV2PublishResult extends Equatable {
   final int skippedCount;
   final int identityCount;
   final bool identityStoreSynced;
+
+  /// spec 023 T301 — how many passkeys the native side sealed.
+  final int passkeyPublishedCount;
   final List<String> warnings;
 
   @override
@@ -136,6 +223,7 @@ class AppleAutofillV2PublishResult extends Equatable {
     skippedCount,
     identityCount,
     identityStoreSynced,
+    passkeyPublishedCount,
     warnings,
   ];
 }

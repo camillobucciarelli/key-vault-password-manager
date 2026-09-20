@@ -294,15 +294,17 @@ Independent test: quickstart A, B, C.
 Goal: the credential provider extension answers passkey sign-in requests.
 Independent test: quickstart D, on each platform.
 
-- [ ] **T301** [US2] Publish passkeys to the sealed cache — owner: `senior-flutter-dev`
+- [x] **T301** [US2] Publish passkeys to the sealed cache — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/domain/models/apple_autofill_v2_models.dart`,
   `lib/features/password_manager/data/services/apple_autofill_v2_method_channel_client.dart`,
   `lib/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart`,
   matching tests.
-  Acceptance: the publish entry gains the `passkey` block of
-  `contracts/passkey_platform_bridges.md` for each usable passkey; an entry
-  with a passkey and no password is published; result carries
-  `passkeyPublishedCount`; the model's `toString` redacts the PEM.
+  Acceptance: the publish entry gains the `passkeys` list of
+  `contracts/passkey_platform_bridges.md` — a list, not one block, so an
+  entry holding two passkeys does not silently lose one — with one item per
+  usable passkey; an entry with a passkey and no password is published;
+  result carries `passkeyPublishedCount`; the model's `toString` redacts the
+  PEM.
   Verify: client test asserts the payload shape and that `toString` of the
   publish model contains no PEM; coordinator test publishes E1.
 
