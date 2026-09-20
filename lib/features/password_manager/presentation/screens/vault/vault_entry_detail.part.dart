@@ -183,6 +183,43 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
   bool _isRevealed({int? fieldIndex}) =>
       _revealController.isRevealed && _revealedFieldIndex == fieldIndex;
 
+  /// spec 023 T205 / FR-010: deleting a passkey destroys the only copy of a
+  /// private key. The confirmation names the site and the account so the user
+  /// can tell two passkeys apart, says it cannot be recovered, and says the
+  /// dated backup is written first — the coordinator writes it before the
+  /// save, so that promise is kept even if the save then fails.
+  Future<void> _confirmDeletePasskey(
+    VaultEntry entry,
+    VaultPasskey passkey,
+  ) async {
+    final site = passkey.relyingPartyId.isEmpty
+        ? 'this site'
+        : passkey.relyingPartyId;
+    final account = passkey.username.isEmpty
+        ? 'the account with no username'
+        : '“${passkey.username}”';
+    final bloc = context.read<VaultBloc>();
+    final confirmed = await _showConfirmation(
+      context,
+      title: 'Delete this passkey?',
+      body:
+          'The passkey for $site and $account will be removed from '
+          '“${entry.title}”. A passkey cannot be recovered: you would have to '
+          'create a new one on $site. The record keeps its password, website '
+          'and other fields, and a dated copy of the vault is saved on this '
+          'device before anything is written.',
+      confirmLabel: 'Delete passkey',
+    );
+    if (confirmed?.isConfirmed != true || !mounted) return;
+    bloc.add(
+      DeletePasskey(
+        entryId: entry.id,
+        relyingPartyId: passkey.relyingPartyId,
+        credentialId: passkey.credentialId,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final entry = widget.entry;
@@ -512,6 +549,17 @@ class _EntryDetailPanelState extends State<_EntryDetailPanel> {
                           message: 'Copied ${field.key}.',
                         ),
                 ),
+            ],
+            // spec 023 T202: the passkey section sits after the record's own
+            // fields and before attachments — a passkey is an attribute of
+            // this record (FR-011a), not a file hanging off it. Absent when
+            // the record holds none: there is nothing to add here yet.
+            if (entry.hasPasskey) ...[
+              const SizedBox(height: 16),
+              _PasskeySection(
+                entry: entry,
+                onDelete: (passkey) => _confirmDeletePasskey(entry, passkey),
+              ),
             ],
             // spec-020 (C-04-04): attachments are a permanent section with
             // their count — shown at zero too, so the first one can always be

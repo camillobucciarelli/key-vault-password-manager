@@ -26,6 +26,7 @@ import 'package:password_manager/features/password_manager/data/services/databas
 import 'package:password_manager/features/password_manager/data/services/safe_vault_file_writer.dart';
 import 'package:password_manager/features/password_manager/data/services/passkey_parser.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_kdbx_service.dart';
+import 'package:password_manager/features/password_manager/domain/errors/passkey_errors.dart';
 import 'package:password_manager/features/password_manager/domain/entities/database_record.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
@@ -836,6 +837,148 @@ void main() {
 
       expect(await rawPasskeyStrings(), before);
     });
+
+    // ---- T203: deletePasskey ------------------------------------------
+
+    /// Adds a second passkey group (`_1`) to the entry, as KeePassDX does.
+    Future<void> addSecondPasskey(String entryId) async {
+      final credentials = Credentials(ProtectedValue.fromString(password));
+      final file = await KdbxFormat().read(
+        await File(databasePath).readAsBytes(),
+        credentials,
+      );
+      final entry = file.body.rootGroup.entries.singleWhere(
+        (e) => e.uuid.uuid == entryId,
+      );
+      entry
+        ..setString(
+          KdbxKey('KPEX_PASSKEY_RELYING_PARTY_1'),
+          PlainValue('example.org'),
+        )
+        ..setString(
+          KdbxKey('KPEX_PASSKEY_CREDENTIAL_ID_1'),
+          ProtectedValue.fromString('BAUG'),
+        )
+        ..setString(
+          KdbxKey(r'KPEX_PASSKEY_PRIVATE_KEY_PEM_1'),
+          ProtectedValue.fromString(es256PrivateKeyPem),
+        );
+      await File(databasePath).writeAsBytes(await file.save(), flush: true);
+    }
+
+    Future<VaultEntry> loadSingleEntry() async => (await service.loadAllEntries(
+      databasePath: databasePath,
+      password: password,
+    )).single;
+
+    test('removes the passkey and leaves the rest of the entry', () async {
+      final entryId = await createPasskeyEntry();
+      final before = await loadSingleEntry();
+
+      await service.deletePasskey(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        relyingPartyId: 'webauthn.io',
+        credentialId: before.passkeys.single.credentialId,
+      );
+
+      final after = await loadSingleEntry();
+      expect(after.passkeys, isEmpty);
+      expect(after.passkeyDigest, isNull);
+      // Every KPEX string went, the unparsed `PRF` included: it belonged to
+      // the credential that is gone.
+      expect(await rawPasskeyStrings(), isEmpty);
+      // The record itself is untouched.
+      expect(after.title, before.title);
+      expect(after.username, before.username);
+      expect(after.customFields.map((f) => f.key), ['Recovery']);
+    });
+
+    test('appends one history revision', () async {
+      final entryId = await createPasskeyEntry();
+      final before = await loadSingleEntry();
+
+      await service.deletePasskey(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        relyingPartyId: 'webauthn.io',
+        credentialId: before.passkeys.single.credentialId,
+      );
+
+      final history = await service.loadEntryHistory(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+      );
+      expect(history.revisions, hasLength(1));
+      expect(history.revisions.single.toString(), isNot(contains('PRIVATE')));
+    });
+
+    test('deleting one of two groups leaves the other whole', () async {
+      final entryId = await createPasskeyEntry();
+      await addSecondPasskey(entryId);
+      final before = await loadSingleEntry();
+      expect(before.passkeys, hasLength(2));
+      final first = before.passkeys.singleWhere(
+        (p) => p.relyingPartyId == 'webauthn.io',
+      );
+
+      await service.deletePasskey(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        relyingPartyId: 'webauthn.io',
+        credentialId: first.credentialId,
+      );
+
+      final after = await loadSingleEntry();
+      // The empty suffix is a prefix of `_1`: a prefix match here would have
+      // taken both.
+      expect(after.passkeys.single.relyingPartyId, 'example.org');
+      expect((await rawPasskeyStrings()).keys, everyElement(endsWith('_1')));
+    });
+
+    test(
+      'a second delete of the same passkey throws PasskeyNotFound',
+      () async {
+        final entryId = await createPasskeyEntry();
+        final credentialId =
+            (await loadSingleEntry()).passkeys.single.credentialId;
+
+        Future<void> attempt() => service.deletePasskey(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          relyingPartyId: 'webauthn.io',
+          credentialId: credentialId,
+        );
+
+        await attempt();
+        await expectLater(attempt(), throwsA(isA<PasskeyNotFound>()));
+      },
+    );
+
+    test(
+      'a credential id that does not match throws, and writes nothing',
+      () async {
+        final entryId = await createPasskeyEntry();
+        final before = await rawPasskeyStrings();
+
+        await expectLater(
+          service.deletePasskey(
+            databasePath: databasePath,
+            password: password,
+            entryId: entryId,
+            relyingPartyId: 'webauthn.io',
+            credentialId: Uint8List.fromList([9, 9, 9]),
+          ),
+          throwsA(isA<PasskeyNotFound>()),
+        );
+        expect(await rawPasskeyStrings(), before);
+      },
+    );
   });
 
   group('protected custom fields (spec 023 T010, SC-008)', () {

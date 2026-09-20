@@ -7,6 +7,7 @@ import 'package:kdbx/kdbx.dart';
 import 'package:loggy/loggy.dart';
 import 'package:path/path.dart' as p;
 
+import '../../domain/errors/passkey_errors.dart';
 import '../../domain/models/vault_attachment.dart';
 import '../../domain/models/vault_custom_field.dart';
 import '../../domain/models/vault_entry.dart';
@@ -466,6 +467,77 @@ class VaultKdbxService {
       entry.history.removeAt(fileIndex);
       await _save(databasePath, file);
     });
+  }
+
+  /// spec 023 T203 — remove exactly the `KPEX_PASSKEY_*` group whose
+  /// `(relyingPartyId, credentialId)` matches, and nothing else (FR-010).
+  ///
+  /// Matched on the credential, not on the field suffix: the suffix is the
+  /// group's *position* in the namespace, and a sync or a KeePassXC edit can
+  /// renumber it between the read that built the UI and this write. Removing
+  /// by position would then delete a different passkey.
+  ///
+  /// Every string of the group goes, including keys this app does not
+  /// understand (`KPEX_PASSKEY_PRF`): they belong to the credential being
+  /// deleted, and leaving them would strand fields pointing at a key that no
+  /// longer exists. The entry's own fields, its binaries, tags and history
+  /// are untouched, and `setString`/`removeString` record one ordinary
+  /// revision, exactly as an edit does.
+  ///
+  /// Throws [PasskeyNotFound] when no group matches. No backup here: that is
+  /// the coordinator's, so the backup and the confirmation stay together.
+  Future<void> deletePasskey({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+    required String relyingPartyId,
+    required Uint8List credentialId,
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
+      final entry = _findEntryById(
+        file.body.rootGroup.getAllEntries(),
+        entryId,
+      );
+
+      final match = _mapPasskeys(entry).where((passkey) {
+        return passkey.relyingPartyId == relyingPartyId &&
+            _sameBytes(passkey.credentialId, credentialId);
+      }).firstOrNull;
+      if (match == null) {
+        throw PasskeyNotFound(entryId: entryId, relyingPartyId: relyingPartyId);
+      }
+
+      // The empty suffix is a prefix of `_1`, so a plain `startsWith` on the
+      // group key would let deleting the first passkey take the others with
+      // it. Compare the suffix the parser derived instead.
+      final keysToRemove = entry.stringEntries
+          .map((stringEntry) => stringEntry.key)
+          .where(
+            (key) =>
+                PasskeyParser.isPasskeyKey(key.key) &&
+                PasskeyParser.suffixOf(key.key) == match.fieldSuffix,
+          )
+          .toList(growable: false);
+      for (final key in keysToRemove) {
+        entry.removeString(key);
+      }
+
+      await _save(databasePath, file);
+    });
+  }
+
+  static bool _sameBytes(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   /// The one ordering every history read and write shares, so what the list

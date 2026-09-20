@@ -167,14 +167,14 @@ Goal: passkeys from KeePassXC are recognised, shown, protected, deletable and
 survive every write path.
 Independent test: quickstart A, B, C.
 
-- [ ] **T201** [P] [US1] Passkey badge in the list — owner: `senior-flutter-dev`
+- [x] **T201** [P] [US1] Passkey badge in the list — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/screens/vault/vault_entries.part.dart`,
   `test/features/password_manager/presentation/screens/vault/vault_entries_test.dart`.
   Acceptance: an entry with `hasPasskey` shows a badge from `AppIcons` with
   semantic label "Passkey", tokens only, never colour alone (FR-011).
   Verify: widget test finds the semantic label on E1 and not on E2.
 
-- [ ] **T202** [US1] Passkey section in the entry detail — owner: `senior-flutter-dev`
+- [x] **T202** [US1] Passkey section in the entry detail — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/screens/vault/vault_entry_passkeys.part.dart` (new),
   `lib/features/password_manager/presentation/screens/vault_screen.dart` (one `part`),
   `lib/features/password_manager/presentation/screens/vault/vault_entry_detail.part.dart`,
@@ -187,27 +187,31 @@ Independent test: quickstart A, B, C.
   no character of the PEM in the tree; no copy/reveal buttons; unusable copy
   present for E4.
 
-- [ ] **T203** [US1] `deletePasskey` on the service — owner: `senior-flutter-dev`
+- [x] **T203** [US1] `deletePasskey` on the service — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/data/services/vault_kdbx_service.dart`,
   `test/features/password_manager/data/services/vault_kdbx_service_test.dart`.
   Acceptance: per `contracts/vault_kdbx_service_passkeys.md`: removes exactly
-  the matching suffix group, leaves everything else, appends one history
-  revision, throws `PasskeyNotFound` on no match. Under `DatabasePathMutex`.
+  the group whose `(relyingPartyId, credentialId)` matches — not its suffix,
+  which a sync can renumber between the read and the write — leaves
+  everything else, appends one history revision, throws `PasskeyNotFound` on
+  no match. Under `DatabasePathMutex`.
   Verify: delete E3's passkey → E3 keeps password, URL, custom fields,
   attachments and tags; one new revision; a second delete throws; deleting
   from E1 with two groups removes one.
 
-- [ ] **T204** [US1] `PasskeyCoordinator.delete` — owner: `senior-flutter-dev`
+- [x] **T204** [US1] `PasskeyCoordinator.deletePasskey` — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/coordinators/passkey_coordinator.dart` (new),
   `lib/features/password_manager/di/password_manager_presentation_di.dart`,
   `test/features/password_manager/presentation/coordinators/passkey_coordinator_test.dart` (new).
   Acceptance: refuses on a locked session; writes `datedBackupPath` copy
   before the service call (Constitution VII, FR-010); reports a failed write
   with the backup path kept. Mirrors `EntryHistoryCoordinator.clearHistory`.
+  Named `deletePasskey`, not `delete`: spec 008 T102's architecture guard
+  greps the presentation layer for a bare delete call on a receiver.
   Verify: fakes — locked refuses with no backup; backup precedes delete;
   failed delete keeps the backup and surfaces the error.
 
-- [ ] **T205** [US1] Delete flow in BLoC and UI — owner: `senior-flutter-dev`
+- [x] **T205** [US1] Delete flow in BLoC and UI — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/bloc/vault/{vault_event,vault_bloc}.dart`,
   `lib/features/password_manager/presentation/screens/vault/vault_entry_passkeys.part.dart`,
   `lib/features/password_manager/presentation/screens/vault/vault_confirmations.part.dart`,
