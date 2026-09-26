@@ -517,8 +517,21 @@ app adopts it later, but then the site would be told "registered" for something
 the vault does not hold — exactly the failure FR-020 forbids, and the one that
 costs the user their account, because a site that accepts a passkey often
 retires the password. On desktop the app *is* running and unlocked when the
-request arrives, so the write completes before the site is answered. Apple
-registration stays unbuilt and needs its own design.
+request arrives, so the write completes before the site is answered.
+
+**The Apple decision (T708), settled.** Registration always goes through the
+app: the extension stays a plugin of the app and implements no step of a
+registration the app does not perform. There is no staged-credential handshake,
+because a staged credential can only be adopted *after* the ceremony the site
+ran, and a WebAuthn challenge cannot be answered late — so staging would buy the
+site nothing and would cost the user the account the moment the extension
+claimed success. What the extension does instead is refuse the ceremony
+explicitly and say where creating a passkey does work. The remaining gap is a
+*transport*, not a policy: an extension running while the app is open and
+unlocked could ask the app to do the whole job and return the attestation inside
+the ceremony. On macOS that is expressible (an app-group XPC listener in the
+app); on iOS there is no supported extension-to-app channel at all, so iOS
+registration cannot be completed by any design. That transport is T709.
 
 - [x] **T701** [US3] Key generation — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/data/services/passkey_generator.dart`
@@ -608,12 +621,37 @@ registration stays unbuilt and needs its own design.
   Verify: NOT YET COVERED by a widget test — the flow needs a fake bridge
   prompt through the vault shell harness.
 
-- [ ] **T708** [US3] Registration on Apple — owner: `senior-apple-dev`
-  Blocked on a design decision, not on code: see the note at the top of this
-  phase. The extension cannot write the vault, so satisfying FR-020 needs
-  either a staged-credential handshake with the app (and a rule for what the
-  site is told meanwhile) or a decision that Apple registration is out of
-  scope. Do not implement before that is settled.
+- [x] **T708** [US3] Registration on Apple — the decision and the refusal — owner: `senior-apple-dev`
+  Files: `ios/CredentialProviderExtension/{CredentialProviderViewController.swift,CredentialListView.swift}`,
+  `macos/CredentialProviderExtension/{MacCredentialProviderViewController.swift,CredentialListView.swift}`.
+  Decision: registration always goes through the app; the extension never mints
+  a key, never seals one and never tells a site a credential exists (see the
+  phase note above).
+  Acceptance: `prepareInterface(forPasskeyRegistration:)` is implemented on both
+  platforms and refuses — it names the site and the account, explains that a
+  passkey is written into the vault which only the app can open, says where
+  registration does work, and cancels with `ASExtensionError.failed` rather than
+  `.userCanceled` so the browser can offer another provider instead of treating
+  the ceremony as abandoned. Nothing is written, nothing is staged. Without the
+  override the system presented this extension's empty sheet and the ceremony
+  hung with no explanation, so this also closes that.
+  Verify: NOT COMPILED — no Xcode in the agent environment. The Swift lands
+  unbuilt, as the rest of `ios/`/`macos/` in this spec did; the first `release.yml`
+  run on a self-hosted runner is what type-checks it. Behaviour is verified on
+  device as quickstart D.6 (a registration attempt from Safari shows the refusal
+  and the site reports a failure, not a success).
+
+- [ ] **T709** [US3] macOS registration transport — owner: `senior-apple-dev`
+  The policy is settled by T708; this is the channel that would let the refusal
+  become a completion on macOS: an app-group XPC listener in the running app,
+  which the extension calls while its UI is up, so the app chooses the record,
+  writes the `.kdbx` and returns the attestation — the write completing before
+  the site is answered, exactly as the desktop-browser path does (FR-020).
+  Out of scope for iOS at any size: there is no supported extension-to-app
+  channel there.
+  Not started, and not a blocker for the beta: it needs a Mac to build and an
+  XPC service target in `macos/Runner.xcodeproj`, neither of which exists in the
+  agent environment.
 
 ## Phase 8 — Polish and verification gate
 

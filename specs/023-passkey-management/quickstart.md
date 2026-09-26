@@ -83,6 +83,12 @@ iOS and macOS, each recorded separately.
 3. On https://passkeys.io, where only E3 matches. **Expect**: only E3 offered.
 4. Lock the database in KeyVault, retry step 1. **Expect**: KeyVault offers
    nothing for the site (cache wiped, FR-023).
+5. On https://webauthn.io choose "Register" and pick KeyVault as the place to
+   save the passkey (spec 023 T708). **Expect**: a screen saying the passkey is
+   created in the KeyVault app, naming the site and the account; dismissing it
+   leaves the site reporting a **failed** registration, never a successful one,
+   and the vault unchanged — check that no new passkey appears on any record.
+   **Must not**: a blank sheet, a hang, or the site reporting success.
 
 ## E — Android sign-in (US2)
 

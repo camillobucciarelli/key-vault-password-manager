@@ -20,6 +20,11 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
   /// assertion instead of handing back an `ASPasswordCredential`.
   private var passkeyRequest: ASPasskeyCredentialRequest?
 
+  /// spec 023 T708 — hosts the registration refusal screen. Separate from
+  /// [hostingController] because the two root views are different types and a
+  /// single invocation only ever shows one of them.
+  private var registrationHost: UIHostingController<PasskeyRegistrationUnavailableView>?
+
   override func viewDidLoad() {
     super.viewDidLoad()
     store.wipeLegacyPlaintextArtifacts(reason: "viewDidLoad")
@@ -149,6 +154,63 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     prepareInterfaceToProvideCredential(for: identity)
+  }
+
+  // MARK: - Registration (spec 023 T708)
+
+  /// spec 023 T708 / FR-020 — a registration never happens in this process.
+  ///
+  /// The decision, in one line: registration always goes through the app, and
+  /// the extension implements no step of it the app does not perform. The
+  /// reasoning is on [PasskeyRegistrationUnavailableView]; the mechanics are
+  /// that this process has no master password and therefore cannot write the
+  /// `.kdbx`, so the only alternative to refusing would be telling the site a
+  /// credential exists before the vault holds one.
+  ///
+  /// The refusal is explicit rather than an unimplemented override: without it
+  /// the system presents this extension's empty sheet and the ceremony hangs
+  /// until the user backs out, with no explanation anywhere.
+  @available(iOS 17.0, *)
+  override func prepareInterface(forPasskeyRegistration registrationRequest: any ASCredentialRequest) {
+    let identity = (registrationRequest as? ASPasskeyCredentialRequest)?
+      .credentialIdentity as? ASPasskeyCredentialIdentity
+    let rpId = identity?.relyingPartyIdentifier ?? ""
+    let userName = identity?.userName ?? ""
+    log.info("prepareInterface(forPasskeyRegistration) rpId=\(rpId, privacy: .public) → refused, the app is the only writer")
+
+    installRegistrationRefusal(relyingPartyId: rpId, userName: userName)
+  }
+
+  private func installRegistrationRefusal(relyingPartyId: String, userName: String) {
+    let rootView = PasskeyRegistrationUnavailableView(
+      relyingPartyId: relyingPartyId,
+      userName: userName,
+      onCancel: { [weak self] in
+        log.info("registration refusal dismissed by the user")
+        // `.failed` and not `.userCanceled`: the user did not decline the
+        // passkey, this provider cannot serve it. The distinction is what lets
+        // the browser offer another provider instead of treating the ceremony
+        // as abandoned.
+        self?.cancelWithError(.failed, message: "KeyVault creates passkeys in the app, not in AutoFill.")
+      }
+    )
+
+    if let registrationHost {
+      registrationHost.rootView = rootView
+      return
+    }
+    let host = UIHostingController(rootView: rootView)
+    registrationHost = host
+    addChild(host)
+    host.view.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(host.view)
+    NSLayoutConstraint.activate([
+      host.view.topAnchor.constraint(equalTo: view.topAnchor),
+      host.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      host.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      host.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    ])
+    host.didMove(toParent: self)
   }
 
   override func prepareInterfaceForExtensionConfiguration() {
