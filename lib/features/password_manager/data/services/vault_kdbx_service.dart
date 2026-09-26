@@ -769,6 +769,11 @@ class VaultKdbxService {
     });
   }
 
+  /// Throws [PasskeyMergeConflict] when the primary and one of the
+  /// secondaries hold different passkeys for the same relying party and
+  /// account (spec 023 FR-011a). Checked for every secondary before anything
+  /// is written, so a refused merge leaves the file exactly as it was rather
+  /// than folding in the first two entries and then giving up.
   Future<void> mergeEntries({
     required String databasePath,
     required String password,
@@ -785,13 +790,44 @@ class VaultKdbxService {
 
       final allEntries = file.body.rootGroup.getAllEntries();
       final primary = _findEntryById(allEntries, primaryId);
-      for (final secondaryId in secondaryIds) {
-        final secondary = _findEntryById(allEntries, secondaryId);
+      final secondaries = [
+        for (final secondaryId in secondaryIds)
+          _findEntryById(allEntries, secondaryId),
+      ];
+
+      // The primary's own passkeys plus the ones earlier secondaries would
+      // add: two secondaries carrying the same identity collide with each
+      // other just as surely as with the primary.
+      final claimedIdentities = _mapPasskeys(
+        primary,
+      ).map(_passkeyIdentityKey).toSet();
+      for (final secondary in secondaries) {
+        for (final passkey in _mapPasskeys(secondary)) {
+          if (!claimedIdentities.add(_passkeyIdentityKey(passkey))) {
+            throw PasskeyMergeConflict(
+              primaryId: primaryId,
+              secondaryId: secondary.uuid.uuid,
+              relyingPartyId: passkey.relyingPartyId,
+            );
+          }
+        }
+      }
+
+      for (final secondary in secondaries) {
         _mergeInto(file, primary, secondary);
       }
 
       await _save(databasePath, file);
     });
+  }
+
+  /// The relying party plus the account the passkey names — what makes two
+  /// credentials the same slot. Built from the parsed passkey so it matches
+  /// [_sameHandle]'s rule: no handle collides only with no handle.
+  static String _passkeyIdentityKey(VaultPasskey passkey) {
+    final handle = passkey.userHandle;
+    return '${passkey.relyingPartyId}\x00'
+        '${handle == null ? '<none>' : _base64UrlUnpadded(handle)}';
   }
 
   /// Folds [secondary] into [primary] (notes, custom fields, URLs,
@@ -815,8 +851,44 @@ class VaultKdbxService {
         final key = stringEntry.key.key;
         if (_standardEntryKeys.contains(key.toLowerCase())) continue;
         if (isUrlFieldKey(key)) continue;
+        // spec 023 T207 — the passkey namespace never travels key by key.
+        // Copying it that way would let a private key from one credential
+        // land beside the credential id of another, since the keys collide by
+        // suffix and not by credential (FR-008). The whole group is copied
+        // below instead.
+        if (PasskeyParser.isPasskeyKey(key)) continue;
         if (!primaryStringKeys.contains(key.toLowerCase())) {
           primary.setString(KdbxKey(key), stringEntry.value ?? PlainValue(''));
+        }
+      }
+
+      // Copy each of the secondary's passkeys as one credential, renumbered
+      // into a free suffix on the primary (spec 023 T207 / FR-011a).
+      //
+      // The values are copied as their own `KdbxValue`, not re-serialized
+      // from the parsed model: a protected field stays protected, an unusable
+      // passkey travels as it is rather than being silently normalized, and
+      // keys this app does not understand (`KPEX_PASSKEY_PRF`) stay with the
+      // credential they belong to. The secret is never read into a Dart
+      // string on this path.
+      //
+      // An identity the primary already holds is skipped, not overwritten.
+      // [mergeEntries] has already refused that case; this guard is what keeps
+      // any other caller of [_mergeInto] from assembling a mixed credential.
+      for (final passkey in _mapPasskeys(secondary)) {
+        final claimed = _mapPasskeys(primary).map(_passkeyIdentityKey).toSet();
+        if (claimed.contains(_passkeyIdentityKey(passkey))) continue;
+        final targetSuffix = _nextPasskeySuffix(primary);
+        final sourceSuffix = passkey.fieldSuffix;
+        for (final stringEntry in secondary.stringEntries) {
+          final key = stringEntry.key.key;
+          if (!PasskeyParser.isPasskeyKey(key)) continue;
+          if (PasskeyParser.suffixOf(key) != sourceSuffix) continue;
+          final base = key.substring(0, key.length - sourceSuffix.length);
+          primary.setString(
+            KdbxKey('$base$targetSuffix'),
+            stringEntry.value ?? PlainValue(''),
+          );
         }
       }
 

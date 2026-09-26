@@ -88,6 +88,111 @@ void main() {
       isTrue,
     );
   });
+
+  group('spec 023 T208 — a CSV cannot inject passkey fields', () {
+    test('a KPEX_PASSKEY_ column is dropped and reported', () async {
+      final csv = [
+        'name,url,username,password,KPEX_PASSKEY_PRIVATE_KEY_PEM',
+        'Example,https://example.com,alice,pwd,SHOULD-NEVER-LAND',
+      ].join('\n');
+
+      final file = await _writeTempCsv(csv);
+      addTearDown(() => file.parent.delete(recursive: true));
+
+      final result = await service.parseFile(file.path);
+
+      expect(result.items, hasLength(1));
+      final item = result.items.single;
+      expect(item.title, 'Example');
+      expect(item.password, 'pwd');
+      expect(
+        item.customFields.map((field) => field.key),
+        isNot(contains('KPEX_PASSKEY_PRIVATE_KEY_PEM')),
+      );
+      // The value must not survive under any key, not merely under its own.
+      expect(
+        item.customFields.map((field) => field.value),
+        isNot(contains('SHOULD-NEVER-LAND')),
+      );
+      expect(result.ignoredColumns, hasLength(1));
+      expect(
+        result.ignoredColumns.single.header,
+        'KPEX_PASSKEY_PRIVATE_KEY_PEM',
+      );
+      expect(result.ignoredColumns.single.reason, contains('Passkey'));
+    });
+
+    test('the whole namespace is refused, not just the private key', () async {
+      final csv = [
+        'name,username,password,'
+            'KPEX_PASSKEY_RELYING_PARTY,KPEX_PASSKEY_USERNAME,'
+            'KPEX_PASSKEY_CREDENTIAL_ID,KPEX_PASSKEY_USER_HANDLE',
+        'Example,alice,pwd,example.com,alice,Y3JlZA,dXNlcg',
+      ].join('\n');
+
+      final file = await _writeTempCsv(csv);
+      addTearDown(() => file.parent.delete(recursive: true));
+
+      final result = await service.parseFile(file.path);
+
+      expect(result.items.single.customFields, isEmpty);
+      expect(result.ignoredColumns, hasLength(4));
+    });
+
+    test('punctuation and case do not get a header through', () async {
+      final csv = [
+        'name,username,password,kpex-passkey-private-key-pem,'
+            'Kpex Passkey Credential Id',
+        'Example,alice,pwd,LEAK-1,LEAK-2',
+      ].join('\n');
+
+      final file = await _writeTempCsv(csv);
+      addTearDown(() => file.parent.delete(recursive: true));
+
+      final result = await service.parseFile(file.path);
+
+      expect(result.items.single.customFields, isEmpty);
+      expect(
+        result.ignoredColumns.map((column) => column.header),
+        containsAll(<String>[
+          'kpex-passkey-private-key-pem',
+          'Kpex Passkey Credential Id',
+        ]),
+      );
+    });
+
+    test('an ordinary column that merely mentions a passkey is kept', () async {
+      final csv = [
+        'name,username,password,Passkey notes,kpex_other',
+        'Example,alice,pwd,recovery hint,kept',
+      ].join('\n');
+
+      final file = await _writeTempCsv(csv);
+      addTearDown(() => file.parent.delete(recursive: true));
+
+      final result = await service.parseFile(file.path);
+
+      expect(result.ignoredColumns, isEmpty);
+      expect(
+        result.items.single.customFields.map((field) => field.key),
+        containsAll(<String>['Passkey notes', 'kpex_other']),
+      );
+    });
+
+    test('a file without reserved columns reports none', () async {
+      final csv = [
+        'name,url,username,password,notes',
+        'Example,https://example.com,alice,pwd,hello',
+      ].join('\n');
+
+      final file = await _writeTempCsv(csv);
+      addTearDown(() => file.parent.delete(recursive: true));
+
+      final result = await service.parseFile(file.path);
+
+      expect(result.ignoredColumns, isEmpty);
+    });
+  });
 }
 
 Future<File> _writeTempCsv(String content) async {

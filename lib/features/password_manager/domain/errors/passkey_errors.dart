@@ -37,3 +37,27 @@ final class PasskeyAlreadyExists implements Exception {
       'PasskeyAlreadyExists(entryId: $entryId, '
       'relyingPartyId: $relyingPartyId)';
 }
+
+/// spec 023 T207 / FR-011a — a merge would have put two different passkeys
+/// for the same relying party and account on one entry.
+///
+/// Refused rather than resolved: the two are different credentials, only the
+/// relying party knows which one it still trusts, and an entry holding both
+/// would offer the user a sign-in that fails half the time. The merge is
+/// abandoned whole, so nothing is written.
+final class PasskeyMergeConflict implements Exception {
+  const PasskeyMergeConflict({
+    required this.primaryId,
+    required this.secondaryId,
+    required this.relyingPartyId,
+  });
+
+  final String primaryId;
+  final String secondaryId;
+  final String relyingPartyId;
+
+  @override
+  String toString() =>
+      'PasskeyMergeConflict(primaryId: $primaryId, '
+      'secondaryId: $secondaryId, relyingPartyId: $relyingPartyId)';
+}

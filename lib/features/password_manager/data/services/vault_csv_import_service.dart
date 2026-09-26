@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../../domain/models/vault_custom_field.dart';
+import 'passkey_parser.dart';
 
 enum VaultCsvSourceFormat {
   bitwarden,
@@ -19,6 +20,17 @@ class SkippedRow {
   const SkippedRow({required this.index, required this.reason});
 
   final int index;
+  final String reason;
+}
+
+/// spec 023 T208/AC — a whole column the import refused to carry, named so
+/// the outcome screen can say what was left out instead of dropping it in
+/// silence.
+class IgnoredColumn {
+  const IgnoredColumn({required this.header, required this.reason});
+
+  /// The header as it was written in the file, so the user can find it.
+  final String header;
   final String reason;
 }
 
@@ -50,6 +62,7 @@ class VaultCsvParseResult {
     required this.skippedRowDetails,
     required this.totalRows,
     required this.format,
+    this.ignoredColumns = const [],
   });
 
   final List<VaultCsvImportItem> items;
@@ -60,6 +73,9 @@ class VaultCsvParseResult {
   final List<SkippedRow> skippedRowDetails;
   final int totalRows;
   final VaultCsvSourceFormat format;
+
+  /// Columns dropped before any row was read (spec 023 T208).
+  final List<IgnoredColumn> ignoredColumns;
 }
 
 /// spec-005 T16: full outcome of a CSV import — imported count plus every
@@ -70,11 +86,16 @@ class CsvImportOutcome {
     required this.importedCount,
     required this.duplicateSkippedCount,
     required this.skippedRows,
+    this.ignoredColumns = const [],
   });
 
   final int importedCount;
   final int duplicateSkippedCount;
   final List<SkippedRow> skippedRows;
+
+  /// Columns the parser refused (spec 023 T208) — not rows, so they are
+  /// reported on their own instead of inflating [skippedRows].
+  final List<IgnoredColumn> ignoredColumns;
 
   int get totalSkipped => skippedRows.length;
 }
@@ -92,6 +113,27 @@ class VaultCsvImportService {
   };
 
   static const _ignoredColumns = {'type', 'favorite', 'fav', 'reprompt'};
+
+  /// spec 023 T208 — the `KPEX_PASSKEY_*` namespace belongs to the vault's own
+  /// passkey writer. A CSV must never place bytes there: a crafted header
+  /// would otherwise define a credential no relying party ever issued, and
+  /// the entry would advertise a passkey the user did not create. The column
+  /// is dropped here, before its value is even carried in memory.
+  ///
+  /// The comparison runs on the normalized header, which is how
+  /// [_normalizeHeader] flattens punctuation, so `KPEX_PASSKEY_PRIVATE_KEY_PEM`,
+  /// `kpex-passkey-private-key-pem` and `Kpex Passkey Private Key Pem` are all
+  /// refused by the one rule.
+  static final _reservedHeaderPrefix = PasskeyParser.keyPrefix
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+  static const _reservedHeaderReason =
+      'Passkey fields cannot be imported from a CSV. A passkey is created in '
+      'the app, on the site that asks for it.';
+
+  bool _isReservedPasskeyHeader(String normalizedHeader) =>
+      normalizedHeader.startsWith(_reservedHeaderPrefix);
 
   Future<VaultCsvParseResult> parseFile(String filePath) async {
     final file = File(filePath);
@@ -125,6 +167,7 @@ class VaultCsvImportService {
     final format = _detectFormat(normalizedHeaders);
     final items = <VaultCsvImportItem>[];
     final skippedRowDetails = <SkippedRow>[];
+    final ignoredColumns = _reservedColumns(normalizedHeaders, headers);
 
     for (var i = 1; i < rows.length; i++) {
       final row = rows[i];
@@ -149,7 +192,32 @@ class VaultCsvImportService {
       skippedRowDetails: skippedRowDetails,
       totalRows: rows.length - 1,
       format: format,
+      ignoredColumns: ignoredColumns,
     );
+  }
+
+  /// One [IgnoredColumn] per distinct reserved header, in file order.
+  List<IgnoredColumn> _reservedColumns(
+    List<String> normalizedHeaders,
+    List<String> originalHeaders,
+  ) {
+    final ignored = <IgnoredColumn>[];
+    final seen = <String>{};
+    for (var i = 0; i < normalizedHeaders.length; i++) {
+      final normalizedHeader = normalizedHeaders[i];
+      if (!_isReservedPasskeyHeader(normalizedHeader)) {
+        continue;
+      }
+      final raw = i < originalHeaders.length
+          ? originalHeaders[i].trim()
+          : normalizedHeader;
+      final header = raw.isEmpty ? normalizedHeader : raw;
+      if (!seen.add(header)) {
+        continue;
+      }
+      ignored.add(IgnoredColumn(header: header, reason: _reservedHeaderReason));
+    }
+    return ignored;
   }
 
   String _detectDelimiter(String csv) {
@@ -247,7 +315,9 @@ class VaultCsvImportService {
     final map = <String, String>{};
     for (var i = 0; i < normalizedHeaders.length; i++) {
       final key = normalizedHeaders[i];
-      if (key.isEmpty) {
+      // A reserved passkey column is dropped here, so its value never reaches
+      // [map] and cannot be picked up by an alias or the custom-field sweep.
+      if (key.isEmpty || _isReservedPasskeyHeader(key)) {
         continue;
       }
       final value = i < row.length ? row[i].trim() : '';
@@ -355,7 +425,8 @@ class VaultCsvImportService {
       if (normalizedHeader.isEmpty || usedColumns.contains(normalizedHeader)) {
         continue;
       }
-      if (_ignoredColumns.contains(normalizedHeader)) {
+      if (_ignoredColumns.contains(normalizedHeader) ||
+          _isReservedPasskeyHeader(normalizedHeader)) {
         continue;
       }
       final value = i < row.length ? row[i].trim() : '';

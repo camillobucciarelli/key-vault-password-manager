@@ -3017,6 +3017,211 @@ void main() {
       expect(await passwordsInHistory(entryId), ['p2', 'p1', 'p0']);
     });
   });
+
+  group('spec 023 T207 — merging an entry that holds a passkey', () {
+    const passkeyStrings = {
+      'KPEX_PASSKEY_RELYING_PARTY': ('webauthn.io', false),
+      'KPEX_PASSKEY_CREDENTIAL_ID': ('AQID', true),
+      'KPEX_PASSKEY_USER_HANDLE': ('BAUG', true),
+      'KPEX_PASSKEY_USERNAME': ('alice', false),
+      'KPEX_PASSKEY_PRIVATE_KEY_PEM': (es256PrivateKeyPem, true),
+      'KPEX_PASSKEY_FLAG_BE': ('1', false),
+      'KPEX_PASSKEY_FLAG_BS': ('1', false),
+      // Not understood by the parser: must travel with its credential.
+      'KPEX_PASSKEY_PRF': ('opaque', true),
+    };
+
+    /// Writes two entries with the raw library, as KeePassXC would: one plain
+    /// password entry and one passkey entry. [handle] is the base64url user
+    /// handle of the passkey, so two passkeys can be given the same account or
+    /// different ones.
+    Future<(String passwordEntryId, String passkeyEntryId)> seed({
+      String handle = 'BAUG',
+      bool passkeyEntryAlsoHasPasskeyOnPrimary = false,
+      String primaryHandle = 'BAUG',
+    }) async {
+      final credentials = Credentials(ProtectedValue.fromString(password));
+      final file = await KdbxFormat().read(
+        await File(databasePath).readAsBytes(),
+        credentials,
+      );
+      final root = file.body.rootGroup;
+
+      final passwordEntry = KdbxEntry.create(file, root)
+        ..setString(KdbxKeyCommon.TITLE, PlainValue('webauthn.io'))
+        ..setString(KdbxKeyCommon.USER_NAME, PlainValue('alice'))
+        ..setString(
+          KdbxKeyCommon.PASSWORD,
+          ProtectedValue.fromString('secret-pw'),
+        )
+        ..setString(KdbxKeyCommon.URL, PlainValue('https://webauthn.io'));
+      if (passkeyEntryAlsoHasPasskeyOnPrimary) {
+        for (final MapEntry(:key, value: (text, protected))
+            in passkeyStrings.entries) {
+          final value = key == 'KPEX_PASSKEY_USER_HANDLE'
+              ? primaryHandle
+              : text;
+          passwordEntry.setString(
+            KdbxKey(key),
+            protected ? ProtectedValue.fromString(value) : PlainValue(value),
+          );
+        }
+      }
+      root.addEntry(passwordEntry);
+
+      final passkeyEntry = KdbxEntry.create(file, root)
+        ..setString(KdbxKeyCommon.TITLE, PlainValue('webauthn.io passkey'))
+        ..setString(KdbxKeyCommon.USER_NAME, PlainValue('alice'))
+        ..setString(KdbxKeyCommon.URL, PlainValue('https://webauthn.io'));
+      for (final MapEntry(:key, value: (text, protected))
+          in passkeyStrings.entries) {
+        final value = key == 'KPEX_PASSKEY_USER_HANDLE' ? handle : text;
+        passkeyEntry.setString(
+          KdbxKey(key),
+          protected ? ProtectedValue.fromString(value) : PlainValue(value),
+        );
+      }
+      root.addEntry(passkeyEntry);
+
+      await File(databasePath).writeAsBytes(await file.save(), flush: true);
+      return (passwordEntry.uuid.uuid, passkeyEntry.uuid.uuid);
+    }
+
+    Future<Map<String, (String, bool)>> passkeyStringsOf(String entryId) async {
+      final file = await KdbxFormat().read(
+        await File(databasePath).readAsBytes(),
+        Credentials(ProtectedValue.fromString(password)),
+      );
+      final entry = file.body.rootGroup.getAllEntries().firstWhere(
+        (candidate) => candidate.uuid.uuid == entryId,
+      );
+      return {
+        for (final s in entry.stringEntries)
+          if (s.key.key.startsWith('KPEX_PASSKEY_'))
+            s.key.key: (s.value?.getText() ?? '', s.value is ProtectedValue),
+      };
+    }
+
+    test(
+      'the passkey moves onto the kept entry with protection intact',
+      () async {
+        final (passwordEntryId, passkeyEntryId) = await seed();
+
+        await service.mergeEntries(
+          databasePath: databasePath,
+          password: password,
+          primaryId: passwordEntryId,
+          secondaryIds: [passkeyEntryId],
+        );
+
+        final merged = passkeyStringsOf(passwordEntryId);
+        expect(await merged, passkeyStrings);
+
+        final entries = await service.loadAllEntries(
+          databasePath: databasePath,
+          password: password,
+        );
+        final kept = entries.firstWhere((e) => e.id == passwordEntryId);
+        expect(kept.hasPasskey, isTrue);
+        expect(kept.passkeys.single.relyingPartyId, 'webauthn.io');
+        expect(kept.passkeys.single.usable, isTrue);
+        // FR-011a: one entry holding both.
+        expect(kept.password, 'secret-pw');
+        // And the passkey entry is in the bin, not among the active entries.
+        expect(entries.map((e) => e.id), isNot(contains(passkeyEntryId)));
+      },
+    );
+
+    test('a field of the namespace is never copied on its own', () async {
+      final (passwordEntryId, passkeyEntryId) = await seed();
+
+      await service.mergeEntries(
+        databasePath: databasePath,
+        password: password,
+        primaryId: passwordEntryId,
+        secondaryIds: [passkeyEntryId],
+      );
+
+      // One whole group, no half group and no renumbered stragglers.
+      final strings = await passkeyStringsOf(passwordEntryId);
+      expect(
+        strings.keys.every((key) => !key.contains('_1')),
+        isTrue,
+        reason: 'the primary had no passkey, so the group keeps the base keys',
+      );
+      expect(strings, hasLength(passkeyStrings.length));
+    });
+
+    test(
+      'a second passkey for another account lands in the next suffix',
+      () async {
+        final (passwordEntryId, passkeyEntryId) = await seed(
+          handle: 'BwgJ',
+          passkeyEntryAlsoHasPasskeyOnPrimary: true,
+        );
+
+        await service.mergeEntries(
+          databasePath: databasePath,
+          password: password,
+          primaryId: passwordEntryId,
+          secondaryIds: [passkeyEntryId],
+        );
+
+        final entries = await service.loadAllEntries(
+          databasePath: databasePath,
+          password: password,
+        );
+        final kept = entries.firstWhere((e) => e.id == passwordEntryId);
+        expect(kept.passkeys, hasLength(2));
+        expect(
+          kept.passkeys.map((passkey) => passkey.fieldSuffix),
+          containsAll(<String>['', '_1']),
+        );
+      },
+    );
+
+    test('the same account on both sides refuses the whole merge', () async {
+      final (passwordEntryId, passkeyEntryId) = await seed(
+        passkeyEntryAlsoHasPasskeyOnPrimary: true,
+      );
+      final before = await File(databasePath).readAsBytes();
+
+      await expectLater(
+        service.mergeEntries(
+          databasePath: databasePath,
+          password: password,
+          primaryId: passwordEntryId,
+          secondaryIds: [passkeyEntryId],
+        ),
+        throwsA(isA<PasskeyMergeConflict>()),
+      );
+
+      // Nothing written: not the notes, not the URLs, not the bin move.
+      expect(await File(databasePath).readAsBytes(), before);
+    });
+
+    test('the refusal names the relying party', () async {
+      final (passwordEntryId, passkeyEntryId) = await seed(
+        passkeyEntryAlsoHasPasskeyOnPrimary: true,
+      );
+
+      await expectLater(
+        service.mergeEntries(
+          databasePath: databasePath,
+          password: password,
+          primaryId: passwordEntryId,
+          secondaryIds: [passkeyEntryId],
+        ),
+        throwsA(
+          isA<PasskeyMergeConflict>().having(
+            (error) => error.relyingPartyId,
+            'relyingPartyId',
+            'webauthn.io',
+          ),
+        ),
+      );
+    });
+  });
 }
 
 // =============================================================================

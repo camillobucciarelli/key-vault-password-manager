@@ -29,6 +29,7 @@ import '../../../domain/usecases/link_database_to_remote_usecase.dart';
 import '../../../domain/usecases/sync_database_now_usecase.dart';
 import '../../coordinators/android_autofill_save_coordinator.dart';
 import '../../coordinators/apple_autofill_v2_coordinator.dart';
+import '../../coordinators/duplicate_merge_coordinator.dart';
 import '../../coordinators/entry_history_coordinator.dart';
 import '../../coordinators/passkey_coordinator.dart';
 import '../../coordinators/session_secret_holder.dart';
@@ -64,6 +65,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     this.folderExpansionPreferences,
     this.syncMergeCoordinator,
     this.entryHistoryCoordinator,
+    this.duplicateMergeCoordinator,
     this.passkeyCoordinator,
     this.resolveDatabaseId,
     this.resolveDisplayName,
@@ -182,6 +184,9 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   /// spec 017: restore and clear sequencing. Null only in tests that never
   /// touch the history.
   final EntryHistoryCoordinator? entryHistoryCoordinator;
+
+  /// spec 023 T207 — writes the pre-merge backup before a duplicate merge.
+  final DuplicateMergeCoordinator? duplicateMergeCoordinator;
 
   /// spec 023: dated backup + delete sequencing for passkeys. Null only in
   /// tests that never delete one.
@@ -1643,6 +1648,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
             importedCount: importedCount,
             duplicateSkippedCount: duplicateCount,
             skippedRows: skippedRows,
+            // spec 023 T208 — reserved passkey columns the parser refused.
+            ignoredColumns: parsed.ignoredColumns,
           ),
         ),
       );
@@ -2154,37 +2161,76 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     }
   }
 
+  /// spec 023 T207 — translate and delegate: the coordinator writes the dated
+  /// backup and then the merge, this reloads and tells the user.
   Future<void> _onMergeDuplicateEntries(
     MergeDuplicateEntries event,
     Emitter<VaultState> emit,
   ) async {
+    final coordinator = duplicateMergeCoordinator;
+    if (coordinator == null) {
+      _safeEmit(emit, state.copyWith(errorMessage: 'Unable to merge entries.'));
+      return;
+    }
     _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
-    try {
-      await vaultKdbxService.mergeEntries(
-        databasePath: state.databasePath,
-        password: _password,
-        keyFilePath: _keyFilePath,
-        primaryId: event.primaryId,
-        secondaryIds: event.secondaryIds,
-      );
-      await _reload(
-        emit,
-        currentGroupId: state.currentGroupId,
-        keepLoadingFlag: false,
-      );
-      await _loadRecycleBinEntries(emit, isInitialLoad: true);
-      _computeDuplicates(emit);
-      _computeHealth(emit);
-      _scheduleAutoSync();
-    } catch (e, st) {
-      logError('Failed merging duplicate entries.', e, st);
-      _safeEmit(
-        emit,
-        state.copyWith(
-          isSaving: false,
-          errorMessage: 'Unable to merge entries.',
-        ),
-      );
+    final result = await coordinator.merge(
+      databasePath: state.databasePath,
+      keyFilePath: _keyFilePath,
+      primaryId: event.primaryId,
+      secondaryIds: event.secondaryIds,
+    );
+    final backup = result.backupPath;
+    switch (result.outcome) {
+      case DuplicateMergeOutcome.done:
+        await _reload(
+          emit,
+          currentGroupId: state.currentGroupId,
+          keepLoadingFlag: false,
+        );
+        await _loadRecycleBinEntries(emit, isInitialLoad: true);
+        _computeDuplicates(emit);
+        _computeHealth(emit);
+        _scheduleAutoSync();
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            infoMessage:
+                'Records merged. A backup was saved as '
+                '${p.basename(backup!)}.',
+          ),
+        );
+      case DuplicateMergeOutcome.vaultLocked:
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            errorMessage: 'The vault is locked. Nothing was changed.',
+          ),
+        );
+      case DuplicateMergeOutcome.passkeyConflict:
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            errorMessage:
+                'These records hold two different passkeys for '
+                '${result.relyingPartyId ?? 'the same site'}. Only the site '
+                'knows which one it still accepts, so nothing was merged. '
+                'Delete the passkey you no longer use, then merge.',
+          ),
+        );
+      case DuplicateMergeOutcome.failed:
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            errorMessage: backup == null
+                ? 'Unable to merge entries. Nothing was changed.'
+                : 'Unable to merge entries. The backup '
+                      '${p.basename(backup)} was kept.',
+          ),
+        );
     }
   }
 

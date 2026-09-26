@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import 'vault_entry.dart';
+import 'vault_passkey.dart';
 
 class MergePreview extends Equatable {
   const MergePreview({
@@ -11,6 +12,8 @@ class MergePreview extends Equatable {
     required this.customFieldKeysToCopy,
     this.urlsToCopy = const [],
     required this.willCopyAttachments,
+    this.passkeysToCopy = const [],
+    this.passkeyConflict = false,
   });
 
   /// The entry that will be kept and enriched (newest by updatedAt/createdAt).
@@ -35,12 +38,25 @@ class MergePreview extends Equatable {
   /// True if secondary has at least one attachment whose name is absent in primary.
   final bool willCopyAttachments;
 
+  /// spec 023 D10 — the secondary's passkeys the primary does not already
+  /// hold, carried whole so the merge writes one credential rather than a set
+  /// of loose fields (FR-008). The private key rides along inside
+  /// [VaultPasskey], which keeps it out of `props` and `toString`.
+  final List<VaultPasskey> passkeysToCopy;
+
+  /// True when the primary already holds a passkey for the same relying party
+  /// and user handle as one of the secondary's. The merge must refuse rather
+  /// than pick a side: the two are different credentials, and only the
+  /// relying party knows which one it still trusts (FR-011a).
+  final bool passkeyConflict;
+
   bool get hasAnythingToCopy =>
       willCopyNotes ||
       willCopyOtp ||
       customFieldKeysToCopy.isNotEmpty ||
       urlsToCopy.isNotEmpty ||
-      willCopyAttachments;
+      willCopyAttachments ||
+      passkeysToCopy.isNotEmpty;
 
   @override
   List<Object?> get props => [
@@ -51,5 +67,7 @@ class MergePreview extends Equatable {
     customFieldKeysToCopy,
     urlsToCopy,
     willCopyAttachments,
+    passkeysToCopy,
+    passkeyConflict,
   ];
 }

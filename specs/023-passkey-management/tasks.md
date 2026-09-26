@@ -223,7 +223,7 @@ Independent test: quickstart A, B, C.
   Verify: bloc test emits reload then message; widget test shows the
   confirmation and cancel changes nothing.
 
-- [ ] **T206** [P] [US1] Duplicate pairing passkey + password — owner: `senior-flutter-dev`
+- [x] **T206** [P] [US1] Duplicate pairing passkey + password — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/domain/models/duplicate_group.dart`,
   `lib/features/password_manager/data/services/vault_duplicate_service.dart`,
   `test/features/password_manager/data/services/vault_duplicate_service_test.dart`.
@@ -236,7 +236,7 @@ Independent test: quickstart A, B, C.
   the same site are not duplicates; conflict flagged when both have passkeys
   for the same handle.
 
-- [ ] **T207** [US1] Merge with a passkey in Vault health — owner: `senior-flutter-dev`
+- [x] **T207** [US1] Merge with a passkey in Vault health — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/presentation/screens/vault/vault_duplicates.part.dart`,
   `lib/features/password_manager/data/services/vault_kdbx_service.dart` (merge path),
   matching tests.
@@ -247,7 +247,7 @@ Independent test: quickstart A, B, C.
   Verify: service test merges E1 into E2 → E2 has the passkey, E1 in the bin,
   protection preserved; widget test shows the label and the refusal copy.
 
-- [ ] **T208** [P] [US1] CSV import cannot inject passkey fields — owner: `senior-flutter-dev`
+- [x] **T208** [P] [US1] CSV import cannot inject passkey fields — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/data/services/vault_csv_import_service.dart`,
   `test/features/password_manager/data/services/vault_csv_import_service_test.dart`.
   Acceptance: a header starting `KPEX_PASSKEY_` is skipped with a warning

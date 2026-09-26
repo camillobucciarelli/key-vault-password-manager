@@ -9,6 +9,7 @@ import '../presentation/coordinators/android_autofill_save_coordinator.dart';
 import '../presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import '../presentation/coordinators/database_session_coordinator.dart';
 import '../presentation/coordinators/desktop_browser_autofill_coordinator.dart';
+import '../presentation/coordinators/duplicate_merge_coordinator.dart';
 import '../presentation/coordinators/entry_history_coordinator.dart';
 import '../presentation/coordinators/passkey_coordinator.dart';
 import '../presentation/coordinators/google_drive_reconnect_coordinator.dart';
@@ -127,6 +128,15 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
     ),
   );
 
+  // spec 023 T207: dated backup + merge sequencing for Vault health.
+  sl.registerLazySingleton<DuplicateMergeCoordinator>(
+    () => DuplicateMergeCoordinator(
+      vaultKdbxService: sl(),
+      sessionSecretHolder: sl(),
+      databaseFileRepository: sl(),
+    ),
+  );
+
   // spec 023 T204: dated backup + delete sequencing for the passkey section.
   sl.registerLazySingleton<PasskeyCoordinator>(
     () => PasskeyCoordinator(
@@ -168,6 +178,7 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       folderExpansionPreferences: sl<SharedPreferences>(),
       syncMergeCoordinator: sl(),
       entryHistoryCoordinator: sl(),
+      duplicateMergeCoordinator: sl(),
       passkeyCoordinator: sl(),
       resolveDatabaseId: (databasePath) async {
         final records = await sl<DatabaseRegistryRepository>().list();
