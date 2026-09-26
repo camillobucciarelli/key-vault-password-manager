@@ -36,12 +36,14 @@ pending dependency).
   `data-model.md` (flags UP|UV|BE|BS, sign count 0).
   Verify: the file compiles and the vectors are referenced by T012 and T014.
 
-- [ ] **T003** [P] Device evidence ledger — owner: `senior-tester`
+- [x] **T003** [P] Device evidence ledger — owner: `senior-tester`
   Files: `specs/023-passkey-management/device-evidence.md` (new).
   Acceptance: same shape as `specs/016-android-autofill-completion/device-evidence.md`
   with a devices table (iPhone, Mac, Android API 34+, Android API 29–33,
   Windows, Linux) and one empty row per quickstart section D–F item.
-  Verify: file exists and lists every D–F step by id.
+  Verify: file exists and lists every D–F step by id. It also carries T212's
+  round-trip rows and T601's two halves, so a task's evidence is not split
+  across files; the one row filled in is T601's grep, which needs no device.
 
 ## Phase 2 — Foundational (blocks every story)
 
