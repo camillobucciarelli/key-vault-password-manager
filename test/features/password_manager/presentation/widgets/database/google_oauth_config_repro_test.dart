@@ -213,76 +213,78 @@ void main() {
     expect(find.text('Vault.kdbx'), findsOneWidget);
   });
 
-  testWidgets(
-    'an untyped stale-grant failure reads as expired authorization',
-    (tester) async {
-      // spec 010 types most provider failures, but `driveOpenErrorMessage`
-      // still routes untyped exceptions by message. A type-only predicate let
-      // the heading and button say "Unable to connect"/"Retry" above a body
-      // telling the user to press Reconnect.
-      await tester.pumpWidget(
-        _driveSheetHost(
-          () async => throw Exception(
-            'Google Drive authorization needs to be renewed with full Drive access.',
-          ),
-        ),
-      );
-
-      await tester.tap(find.text('Connect Google Drive'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Google authorization expired'), findsOneWidget);
-      expect(find.text('Unable to connect to Google Drive'), findsNothing);
-      expect(
-        find.text(
-          'Google Drive session expired or unavailable. Use Reconnect below to sign in again.',
-        ),
-        findsOneWidget,
-      );
-      expect(find.text('Reconnect'), findsOneWidget);
-      expect(find.text('Retry'), findsNothing);
-      expect(find.bySemanticsLabel('Reconnect Google Drive'), findsOneWidget);
-    },
-  );
-
-  testWidgets('Reconnect runs the forced-reconnect loader, not the plain load', (
+  testWidgets('an untyped stale-grant failure reads as expired authorization', (
     tester,
   ) async {
-    var loads = 0;
-    var reconnects = 0;
+    // spec 010 types most provider failures, but `driveOpenErrorMessage`
+    // still routes untyped exceptions by message. A type-only predicate let
+    // the heading and button say "Unable to connect"/"Retry" above a body
+    // telling the user to press Reconnect.
     await tester.pumpWidget(
       _driveSheetHost(
-        () async {
-          loads += 1;
-          throw Exception('Google account not connected. Please reconnect.');
-        },
-        reconnectPickerData: () async {
-          reconnects += 1;
-          return const RemoteFileSelectionData(
-            files: [
-              RemoteFile(
-                providerId: 'google_drive',
-                id: 'remote-1',
-                name: 'Vault.kdbx',
-              ),
-            ],
-            account: StorageAccountSummary(displayLabel: 'Google Drive account'),
-          );
-        },
+        () async => throw Exception(
+          'Google Drive authorization needs to be renewed with full Drive access.',
+        ),
       ),
     );
 
     await tester.tap(find.text('Connect Google Drive'));
     await tester.pumpAndSettle();
-    expect(loads, 1);
 
-    await tester.tap(find.bySemanticsLabel('Reconnect Google Drive'));
-    await tester.pumpAndSettle();
-
-    expect(loads, 1);
-    expect(reconnects, 1);
-    expect(find.text('Vault.kdbx'), findsOneWidget);
+    expect(find.text('Google authorization expired'), findsOneWidget);
+    expect(find.text('Unable to connect to Google Drive'), findsNothing);
+    expect(
+      find.text(
+        'Google Drive session expired or unavailable. Use Reconnect below to sign in again.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Reconnect'), findsOneWidget);
+    expect(find.text('Retry'), findsNothing);
+    expect(find.bySemanticsLabel('Reconnect Google Drive'), findsOneWidget);
   });
+
+  testWidgets(
+    'Reconnect runs the forced-reconnect loader, not the plain load',
+    (tester) async {
+      var loads = 0;
+      var reconnects = 0;
+      await tester.pumpWidget(
+        _driveSheetHost(
+          () async {
+            loads += 1;
+            throw Exception('Google account not connected. Please reconnect.');
+          },
+          reconnectPickerData: () async {
+            reconnects += 1;
+            return const RemoteFileSelectionData(
+              files: [
+                RemoteFile(
+                  providerId: 'google_drive',
+                  id: 'remote-1',
+                  name: 'Vault.kdbx',
+                ),
+              ],
+              account: StorageAccountSummary(
+                displayLabel: 'Google Drive account',
+              ),
+            );
+          },
+        ),
+      );
+
+      await tester.tap(find.text('Connect Google Drive'));
+      await tester.pumpAndSettle();
+      expect(loads, 1);
+
+      await tester.tap(find.bySemanticsLabel('Reconnect Google Drive'));
+      await tester.pumpAndSettle();
+
+      expect(loads, 1);
+      expect(reconnects, 1);
+      expect(find.text('Vault.kdbx'), findsOneWidget);
+    },
+  );
 
   testWidgets('a non-authorization failure still retries the plain load', (
     tester,
@@ -304,7 +306,9 @@ void main() {
                 name: 'Vault.kdbx',
               ),
             ],
-            account: StorageAccountSummary(displayLabel: 'Google Drive account'),
+            account: StorageAccountSummary(
+              displayLabel: 'Google Drive account',
+            ),
           );
         },
         reconnectPickerData: () async {

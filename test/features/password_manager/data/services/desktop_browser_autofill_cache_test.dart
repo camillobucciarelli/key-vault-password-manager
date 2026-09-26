@@ -1,10 +1,13 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/data/services/browser_exact_origin.dart';
 import 'package:password_manager/features/password_manager/data/services/desktop_browser_autofill_cache.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_passkey.dart';
 
 void main() {
   group('DesktopBrowserAutofillCacheStore', () {
@@ -459,6 +462,91 @@ void main() {
 
       expect(identifiers.where((i) => i.type == 'url'), isEmpty);
       expect(identifiers.single.value, 'nas.local');
+    });
+  });
+
+  group('spec 023 T210 — the cache carries no passkey field', () {
+    const mapper = DesktopBrowserAutofillMetadataMapper();
+
+    VaultPasskey passkey() => VaultPasskey(
+      relyingPartyId: 'webauthn.io',
+      credentialId: Uint8List.fromList(utf8.encode('cred-1')),
+      userHandle: Uint8List.fromList(utf8.encode('handle-1')),
+      privateKeyPem: 'FIXTURE-KEY-MUST-NOT-BE-PUBLISHED',
+      algorithm: VaultPasskeyAlgorithm.es256,
+      username: 'alice',
+    );
+
+    // E1 of quickstart.md: a passkey and no password.
+    VaultEntry e1() => VaultEntry(
+      id: 'e1',
+      groupId: 'root',
+      title: 'webauthn.io',
+      username: 'alice',
+      password: '',
+      url: 'https://webauthn.io',
+      notes: 'not published',
+      passkeys: [passkey()],
+    );
+
+    // E3: a passkey and a password, plus a protected custom field.
+    VaultEntry e3() => VaultEntry(
+      id: 'e3',
+      groupId: 'root',
+      title: 'webauthn.io both',
+      username: 'alice',
+      password: 'secret-pw',
+      url: 'https://webauthn.io',
+      notes: 'not published',
+      customFields: const [
+        VaultCustomField(
+          key: 'Recovery',
+          value: 'PROTECTED-MUST-NOT-BE-PUBLISHED',
+          isProtected: true,
+        ),
+      ],
+      passkeys: [passkey()],
+    );
+
+    test('a passkey-only entry is skipped from the password cache', () {
+      final cache = mapper.mapVault(
+        databasePath: '/tmp/vault.kdbx',
+        entries: [e1(), e3()],
+        generatedAtEpochMs: 1,
+      );
+
+      // E1 has nothing to fill: listing it would offer an empty password.
+      expect(cache.entries.map((entry) => entry.id), ['e3']);
+    });
+
+    test('the published JSON holds no KPEX_ key and no protected value', () {
+      final cache = mapper.mapVault(
+        databasePath: '/tmp/vault.kdbx',
+        entries: [e1(), e3()],
+        generatedAtEpochMs: 1,
+      );
+
+      final json = jsonEncode(cache.toJson());
+
+      expect(json, isNot(contains('KPEX_')));
+      expect(json, isNot(contains('FIXTURE-KEY')));
+      expect(json, isNot(contains('PROTECTED-MUST-NOT-BE-PUBLISHED')));
+      // Nor the entry's password or notes, which were never published either.
+      expect(json, isNot(contains('secret-pw')));
+      expect(json, isNot(contains('not published')));
+    });
+
+    test('the reveal bridge may still map a passkey-only entry', () {
+      // requirePassword: false is the reveal bridge's call — a passkey-only
+      // entry does have something to sign with. Nothing it builds is cached.
+      final metadata = mapper.mapEntry(
+        e1(),
+        updatedAtEpochMs: 1,
+        requirePassword: false,
+      );
+
+      expect(metadata, isNotNull);
+      expect(jsonEncode(metadata!.toJson()), isNot(contains('KPEX_')));
     });
   });
 }

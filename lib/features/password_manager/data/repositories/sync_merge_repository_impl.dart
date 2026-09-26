@@ -648,11 +648,23 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
       final choice = entry.redacted.choice;
       final field = entry.field;
       final blockEntryUuid = entry.credentialBlockEntryUuid;
+      final passkeyRef = entry.passkeyBlockRef;
       if (field != null) {
         session.ledger.recordField(
           kdbxFieldRefOf(field),
           choice,
           decidedValue: _fieldSideValue(field, choice),
+        );
+      } else if (passkeyRef != null) {
+        final blockFields = passkeyBlockFieldsOf(session.diff, passkeyRef);
+        session.ledger.recordPasskeyBlock(
+          passkeyRef,
+          choice,
+          decidedValue: choice == MergeChoice.local
+              ? _blockImage(blockFields, local: true)
+              : choice == MergeChoice.remote
+              ? _blockImage(blockFields, local: false)
+              : null,
         );
       } else if (blockEntryUuid != null) {
         final blockFields = credentialBlockFieldsOf(
@@ -1018,6 +1030,10 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
     // the SAME function `applyMerge` filters its per-field loop with, so the
     // two halves can never disagree about which entries these are.
     final engagedBlocks = engagedCredentialBlockEntryUuids(session.diff);
+    // spec 023 T209 / FR-008: a `KPEX_PASSKEY_*` group is ONE decision too,
+    // and for a stronger reason than FR-3a's — a per-field answer there could
+    // take the private key from one side and the credential id from the other.
+    final engagedPasskeys = engagedPasskeyBlocks(session.diff);
 
     for (final field in session.diff.fieldDiffs) {
       if (field.classification != KdbxFieldClassification.fieldConflict) {
@@ -1027,6 +1043,10 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
           field.fieldKind == KdbxMergeFieldKind.string &&
           engagedBlocks.contains(field.entryUuid)) {
         continue; // folded into the one block decision built below instead.
+      }
+      final passkeyRef = kdbxPasskeyBlockRefOf(field);
+      if (passkeyRef != null && engagedPasskeys.contains(passkeyRef)) {
+        continue; // folded into the one passkey decision built below instead.
       }
       final local = field.local as KdbxFieldPresent;
       final remote = field.remote as KdbxFieldPresent;
@@ -1103,6 +1123,51 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
           ordinal: ordinal++,
           kind: MergeDecisionKind.fieldConflict,
           category: _categoryOf(anchor),
+          presence: MergePresence.presentBoth,
+          choice: choice,
+          isDefault: isDefault,
+          timestampRelation: relation,
+        ),
+      );
+    }
+
+    // spec 023 T209 — one row per passkey group, ordered deterministically so
+    // two devices reviewing the same pair see the same ordinals.
+    final orderedPasskeys = engagedPasskeys.toList()
+      ..sort((a, b) {
+        final byEntry = a.entryUuid.compareTo(b.entryUuid);
+        return byEntry != 0 ? byEntry : a.suffix.compareTo(b.suffix);
+      });
+    for (final ref in orderedPasskeys) {
+      final blockFields = passkeyBlockFieldsOf(session.diff, ref);
+      final relation = session.timestampRelationFor(ref.entryUuid);
+      final replay = session.ledger.replayPasskeyBlock(
+        ref,
+        currentLocal: _blockImage(blockFields, local: true),
+        currentRemote: _blockImage(blockFields, local: false),
+      );
+      final MergeChoice choice;
+      final bool isDefault;
+      if (replay is MergeLedgerReplayed) {
+        choice = replay.choice;
+        isDefault = false;
+      } else {
+        choice = _defaultPasskeyBlockChoice(relation, blockFields);
+        isDefault = true;
+        newConflictCount++;
+      }
+      final decisionId = _mintDecisionId();
+      session.decisions[decisionId.token] = _DecisionRecord.forPasskeyBlock(
+        ref: ref,
+        relyingPartyId: passkeyBlockRelyingPartyId(blockFields),
+        redacted: RedactedMergeDecision(
+          decisionId: decisionId,
+          ordinal: ordinal++,
+          kind: MergeDecisionKind.fieldConflict,
+          // The frozen contract has no passkey category, and inventing one
+          // would change the port. A passkey is a custom-field namespace in
+          // KDBX terms, which is what this says.
+          category: MergeFieldCategory.customField,
           presence: MergePresence.presentBoth,
           choice: choice,
           isDefault: isDefault,
@@ -1247,6 +1312,32 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
     }
   }
 
+  /// spec 023 T209 — the same shape as [_defaultCredentialBlockChoice], over
+  /// the whole passkey group rather than one field, so the credential moves as
+  /// a unit whichever way the tie falls.
+  MergeChoice _defaultPasskeyBlockChoice(
+    TimestampRelation relation,
+    List<KdbxFieldDiff> blockFields,
+  ) {
+    switch (relation) {
+      case TimestampRelation.localNewer:
+      case TimestampRelation.localKnownRemoteUnknown:
+        return MergeChoice.local;
+      case TimestampRelation.remoteNewer:
+      case TimestampRelation.remoteKnownLocalUnknown:
+        return MergeChoice.remote;
+      case TimestampRelation.tie:
+      case TimestampRelation.bothUnknown:
+        return comparePasskeyBlockImage(
+                  _blockImage(blockFields, local: true),
+                  _blockImage(blockFields, local: false),
+                ) >=
+                0
+            ? MergeChoice.local
+            : MergeChoice.remote;
+    }
+  }
+
   /// FR-3a's fixed display priority for the anchor member of an engaged
   /// block — `password` > `username` > `url` — distinct from
   /// [compareCredentialBlockImage]'s ascending-UTF-8 join order, which exists
@@ -1377,10 +1468,16 @@ final class _MergeSession {
     final fieldChoices = <KdbxFieldRef, MergeChoice>{};
     final recordChoices = <String, MergeChoice>{};
     final credentialBlockChoices = <String, MergeChoice>{};
+    final passkeyBlockChoices = <KdbxPasskeyBlockRef, MergeChoice>{};
     for (final entry in decisions.values) {
       final field = entry.field;
       if (field != null) {
         fieldChoices[kdbxFieldRefOf(field)] = entry.redacted.choice;
+        continue;
+      }
+      final passkeyRef = entry.passkeyBlockRef;
+      if (passkeyRef != null) {
+        passkeyBlockChoices[passkeyRef] = entry.redacted.choice;
         continue;
       }
       final blockEntryUuid = entry.credentialBlockEntryUuid;
@@ -1394,6 +1491,7 @@ final class _MergeSession {
       fieldChoices: fieldChoices,
       recordChoices: recordChoices,
       credentialBlockChoices: credentialBlockChoices,
+      passkeyBlockChoices: passkeyBlockChoices,
     );
   }
 
@@ -1418,7 +1516,9 @@ final class _DecisionRecord {
   }) : field = fieldDiff,
        record = null,
        credentialBlockEntryUuid = null,
-       credentialBlockAnchor = null;
+       credentialBlockAnchor = null,
+       passkeyBlockRef = null,
+       passkeyRelyingPartyId = null;
 
   _DecisionRecord.forRecord({
     required KdbxRecordDiff recordDiff,
@@ -1426,7 +1526,27 @@ final class _DecisionRecord {
   }) : record = recordDiff,
        field = null,
        credentialBlockEntryUuid = null,
-       credentialBlockAnchor = null;
+       credentialBlockAnchor = null,
+       passkeyBlockRef = null,
+       passkeyRelyingPartyId = null;
+
+  /// spec 023 T209 — one row for a whole `KPEX_PASSKEY_*` group, keyed by the
+  /// group rather than by any member's field ref.
+  ///
+  /// It carries no anchor field, unlike [_DecisionRecord.forCredentialBlock]:
+  /// an anchor exists to show one member's values, and here there is no member
+  /// whose values may be shown at all (FR-008). [relyingPartyId] names the
+  /// credential instead, and is the only thing about it the row ever displays.
+  _DecisionRecord.forPasskeyBlock({
+    required KdbxPasskeyBlockRef ref,
+    required String? relyingPartyId,
+    required this.redacted,
+  }) : field = null,
+       record = null,
+       credentialBlockEntryUuid = null,
+       credentialBlockAnchor = null,
+       passkeyBlockRef = ref,
+       passkeyRelyingPartyId = relyingPartyId;
 
   /// spec-008 T401c — one row for a whole FR-3a credential block, keyed for
   /// [_MergeSession.resolution] by entry UUID rather than by any member's
@@ -1439,12 +1559,16 @@ final class _DecisionRecord {
   }) : field = null,
        record = null,
        credentialBlockEntryUuid = entryUuid,
-       credentialBlockAnchor = anchorField;
+       credentialBlockAnchor = anchorField,
+       passkeyBlockRef = null,
+       passkeyRelyingPartyId = null;
 
   final KdbxFieldDiff? field;
   final KdbxRecordDiff? record;
   final String? credentialBlockEntryUuid;
   final KdbxFieldDiff? credentialBlockAnchor;
+  final KdbxPasskeyBlockRef? passkeyBlockRef;
+  final String? passkeyRelyingPartyId;
 
   RedactedMergeDecision redacted;
 
@@ -1458,9 +1582,49 @@ final class _DecisionRecord {
   /// (T602/T603) — this is the minimum that keeps the row from crashing on
   /// display, not the final word on what it should show.
   MergeFieldDisplay display(_MergeSession session) {
+    final passkeyRef = passkeyBlockRef;
+    if (passkeyRef != null) return _passkeyBlockDisplay(session, passkeyRef);
     final field = this.field ?? credentialBlockAnchor;
     if (field != null) return _fieldDisplay(session, field);
     return _recordDisplay(session, record!);
+  }
+
+  /// spec 023 T209 / FR-008 — one named credential, with redacted sides.
+  ///
+  /// Neither side carries a member value: not the private key, not the
+  /// credential id, not the user handle. What the row shows is the relying
+  /// party, which side holds a passkey at all, and when that side's entry last
+  /// changed — which is what the choice is actually made on, and is the same
+  /// evidence `timestampRelation` already puts on the redacted row.
+  MergeFieldDisplay _passkeyBlockDisplay(
+    _MergeSession session,
+    KdbxPasskeyBlockRef ref,
+  ) {
+    final blockFields = passkeyBlockFieldsOf(session.diff, ref);
+    final rpId = passkeyRelyingPartyId;
+    final label = rpId == null || rpId.isEmpty ? 'Passkey' : 'Passkey ($rpId)';
+
+    MergeDisplaySide sideOf(KdbxFile file, {required bool local}) {
+      final present = blockFields.any(
+        (field) => (local ? field.local : field.remote) is KdbxFieldPresent,
+      );
+      if (!present) return MergeDisplaySide.missing();
+      final entry = session.entryOn(file, ref.entryUuid);
+      if (entry == null) return MergeDisplaySide.missing();
+      return MergeDisplaySide.present(
+        label,
+        changedAt: entry.times.lastModificationTime.get(),
+      );
+    }
+
+    return MergeFieldDisplay(
+      label: label,
+      local: sideOf(session.pair.local.file, local: true),
+      remote: sideOf(session.pair.remote.file, local: false),
+      // The group holds protected members, so the row is a protected row even
+      // though what it displays is not a secret.
+      protected: true,
+    );
   }
 
   MergeFieldDisplay _fieldDisplay(_MergeSession session, KdbxFieldDiff field) {

@@ -49,6 +49,7 @@ import 'package:kdbx/src/kdbx_object.dart' show KdbxObjectInternal;
 import '../../domain/models/sync_merge_models.dart';
 import '../../domain/repositories/sync_merge_repository.dart';
 import 'kdbx_semantic_manifest.dart';
+import 'passkey_parser.dart';
 
 /// What kind of object a live UUID denotes. FR-2 requires a UUID that appears
 /// on both sides to denote the same kind on both.
@@ -470,9 +471,11 @@ final class KdbxMergeResolution {
     Map<KdbxFieldRef, MergeChoice> fieldChoices = const {},
     Map<String, MergeChoice> recordChoices = const {},
     Map<String, MergeChoice> credentialBlockChoices = const {},
+    Map<KdbxPasskeyBlockRef, MergeChoice> passkeyBlockChoices = const {},
   }) : _fieldChoices = Map.unmodifiable(fieldChoices),
        _recordChoices = Map.unmodifiable(recordChoices),
-       _credentialBlockChoices = Map.unmodifiable(credentialBlockChoices);
+       _credentialBlockChoices = Map.unmodifiable(credentialBlockChoices),
+       _passkeyBlockChoices = Map.unmodifiable(passkeyBlockChoices);
 
   final Map<KdbxFieldRef, MergeChoice> _fieldChoices;
   final Map<String, MergeChoice> _recordChoices;
@@ -482,6 +485,11 @@ final class KdbxMergeResolution {
   /// decide which entries these are; an engaged entry with no entry here is
   /// the same programming error [fieldChoiceFor] guards against.
   final Map<String, MergeChoice> _credentialBlockChoices;
+
+  /// spec 023 T209 / FR-008: keyed by the passkey group, never by a member's
+  /// [KdbxFieldRef]. One answer moves the whole credential, so a merge can
+  /// never assemble one from two different passkeys.
+  final Map<KdbxPasskeyBlockRef, MergeChoice> _passkeyBlockChoices;
 
   /// A conflict with no recorded answer is a programming error, not a merge
   /// outcome: every conflict carries a computed default from the moment the
@@ -506,6 +514,16 @@ final class KdbxMergeResolution {
     final choice = _credentialBlockChoices[entryUuid];
     if (choice == null) {
       throw StateError('no recorded choice for a credential-block conflict');
+    }
+    return choice;
+  }
+
+  /// spec 023 T209: one answer per engaged passkey group, with the same
+  /// programming-error contract as [fieldChoiceFor].
+  MergeChoice passkeyBlockChoiceFor(KdbxPasskeyBlockRef ref) {
+    final choice = _passkeyBlockChoices[ref];
+    if (choice == null) {
+      throw StateError('no recorded choice for a passkey-block conflict');
     }
     return choice;
   }
@@ -637,6 +655,98 @@ Set<String> engagedCredentialBlockEntryUuids(KdbxPresenceDiff diff) {
     engaged.add(field.entryUuid);
   }
   return engaged;
+}
+
+/// spec 023 T209 — the identity of one passkey on one entry: the entry plus
+/// the `KPEX_PASSKEY_*` group marker (`''`, `_1`, `_2`, …). An entry can hold
+/// several passkeys, so unlike FR-3a's credential block the entry UUID alone
+/// is not the block identity.
+typedef KdbxPasskeyBlockRef = ({String entryUuid, String suffix});
+
+/// [canonicalFieldKey] lowercases, so the namespace is matched in that form.
+final String _passkeyCanonicalPrefix = PasskeyParser.keyPrefix.toLowerCase();
+
+/// spec 023 T209 membership: true for every key in the `KPEX_PASSKEY_*`
+/// namespace, including keys this app does not interpret
+/// (`KPEX_PASSKEY_PRF`) — they belong to the credential and must move with it.
+bool isPasskeyBlockKey(String canonicalKey) =>
+    canonicalKey.startsWith(_passkeyCanonicalPrefix);
+
+/// The group marker of a passkey field's canonical key. [PasskeyParser.suffixOf]
+/// matches on trailing digits only, so the lowercased form is equivalent.
+String passkeyBlockSuffixOf(String canonicalKey) =>
+    PasskeyParser.suffixOf(canonicalKey);
+
+KdbxPasskeyBlockRef? kdbxPasskeyBlockRefOf(KdbxFieldDiff diff) {
+  if (diff.fieldKind != KdbxMergeFieldKind.string) return null;
+  if (!isPasskeyBlockKey(diff.canonicalKey)) return null;
+  return (
+    entryUuid: diff.entryUuid,
+    suffix: passkeyBlockSuffixOf(diff.canonicalKey),
+  );
+}
+
+/// spec 023 T209 engagement: the passkey groups with at least one conflicting
+/// shared member. Shared by the apply step and the repository's decision
+/// building, exactly as [engagedCredentialBlockEntryUuids] is.
+Set<KdbxPasskeyBlockRef> engagedPasskeyBlocks(KdbxPresenceDiff diff) {
+  final engaged = <KdbxPasskeyBlockRef>{};
+  for (final field in diff.fieldDiffs) {
+    if (field.classification != KdbxFieldClassification.fieldConflict) {
+      continue;
+    }
+    final ref = kdbxPasskeyBlockRefOf(field);
+    if (ref != null) engaged.add(ref);
+  }
+  return engaged;
+}
+
+/// Every field diff belonging to one passkey group, whichever classification
+/// each carries.
+List<KdbxFieldDiff> passkeyBlockFieldsOf(
+  KdbxPresenceDiff diff,
+  KdbxPasskeyBlockRef ref,
+) => [
+  for (final field in diff.fieldDiffs)
+    if (kdbxPasskeyBlockRefOf(field) == ref) field,
+];
+
+/// The relying party the group names, for the one row's label — the only
+/// member of the namespace that is not a secret and not an opaque identifier.
+///
+/// The local side is preferred and the remote is the fallback: the label says
+/// which credential the row is about, and a conflict on this very field is the
+/// one case where the two disagree — for which the row still has to be named
+/// something, and naming it after the side being replaced would read as a
+/// promise the merge does not make. `null` when neither side carries it, which
+/// is a passkey the parser would itself call unusable.
+String? passkeyBlockRelyingPartyId(List<KdbxFieldDiff> blockFields) {
+  final rpKey = PasskeyParser.relyingPartyKey.toLowerCase();
+  for (final field in blockFields) {
+    if (field.canonicalKey != rpKey) continue;
+    final local = field.local;
+    if (local is KdbxFieldPresent) return local.semanticValue;
+    final remote = field.remote;
+    if (remote is KdbxFieldPresent) return remote.semanticValue;
+  }
+  return null;
+}
+
+/// spec 023 T209's tie-break: one comparison per group over the whole
+/// credential, so the group moves as a unit. Built from the members' canonical
+/// keys in ascending UTF-8 order — a fixed join order, as
+/// [compareCredentialBlockImage]'s is — and NOT from the private key alone,
+/// which would make the outcome depend on one field of several.
+int comparePasskeyBlockImage(
+  Map<String, KdbxFieldPresent> local,
+  Map<String, KdbxFieldPresent> remote,
+) {
+  final keys = <String>{...local.keys, ...remote.keys}.toList()
+    ..sort(compareUtf8Bytes);
+  String imageOf(Map<String, KdbxFieldPresent> side) => [
+    for (final key in keys) side[key]?.semanticValue ?? '',
+  ].join(_credentialBlockImageSeparator);
+  return compareUtf8Bytes(imageOf(local), imageOf(remote));
 }
 
 /// All of one entry's credential-block field diffs — up to three (password,
@@ -907,9 +1017,16 @@ class KdbxMergeAdapter {
     // per-field decision. A one-sided member is untouched by that exclusion
     // and flows through here as an ordinary automatic union, which is exactly
     // FR-4's no-deletion invariant applied to a block member.
+    //
+    // spec 023 T209 draws the same line around a `KPEX_PASSKEY_*` group, for
+    // the same reason with a sharper edge: a per-field decision there could
+    // take the private key from one side and the credential id from the other,
+    // producing a credential neither device ever held (FR-008).
     final engagedBlocks = engagedCredentialBlockEntryUuids(diff);
+    final engagedPasskeys = engagedPasskeyBlocks(diff);
     for (final field in diff.fieldDiffs) {
       if (_isEngagedCredentialBlockMember(field, engagedBlocks)) continue;
+      if (_isEngagedPasskeyBlockMember(field, engagedPasskeys)) continue;
       _applyField(
         local: local,
         remote: remote,
@@ -923,6 +1040,13 @@ class KdbxMergeAdapter {
       diff: diff,
       resolution: resolution,
       engagedEntryUuids: engagedBlocks,
+    );
+    _applyPasskeyBlocks(
+      local: local,
+      remote: remote,
+      diff: diff,
+      resolution: resolution,
+      engagedBlocks: engagedPasskeys,
     );
 
     for (final record in diff.deletionConflicts) {
@@ -1478,6 +1602,56 @@ class KdbxMergeAdapter {
           resolution.credentialBlockChoiceFor(entryUuid) == MergeChoice.local;
 
       for (final field in credentialBlockFieldsOf(diff, entryUuid)) {
+        if (field.local is! KdbxFieldPresent ||
+            field.remote is! KdbxFieldPresent) {
+          continue; // one-sided: preserved by the general loop already.
+        }
+        final targetKey = winnerIsLocal ? field.localKey! : field.remoteKey!;
+        final sourceEntry = winnerIsLocal ? localEntry : remoteEntry;
+        final winningValue = sourceEntry.getString(KdbxKey(targetKey));
+        if (field.localKey != null && field.localKey != targetKey) {
+          localEntry.removeString(KdbxKey(field.localKey!));
+        }
+        localEntry.setString(KdbxKey(targetKey), winningValue);
+      }
+    }
+  }
+
+  /// spec 023 T209's counterpart to [_isEngagedCredentialBlockMember]: a
+  /// SHARED member of an engaged passkey group, which [_applyPasskeyBlocks]
+  /// owns. A one-sided member is left to the general loop's union, so a passkey
+  /// present on only one side is preserved whole rather than dropped.
+  bool _isEngagedPasskeyBlockMember(
+    KdbxFieldDiff field,
+    Set<KdbxPasskeyBlockRef> engagedBlocks,
+  ) {
+    final ref = kdbxPasskeyBlockRefOf(field);
+    if (ref == null || !engagedBlocks.contains(ref)) return false;
+    return field.classification == KdbxFieldClassification.identical ||
+        field.classification == KdbxFieldClassification.fieldConflict;
+  }
+
+  /// spec 023 T209: for every engaged passkey group, every SHARED member is
+  /// taken from the group's single answer, by copying the winning side's
+  /// `StringValue` object wholesale — so the protection flag travels with the
+  /// value and the secret is never read into a Dart string here, exactly as in
+  /// [_applyCredentialBlocks].
+  void _applyPasskeyBlocks({
+    required KdbxFile local,
+    required KdbxFile remote,
+    required KdbxPresenceDiff diff,
+    required KdbxMergeResolution resolution,
+    required Set<KdbxPasskeyBlockRef> engagedBlocks,
+  }) {
+    for (final ref in engagedBlocks) {
+      final localEntry = _entryByUuid(local, ref.entryUuid);
+      final remoteEntry = _entryByUuid(remote, ref.entryUuid);
+      if (localEntry == null || remoteEntry == null) continue;
+
+      final winnerIsLocal =
+          resolution.passkeyBlockChoiceFor(ref) == MergeChoice.local;
+
+      for (final field in passkeyBlockFieldsOf(diff, ref)) {
         if (field.local is! KdbxFieldPresent ||
             field.remote is! KdbxFieldPresent) {
           continue; // one-sided: preserved by the general loop already.

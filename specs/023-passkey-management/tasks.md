@@ -255,7 +255,7 @@ Independent test: quickstart A, B, C.
   Verify: import a CSV with `KPEX_PASSKEY_PRIVATE_KEY_PEM` → warning, entry
   has no such custom field.
 
-- [ ] **T209** [P] [US1] Merge preview collapses the passkey — owner: `senior-flutter-dev`
+- [x] **T209** [P] [US1] Merge preview collapses the passkey — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/domain/models/merge_field_display.dart`,
   `lib/features/password_manager/data/services/kdbx_merge_adapter.dart`,
   matching tests.
@@ -265,7 +265,7 @@ Independent test: quickstart A, B, C.
   Verify: adapter test with a passkey changed on one side shows one row and
   resolves the whole group together.
 
-- [ ] **T210** [P] [US1] Desktop metadata cache carries no passkey field — owner: `senior-web-chrome-dev`
+- [x] **T210** [P] [US1] Desktop metadata cache carries no passkey field — owner: `senior-web-chrome-dev`
   Files: `lib/features/password_manager/data/services/desktop_browser_autofill_cache.dart`,
   `test/features/password_manager/data/services/desktop_browser_autofill_cache_test.dart`.
   Acceptance: the mapper never emits a `KPEX_` key or a protected custom
