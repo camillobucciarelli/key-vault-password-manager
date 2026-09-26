@@ -369,6 +369,24 @@ class CsvImportOutcomeScreen extends StatelessWidget {
                         const SizedBox(height: 8),
                       ],
                     ],
+                    // spec 023 T208 — a refused column is not a refused row,
+                    // so it gets its own block rather than a fake row number.
+                    if (outcome.ignoredColumns.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        outcome.ignoredColumns.length == 1
+                            ? '1 column was not imported'
+                            : '${outcome.ignoredColumns.length} columns were not imported',
+                        style: AppTextStyles.labelUpper.copyWith(
+                          color: colors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      for (final column in outcome.ignoredColumns) ...[
+                        _IgnoredColumnTile(column: column),
+                        const SizedBox(height: 8),
+                      ],
+                    ],
                   ],
                 ),
               ),
@@ -379,6 +397,42 @@ class CsvImportOutcomeScreen extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _IgnoredColumnTile extends StatelessWidget {
+  const _IgnoredColumnTile({required this.column});
+
+  final IgnoredColumn column;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.row),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            column.header,
+            style: AppTextStyles.secret.copyWith(
+              fontSize: 12,
+              color: colors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            column.reason,
+            style: AppTextStyles.body.copyWith(color: colors.textPrimary),
+          ),
+        ],
       ),
     );
   }

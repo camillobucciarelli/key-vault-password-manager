@@ -1724,6 +1724,74 @@ void main() {
       },
     );
 
+    // =========================================================================
+    // spec 023 T209 — the passkey namespace is ONE row, and its sides carry no
+    // member value at all (FR-008).
+    // =========================================================================
+    test(
+      'a conflicting passkey group is one decision, not one per field',
+      () async {
+        final withoutPasskey = await _Harness.build(temp);
+        final baseline = await withoutPasskey.repository.startReview(
+          withoutPasskey.databaseId,
+        );
+        final baselineConflicts = baseline.decisions
+            .where((d) => d.kind == MergeDecisionKind.fieldConflict)
+            .length;
+
+        final harness = await _Harness.build(temp, withPasskey: true);
+        final summary = await harness.repository.startReview(
+          harness.databaseId,
+        );
+        final conflicts = summary.decisions
+            .where((d) => d.kind == MergeDecisionKind.fieldConflict)
+            .length;
+
+        // Two members of the group conflict (credential id and private key), so
+        // a per-field treatment would have added two rows.
+        expect(conflicts, baselineConflicts + 1);
+      },
+    );
+
+    test('the passkey row names the credential and shows no member', () async {
+      final harness = await _Harness.build(temp, withPasskey: true);
+      final summary = await harness.repository.startReview(harness.databaseId);
+
+      // The type of a display is deliberately un-nameable outside the field
+      // widget's allowlist, so the row is found and asserted in one pass
+      // rather than held in a typed local.
+      var found = false;
+      for (final decision in summary.decisions) {
+        if (decision.kind != MergeDecisionKind.fieldConflict) continue;
+        final display = await harness.repository.loadFieldDisplay(
+          sessionId: summary.sessionId,
+          decisionId: decision.decisionId,
+        );
+        if (!display.label.startsWith('Passkey')) {
+          display.dispose();
+          continue;
+        }
+        found = true;
+        expect(display.label, 'Passkey (webauthn.io)');
+        expect(display.protected, isTrue);
+        // Both sides hold the credential, so both are present — as the label,
+        // never as a member value.
+        expect(display.local.value, 'Passkey (webauthn.io)');
+        expect(display.remote.value, 'Passkey (webauthn.io)');
+        expect(
+          display.local.value,
+          isNot(contains('KEYVAULT-FIXTURE-PASSKEY')),
+        );
+        expect(display.remote.value, isNot(contains('cred-')));
+        // The timestamps are what the choice is actually made on.
+        expect(display.local.changedAt, isNotNull);
+        expect(display.remote.changedAt, isNotNull);
+        display.dispose();
+      }
+
+      expect(found, isTrue, reason: 'no passkey row was produced');
+    });
+
     test('a protected value is flagged so the widget can mask it', () async {
       final harness = await _Harness.build(temp);
       final summary = await harness.repository.startReview(harness.databaseId);
@@ -2857,6 +2925,7 @@ class _Harness {
     bool withKeyFile = false,
     bool foreignRemote = false,
     bool tiedTimestamps = false,
+    bool withPasskey = false,
   }) async {
     Uint8List? keyFileBytes;
     final keyFilePath = '${temp.path}/fixture-key-file.keyx';
@@ -2895,6 +2964,10 @@ class _Harness {
     if (!foreignRemote) {
       _divergeLocal(localFile, tiedTimestamps: tiedTimestamps);
       deletionTime = _divergeRemote(remoteFile, tiedTimestamps: tiedTimestamps);
+      if (withPasskey) {
+        _writePasskeyGroup(localFile, side: 'local');
+        _writePasskeyGroup(remoteFile, side: 'remote');
+      }
     }
 
     return _FixturePair(
@@ -2913,6 +2986,7 @@ class _Harness {
     bool withKeyFile = false,
     bool foreignRemote = false,
     bool tiedTimestamps = false,
+    bool withPasskey = false,
     bool mirrored = false,
     bool withoutRemoteMapping = false,
     _FixturePair? fixture,
@@ -2926,6 +3000,7 @@ class _Harness {
           withKeyFile: withKeyFile,
           foreignRemote: foreignRemote,
           tiedTimestamps: tiedTimestamps,
+          withPasskey: withPasskey,
         );
     final keyFilePath = built.keyFilePath;
     final keyFileBytes = built.keyFileBytes;
@@ -3080,6 +3155,30 @@ void _divergeLocal(KdbxFile file, {required bool tiedTimestamps}) {
   file.body.rootGroup.addEntry(localOnly);
   localOnly.setString(KdbxKeyCommon.TITLE, PlainValue('Local Only'));
 }
+
+/// spec 023 T209 — one `KPEX_PASSKEY_*` group on the shared entry, written
+/// with a different credential id and private key per [side] so every member
+/// of the group conflicts.
+void _writePasskeyGroup(KdbxFile file, {required String side}) {
+  final shared = _entry(file, _sharedEntryUuid)!;
+  shared
+    ..setString(
+      KdbxKey('KPEX_PASSKEY_RELYING_PARTY'),
+      PlainValue('webauthn.io'),
+    )
+    ..setString(
+      KdbxKey('KPEX_PASSKEY_CREDENTIAL_ID'),
+      ProtectedValue.fromString('cred-$side'),
+    )
+    ..setString(
+      KdbxKey('KPEX_PASSKEY_PRIVATE_KEY_PEM'),
+      ProtectedValue.fromString('$_passkeyFixtureKeyMarker-$side'),
+    );
+}
+
+/// Deliberately not PEM-shaped: nothing in this layer parses it, and a real
+/// key header in a test fixture is what the secret scanners flag.
+const _passkeyFixtureKeyMarker = 'KEYVAULT-FIXTURE-PASSKEY-VALUE';
 
 DateTime _divergeRemote(KdbxFile file, {required bool tiedTimestamps}) {
   final shared = _entry(file, _sharedEntryUuid)!;

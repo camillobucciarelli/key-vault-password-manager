@@ -29,7 +29,9 @@ import '../../../domain/usecases/link_database_to_remote_usecase.dart';
 import '../../../domain/usecases/sync_database_now_usecase.dart';
 import '../../coordinators/android_autofill_save_coordinator.dart';
 import '../../coordinators/apple_autofill_v2_coordinator.dart';
+import '../../coordinators/duplicate_merge_coordinator.dart';
 import '../../coordinators/entry_history_coordinator.dart';
+import '../../coordinators/passkey_coordinator.dart';
 import '../../coordinators/session_secret_holder.dart';
 import '../../coordinators/sync_merge_coordinator.dart';
 import '../../utils/cloud_storage_error_presentation.dart';
@@ -63,6 +65,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     this.folderExpansionPreferences,
     this.syncMergeCoordinator,
     this.entryHistoryCoordinator,
+    this.duplicateMergeCoordinator,
+    this.passkeyCoordinator,
     this.resolveDatabaseId,
     this.resolveDisplayName,
     this.now = DateTime.now,
@@ -139,6 +143,7 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     on<RestoreEntryRevision>(_onRestoreEntryRevision);
     on<DeleteEntryRevision>(_onDeleteEntryRevision);
     on<ClearEntryHistoryInFile>(_onClearEntryHistoryInFile);
+    on<DeletePasskey>(_onDeletePasskey);
     on<LoadDuplicates>(_onLoadDuplicates);
     on<DeleteDuplicateEntry>(_onDeleteDuplicateEntry);
     on<MergeDuplicateEntries>(_onMergeDuplicateEntries);
@@ -179,6 +184,13 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
   /// spec 017: restore and clear sequencing. Null only in tests that never
   /// touch the history.
   final EntryHistoryCoordinator? entryHistoryCoordinator;
+
+  /// spec 023 T207 — writes the pre-merge backup before a duplicate merge.
+  final DuplicateMergeCoordinator? duplicateMergeCoordinator;
+
+  /// spec 023: dated backup + delete sequencing for passkeys. Null only in
+  /// tests that never delete one.
+  final PasskeyCoordinator? passkeyCoordinator;
 
   /// Maps the open database path to its registry id, the only identity the
   /// merge port accepts. Kept as a callback so this BLoC holds no registry.
@@ -1636,6 +1648,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
             importedCount: importedCount,
             duplicateSkippedCount: duplicateCount,
             skippedRows: skippedRows,
+            // spec 023 T208 — reserved passkey columns the parser refused.
+            ignoredColumns: parsed.ignoredColumns,
           ),
         ),
       );
@@ -1986,6 +2000,77 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     }
   }
 
+  /// spec 023 T205 / FR-010 — translate and delegate: the coordinator writes
+  /// the dated backup and then the delete, this reloads and tells the user
+  /// (Constitution II).
+  Future<void> _onDeletePasskey(
+    DeletePasskey event,
+    Emitter<VaultState> emit,
+  ) async {
+    final coordinator = passkeyCoordinator;
+    if (coordinator == null) {
+      _safeEmit(
+        emit,
+        state.copyWith(errorMessage: 'Unable to delete this passkey.'),
+      );
+      return;
+    }
+    _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
+    final result = await coordinator.deletePasskey(
+      databasePath: state.databasePath,
+      keyFilePath: _keyFilePath,
+      entryId: event.entryId,
+      relyingPartyId: event.relyingPartyId,
+      credentialId: event.credentialId,
+    );
+    final backup = result.backupPath;
+    switch (result.outcome) {
+      case PasskeyOutcome.done:
+        await _afterHistoryWrite(
+          emit,
+          entryId: event.entryId,
+          info:
+              'Passkey deleted. A backup was saved as ${p.basename(backup!)}.',
+        );
+      case PasskeyOutcome.vaultLocked:
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            errorMessage: 'The vault is locked. Nothing was changed.',
+          ),
+        );
+      case PasskeyOutcome.notFound:
+        // Not an error the user caused: the record on screen is stale, so
+        // reload rather than leave them looking at a passkey that is gone.
+        await _afterHistoryWrite(
+          emit,
+          entryId: event.entryId,
+          info: 'That passkey is no longer on this record.',
+        );
+      case PasskeyOutcome.alreadyExists:
+        // Unreachable on a delete: only `createPasskey` refuses this way.
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            errorMessage: 'Unable to delete this passkey. Nothing was changed.',
+          ),
+        );
+      case PasskeyOutcome.failed:
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            errorMessage: backup == null
+                ? 'Unable to delete this passkey. Nothing was changed.'
+                : 'Unable to delete this passkey. The backup '
+                      '${p.basename(backup)} was kept.',
+          ),
+        );
+    }
+  }
+
   /// Reload, tell the user, and re-read the history if its view is still
   /// open on this entry.
   Future<void> _afterHistoryWrite(
@@ -2076,37 +2161,76 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     }
   }
 
+  /// spec 023 T207 — translate and delegate: the coordinator writes the dated
+  /// backup and then the merge, this reloads and tells the user.
   Future<void> _onMergeDuplicateEntries(
     MergeDuplicateEntries event,
     Emitter<VaultState> emit,
   ) async {
+    final coordinator = duplicateMergeCoordinator;
+    if (coordinator == null) {
+      _safeEmit(emit, state.copyWith(errorMessage: 'Unable to merge entries.'));
+      return;
+    }
     _safeEmit(emit, state.copyWith(isSaving: true, clearError: true));
-    try {
-      await vaultKdbxService.mergeEntries(
-        databasePath: state.databasePath,
-        password: _password,
-        keyFilePath: _keyFilePath,
-        primaryId: event.primaryId,
-        secondaryIds: event.secondaryIds,
-      );
-      await _reload(
-        emit,
-        currentGroupId: state.currentGroupId,
-        keepLoadingFlag: false,
-      );
-      await _loadRecycleBinEntries(emit, isInitialLoad: true);
-      _computeDuplicates(emit);
-      _computeHealth(emit);
-      _scheduleAutoSync();
-    } catch (e, st) {
-      logError('Failed merging duplicate entries.', e, st);
-      _safeEmit(
-        emit,
-        state.copyWith(
-          isSaving: false,
-          errorMessage: 'Unable to merge entries.',
-        ),
-      );
+    final result = await coordinator.merge(
+      databasePath: state.databasePath,
+      keyFilePath: _keyFilePath,
+      primaryId: event.primaryId,
+      secondaryIds: event.secondaryIds,
+    );
+    final backup = result.backupPath;
+    switch (result.outcome) {
+      case DuplicateMergeOutcome.done:
+        await _reload(
+          emit,
+          currentGroupId: state.currentGroupId,
+          keepLoadingFlag: false,
+        );
+        await _loadRecycleBinEntries(emit, isInitialLoad: true);
+        _computeDuplicates(emit);
+        _computeHealth(emit);
+        _scheduleAutoSync();
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            infoMessage:
+                'Records merged. A backup was saved as '
+                '${p.basename(backup!)}.',
+          ),
+        );
+      case DuplicateMergeOutcome.vaultLocked:
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            errorMessage: 'The vault is locked. Nothing was changed.',
+          ),
+        );
+      case DuplicateMergeOutcome.passkeyConflict:
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            errorMessage:
+                'These records hold two different passkeys for '
+                '${result.relyingPartyId ?? 'the same site'}. Only the site '
+                'knows which one it still accepts, so nothing was merged. '
+                'Delete the passkey you no longer use, then merge.',
+          ),
+        );
+      case DuplicateMergeOutcome.failed:
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            errorMessage: backup == null
+                ? 'Unable to merge entries. Nothing was changed.'
+                : 'Unable to merge entries. The backup '
+                      '${p.basename(backup)} was kept.',
+          ),
+        );
     }
   }
 

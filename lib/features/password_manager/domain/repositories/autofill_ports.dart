@@ -55,6 +55,11 @@ abstract interface class AppleAutofillV2Client {
   /// `null` where the question does not apply (Android, unsupported).
   Future<bool?> getExtensionEnabled();
 
+  /// spec 023 T405 — Android only: whether this device can act as a passkey
+  /// provider (API 34+). Reports unsupported everywhere else, which is what
+  /// the settings row shows.
+  Future<AndroidPasskeyProviderAvailability> getPasskeyProviderAvailability();
+
   /// Android only: the token of a save capture the app was launched for, or
   /// `null`. Returns the token once; a second call yields `null`.
   Future<String?> takePendingCaptureToken();

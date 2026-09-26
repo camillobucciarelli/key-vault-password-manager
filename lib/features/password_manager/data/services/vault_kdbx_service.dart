@@ -3,10 +3,12 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:kdbx/kdbx.dart';
 import 'package:loggy/loggy.dart';
 import 'package:path/path.dart' as p;
 
+import '../../domain/errors/passkey_errors.dart';
 import '../../domain/models/vault_attachment.dart';
 import '../../domain/models/vault_custom_field.dart';
 import '../../domain/models/vault_entry.dart';
@@ -468,6 +470,229 @@ class VaultKdbxService {
     });
   }
 
+  /// spec 023 T203 — remove exactly the `KPEX_PASSKEY_*` group whose
+  /// `(relyingPartyId, credentialId)` matches, and nothing else (FR-010).
+  ///
+  /// Matched on the credential, not on the field suffix: the suffix is the
+  /// group's *position* in the namespace, and a sync or a KeePassXC edit can
+  /// renumber it between the read that built the UI and this write. Removing
+  /// by position would then delete a different passkey.
+  ///
+  /// Every string of the group goes, including keys this app does not
+  /// understand (`KPEX_PASSKEY_PRF`): they belong to the credential being
+  /// deleted, and leaving them would strand fields pointing at a key that no
+  /// longer exists. The entry's own fields, its binaries, tags and history
+  /// are untouched, and `setString`/`removeString` record one ordinary
+  /// revision, exactly as an edit does.
+  ///
+  /// Throws [PasskeyNotFound] when no group matches. No backup here: that is
+  /// the coordinator's, so the backup and the confirmation stay together.
+  Future<void> deletePasskey({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+    required String relyingPartyId,
+    required Uint8List credentialId,
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
+      final entry = _findEntryById(
+        file.body.rootGroup.getAllEntries(),
+        entryId,
+      );
+
+      final match = _mapPasskeys(entry).where((passkey) {
+        return passkey.relyingPartyId == relyingPartyId &&
+            _sameBytes(passkey.credentialId, credentialId);
+      }).firstOrNull;
+      if (match == null) {
+        throw PasskeyNotFound(entryId: entryId, relyingPartyId: relyingPartyId);
+      }
+
+      // The empty suffix is a prefix of `_1`, so a plain `startsWith` on the
+      // group key would let deleting the first passkey take the others with
+      // it. Compare the suffix the parser derived instead.
+      final keysToRemove = entry.stringEntries
+          .map((stringEntry) => stringEntry.key)
+          .where(
+            (key) =>
+                PasskeyParser.isPasskeyKey(key.key) &&
+                PasskeyParser.suffixOf(key.key) == match.fieldSuffix,
+          )
+          .toList(growable: false);
+      for (final key in keysToRemove) {
+        entry.removeString(key);
+      }
+
+      await _save(databasePath, file);
+    });
+  }
+
+  /// spec 023 US3 — write a newly created passkey onto an entry (FR-018).
+  ///
+  /// [replaceExisting] decides what happens when the entry already holds a
+  /// passkey for the same `(relyingPartyId, userHandle)`: false throws
+  /// [PasskeyAlreadyExists] so the caller can warn before anything is
+  /// overwritten (FR-019), true removes that group first. Nothing is ever
+  /// overwritten by default — silently replacing a credential is how a user
+  /// loses the only copy of a key.
+  ///
+  /// All-or-nothing (FR-020): the fields are written and saved inside one
+  /// locked action, so the file on disk holds either the whole credential or
+  /// none of it. The caller must not report success to a relying party before
+  /// this future completes.
+  ///
+  /// Written into the first free suffix group, so an entry that already holds
+  /// a passkey gains a second rather than losing the first.
+  Future<void> createPasskey({
+    required String databasePath,
+    required String password,
+    String? keyFilePath,
+    required String entryId,
+    required VaultPasskey passkey,
+    bool replaceExisting = false,
+  }) {
+    return _mutex.withDatabaseLock([databasePath], () async {
+      final file = await _openFile(
+        databasePath: databasePath,
+        password: password,
+        keyFilePath: keyFilePath,
+      );
+      final entry = _findEntryById(
+        file.body.rootGroup.getAllEntries(),
+        entryId,
+      );
+
+      final existing = _mapPasskeys(entry);
+      final clash = existing.where((candidate) {
+        return candidate.relyingPartyId == passkey.relyingPartyId &&
+            _sameHandle(candidate.userHandle, passkey.userHandle);
+      }).firstOrNull;
+      if (clash != null) {
+        if (!replaceExisting) {
+          throw PasskeyAlreadyExists(
+            entryId: entryId,
+            relyingPartyId: passkey.relyingPartyId,
+          );
+        }
+        _removePasskeyGroup(entry, clash.fieldSuffix);
+      }
+
+      final suffix = _nextPasskeySuffix(entry);
+      for (final field in passkeyFieldsFor(passkey, suffix: suffix).entries) {
+        entry.setString(
+          KdbxKey(field.key),
+          field.value.isProtected
+              ? ProtectedValue.fromString(field.value.value)
+              : PlainValue(field.value.value),
+        );
+      }
+
+      await _save(databasePath, file);
+    });
+  }
+
+  /// The `KPEX_PASSKEY_*` fields for [passkey], in the KeePassXC layout, with
+  /// the protection flags KeePassXC itself uses.
+  ///
+  /// The private key, the credential id and the user handle are protected; the
+  /// relying party, the username and the backup flags are not. Matching
+  /// KeePassXC here is what keeps a vault written by this app usable in it.
+  @visibleForTesting
+  static Map<String, VaultCustomField> passkeyFieldsFor(
+    VaultPasskey passkey, {
+    String suffix = '',
+  }) {
+    String key(String base) => '$base$suffix';
+    return {
+      key(PasskeyParser.relyingPartyKey): VaultCustomField(
+        key: key(PasskeyParser.relyingPartyKey),
+        value: passkey.relyingPartyId,
+      ),
+      key(PasskeyParser.credentialIdKey): VaultCustomField(
+        key: key(PasskeyParser.credentialIdKey),
+        value: _base64UrlUnpadded(passkey.credentialId),
+        isProtected: true,
+      ),
+      if (passkey.userHandle != null)
+        key(PasskeyParser.userHandleKey): VaultCustomField(
+          key: key(PasskeyParser.userHandleKey),
+          value: _base64UrlUnpadded(passkey.userHandle!),
+          isProtected: true,
+        ),
+      key(PasskeyParser.usernameKey): VaultCustomField(
+        key: key(PasskeyParser.usernameKey),
+        value: passkey.username,
+      ),
+      key(PasskeyParser.privateKeyPemKey): VaultCustomField(
+        key: key(PasskeyParser.privateKeyPemKey),
+        value: passkey.privateKeyPem,
+        isProtected: true,
+      ),
+      key(PasskeyParser.flagBeKey): VaultCustomField(
+        key: key(PasskeyParser.flagBeKey),
+        value: passkey.backupEligible ? '1' : '0',
+      ),
+      key(PasskeyParser.flagBsKey): VaultCustomField(
+        key: key(PasskeyParser.flagBsKey),
+        value: passkey.backupState ? '1' : '0',
+      ),
+    };
+  }
+
+  /// `''` when the namespace is free, then `_1`, `_2`, … — the KeePassDX
+  /// convention the parser already groups by.
+  String _nextPasskeySuffix(KdbxEntry entry) {
+    final used = {
+      for (final stringEntry in entry.stringEntries)
+        if (PasskeyParser.isPasskeyKey(stringEntry.key.key))
+          PasskeyParser.suffixOf(stringEntry.key.key),
+    };
+    if (!used.contains('')) return '';
+    for (var index = 1; index < 1000; index++) {
+      if (!used.contains('_$index')) return '_$index';
+    }
+    throw StateError('entry ${entry.uuid.uuid} holds too many passkeys');
+  }
+
+  void _removePasskeyGroup(KdbxEntry entry, String suffix) {
+    final keys = entry.stringEntries
+        .map((stringEntry) => stringEntry.key)
+        .where(
+          (key) =>
+              PasskeyParser.isPasskeyKey(key.key) &&
+              PasskeyParser.suffixOf(key.key) == suffix,
+        )
+        .toList(growable: false);
+    for (final key in keys) {
+      entry.removeString(key);
+    }
+  }
+
+  /// Two credentials collide only when both name the same account at the same
+  /// relying party. A passkey with no handle collides only with another that
+  /// also has none.
+  static bool _sameHandle(Uint8List? a, Uint8List? b) {
+    if (a == null || b == null) return a == null && b == null;
+    return _sameBytes(a, b);
+  }
+
+  static String _base64UrlUnpadded(Uint8List bytes) =>
+      base64Url.encode(bytes).replaceAll('=', '');
+
+  static bool _sameBytes(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
   /// The one ordering every history read and write shares, so what the list
   /// shows is what a restore or delete acts on.
   ///
@@ -544,6 +769,11 @@ class VaultKdbxService {
     });
   }
 
+  /// Throws [PasskeyMergeConflict] when the primary and one of the
+  /// secondaries hold different passkeys for the same relying party and
+  /// account (spec 023 FR-011a). Checked for every secondary before anything
+  /// is written, so a refused merge leaves the file exactly as it was rather
+  /// than folding in the first two entries and then giving up.
   Future<void> mergeEntries({
     required String databasePath,
     required String password,
@@ -560,13 +790,44 @@ class VaultKdbxService {
 
       final allEntries = file.body.rootGroup.getAllEntries();
       final primary = _findEntryById(allEntries, primaryId);
-      for (final secondaryId in secondaryIds) {
-        final secondary = _findEntryById(allEntries, secondaryId);
+      final secondaries = [
+        for (final secondaryId in secondaryIds)
+          _findEntryById(allEntries, secondaryId),
+      ];
+
+      // The primary's own passkeys plus the ones earlier secondaries would
+      // add: two secondaries carrying the same identity collide with each
+      // other just as surely as with the primary.
+      final claimedIdentities = _mapPasskeys(
+        primary,
+      ).map(_passkeyIdentityKey).toSet();
+      for (final secondary in secondaries) {
+        for (final passkey in _mapPasskeys(secondary)) {
+          if (!claimedIdentities.add(_passkeyIdentityKey(passkey))) {
+            throw PasskeyMergeConflict(
+              primaryId: primaryId,
+              secondaryId: secondary.uuid.uuid,
+              relyingPartyId: passkey.relyingPartyId,
+            );
+          }
+        }
+      }
+
+      for (final secondary in secondaries) {
         _mergeInto(file, primary, secondary);
       }
 
       await _save(databasePath, file);
     });
+  }
+
+  /// The relying party plus the account the passkey names — what makes two
+  /// credentials the same slot. Built from the parsed passkey so it matches
+  /// [_sameHandle]'s rule: no handle collides only with no handle.
+  static String _passkeyIdentityKey(VaultPasskey passkey) {
+    final handle = passkey.userHandle;
+    return '${passkey.relyingPartyId}\x00'
+        '${handle == null ? '<none>' : _base64UrlUnpadded(handle)}';
   }
 
   /// Folds [secondary] into [primary] (notes, custom fields, URLs,
@@ -590,8 +851,44 @@ class VaultKdbxService {
         final key = stringEntry.key.key;
         if (_standardEntryKeys.contains(key.toLowerCase())) continue;
         if (isUrlFieldKey(key)) continue;
+        // spec 023 T207 — the passkey namespace never travels key by key.
+        // Copying it that way would let a private key from one credential
+        // land beside the credential id of another, since the keys collide by
+        // suffix and not by credential (FR-008). The whole group is copied
+        // below instead.
+        if (PasskeyParser.isPasskeyKey(key)) continue;
         if (!primaryStringKeys.contains(key.toLowerCase())) {
           primary.setString(KdbxKey(key), stringEntry.value ?? PlainValue(''));
+        }
+      }
+
+      // Copy each of the secondary's passkeys as one credential, renumbered
+      // into a free suffix on the primary (spec 023 T207 / FR-011a).
+      //
+      // The values are copied as their own `KdbxValue`, not re-serialized
+      // from the parsed model: a protected field stays protected, an unusable
+      // passkey travels as it is rather than being silently normalized, and
+      // keys this app does not understand (`KPEX_PASSKEY_PRF`) stay with the
+      // credential they belong to. The secret is never read into a Dart
+      // string on this path.
+      //
+      // An identity the primary already holds is skipped, not overwritten.
+      // [mergeEntries] has already refused that case; this guard is what keeps
+      // any other caller of [_mergeInto] from assembling a mixed credential.
+      for (final passkey in _mapPasskeys(secondary)) {
+        final claimed = _mapPasskeys(primary).map(_passkeyIdentityKey).toSet();
+        if (claimed.contains(_passkeyIdentityKey(passkey))) continue;
+        final targetSuffix = _nextPasskeySuffix(primary);
+        final sourceSuffix = passkey.fieldSuffix;
+        for (final stringEntry in secondary.stringEntries) {
+          final key = stringEntry.key.key;
+          if (!PasskeyParser.isPasskeyKey(key)) continue;
+          if (PasskeyParser.suffixOf(key) != sourceSuffix) continue;
+          final base = key.substring(0, key.length - sourceSuffix.length);
+          primary.setString(
+            KdbxKey('$base$targetSuffix'),
+            stringEntry.value ?? PlainValue(''),
+          );
         }
       }
 

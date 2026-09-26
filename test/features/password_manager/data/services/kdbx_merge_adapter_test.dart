@@ -120,6 +120,27 @@ MergeChoice _defaultBlockChoiceOf(KdbxPresenceDiff diff, String entryUuid) {
       : MergeChoice.remote;
 }
 
+/// spec 023 T209's default group choice, computed the way the repository does —
+/// through [comparePasskeyBlockImage], so the real comparator is exercised.
+MergeChoice _defaultPasskeyChoiceOf(
+  KdbxPresenceDiff diff,
+  KdbxPasskeyBlockRef ref,
+) {
+  final fields = passkeyBlockFieldsOf(diff, ref);
+  Map<String, KdbxFieldPresent> imageOf({required bool local}) => {
+    for (final f in fields)
+      if ((local ? f.local : f.remote) is KdbxFieldPresent)
+        f.canonicalKey: (local ? f.local : f.remote) as KdbxFieldPresent,
+  };
+  return comparePasskeyBlockImage(
+            imageOf(local: true),
+            imageOf(local: false),
+          ) >=
+          0
+      ? MergeChoice.local
+      : MergeChoice.remote;
+}
+
 void main() {
   const adapter = KdbxMergeAdapter();
   late Credentials credentials;
@@ -2822,6 +2843,324 @@ void main() {
           reason: 'the attachment kept the side its OWN decision named',
         );
       }
+    });
+  });
+
+  // ===========================================================================
+  // spec 023 T209 — the `KPEX_PASSKEY_*` namespace is one credential, so the
+  // merge answers it once. A per-field answer here could take the private key
+  // from one side and the credential id from the other (FR-008).
+  // ===========================================================================
+  group('spec 023 T209 passkey block atomicity', () {
+    const rpKey = 'KPEX_PASSKEY_RELYING_PARTY';
+    const credKey = 'KPEX_PASSKEY_CREDENTIAL_ID';
+    const pemKey = 'KPEX_PASSKEY_PRIVATE_KEY_PEM';
+    const prfKey = 'KPEX_PASSKEY_PRF';
+
+    KdbxPasskeyBlockRef refOf(String suffix) =>
+        (entryUuid: _sharedEntryUuid, suffix: suffix);
+
+    /// A pair where one passkey group conflicts on several members, chosen so
+    /// a naive per-field UTF-8 order would elect OPPOSITE sides.
+    ({KdbxFile local, KdbxFile remote}) engagedPair({
+      DateTime? tiedAt,
+      String suffix = '',
+      bool secondGroup = false,
+    }) {
+      final pair = _replicaPair(credentials);
+      final localEntry = _sharedEntry(pair.local);
+      final remoteEntry = _sharedEntry(pair.remote);
+
+      void write(KdbxEntry entry, String key, String value, bool protected) =>
+          entry.setString(
+            KdbxKey('$key$suffix'),
+            protected ? ProtectedValue.fromString(value) : PlainValue(value),
+          );
+
+      // 'Z' > 'A' elects LOCAL for the credential id, while 'B' < 'C' elects
+      // REMOTE for the private key: opposite sides, per field.
+      write(localEntry, rpKey, 'webauthn.io', false);
+      write(remoteEntry, rpKey, 'webauthn.io', false);
+      write(localEntry, credKey, 'Z', true);
+      write(remoteEntry, credKey, 'A', true);
+      write(localEntry, pemKey, 'B', true);
+      write(remoteEntry, pemKey, 'C', true);
+      // A member this app does not interpret: it belongs to the credential and
+      // must travel with it.
+      write(localEntry, prfKey, 'local-prf', true);
+      write(remoteEntry, prfKey, 'remote-prf', true);
+
+      if (secondGroup) {
+        // A second, identical group: it must not engage, and must not be
+        // disturbed by the first one's decision.
+        for (final entry in [localEntry, remoteEntry]) {
+          entry.setString(KdbxKey('${rpKey}_1'), PlainValue('other.test'));
+          entry.setString(
+            KdbxKey('${credKey}_1'),
+            ProtectedValue.fromString('same'),
+          );
+          entry.setString(
+            KdbxKey('${pemKey}_1'),
+            ProtectedValue.fromString('same-pem'),
+          );
+        }
+      }
+
+      if (tiedAt != null) {
+        localEntry.times.lastModificationTime.set(tiedAt);
+        remoteEntry.times.lastModificationTime.set(tiedAt);
+      }
+      return (local: pair.local, remote: pair.remote);
+    }
+
+    test(
+      'the whole group is taken from one side, against a per-field order',
+      () {
+        final built = engagedPair(tiedAt: DateTime.utc(2022));
+        final validated = adapter.validatePair(
+          local: built.local,
+          remote: built.remote,
+        );
+        final diff = adapter.diffPresence(validated);
+
+        expect(engagedPasskeyBlocks(diff), {refOf('')});
+
+        final choice = _defaultPasskeyChoiceOf(diff, refOf(''));
+        // The image joins the members in ascending canonical-key order:
+        // credential_id ('Z' vs 'A') comes before prf and private_key_pem, so
+        // local's image is greater and local wins the whole group.
+        expect(choice, MergeChoice.local);
+
+        final merged = adapter.applyMerge(
+          pair: validated,
+          diff: diff,
+          resolution: KdbxMergeResolution(
+            passkeyBlockChoices: {refOf(''): choice},
+          ),
+        );
+        final entry = _sharedEntry(merged);
+
+        // A per-field comparator would have taken the PEM from remote ('C').
+        expect(entry.getString(KdbxKey(credKey))?.getText(), 'Z');
+        expect(entry.getString(KdbxKey(pemKey))?.getText(), 'B');
+        // Including the member this app does not interpret.
+        expect(entry.getString(KdbxKey(prfKey))?.getText(), 'local-prf');
+      },
+    );
+
+    test(
+      'the losing side takes every member, not just the conflicting ones',
+      () {
+        final built = engagedPair(tiedAt: DateTime.utc(2022));
+        final validated = adapter.validatePair(
+          local: built.local,
+          remote: built.remote,
+        );
+        final diff = adapter.diffPresence(validated);
+
+        final merged = adapter.applyMerge(
+          pair: validated,
+          diff: diff,
+          resolution: KdbxMergeResolution(
+            passkeyBlockChoices: {refOf(''): MergeChoice.remote},
+          ),
+        );
+        final entry = _sharedEntry(merged);
+
+        expect(entry.getString(KdbxKey(credKey))?.getText(), 'A');
+        expect(entry.getString(KdbxKey(pemKey))?.getText(), 'C');
+        expect(entry.getString(KdbxKey(prfKey))?.getText(), 'remote-prf');
+        // The protection flags travel with the winning side.
+        expect(entry.getString(KdbxKey(pemKey)), isA<ProtectedValue>());
+      },
+    );
+
+    test('a second, agreeing group neither engages nor moves', () {
+      final built = engagedPair(tiedAt: DateTime.utc(2022), secondGroup: true);
+      final validated = adapter.validatePair(
+        local: built.local,
+        remote: built.remote,
+      );
+      final diff = adapter.diffPresence(validated);
+
+      expect(engagedPasskeyBlocks(diff), {refOf('')});
+
+      final merged = adapter.applyMerge(
+        pair: validated,
+        diff: diff,
+        resolution: KdbxMergeResolution(
+          passkeyBlockChoices: {refOf(''): MergeChoice.remote},
+        ),
+      );
+      final entry = _sharedEntry(merged);
+
+      expect(entry.getString(KdbxKey('${credKey}_1'))?.getText(), 'same');
+      expect(entry.getString(KdbxKey('${pemKey}_1'))?.getText(), 'same-pem');
+    });
+
+    test('a one-sided member of the LOSING credential does not survive', () {
+      // The gap the first cut of this block had: a member written only on the
+      // losing side flowed through the general loop's union and ended up beside
+      // the winner's key and id — one credential's handle on another's key.
+      final pair = _replicaPair(credentials);
+      final localEntry = _sharedEntry(pair.local);
+      final remoteEntry = _sharedEntry(pair.remote);
+
+      for (final (entry, side) in [
+        (localEntry, 'local'),
+        (remoteEntry, 'remote'),
+      ]) {
+        entry
+          ..setString(KdbxKey(rpKey), PlainValue('webauthn.io'))
+          ..setString(KdbxKey(credKey), ProtectedValue.fromString('cred-$side'))
+          ..setString(KdbxKey(pemKey), ProtectedValue.fromString('pem-$side'));
+      }
+      // Only local carries these two, and local is going to lose.
+      localEntry
+        ..setString(
+          KdbxKey('KPEX_PASSKEY_USER_HANDLE'),
+          ProtectedValue.fromString('handle-local-only'),
+        )
+        ..setString(
+          KdbxKey(prfKey),
+          ProtectedValue.fromString('prf-local-only'),
+        );
+      localEntry.times.lastModificationTime.set(DateTime.utc(2022));
+      remoteEntry.times.lastModificationTime.set(DateTime.utc(2022));
+
+      final validated = adapter.validatePair(
+        local: pair.local,
+        remote: pair.remote,
+      );
+      final diff = adapter.diffPresence(validated);
+      expect(engagedPasskeyBlocks(diff), {refOf('')});
+
+      final merged = adapter.applyMerge(
+        pair: validated,
+        diff: diff,
+        resolution: KdbxMergeResolution(
+          passkeyBlockChoices: {refOf(''): MergeChoice.remote},
+        ),
+      );
+      final entry = _sharedEntry(merged);
+
+      expect(entry.getString(KdbxKey(credKey))?.getText(), 'cred-remote');
+      expect(entry.getString(KdbxKey(pemKey))?.getText(), 'pem-remote');
+      // FR-008: the losing credential's own members go with it.
+      expect(entry.getString(KdbxKey('KPEX_PASSKEY_USER_HANDLE')), isNull);
+      expect(entry.getString(KdbxKey(prfKey)), isNull);
+    });
+
+    test('a one-sided member of the WINNING credential is kept', () {
+      final pair = _replicaPair(credentials);
+      final localEntry = _sharedEntry(pair.local);
+      final remoteEntry = _sharedEntry(pair.remote);
+
+      for (final (entry, side) in [
+        (localEntry, 'local'),
+        (remoteEntry, 'remote'),
+      ]) {
+        entry
+          ..setString(KdbxKey(rpKey), PlainValue('webauthn.io'))
+          ..setString(KdbxKey(credKey), ProtectedValue.fromString('cred-$side'))
+          ..setString(KdbxKey(pemKey), ProtectedValue.fromString('pem-$side'));
+      }
+      // Only remote carries this one, and remote is going to win.
+      remoteEntry.setString(
+        KdbxKey(prfKey),
+        ProtectedValue.fromString('prf-remote-only'),
+      );
+      localEntry.times.lastModificationTime.set(DateTime.utc(2022));
+      remoteEntry.times.lastModificationTime.set(DateTime.utc(2022));
+
+      final validated = adapter.validatePair(
+        local: pair.local,
+        remote: pair.remote,
+      );
+      final diff = adapter.diffPresence(validated);
+
+      final merged = adapter.applyMerge(
+        pair: validated,
+        diff: diff,
+        resolution: KdbxMergeResolution(
+          passkeyBlockChoices: {refOf(''): MergeChoice.remote},
+        ),
+      );
+      final entry = _sharedEntry(merged);
+
+      expect(entry.getString(KdbxKey(prfKey))?.getText(), 'prf-remote-only');
+      expect(entry.getString(KdbxKey(prfKey)), isA<ProtectedValue>());
+    });
+
+    test('a group present on one side only is preserved, not answered', () {
+      final pair = _replicaPair(credentials);
+      final remoteEntry = _sharedEntry(pair.remote);
+      remoteEntry.setString(KdbxKey(rpKey), PlainValue('webauthn.io'));
+      remoteEntry.setString(
+        KdbxKey(pemKey),
+        ProtectedValue.fromString('remote-only'),
+      );
+
+      final validated = adapter.validatePair(
+        local: pair.local,
+        remote: pair.remote,
+      );
+      final diff = adapter.diffPresence(validated);
+
+      // No conflicting member, so nothing engages and no decision is needed.
+      expect(engagedPasskeyBlocks(diff), isEmpty);
+
+      final merged = adapter.applyMerge(
+        pair: validated,
+        diff: diff,
+        resolution: KdbxMergeResolution(),
+      );
+      final entry = _sharedEntry(merged);
+
+      // FR-4's union: the one-sided group is copied in whole.
+      expect(entry.getString(KdbxKey(pemKey))?.getText(), 'remote-only');
+      expect(entry.getString(KdbxKey(rpKey))?.getText(), 'webauthn.io');
+    });
+
+    test('the namespace is recognized on the canonical (lowercased) key', () {
+      expect(isPasskeyBlockKey(canonicalFieldKey(pemKey)), isTrue);
+      expect(isPasskeyBlockKey(canonicalFieldKey('${pemKey}_2')), isTrue);
+      expect(passkeyBlockSuffixOf(canonicalFieldKey('${pemKey}_2')), '_2');
+      expect(passkeyBlockSuffixOf(canonicalFieldKey(pemKey)), '');
+      expect(isPasskeyBlockKey(canonicalFieldKey('Password')), isFalse);
+      expect(isPasskeyBlockKey(canonicalFieldKey('KPEX_OTHER')), isFalse);
+    });
+
+    test('the relying party is read for the row label, from either side', () {
+      final built = engagedPair(tiedAt: DateTime.utc(2022));
+      final validated = adapter.validatePair(
+        local: built.local,
+        remote: built.remote,
+      );
+      final diff = adapter.diffPresence(validated);
+
+      expect(
+        passkeyBlockRelyingPartyId(passkeyBlockFieldsOf(diff, refOf(''))),
+        'webauthn.io',
+      );
+    });
+
+    test('an absent choice for an engaged group is a programming error', () {
+      final built = engagedPair(tiedAt: DateTime.utc(2022));
+      final validated = adapter.validatePair(
+        local: built.local,
+        remote: built.remote,
+      );
+      final diff = adapter.diffPresence(validated);
+
+      expect(
+        () => adapter.applyMerge(
+          pair: validated,
+          diff: diff,
+          resolution: KdbxMergeResolution(),
+        ),
+        throwsA(isA<StateError>()),
+      );
     });
   });
 }

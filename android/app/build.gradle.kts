@@ -87,6 +87,16 @@ dependencies {
     // spec-016 T102: InlineSuggestionUi, the only supported way to build the
     // Slice an IME renders on its suggestion strip.
     implementation("androidx.autofill:autofill:1.1.0")
+    // spec 023 T403: the Credential Manager *provider* APIs
+    // (CredentialProviderService, BeginGetCredentialRequest,
+    // PublicKeyCredentialEntry, PendingIntentHandler). Only the base artifact
+    // is needed — `credentials-play-services-auth` is for the client side,
+    // which this app is not.
+    //
+    // Every provider entry point is gated on API 34: `minSdk` here is 29, and
+    // below 34 the platform has no credential provider to register with
+    // (FR-013).
+    implementation("androidx.credentials:credentials:1.6.0")
     testImplementation("junit:junit:4.13.2")
 }
 

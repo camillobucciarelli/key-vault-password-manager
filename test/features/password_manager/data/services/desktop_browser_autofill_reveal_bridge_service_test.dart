@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -10,7 +11,10 @@ import 'package:password_manager/features/password_manager/data/services/desktop
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/password_generator_settings_repository.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_passkey.dart';
 import 'package:password_manager/features/password_manager/domain/services/password_generator_service.dart';
+
+import '../../../../fixtures/passkeys/vectors.dart';
 
 void main() {
   group('DesktopBrowserAutofillRevealBridgeService', () {
@@ -1122,6 +1126,583 @@ void main() {
       expect(printed.join('\n'), isNot(contains(password)));
     });
   });
+
+  // ===========================================================================
+  // spec 023 T502 — `/passkey-assert`: the app signs, nothing else sees the
+  // key (FR-013a), and the user authorises every signature (FR-015).
+  // ===========================================================================
+
+  group('passkey-assert endpoint (023 T502)', () {
+    Future<
+      ({
+        DesktopBrowserAutofillBridgeDescriptor descriptor,
+        List<PasskeyAssertionPrompt> prompts,
+      })
+    >
+    startWithPasskey({
+      bool approve = true,
+      bool withConfirm = true,
+      List<VaultEntry>? entries,
+    }) async {
+      final directory = await Directory.systemTemp.createTemp('kv-passkey-');
+      final store = DesktopBrowserAutofillCacheStore(directory: directory);
+      final prompts = <PasskeyAssertionPrompt>[];
+      final service = DesktopBrowserAutofillRevealBridgeService(
+        store: store,
+        mapper: const DesktopBrowserAutofillMetadataMapper(),
+        confirmPasskeyAssertion: withConfirm
+            ? (prompt) async {
+                prompts.add(prompt);
+                return approve;
+              }
+            : null,
+      );
+      addTearDown(service.stop);
+      addTearDown(() => directory.delete(recursive: true));
+
+      await service.start(
+        databasePath: '/vaults/example.kdbx',
+        entries:
+            entries ??
+            [
+              _entry(
+                id: 'entry-1',
+                username: 'alice',
+                password: '',
+                url: 'https://example.com/login',
+                passkeys: [_passkey()],
+              ),
+            ],
+      );
+      final descriptor = (await store.readBridgeDescriptor())!;
+      return (descriptor: descriptor, prompts: prompts);
+    }
+
+    Map<String, Object?> body(
+      DesktopBrowserAutofillBridgeDescriptor descriptor, {
+      String origin = 'https://example.com',
+      String rpId = 'example.com',
+      List<String>? allowCredentials,
+    }) => {
+      'databaseId': descriptor.databaseId,
+      'origin': origin,
+      'rpId': rpId,
+      'challenge': 'Y2hhbGxlbmdl',
+      'allowCredentials': ?allowCredentials,
+    };
+
+    test('signs after the user approves, and returns no key', () async {
+      final (:descriptor, :prompts) = await startWithPasskey();
+
+      final response = await _postBridge(
+        descriptor: descriptor,
+        path: '/passkey-assert',
+        body: body(descriptor),
+      );
+
+      expect(response.statusCode, HttpStatus.ok);
+      expect(response.json['ok'], isTrue);
+      final data = response.json['data']! as Map<String, Object?>;
+      expect(data['credentialId'], 'AQIDBAU');
+      expect(data['authenticatorData'], isA<String>());
+      expect(data['signature'], isA<String>());
+      expect(data['userHandle'], 'CQk');
+      // The clientDataJSON the site will verify, and the only place the
+      // challenge and origin appear.
+      final clientData = utf8.decode(
+        base64Url.decode(
+          base64Url.normalize(data['clientDataJSON']! as String),
+        ),
+      );
+      expect(clientData, contains('"type":"webauthn.get"'));
+      expect(clientData, contains('"challenge":"Y2hhbGxlbmdl"'));
+      expect(clientData, contains('"origin":"https://example.com"'));
+      // FR-013a: nothing in the response resembles the key.
+      expect(jsonEncode(response.json), isNot(contains('PRIVATE KEY')));
+      expect(jsonEncode(response.json), isNot(contains('MIGHAgEA')));
+
+      // FR-015: the user was asked, and told what they were approving.
+      expect(prompts, hasLength(1));
+      expect(prompts.single.relyingPartyId, 'example.com');
+      expect(prompts.single.origin, 'https://example.com');
+      expect(prompts.single.username, 'ada');
+    });
+
+    test('a declined prompt signs nothing', () async {
+      final (:descriptor, :prompts) = await startWithPasskey(approve: false);
+
+      final response = await _postBridge(
+        descriptor: descriptor,
+        path: '/passkey-assert',
+        body: body(descriptor),
+      );
+
+      expect(response.json['ok'], isFalse);
+      expect((response.json['data']! as Map)['reason'], 'declined');
+      expect(prompts, hasLength(1));
+    });
+
+    test(
+      'with no confirmation hook the endpoint declines everything',
+      () async {
+        final (:descriptor, prompts: _) = await startWithPasskey(
+          withConfirm: false,
+        );
+
+        final response = await _postBridge(
+          descriptor: descriptor,
+          path: '/passkey-assert',
+          body: body(descriptor),
+        );
+
+        expect((response.json['data']! as Map)['reason'], 'declined');
+        // ...and the capability was never advertised, so the extension leaves
+        // `navigator.credentials.get` alone in the first place.
+        expect(descriptor.appCapabilities, isNot(contains('passkeyAssertV1')));
+      },
+    );
+
+    test(
+      'the capability appears only when a passkey is actually held',
+      () async {
+        final (:descriptor, prompts: _) = await startWithPasskey(
+          entries: [
+            _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: 'pw',
+              url: 'https://example.com/login',
+            ),
+          ],
+        );
+
+        expect(descriptor.appCapabilities, isNot(contains('passkeyAssertV1')));
+      },
+    );
+
+    test('a passkey for another site is never offered (FR-014)', () async {
+      final (:descriptor, :prompts) = await startWithPasskey();
+
+      // The page is evil-example.com; a bare suffix match would hand it the
+      // example.com passkey.
+      final response = await _postBridge(
+        descriptor: descriptor,
+        path: '/passkey-assert',
+        body: body(
+          descriptor,
+          origin: 'https://evil-example.com',
+          rpId: 'example.com',
+        ),
+      );
+
+      expect((response.json['data']! as Map)['reason'], 'rp_mismatch');
+      expect(prompts, isEmpty);
+    });
+
+    test('a subdomain may use its parent domain\'s passkey', () async {
+      final (:descriptor, :prompts) = await startWithPasskey();
+
+      final response = await _postBridge(
+        descriptor: descriptor,
+        path: '/passkey-assert',
+        body: body(
+          descriptor,
+          origin: 'https://login.example.com',
+          rpId: 'example.com',
+        ),
+      );
+
+      expect(response.json['ok'], isTrue);
+      expect(prompts, hasLength(1));
+    });
+
+    test(
+      'allowCredentials that names another credential finds nothing',
+      () async {
+        final (:descriptor, :prompts) = await startWithPasskey();
+
+        final response = await _postBridge(
+          descriptor: descriptor,
+          path: '/passkey-assert',
+          body: body(descriptor, allowCredentials: ['bm90LW1pbmU']),
+        );
+
+        expect((response.json['data']! as Map)['reason'], 'no_credential');
+        expect(prompts, isEmpty);
+      },
+    );
+
+    test(
+      'an unusable passkey is not held, so there is nothing to sign',
+      () async {
+        final (:descriptor, prompts: _) = await startWithPasskey(
+          entries: [
+            _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: '',
+              url: 'https://example.com/login',
+              passkeys: [
+                _passkey(unusableReason: VaultPasskeyUnusableReason.badKey),
+              ],
+            ),
+          ],
+        );
+
+        final response = await _postBridge(
+          descriptor: descriptor,
+          path: '/passkey-assert',
+          body: body(descriptor),
+        );
+
+        expect((response.json['data']! as Map)['reason'], 'no_credential');
+      },
+    );
+
+    test(
+      'EdDSA cannot be signed here and says so rather than failing',
+      () async {
+        final (:descriptor, prompts: _) = await startWithPasskey(
+          entries: [
+            _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: '',
+              url: 'https://example.com/login',
+              passkeys: [
+                _passkey(
+                  pem: eddsaPrivateKeyPem,
+                  algorithm: VaultPasskeyAlgorithm.eddsa,
+                ),
+              ],
+            ),
+          ],
+        );
+
+        final response = await _postBridge(
+          descriptor: descriptor,
+          path: '/passkey-assert',
+          body: body(descriptor),
+        );
+
+        expect(
+          (response.json['data']! as Map)['reason'],
+          'unsupported_algorithm',
+        );
+      },
+    );
+
+    // A passkey-only entry is held for signing, not for filling: answering
+    // /reveal for it would hand the popup an empty password.
+    test('a passkey-only entry cannot be revealed as a password', () async {
+      final (:descriptor, prompts: _) = await startWithPasskey();
+
+      final response = await _postBridge(
+        descriptor: descriptor,
+        body: {
+          'databaseId': descriptor.databaseId,
+          'entryId': 'entry-1',
+          'origin': 'https://example.com',
+        },
+      );
+
+      expect(response.statusCode, HttpStatus.notFound);
+      expect(
+        (response.json['error']! as Map)['code'],
+        'credential_unavailable',
+      );
+    });
+
+    test('a request for another database is refused', () async {
+      final (:descriptor, :prompts) = await startWithPasskey();
+
+      final response = await _postBridge(
+        descriptor: descriptor,
+        path: '/passkey-assert',
+        body: {...body(descriptor), 'databaseId': 'sha256:other'},
+      );
+
+      expect(response.statusCode, HttpStatus.badRequest);
+      expect(prompts, isEmpty);
+    });
+
+    // ---- US3: /passkey-create ------------------------------------------
+
+    Future<
+      ({
+        DesktopBrowserAutofillBridgeDescriptor descriptor,
+        List<PasskeyCreationPrompt> prompts,
+        List<(String entryId, bool replace, Uint8List? userHandle)> writes,
+      })
+    >
+    startForCreate({
+      PasskeyCreationDecision? decision = const PasskeyCreationDecision(
+        entryId: 'entry-1',
+      ),
+      PasskeyCreationOutcome outcome = const PasskeyCreationOutcome(
+        reason: null,
+        credentialId: 'Y3JlZA',
+        attestationObject: 'YXR0',
+        publicKeyCose: 'Y29zZQ',
+      ),
+      bool withHooks = true,
+      List<VaultEntry>? entries,
+    }) async {
+      final directory = await Directory.systemTemp.createTemp('kv-pk-create-');
+      final store = DesktopBrowserAutofillCacheStore(directory: directory);
+      final prompts = <PasskeyCreationPrompt>[];
+      final writes = <(String, bool, Uint8List?)>[];
+      final service = DesktopBrowserAutofillRevealBridgeService(
+        store: store,
+        mapper: const DesktopBrowserAutofillMetadataMapper(),
+      );
+      if (withHooks) {
+        service
+          ..confirmPasskeyCreation = (prompt) async {
+            prompts.add(prompt);
+            return decision;
+          }
+          ..writePasskey =
+              ({
+                required String entryId,
+                required String relyingPartyId,
+                required String username,
+                required Uint8List? userHandle,
+                required bool replaceExisting,
+              }) async {
+                writes.add((entryId, replaceExisting, userHandle));
+                return outcome;
+              };
+      }
+      addTearDown(service.stop);
+      addTearDown(() => directory.delete(recursive: true));
+
+      await service.start(
+        databasePath: '/vaults/example.kdbx',
+        entries:
+            entries ??
+            [
+              _entry(
+                id: 'entry-1',
+                username: 'alice',
+                password: 'pw',
+                url: 'https://example.com/login',
+              ),
+            ],
+      );
+      return (
+        descriptor: (await store.readBridgeDescriptor())!,
+        prompts: prompts,
+        writes: writes,
+      );
+    }
+
+    Map<String, Object?> createBody(
+      DesktopBrowserAutofillBridgeDescriptor descriptor, {
+      String origin = 'https://example.com',
+      String rpId = 'example.com',
+      // base64url for the bytes [1, 2, 3, 4]; `null` omits the field, as a
+      // registration with no `user.id` does.
+      String? userHandle = 'AQIDBA',
+    }) => {
+      'databaseId': descriptor.databaseId,
+      'origin': origin,
+      'rpId': rpId,
+      'challenge': 'Y2hhbGxlbmdl',
+      'username': 'ada',
+      'userHandle': ?userHandle,
+    };
+
+    test('creates after the user chooses a record', () async {
+      final (:descriptor, :prompts, :writes) = await startForCreate();
+
+      final response = await _postBridge(
+        descriptor: descriptor,
+        path: '/passkey-create',
+        body: createBody(descriptor),
+      );
+
+      expect(response.json['ok'], isTrue);
+      final data = response.json['data']! as Map<String, Object?>;
+      expect(data['credentialId'], 'Y3JlZA');
+      expect(data['attestationObject'], 'YXR0');
+      expect(data['publicKeyCose'], 'Y29zZQ');
+      // The client data a registration is verified against says `create`, not
+      // `get`: a relying party checks the type and rejects the other one.
+      final clientData = utf8.decode(
+        base64Url.decode(
+          base64Url.normalize(data['clientDataJSON']! as String),
+        ),
+      );
+      expect(clientData, contains('"type":"webauthn.create"'));
+      expect(clientData, contains('"challenge":"Y2hhbGxlbmdl"'));
+
+      // The user was asked, and the record that matches the site was offered.
+      expect(prompts.single.relyingPartyId, 'example.com');
+      expect(prompts.single.candidateEntries.single.entryId, 'entry-1');
+      expect(
+        prompts.single.candidateEntries.single.holdsPasskeyForThisSite,
+        isFalse,
+      );
+      expect(writes.single.$1, 'entry-1');
+      expect(writes.single.$2, isFalse);
+      // The relying party's own handle reached the writer, byte for byte: a
+      // credential stored under a handle the site never issued is one a
+      // discoverable sign-in cannot resolve to an account.
+      expect(writes.single.$3, Uint8List.fromList([1, 2, 3, 4]));
+    });
+
+    // A relying party may register without a `user.id`, and a page may send
+    // something that is not base64url. Neither is a reason to fail a
+    // registration the user already approved: the app falls back to a handle
+    // of its own, which is what `PasskeyGenerator` does with a null.
+    test('a missing or malformed user handle is treated as absent', () async {
+      for (final handle in [null, '', 'not base64url!!']) {
+        final (:descriptor, prompts: _, :writes) = await startForCreate();
+
+        final response = await _postBridge(
+          descriptor: descriptor,
+          path: '/passkey-create',
+          body: createBody(descriptor, userHandle: handle),
+        );
+
+        expect(response.json['ok'], isTrue, reason: 'handle: $handle');
+        expect(writes.single.$3, isNull, reason: 'handle: $handle');
+      }
+    });
+
+    test('a declined prompt writes nothing', () async {
+      final (:descriptor, :prompts, :writes) = await startForCreate(
+        decision: null,
+      );
+
+      final response = await _postBridge(
+        descriptor: descriptor,
+        path: '/passkey-create',
+        body: createBody(descriptor),
+      );
+
+      expect((response.json['data']! as Map)['reason'], 'declined');
+      expect(prompts, hasLength(1));
+      expect(writes, isEmpty);
+    });
+
+    test(
+      'with no hooks the endpoint declines, and advertises nothing',
+      () async {
+        final (:descriptor, prompts: _, writes: _) = await startForCreate(
+          withHooks: false,
+        );
+
+        final response = await _postBridge(
+          descriptor: descriptor,
+          path: '/passkey-create',
+          body: createBody(descriptor),
+        );
+
+        expect((response.json['data']! as Map)['reason'], 'declined');
+        expect(descriptor.appCapabilities, isNot(contains('passkeyCreateV1')));
+      },
+    );
+
+    test('the create capability appears when both hooks are wired', () async {
+      final (:descriptor, prompts: _, writes: _) = await startForCreate();
+
+      expect(descriptor.appCapabilities, contains('passkeyCreateV1'));
+    });
+
+    // FR-014's rule applies to creation too.
+    test('a page cannot create a passkey for another site', () async {
+      final (:descriptor, :prompts, :writes) = await startForCreate();
+
+      final response = await _postBridge(
+        descriptor: descriptor,
+        path: '/passkey-create',
+        body: createBody(
+          descriptor,
+          origin: 'https://evil-example.com',
+          rpId: 'example.com',
+        ),
+      );
+
+      expect((response.json['data']! as Map)['reason'], 'rp_mismatch');
+      expect(prompts, isEmpty);
+      expect(writes, isEmpty);
+    });
+
+    // FR-020: the site hears about a credential only once it is written.
+    test('a failed write reports the reason and no credential', () async {
+      final (:descriptor, prompts: _, :writes) = await startForCreate(
+        outcome: const PasskeyCreationOutcome(reason: 'write_failed'),
+      );
+
+      final response = await _postBridge(
+        descriptor: descriptor,
+        path: '/passkey-create',
+        body: createBody(descriptor),
+      );
+
+      expect(response.json['ok'], isFalse);
+      expect((response.json['data']! as Map)['reason'], 'write_failed');
+      expect(writes, hasLength(1));
+    });
+
+    test(
+      'an entry already holding a passkey is flagged as a replacement',
+      () async {
+        final (:descriptor, :prompts, writes: _) = await startForCreate(
+          entries: [
+            _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: 'pw',
+              url: 'https://example.com/login',
+              passkeys: [_passkey()],
+            ),
+          ],
+        );
+
+        await _postBridge(
+          descriptor: descriptor,
+          path: '/passkey-create',
+          body: createBody(descriptor),
+        );
+
+        expect(
+          prompts.single.candidateEntries.single.holdsPasskeyForThisSite,
+          isTrue,
+          reason: 'the confirmation must be able to say what would be replaced',
+        );
+      },
+    );
+
+    test('a request for another database is refused', () async {
+      final (:descriptor, :prompts, writes: _) = await startForCreate();
+
+      final response = await _postBridge(
+        descriptor: descriptor,
+        path: '/passkey-create',
+        body: {...createBody(descriptor), 'databaseId': 'sha256:other'},
+      );
+
+      expect(response.statusCode, HttpStatus.badRequest);
+      expect(prompts, isEmpty);
+    });
+
+    test('an unauthenticated request never reaches the prompt', () async {
+      final (:descriptor, :prompts) = await startWithPasskey();
+
+      final response = await _postBridge(
+        descriptor: descriptor,
+        path: '/passkey-assert',
+        body: body(descriptor),
+        authorizationToken: 'wrong',
+      );
+
+      expect(response.statusCode, HttpStatus.unauthorized);
+      expect(prompts, isEmpty);
+    });
+  });
 }
 
 /// 009 / A012 — the origin-bound overlay endpoint on the app bridge.
@@ -1374,6 +1955,7 @@ VaultEntry _entry({
   required String password,
   required String url,
   List<VaultCustomField> customFields = const [],
+  List<VaultPasskey> passkeys = const [],
 }) {
   return VaultEntry(
     id: id,
@@ -1384,5 +1966,23 @@ VaultEntry _entry({
     url: url,
     notes: 'hidden',
     customFields: customFields,
+    passkeys: passkeys,
   );
 }
+
+VaultPasskey _passkey({
+  String relyingPartyId = 'example.com',
+  String username = 'ada',
+  String pem = es256PrivateKeyPem,
+  List<int> credentialId = const [1, 2, 3, 4, 5],
+  VaultPasskeyAlgorithm algorithm = VaultPasskeyAlgorithm.es256,
+  VaultPasskeyUnusableReason? unusableReason,
+}) => VaultPasskey(
+  relyingPartyId: relyingPartyId,
+  credentialId: Uint8List.fromList(credentialId),
+  userHandle: Uint8List.fromList(const [9, 9]),
+  username: username,
+  privateKeyPem: pem,
+  algorithm: algorithm,
+  unusableReason: unusableReason,
+);

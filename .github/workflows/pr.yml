@@ -419,6 +419,8 @@ jobs:
           node --check desktop/browser_extension/overlay_lifecycle.js
           node --check desktop/browser_extension/overlay_routes.js
           node --check desktop/browser_extension/content_overlay.js
+          node --check desktop/browser_extension/passkey_page.js
+          node --check desktop/browser_extension/passkey_bridge.js
           node --check desktop/browser_extension/background.js
           node --check desktop/browser_extension/popup.js
 

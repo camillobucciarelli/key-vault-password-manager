@@ -17,7 +17,17 @@ const {
   OverlayLifecycle,
   DISABLE_PHASES,
   GLOBAL_REGISTRATION_ID,
+  PASSKEY_PAGE_REGISTRATION_ID,
+  PASSKEY_BRIDGE_REGISTRATION_ID,
 } = require("../overlay_lifecycle.js");
+
+/** spec 023 T503: the overlay registration plus the passkey pair, sorted as
+ *  `registrationIds()` returns them. */
+const ALL_REGISTRATION_IDS = [
+  GLOBAL_REGISTRATION_ID,
+  PASSKEY_PAGE_REGISTRATION_ID,
+  PASSKEY_BRIDGE_REGISTRATION_ID,
+].sort();
 
 const CONFIG_KEY = security.OVERLAY_CONFIG_KEY;
 const RUNTIME_ID = "abcdefghijklmnopabcdefghijklmnop";
@@ -127,7 +137,7 @@ test("A021: after D1 the origin is denied even with permission and script still 
 
   // Residue is deliberately still present at this point...
   assert.deepEqual(browser.grantedPatterns(), [...GLOBAL_PATTERNS].sort());
-  assert.deepEqual(browser.registrationIds(), [GLOBAL_REGISTRATION_ID]);
+  assert.deepEqual(browser.registrationIds(), ALL_REGISTRATION_IDS);
   // ...and buys the page nothing, because the durable config already says no.
   const restarted = new OverlayLifecycle({ browser });
   const denied = await bootstrapFrom(restarted, "https://example.com/login");
@@ -223,7 +233,7 @@ test("A021: cleanup left behind by a crash is finished by an unrelated later col
     },
   });
   await assert.rejects(() => dying.disable(), SimulatedWorkerCrash);
-  assert.deepEqual(browser.registrationIds(), [GLOBAL_REGISTRATION_ID]);
+  assert.deepEqual(browser.registrationIds(), ALL_REGISTRATION_IDS);
 
   // Several cold starts later, with no disable call in sight.
   for (let restart = 0; restart < 3; restart += 1) {
@@ -248,7 +258,7 @@ test("A021: a crash before the durable commit leaves the site fully enabled", as
 
   assert.equal(browser.config().enabled, true);
   assert.deepEqual(browser.grantedPatterns(), [...GLOBAL_PATTERNS].sort());
-  assert.deepEqual(browser.registrationIds(), [GLOBAL_REGISTRATION_ID]);
+  assert.deepEqual(browser.registrationIds(), ALL_REGISTRATION_IDS);
   assert.equal((await bootstrapFrom(restarted, "https://example.com/login")).ok, true);
 });
 

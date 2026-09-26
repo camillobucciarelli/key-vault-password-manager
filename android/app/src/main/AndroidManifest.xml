@@ -41,6 +41,16 @@
             android:excludeFromRecents="true"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/AutofillPickerTheme" />
+        <!-- spec 023 T404: authenticates one chosen passkey and returns its
+             assertion. Launched only through the PendingIntent the credential
+             provider service hands to the system sheet, so it is never
+             exported. Transparent, like AutofillAuthActivity: it shows the
+             prompt over whatever the user was looking at. -->
+        <activity
+            android:name=".autofill.PasskeyAuthActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/AutofillAuthTheme" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
@@ -58,6 +68,26 @@
             <meta-data
                 android:name="android.autofill"
                 android:resource="@xml/keyvault_autofill_service" />
+        </service>
+
+        <!-- spec 023 T403/T405: the Credential Manager provider.
+             `android:enabled="false"` in the manifest and enabled at runtime
+             on API 34+ only (AndroidPasskeyProviderAvailability): below 34 the
+             platform has no credential provider to register with, and a
+             declared-but-unusable service would show the user a setting that
+             does nothing. -->
+        <service
+            android:name=".autofill.KeyVaultCredentialProviderService"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/autofill_service_label"
+            android:permission="android.permission.BIND_CREDENTIAL_PROVIDER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.credentials.CredentialProviderService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.credentials.provider"
+                android:resource="@xml/keyvault_credential_provider" />
         </service>
     </application>
     <!-- Required to query activities that can process text, see:

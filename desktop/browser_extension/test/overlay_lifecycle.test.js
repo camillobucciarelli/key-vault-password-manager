@@ -33,7 +33,17 @@ const {
   registrationIdForPattern,
   isOverlayRegistrationId,
   GLOBAL_REGISTRATION_ID,
+  PASSKEY_PAGE_REGISTRATION_ID,
+  PASSKEY_BRIDGE_REGISTRATION_ID,
 } = lifecycleModule;
+
+/** spec 023 T503: the overlay registration plus the passkey pair, sorted as
+ *  `registrationIds()` returns them. */
+const ALL_REGISTRATION_IDS = [
+  GLOBAL_REGISTRATION_ID,
+  PASSKEY_PAGE_REGISTRATION_ID,
+  PASSKEY_BRIDGE_REGISTRATION_ID,
+].sort();
 
 const CONFIG_KEY = security.OVERLAY_CONFIG_KEY;
 const EXT_DIR = path.join(__dirname, "..");
@@ -453,14 +463,55 @@ test("A018: enable registers ONE isolated-world document_idle all-frames script"
   await grantAndEnable(browser, worker, 9);
 
   const registered = await browser.scripting.getRegisteredContentScripts();
-  assert.equal(registered.length, 1);
-  const script = registered[0];
-  assert.equal(script.id, GLOBAL_REGISTRATION_ID);
+  const script = registered.find((entry) => entry.id === GLOBAL_REGISTRATION_ID);
+  assert.ok(script, "the overlay registration is present");
   assert.deepEqual(script.matches, ["http://*/*", "https://*/*"]);
   assert.equal(script.runAt, "document_idle");
   assert.equal(script.allFrames, true);
   assert.equal(script.world, "ISOLATED");
   assert.deepEqual(script.js, ["overlay_security.js", "content_overlay.js"]);
+});
+
+// spec 023 T503 — the passkey wrapper is a second pair of registrations,
+// under the same switch. It runs at document_start because the page may call
+// `navigator.credentials.get` before document_idle, and its page-world half
+// must be in the page's world to be visible to the site at all.
+test("023 T503: enable also registers the passkey pair at document_start", async () => {
+  const browser = new FakeBrowser();
+  const worker = newWorker(browser);
+  await worker.reconcile();
+
+  await grantAndEnable(browser, worker, 9);
+
+  const registered = await browser.scripting.getRegisteredContentScripts();
+  assert.equal(registered.length, 3);
+  const main = registered.find((entry) => entry.world === "MAIN");
+  assert.ok(main, "the page-world wrapper is registered");
+  assert.deepEqual(main.js, ["passkey_page.js"]);
+  assert.equal(main.runAt, "document_start");
+  assert.equal(main.allFrames, true);
+  assert.deepEqual(main.matches, ["http://*/*", "https://*/*"]);
+
+  const bridge = registered.find(
+    (entry) => entry.js.length === 1 && entry.js[0] === "passkey_bridge.js"
+  );
+  assert.ok(bridge, "the isolated-world relay is registered");
+  assert.equal(bridge.world, "ISOLATED");
+  assert.equal(bridge.runAt, "document_start");
+});
+
+// The wrapper is not a permission of its own: turning the overlay off must
+// take it away too, or the user would have withdrawn something and kept it.
+test("023 T503: disable unregisters the passkey pair with the overlay", async () => {
+  const browser = new FakeBrowser();
+  const worker = newWorker(browser);
+  await worker.reconcile();
+  await grantAndEnable(browser, worker, 9);
+  assert.deepEqual(browser.registrationIds(), ALL_REGISTRATION_IDS);
+
+  await worker.disable();
+
+  assert.deepEqual(await browser.scripting.getRegisteredContentScripts(), []);
 });
 
 test("A018: the registration matches exactly the manifest's optional hosts", () => {
@@ -563,7 +614,7 @@ test("A018: enabling without a tab still commits and registers", async () => {
 
   assert.equal(result.ok, true);
   assert.equal(browser.config().enabled, true);
-  assert.deepEqual(browser.registrationIds(), [GLOBAL_REGISTRATION_ID]);
+  assert.deepEqual(browser.registrationIds(), ALL_REGISTRATION_IDS);
   assert.deepEqual(browser.callsMatching("scripting.execute"), []);
 });
 
@@ -579,7 +630,7 @@ test("A018: repeated startup reconciliation is idempotent", async () => {
     await worker.ready(); // second call in the same worker must not re-run
   }
 
-  assert.deepEqual(browser.registrationIds(), [GLOBAL_REGISTRATION_ID]);
+  assert.deepEqual(browser.registrationIds(), ALL_REGISTRATION_IDS);
   assert.equal(browser.callsMatching("scripting.register").length, 1);
   assert.equal(browser.callsMatching("scripting.unregister").length, 0);
   assert.equal(browser.config().revision, 4);
@@ -656,7 +707,7 @@ test("A019: disable hands the broad permission back and drops the registration",
   const worker = newWorker(browser);
   await grantAndEnable(browser, worker, 42);
   assert.deepEqual(browser.grantedPatterns(), [...GLOBAL_PATTERNS].sort());
-  assert.deepEqual(browser.registrationIds(), [GLOBAL_REGISTRATION_ID]);
+  assert.deepEqual(browser.registrationIds(), ALL_REGISTRATION_IDS);
 
   await worker.disable();
 
@@ -679,7 +730,7 @@ test("A019: a failed durable commit starts no cleanup at all", async () => {
 
   assert.deepEqual(browser.calls, []);
   assert.equal(browser.config().enabled, true);
-  assert.deepEqual(browser.registrationIds(), [GLOBAL_REGISTRATION_ID]);
+  assert.deepEqual(browser.registrationIds(), ALL_REGISTRATION_IDS);
   assert.deepEqual(browser.grantedPatterns(), [...GLOBAL_PATTERNS].sort());
 });
 
@@ -740,7 +791,7 @@ test("A019: a readback missing a field aborts the disable before any cleanup", a
 
   assert.deepEqual(browser.calls, ["storage.set"]);
   assert.deepEqual(browser.grantedPatterns(), [...GLOBAL_PATTERNS].sort());
-  assert.deepEqual(browser.registrationIds(), [GLOBAL_REGISTRATION_ID]);
+  assert.deepEqual(browser.registrationIds(), ALL_REGISTRATION_IDS);
 });
 
 test("A018: a partial readback aborts the enable before anything is registered", async () => {
@@ -800,7 +851,7 @@ test("Gate A2: enable commits despite Chrome's alphabetical readback key order",
   assert.equal(result.ok, true);
   assert.equal(browser.config().enabled, true);
   // The phases AFTER the commit actually ran: registration + explicit inject.
-  assert.deepEqual(browser.registrationIds(), [GLOBAL_REGISTRATION_ID]);
+  assert.deepEqual(browser.registrationIds(), ALL_REGISTRATION_IDS);
   assert.equal(browser.callsMatching("scripting.execute").length, 1);
 });
 

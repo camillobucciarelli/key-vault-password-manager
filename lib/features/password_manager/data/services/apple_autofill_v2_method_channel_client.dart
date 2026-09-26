@@ -165,6 +165,24 @@ class AppleAutofillV2MethodChannelClient implements AppleAutofillV2Client {
   }
 
   @override
+  Future<AndroidPasskeyProviderAvailability>
+  getPasskeyProviderAvailability() async {
+    if (!isSupported || defaultTargetPlatform != TargetPlatform.android) {
+      return const AndroidPasskeyProviderAvailability.unsupported();
+    }
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+        'getPasskeyProviderAvailability',
+      );
+      return AndroidPasskeyProviderAvailability.fromMap(result);
+    } on MissingPluginException {
+      // An older native side that has no such method: not available, which is
+      // the honest answer rather than an error the settings row cannot show.
+      return const AndroidPasskeyProviderAvailability.unsupported();
+    }
+  }
+
+  @override
   Future<AppleAutofillV2Status> getStatus() async {
     if (!isSupported) {
       return const AppleAutofillV2Status.unsupported();

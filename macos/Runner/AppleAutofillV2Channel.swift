@@ -126,17 +126,60 @@ final class AppleAutofillV2Channel {
 
       let url = entry["url"] as? String
       let serviceIdentifiers = try parseServiceIdentifiers(entry["serviceIdentifiers"])
+      let passkeys = try parsePasskeys(entry["passkeys"])
       return AutofillCredentialPublishEntry(
         id: id,
         title: title,
         username: username,
         password: password,
         url: url,
-        serviceIdentifiers: serviceIdentifiers
+        serviceIdentifiers: serviceIdentifiers,
+        passkeys: passkeys
       )
     }
 
     return (databaseId, entries)
+  }
+
+  /// spec 023 — the `passkeys` list of `contracts/passkey_platform_bridges.md`.
+  ///
+  /// Absent from an older app's payload, which is not an error: it simply has
+  /// no passkeys to publish. A malformed *entry* inside the list is an error,
+  /// though — silently dropping one would mean a passkey the user can see in
+  /// the vault that never answers a sign-in, with nothing to explain why.
+  private func parsePasskeys(_ rawValue: Any?) throws -> [AutofillInputPasskey] {
+    guard let rawValue else { return [] }
+    guard let rawPasskeys = rawValue as? [Any] else {
+      throw SharedAutofillStoreError.invalidPayload("passkeys must be an array")
+    }
+
+    return try rawPasskeys.map { rawPasskey -> AutofillInputPasskey in
+      guard let passkey = rawPasskey as? [String: Any] else {
+        throw SharedAutofillStoreError.invalidPayload("passkey must be a map")
+      }
+      guard let rpId = passkey["rpId"] as? String else {
+        throw SharedAutofillStoreError.invalidPayload("passkey.rpId must be a string")
+      }
+      guard let credentialId = passkey["credentialId"] as? String else {
+        throw SharedAutofillStoreError.invalidPayload("passkey.credentialId must be a string")
+      }
+      guard let privateKeyPem = passkey["privateKeyPem"] as? String else {
+        throw SharedAutofillStoreError.invalidPayload("passkey.privateKeyPem must be a string")
+      }
+      guard let algorithm = passkey["algorithm"] as? String else {
+        throw SharedAutofillStoreError.invalidPayload("passkey.algorithm must be a string")
+      }
+      return AutofillInputPasskey(
+        rpId: rpId,
+        credentialId: credentialId,
+        userHandle: passkey["userHandle"] as? String,
+        username: passkey["username"] as? String ?? "",
+        privateKeyPem: privateKeyPem,
+        algorithm: algorithm,
+        backupEligible: passkey["be"] as? Bool ?? true,
+        backupState: passkey["bs"] as? Bool ?? true
+      )
+    }
   }
 
   private func parseServiceIdentifiers(_ rawValue: Any?) throws -> [AutofillInputServiceIdentifier] {

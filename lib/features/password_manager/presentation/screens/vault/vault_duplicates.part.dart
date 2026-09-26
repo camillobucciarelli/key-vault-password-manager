@@ -24,7 +24,15 @@ Future<VaultDone?> _showDuplicatesDialog(BuildContext context) async {
 
 /// Site groups keep the old "username · N records" line; credentials groups
 /// (same username + password across sites) say how many sites are involved.
+/// A passkey pairing (spec 023 FR-011a) says what makes it one account, since
+/// the two records look nothing alike: one has a password, the other a passkey.
 String _duplicateGroupSubtitle(DuplicateGroup group) {
+  if (group.kind == DuplicateGroupKind.passkeyPassword) {
+    final account = group.sharedUsername.isEmpty
+        ? 'Same account'
+        : group.sharedUsername;
+    return '$account · same account, one holds the passkey';
+  }
   if (group.sharedUrl == null) {
     final sites = group.urls.length;
     return '${group.entries.length} records · '
@@ -395,6 +403,13 @@ class _MergePreviewScreen extends StatelessWidget {
     final urlsToCopy = <String>{
       for (final p in previews) ...p.urlsToCopy,
     }.toList(growable: false);
+    // spec 023 FR-008 — one row for the whole credential, named by its
+    // relying party. No field of it is ever listed or displayed.
+    final passkeySites = <String>{
+      for (final p in previews)
+        for (final passkey in p.passkeysToCopy) passkey.relyingPartyId,
+    }.toList(growable: false);
+    final passkeyConflict = previews.any((p) => p.passkeyConflict);
 
     return Scaffold(
       backgroundColor: colors.ground,
@@ -427,7 +442,8 @@ class _MergePreviewScreen extends StatelessWidget {
                 const SizedBox(height: 12),
                 Text(
                   'Keeps $primaryLabel and moves $secondaryLabel to the recycle '
-                  "bin, after copying what's missing into it.",
+                  "bin, after copying what's missing into it. A dated copy of "
+                  'the vault is saved first.',
                   style: AppTextStyles.body.copyWith(
                     color: colors.textSecondary,
                   ),
@@ -475,6 +491,18 @@ class _MergePreviewScreen extends StatelessWidget {
                       ? 'One-time code — will be copied'
                       : 'One-time code — kept item already has one',
                 ),
+                if (passkeySites.isNotEmpty || passkeyConflict) ...[
+                  const SizedBox(height: 8),
+                  _MergePreviewFlagRow(
+                    key: const ValueKey('merge-flag-row-passkey'),
+                    active: !passkeyConflict && passkeySites.isNotEmpty,
+                    label: passkeyConflict
+                        ? 'Passkey — cannot be merged: both records hold one '
+                              'for the same account'
+                        : 'Passkey — ${passkeySites.join(', ')} will move to '
+                              'the kept record',
+                  ),
+                ],
                 const SizedBox(height: 14),
                 Text(
                   'Passwords are never merged: the kept record keeps its own.',
@@ -483,13 +511,26 @@ class _MergePreviewScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 14),
+                if (passkeyConflict) ...[
+                  Text(
+                    'Only the site knows which of the two passkeys it still '
+                    'accepts, so this merge cannot run. Delete the passkey you '
+                    'no longer use, then merge.',
+                    style: AppTextStyles.secondary.copyWith(
+                      color: colors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 9),
+                ],
                 KvPillButton(
                   label: previews.length == 1
                       ? 'Merge and move duplicate'
                       : 'Merge and move ${previews.length} duplicates',
-                  onPressed: () => VaultOperationScope.of(
-                    context,
-                  ).complete(ConfirmDecision.confirm),
+                  onPressed: passkeyConflict
+                      ? null
+                      : () => VaultOperationScope.of(
+                          context,
+                        ).complete(ConfirmDecision.confirm),
                 ),
                 const SizedBox(height: 9),
                 KvSecondaryPillButton(

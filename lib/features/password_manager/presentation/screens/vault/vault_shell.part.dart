@@ -899,6 +899,10 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                                     // 009 / B005: browser-generated pending
                                     // secret awaiting the app's confirm/save.
                                     const _PendingGenerationBanner(),
+                                    // spec 023 T502: the bridge's sign-in
+                                    // confirmation. Draws nothing until a
+                                    // page asks for a signature.
+                                    const _PasskeyApprovalListener(),
                                     Expanded(
                                       child: _VaultEntriesCardSection(
                                         layout: _effectiveLayout(context),

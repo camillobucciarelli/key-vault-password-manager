@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:equatable/equatable.dart';
 import 'package:password_manager/core/utils/redacted_value.dart';
 
@@ -653,4 +655,24 @@ class ClearEntryHistoryInFile extends VaultEvent {
 
   @override
   List<Object?> get props => [entryId];
+}
+
+/// spec 023 T205 / FR-010 — remove one confirmed passkey from an entry.
+///
+/// Carries the credential, not the field suffix: the suffix is the group's
+/// position in the `KPEX_PASSKEY_*` namespace, and a sync between the read
+/// that drew the section and this write can renumber it.
+class DeletePasskey extends VaultEvent {
+  const DeletePasskey({
+    required this.entryId,
+    required this.relyingPartyId,
+    required this.credentialId,
+  });
+
+  final String entryId;
+  final String relyingPartyId;
+  final Uint8List credentialId;
+
+  @override
+  List<Object?> get props => [entryId, relyingPartyId, credentialId];
 }
