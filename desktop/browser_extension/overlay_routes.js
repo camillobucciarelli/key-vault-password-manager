@@ -532,6 +532,10 @@ class OverlayRouter {
     // An empty username is legitimate: some relying parties register a
     // credential with no display name at all.
     const username = boundedRequestString(message.username, 512) ?? "";
+    // The relying party's account identifier, forwarded as given. An
+    // authenticator that substitutes its own leaves the site unable to resolve
+    // a discoverable sign-in back to an account.
+    const userHandle = boundedRequestString(message.userHandle, 88) ?? "";
 
     const auth = await this._lifecycle.authorizePasskeyRequest({
       sender,
@@ -544,6 +548,7 @@ class OverlayRouter {
       rpId,
       challenge,
       username,
+      userHandle,
     });
     if (response?.ok !== true) return { ok: false };
 

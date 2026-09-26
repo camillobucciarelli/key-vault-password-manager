@@ -259,6 +259,41 @@ test("023 US3: a created credential reaches the page", async () => {
   assert.equal(call.payload.origin, ORIGIN);
 });
 
+test("023 US3: the relying party's user handle is forwarded as given", async () => {
+  const { native, router } = harness();
+
+  await router.dispatch(
+    createRequest({ userHandle: "AQIDBA" }),
+    contentScriptSender({ frameUrl: PAGE_URL })
+  );
+
+  // The account identifier the site issued. Substituting one of our own leaves
+  // a discoverable sign-in unable to resolve the credential to an account, and
+  // makes a replacement register a second key instead.
+  assert.equal(native.callsOf("passkeyCreate")[0].payload.userHandle, "AQIDBA");
+});
+
+test("023 US3: a missing or over-long user handle is forwarded as empty", async () => {
+  for (const userHandle of [undefined, "", "A".repeat(200), 42]) {
+    const { native, router } = harness();
+
+    const response = await router.dispatch(
+      createRequest({ userHandle }),
+      contentScriptSender({ frameUrl: PAGE_URL })
+    );
+
+    // Registering without a handle is legitimate, so this is not a refusal:
+    // the app picks one. Truncating instead would store a handle the site
+    // never issued, which is the failure the field exists to prevent.
+    assert.equal(response.ok, true, `handle: ${userHandle}`);
+    assert.equal(
+      native.callsOf("passkeyCreate")[0].payload.userHandle,
+      "",
+      `handle: ${userHandle}`
+    );
+  }
+});
+
 test("023 US3: an empty username is allowed, not refused", async () => {
   const { native, router } = harness();
 

@@ -38,6 +38,7 @@ class _PasskeyApprovalListenerState extends State<_PasskeyApprovalListener> {
       _approvals = approvals;
       approvals.pendingListenable.addListener(_onPendingChanged);
       approvals.pendingCreationListenable.addListener(_onPendingCreation);
+      approvals.writtenListenable.addListener(_onPasskeyWritten);
     }
   }
 
@@ -47,6 +48,7 @@ class _PasskeyApprovalListenerState extends State<_PasskeyApprovalListener> {
     if (approvals != null) {
       approvals.pendingListenable.removeListener(_onPendingChanged);
       approvals.pendingCreationListenable.removeListener(_onPendingCreation);
+      approvals.writtenListenable.removeListener(_onPasskeyWritten);
       // The shell is going away — a lock, a database switch, a close.
       // Whatever was waiting on this window gets its no rather than a
       // signature nobody is left to approve.
@@ -85,6 +87,19 @@ class _PasskeyApprovalListenerState extends State<_PasskeyApprovalListener> {
     } finally {
       _isAsking = false;
     }
+  }
+
+  /// A browser just had a passkey written into the open vault.
+  ///
+  /// The vault on disk is ahead of everything in memory: this record shows no
+  /// passkey, and the reveal bridge's own credential map and advertised
+  /// capabilities still describe the vault as it was before, so a sign-in
+  /// straight after registering would find nothing and fall back to the
+  /// browser. Reloading rebuilds the screen and republishes the bridge, which
+  /// is where both come from.
+  void _onPasskeyWritten() {
+    if (!mounted) return;
+    context.read<VaultBloc>().add(const RefreshVault());
   }
 
   void _onPendingCreation() {

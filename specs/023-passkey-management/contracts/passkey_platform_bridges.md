@@ -105,4 +105,52 @@ answers the same shape as above. Never returns a PEM under any path.
 wrapper; `{ kv: nonce, kind: "passkey-get-result", ok, credential | null }`
 back. The wrapper resolves the original promise with a
 `PublicKeyCredential`-shaped object (see research R12) or falls through to
-the browser. `navigator.credentials.create` is **not** wrapped in this spec.
+the browser.
+
+`mediation: "conditional"` and `mediation: "silent"` are passed straight to the
+original `get`. Conditional mediation is passkey autofill: login pages fire it
+on load with no user gesture, and it is specified to resolve only without
+interrupting the user. Answering it with the in-app confirmation would pop a
+dialog on every page load, and holding it for the 90s app budget would keep the
+browser's own autofill UI waiting that long.
+
+### Page ↔ extension, registration (US3, added after this contract was written)
+
+`navigator.credentials.create` **is** wrapped, by
+`passkeyCreate`/`/passkey-create`, mirroring the sign-in path:
+
+```
+{ "type": "passkeyCreate", "origin": "…", "rpId": "example.com",
+  "challenge": "<base64url>", "username": "…",
+  "userHandle": "<base64url, unpadded>" | "" }
+```
+```
+{ "type": "passkeyCreate", "ok": true, "credentialId": "<base64url>",
+  "attestationObject": "<base64url>", "clientDataJSON": "<base64url>",
+  "publicKeyCose": "<base64url>" }
+```
+
+`userHandle` is the relying party's own `user.id`, forwarded unchanged through
+every hop to `PasskeyGenerator`. An authenticator that substitutes one of its
+own breaks two things: a discoverable sign-in hands the site a handle it never
+issued, so it cannot resolve the credential to an account; and
+`VaultKdbxService.createPasskey` detects a clash by `(rpId, userHandle)`, so a
+confirmed replacement would add a second credential instead. It is **dropped,
+never truncated**, when it exceeds 88 characters (the base64url form of
+WebAuthn's 64-byte ceiling): half a handle is a different handle. Absent is
+legitimate — a registration may carry no `user.id` — and the app then falls
+back to the credential id.
+
+`keyFilePath` is not on the wire: the app reads the active database's own
+security profile at write time (spec 014 FR-8), the same source `VaultBloc`
+reads, so a key-file-protected vault opens for a browser-initiated write
+exactly as for an in-app one.
+
+The in-app confirmation for either endpoint expires after 80 seconds, under the
+host's 90s budget. A prompt that outlived the request could be approved after
+the page had already fallen back to the browser, which would sign a challenge
+nobody is waiting for or — what FR-020 forbids — write a credential the site
+was never told about. A successful write is announced to the app window, which
+reloads: the vault on disk is then ahead of both the open record and the
+bridge's own credential map and advertised capabilities, so a sign-in straight
+after registering would otherwise find nothing.

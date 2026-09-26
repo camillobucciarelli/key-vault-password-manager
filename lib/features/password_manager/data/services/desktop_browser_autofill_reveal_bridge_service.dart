@@ -171,6 +171,7 @@ class DesktopBrowserAutofillRevealBridgeService {
     required String entryId,
     required String relyingPartyId,
     required String username,
+    required Uint8List? userHandle,
     required bool replaceExisting,
   })?
   writePasskey;
@@ -703,6 +704,13 @@ class DesktopBrowserAutofillRevealBridgeService {
     final origin = browserExactOriginOrNull(payload['origin']);
     final challenge = _safeString(payload['challenge'], maxLength: 2048);
     final username = _safeString(payload['username'], maxLength: 512) ?? '';
+    // The relying party's own account identifier, as the page gave it. A
+    // value that is not base64url is treated as absent rather than as a bad
+    // request: the site still gets a working credential, with a handle of our
+    // own, which is what a registration with no `user.id` gets anyway.
+    final userHandle = _base64UrlBytesOrNull(
+      _safeString(payload['userHandle'], maxLength: 88),
+    );
     if (databaseId == null ||
         databaseId != _databaseId ||
         rpId == null ||
@@ -750,6 +758,7 @@ class DesktopBrowserAutofillRevealBridgeService {
       entryId: decision.entryId,
       relyingPartyId: rpId,
       username: username,
+      userHandle: userHandle,
       replaceExisting: decision.replaceExisting,
     );
     if (!outcome.ok) {
@@ -1151,6 +1160,21 @@ List<String> _stringList(
 
 String _base64UrlUnpadded(Uint8List bytes) =>
     base64Url.encode(bytes).replaceAll('=', '');
+
+/// The inverse, for the one value that travels *into* the app: a relying
+/// party's user handle. Null for anything that is absent, empty or not
+/// base64url — the caller then lets the app pick a handle instead of failing a
+/// registration over a malformed field.
+Uint8List? _base64UrlBytesOrNull(String? value) {
+  if (value == null || value.isEmpty) return null;
+  final padded = value.padRight((value.length + 3) & ~3, '=');
+  try {
+    final bytes = base64Url.decode(padded);
+    return bytes.isEmpty ? null : Uint8List.fromList(bytes);
+  } catch (_) {
+    return null;
+  }
+}
 
 /// WebAuthn's relying-party rule: the id is the page's own registrable
 /// domain or a parent of it.

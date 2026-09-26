@@ -21,6 +21,7 @@ class DesktopBrowserAutofillCoordinator
     this.pendingGeneration,
     this.passkeyCoordinator,
     this.passkeyApprovals,
+    this.currentKeyFilePath,
   });
 
   final DesktopBrowserAutofillCacheStore store;
@@ -40,6 +41,16 @@ class DesktopBrowserAutofillCoordinator
 
   /// spec 023 — where the bridge's confirmations are answered.
   final DesktopPasskeyApprovalService? passkeyApprovals;
+
+  /// spec 014 FR-8: the active database's key-file path, read from its
+  /// security profile at write time — the same source `VaultBloc` reads.
+  ///
+  /// Resolved per write rather than captured at publish: the publish contract
+  /// carries only the path and the entries, and a key file that is added or
+  /// changed mid-session would make a captured copy wrong. Without it a
+  /// key-file-protected vault cannot be opened, so the write fails after the
+  /// user has already confirmed.
+  final Future<String?> Function()? currentKeyFilePath;
 
   @override
   Future<void> publishVault({
@@ -103,13 +114,16 @@ class DesktopBrowserAutofillCoordinator
           required String entryId,
           required String relyingPartyId,
           required String username,
+          required Uint8List? userHandle,
           required bool replaceExisting,
         }) async {
           final result = await coordinator.createPasskey(
             databasePath: databasePath,
+            keyFilePath: await currentKeyFilePath?.call(),
             entryId: entryId,
             relyingPartyId: relyingPartyId,
             username: username,
+            userHandle: userHandle,
             replaceExisting: replaceExisting,
           );
           final created = result.created;
@@ -123,6 +137,13 @@ class DesktopBrowserAutofillCoordinator
               },
             );
           }
+          // The vault on disk now holds a passkey this session's caches do
+          // not. Until they are rebuilt, `_findPasskey` cannot see the new
+          // credential and the bridge may not even advertise
+          // `passkeyAssertV1`, so signing in right after registering would
+          // fall through to the browser. The app window republishes on the
+          // reload this asks for.
+          approvals.notePasskeyWritten();
           return PasskeyCreationOutcome(
             reason: null,
             credentialId: _base64UrlUnpadded(created.passkey.credentialId),

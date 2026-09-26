@@ -2006,6 +2006,114 @@ void main() {
       },
     );
   });
+
+  // 023 US3 — the registration courier. The finding this covers: the relying
+  // party's own `user.id` was never forwarded, so the app minted a handle of
+  // its own and the site could not resolve a discoverable sign-in back to an
+  // account.
+  group('023 US3 — passkeyCreate', () {
+    late DesktopBrowserAutofillCacheStore store;
+    late _FakePasskeyBridge bridge;
+
+    Map<String, Object?> request({
+      String origin = 'https://example.com',
+      String rpId = 'example.com',
+      String challenge = 'Y2hhbGxlbmdl',
+      String username = 'ada',
+      Object? userHandle = 'AQIDBA',
+    }) => {
+      'version': nativeProtocolVersion,
+      'id': 'pk-create-1',
+      'type': 'passkeyCreate',
+      'payload': {
+        'origin': origin,
+        'rpId': rpId,
+        'challenge': challenge,
+        'username': username,
+        'userHandle': ?userHandle,
+      },
+    };
+
+    setUp(() async {
+      store = await _overlayStore(
+        databaseId: 'db-a',
+        cacheGeneration: 'cache-a',
+        entries: [_overlayEntry()],
+      );
+      bridge = await _FakePasskeyBridge.start();
+      addTearDown(bridge.close);
+      await store.writeBridgeDescriptor(
+        bridge.descriptor(
+          appCapabilities: const [desktopBrowserPasskeyCreateCapability],
+        ),
+      );
+    });
+
+    test('forwards the request and returns the new credential', () async {
+      final response = await handleNativeHostRequest(request(), store: store);
+
+      expect(response['ok'], isTrue);
+      final data = response['data']! as Map<String, Object?>;
+      expect(data['credentialId'], 'AQIDBAU');
+      expect(data['attestationObject'], 'YXR0');
+      expect(data['clientDataJSON'], 'Y2xpZW50');
+      expect(data['publicKeyCose'], 'Y29zZQ');
+
+      expect(bridge.lastPayload!['databaseId'], 'db-a');
+      expect(bridge.lastPayload!['rpId'], 'example.com');
+      expect(bridge.lastPayload!['origin'], 'https://example.com');
+      expect(bridge.lastPayload!['username'], 'ada');
+      // The account identifier the relying party issued, forwarded as given.
+      expect(bridge.lastPayload!['userHandle'], 'AQIDBA');
+    });
+
+    test('an absent user handle reaches the app as an empty string', () async {
+      await handleNativeHostRequest(request(userHandle: null), store: store);
+
+      expect(bridge.lastPayload!['userHandle'], '');
+    });
+
+    test('an over-long user handle is dropped, not forwarded', () async {
+      // Longer than the base64url form of WebAuthn\'s 64-byte ceiling, so it
+      // is not a handle this authenticator could have been issued.
+      await handleNativeHostRequest(
+        request(userHandle: 'A' * 200),
+        store: store,
+      );
+
+      expect(bridge.lastPayload!['userHandle'], '');
+    });
+
+    test(
+      'hello advertises the capability only when the app declares it',
+      () async {
+        final advertised = await handleNativeHostRequest({
+          'version': nativeProtocolVersion,
+          'id': 'hello-create',
+          'type': 'hello',
+        }, store: store);
+        final data = advertised['data']! as Map<String, Object?>;
+        expect(data['capabilities'], contains('passkeyCreateV1'));
+        expect(data['supportedMessages'], contains('passkeyCreate'));
+        expect(nativeHostCapabilities, isNot(contains('passkeyCreateV1')));
+
+        await store.writeBridgeDescriptor(
+          bridge.descriptor(appCapabilities: const []),
+        );
+        final response = await handleNativeHostRequest(request(), store: store);
+        expect(response['ok'], isFalse);
+        expect(
+          (response['error']! as Map<String, Object?>)['code'],
+          'passkey_create_unavailable',
+        );
+        expect(bridge.requestCount, 0);
+      },
+    );
+
+    test('an old host answers unsupported_type, so the page falls back', () {
+      expect(_preSlice009MessageTypes, isNot(contains('passkeyCreate')));
+    });
+  });
 }
 
 /// Captures everything written to the process `stderr` inside an
@@ -2578,7 +2686,9 @@ class _FakePasskeyBridge {
   Future<void> _handleRequest(HttpRequest request) async {
     requestCount += 1;
     request.response.headers.contentType = ContentType.json;
-    if (request.method != 'POST' || request.uri.path != '/passkey-assert') {
+    final path = request.uri.path;
+    if (request.method != 'POST' ||
+        (path != '/passkey-assert' && path != '/passkey-create')) {
       request.response.statusCode = HttpStatus.notFound;
       request.response.write(
         jsonEncode({
@@ -2623,13 +2733,20 @@ class _FakePasskeyBridge {
         'ok': true,
         'data':
             overrideData?.call(payload) ??
-            {
-              'credentialId': 'AQIDBAU',
-              'authenticatorData': 'YXV0aA',
-              'signature': 'c2ln',
-              'clientDataJSON': 'Y2xpZW50',
-              'userHandle': 'CQk',
-            },
+            (path == '/passkey-create'
+                ? {
+                    'credentialId': 'AQIDBAU',
+                    'attestationObject': 'YXR0',
+                    'clientDataJSON': 'Y2xpZW50',
+                    'publicKeyCose': 'Y29zZQ',
+                  }
+                : {
+                    'credentialId': 'AQIDBAU',
+                    'authenticatorData': 'YXV0aA',
+                    'signature': 'c2ln',
+                    'clientDataJSON': 'Y2xpZW50',
+                    'userHandle': 'CQk',
+                  }),
       }),
     );
     await request.response.close();

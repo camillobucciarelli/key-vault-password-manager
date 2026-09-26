@@ -118,6 +118,18 @@
     // resolving with a credential nobody is waiting for any more.
     if (options?.signal?.aborted) return originalGet(options);
 
+    // Conditional (and silent) mediation is passkey autofill, not a sign-in
+    // the user asked for: login pages fire it on load, with no gesture. The
+    // contract is that it resolves only if a credential can be offered
+    // without interrupting anybody, so answering it with a modal
+    // confirmation would pop a dialog on every page load — and holding it for
+    // the app's whole budget would keep the browser's own autofill UI waiting
+    // that long. Both mediations belong to the browser.
+    const mediation = options?.mediation;
+    if (mediation === "conditional" || mediation === "silent") {
+      return originalGet(options);
+    }
+
     let request;
     try {
       request = {
@@ -180,6 +192,12 @@
           rpId: publicKey.rp?.id || window.location.hostname,
           challenge: base64UrlFromBuffer(publicKey.challenge),
           username: publicKey.user?.name || "",
+          // The relying party's own account identifier. It is what a
+          // discoverable sign-in has to hand back, so a credential stored
+          // without it is one the site cannot resolve to an account.
+          userHandle: publicKey.user?.id
+            ? base64UrlFromBuffer(publicKey.user.id)
+            : "",
         };
       } catch {
         return originalCreate(options);

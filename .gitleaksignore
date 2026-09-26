@@ -19,8 +19,8 @@ accbbd2dd4f7b15ed8c869312fdbeb6aa0024c8c:test/fixtures/passkeys/vectors.dart:pri
 accbbd2dd4f7b15ed8c869312fdbeb6aa0024c8c:test/fixtures/passkeys/vectors.dart:private-key:24
 accbbd2dd4f7b15ed8c869312fdbeb6aa0024c8c:test/fixtures/passkeys/vectors.dart:private-key:37
 accbbd2dd4f7b15ed8c869312fdbeb6aa0024c8c:test/fixtures/passkeys/vectors.dart:private-key:82
-# Spec 023 T202 test fixture: a PEM-shaped literal whose base64 body decodes to
-# "This is not a real key, it is a fixture string for tests." It is deliberately
-# real-looking so the assertion "no character of the PEM reaches the widget tree"
-# is asserting something. The fingerprint pins the commit that introduced it.
+# Spec 023 T202 test fixture: a PEM-shaped literal whose base64 body decoded to
+# "This is not a real key, it is a fixture string for tests." Replaced at HEAD
+# by a value that is not PEM-shaped at all, since nothing in that layer parses
+# it; this fingerprint covers the commit it appeared in.
 5944cf0e03cafa8ce4bef2069133028ccf49a769:test/features/password_manager/presentation/screens/vault/vault_entry_passkeys_test.dart:private-key:19

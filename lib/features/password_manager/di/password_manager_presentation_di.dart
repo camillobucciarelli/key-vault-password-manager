@@ -42,6 +42,14 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
         // passkey capability at all.
         passkeyCoordinator: sl(),
         passkeyApprovals: sl(),
+        // spec 014 FR-8: the same source `VaultBloc` reads, so a browser-side
+        // write opens a key-file-protected vault exactly as an in-app one does.
+        //
+        // Resolved inside the closure, not here: `VaultSessionCoordinator`
+        // takes this very coordinator as its autofill contract, so looking it
+        // up while this one is being constructed would be a cycle.
+        currentKeyFilePath: () =>
+            sl<VaultSessionCoordinator>().getSelectedKeyFilePath(),
       ),
     ]),
   );

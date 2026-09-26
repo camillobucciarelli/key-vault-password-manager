@@ -1432,7 +1432,7 @@ void main() {
       ({
         DesktopBrowserAutofillBridgeDescriptor descriptor,
         List<PasskeyCreationPrompt> prompts,
-        List<(String entryId, bool replace)> writes,
+        List<(String entryId, bool replace, Uint8List? userHandle)> writes,
       })
     >
     startForCreate({
@@ -1451,7 +1451,7 @@ void main() {
       final directory = await Directory.systemTemp.createTemp('kv-pk-create-');
       final store = DesktopBrowserAutofillCacheStore(directory: directory);
       final prompts = <PasskeyCreationPrompt>[];
-      final writes = <(String, bool)>[];
+      final writes = <(String, bool, Uint8List?)>[];
       final service = DesktopBrowserAutofillRevealBridgeService(
         store: store,
         mapper: const DesktopBrowserAutofillMetadataMapper(),
@@ -1467,9 +1467,10 @@ void main() {
                 required String entryId,
                 required String relyingPartyId,
                 required String username,
+                required Uint8List? userHandle,
                 required bool replaceExisting,
               }) async {
-                writes.add((entryId, replaceExisting));
+                writes.add((entryId, replaceExisting, userHandle));
                 return outcome;
               };
       }
@@ -1500,12 +1501,16 @@ void main() {
       DesktopBrowserAutofillBridgeDescriptor descriptor, {
       String origin = 'https://example.com',
       String rpId = 'example.com',
+      // base64url for the bytes [1, 2, 3, 4]; `null` omits the field, as a
+      // registration with no `user.id` does.
+      String? userHandle = 'AQIDBA',
     }) => {
       'databaseId': descriptor.databaseId,
       'origin': origin,
       'rpId': rpId,
       'challenge': 'Y2hhbGxlbmdl',
       'username': 'ada',
+      'userHandle': ?userHandle,
     };
 
     test('creates after the user chooses a record', () async {
@@ -1539,7 +1544,31 @@ void main() {
         prompts.single.candidateEntries.single.holdsPasskeyForThisSite,
         isFalse,
       );
-      expect(writes, [('entry-1', false)]);
+      expect(writes.single.$1, 'entry-1');
+      expect(writes.single.$2, isFalse);
+      // The relying party's own handle reached the writer, byte for byte: a
+      // credential stored under a handle the site never issued is one a
+      // discoverable sign-in cannot resolve to an account.
+      expect(writes.single.$3, Uint8List.fromList([1, 2, 3, 4]));
+    });
+
+    // A relying party may register without a `user.id`, and a page may send
+    // something that is not base64url. Neither is a reason to fail a
+    // registration the user already approved: the app falls back to a handle
+    // of its own, which is what `PasskeyGenerator` does with a null.
+    test('a missing or malformed user handle is treated as absent', () async {
+      for (final handle in [null, '', 'not base64url!!']) {
+        final (:descriptor, prompts: _, :writes) = await startForCreate();
+
+        final response = await _postBridge(
+          descriptor: descriptor,
+          path: '/passkey-create',
+          body: createBody(descriptor, userHandle: handle),
+        );
+
+        expect(response.json['ok'], isTrue, reason: 'handle: $handle');
+        expect(writes.single.$3, isNull, reason: 'handle: $handle');
+      }
     });
 
     test('a declined prompt writes nothing', () async {

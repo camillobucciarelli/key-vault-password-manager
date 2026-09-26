@@ -19,6 +19,10 @@
   const MAX_CREDENTIAL_ID = 512;
   const MAX_ALLOW_CREDENTIALS = 32;
   const MAX_USERNAME = 512;
+  // WebAuthn caps `user.id` at 64 bytes; 88 covers its base64url form with
+  // room to spare, and anything longer is not a handle this authenticator
+  // could have been given.
+  const MAX_USER_HANDLE = 88;
 
   function refuse(requestId, kind) {
     window.postMessage(
@@ -66,6 +70,7 @@
           rpId,
           challenge,
           username: boundedString(data.username, MAX_USERNAME) ?? "",
+          userHandle: boundedString(data.userHandle, MAX_USER_HANDLE) ?? "",
         }
       : { type: "passkeyGet", rpId, challenge, allowCredentials };
 

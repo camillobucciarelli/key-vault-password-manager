@@ -13,13 +13,18 @@ import 'package:password_manager/features/password_manager/domain/models/vault_s
 
 import 'entry_editor_generator_test_utils.dart';
 
-/// Not a real key — but a real-looking one, so a test that asserts "no
-/// character of the PEM is on screen" is asserting something.
+/// Stands in for the stored private key. Deliberately NOT PEM-shaped: nothing
+/// in this layer parses the value — the property under test is that no part of
+/// it is rendered — and a real PEM block here is reported as a leaked key by
+/// both secret scanners on every commit that touches the file.
+///
+/// Multi-line and distinctive for the same reason a real key would be: each
+/// line is searched for on screen individually, so a partial render is caught
+/// too.
 const _pem =
-    '-----BEGIN PRIVATE KEY-----\n'
-    'MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgVGhpcyBpcyBub3Qg\n'
-    'YSByZWFsIGtleSwgaXQgaXMgYSBmaXh0dXJlIHN0cmluZyBmb3IgdGVzdHMu\n'
-    '-----END PRIVATE KEY-----';
+    'KEYVAULT-FIXTURE-PRIVATE-VALUE-LINE-1\n'
+    'KEYVAULT-FIXTURE-PRIVATE-VALUE-LINE-2\n'
+    'KEYVAULT-FIXTURE-PRIVATE-VALUE-LINE-3';
 
 VaultPasskey _passkey({
   String relyingPartyId = 'webauthn.io',

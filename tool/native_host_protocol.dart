@@ -931,6 +931,21 @@ Future<Map<String, Object?>> _passkeyCreateResponse({
   final rpId = _safeOptionalString(payload['rpId'], maxLength: 253);
   final challenge = _safeOptionalString(payload['challenge'], maxLength: 2048);
   final username = _safeOptionalString(payload['username'], maxLength: 512);
+  // WebAuthn caps `user.id` at 64 bytes, so 88 characters covers its
+  // base64url form. Optional: a relying party may register without one, and
+  // the app then falls back to a handle of its own.
+  //
+  // Not `_safeOptionalString`, which truncates: half a user handle is a
+  // *different* handle, and forwarding one would store an identifier the
+  // relying party never issued — the very failure this field exists to
+  // prevent. An over-long value is dropped instead.
+  final rawUserHandleRequest = payload['userHandle'];
+  final userHandle =
+      rawUserHandleRequest is String &&
+          rawUserHandleRequest.trim().isNotEmpty &&
+          rawUserHandleRequest.trim().length <= 88
+      ? rawUserHandleRequest.trim()
+      : null;
   if (origin == null ||
       rpId == null ||
       rpId.trim().isEmpty ||
@@ -975,6 +990,7 @@ Future<Map<String, Object?>> _passkeyCreateResponse({
       'rpId': rpId.trim(),
       'challenge': challenge.trim(),
       'username': username ?? '',
+      'userHandle': userHandle ?? '',
     },
     timeout: _passkeyAssertBridgeTimeout,
   );
