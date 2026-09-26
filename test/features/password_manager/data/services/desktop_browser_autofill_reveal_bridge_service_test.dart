@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -10,7 +11,10 @@ import 'package:password_manager/features/password_manager/data/services/desktop
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/password_generator_settings_repository.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_passkey.dart';
 import 'package:password_manager/features/password_manager/domain/services/password_generator_service.dart';
+
+import '../../../../fixtures/passkeys/vectors.dart';
 
 void main() {
   group('DesktopBrowserAutofillRevealBridgeService', () {
@@ -1122,6 +1126,320 @@ void main() {
       expect(printed.join('\n'), isNot(contains(password)));
     });
   });
+
+  // ===========================================================================
+  // spec 023 T502 — `/passkey-assert`: the app signs, nothing else sees the
+  // key (FR-013a), and the user authorises every signature (FR-015).
+  // ===========================================================================
+
+  group('passkey-assert endpoint (023 T502)', () {
+    Future<
+      ({
+        DesktopBrowserAutofillBridgeDescriptor descriptor,
+        List<PasskeyAssertionPrompt> prompts,
+      })
+    >
+    startWithPasskey({
+      bool approve = true,
+      bool withConfirm = true,
+      List<VaultEntry>? entries,
+    }) async {
+      final directory = await Directory.systemTemp.createTemp('kv-passkey-');
+      final store = DesktopBrowserAutofillCacheStore(directory: directory);
+      final prompts = <PasskeyAssertionPrompt>[];
+      final service = DesktopBrowserAutofillRevealBridgeService(
+        store: store,
+        mapper: const DesktopBrowserAutofillMetadataMapper(),
+        confirmPasskeyAssertion: withConfirm
+            ? (prompt) async {
+                prompts.add(prompt);
+                return approve;
+              }
+            : null,
+      );
+      addTearDown(service.stop);
+      addTearDown(() => directory.delete(recursive: true));
+
+      await service.start(
+        databasePath: '/vaults/example.kdbx',
+        entries:
+            entries ??
+            [
+              _entry(
+                id: 'entry-1',
+                username: 'alice',
+                password: '',
+                url: 'https://example.com/login',
+                passkeys: [_passkey()],
+              ),
+            ],
+      );
+      final descriptor = (await store.readBridgeDescriptor())!;
+      return (descriptor: descriptor, prompts: prompts);
+    }
+
+    Map<String, Object?> body(
+      DesktopBrowserAutofillBridgeDescriptor descriptor, {
+      String origin = 'https://example.com',
+      String rpId = 'example.com',
+      List<String>? allowCredentials,
+    }) => {
+      'databaseId': descriptor.databaseId,
+      'origin': origin,
+      'rpId': rpId,
+      'challenge': 'Y2hhbGxlbmdl',
+      'allowCredentials': ?allowCredentials,
+    };
+
+    test('signs after the user approves, and returns no key', () async {
+      final (:descriptor, :prompts) = await startWithPasskey();
+
+      final response = await _postBridge(
+        descriptor: descriptor,
+        path: '/passkey-assert',
+        body: body(descriptor),
+      );
+
+      expect(response.statusCode, HttpStatus.ok);
+      expect(response.json['ok'], isTrue);
+      final data = response.json['data']! as Map<String, Object?>;
+      expect(data['credentialId'], 'AQIDBAU');
+      expect(data['authenticatorData'], isA<String>());
+      expect(data['signature'], isA<String>());
+      expect(data['userHandle'], 'CQk');
+      // The clientDataJSON the site will verify, and the only place the
+      // challenge and origin appear.
+      final clientData = utf8.decode(
+        base64Url.decode(
+          base64Url.normalize(data['clientDataJSON']! as String),
+        ),
+      );
+      expect(clientData, contains('"type":"webauthn.get"'));
+      expect(clientData, contains('"challenge":"Y2hhbGxlbmdl"'));
+      expect(clientData, contains('"origin":"https://example.com"'));
+      // FR-013a: nothing in the response resembles the key.
+      expect(jsonEncode(response.json), isNot(contains('PRIVATE KEY')));
+      expect(jsonEncode(response.json), isNot(contains('MIGHAgEA')));
+
+      // FR-015: the user was asked, and told what they were approving.
+      expect(prompts, hasLength(1));
+      expect(prompts.single.relyingPartyId, 'example.com');
+      expect(prompts.single.origin, 'https://example.com');
+      expect(prompts.single.username, 'ada');
+    });
+
+    test('a declined prompt signs nothing', () async {
+      final (:descriptor, :prompts) = await startWithPasskey(approve: false);
+
+      final response = await _postBridge(
+        descriptor: descriptor,
+        path: '/passkey-assert',
+        body: body(descriptor),
+      );
+
+      expect(response.json['ok'], isFalse);
+      expect((response.json['data']! as Map)['reason'], 'declined');
+      expect(prompts, hasLength(1));
+    });
+
+    test(
+      'with no confirmation hook the endpoint declines everything',
+      () async {
+        final (:descriptor, prompts: _) = await startWithPasskey(
+          withConfirm: false,
+        );
+
+        final response = await _postBridge(
+          descriptor: descriptor,
+          path: '/passkey-assert',
+          body: body(descriptor),
+        );
+
+        expect((response.json['data']! as Map)['reason'], 'declined');
+        // ...and the capability was never advertised, so the extension leaves
+        // `navigator.credentials.get` alone in the first place.
+        expect(descriptor.appCapabilities, isNot(contains('passkeyAssertV1')));
+      },
+    );
+
+    test(
+      'the capability appears only when a passkey is actually held',
+      () async {
+        final (:descriptor, prompts: _) = await startWithPasskey(
+          entries: [
+            _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: 'pw',
+              url: 'https://example.com/login',
+            ),
+          ],
+        );
+
+        expect(descriptor.appCapabilities, isNot(contains('passkeyAssertV1')));
+      },
+    );
+
+    test('a passkey for another site is never offered (FR-014)', () async {
+      final (:descriptor, :prompts) = await startWithPasskey();
+
+      // The page is evil-example.com; a bare suffix match would hand it the
+      // example.com passkey.
+      final response = await _postBridge(
+        descriptor: descriptor,
+        path: '/passkey-assert',
+        body: body(
+          descriptor,
+          origin: 'https://evil-example.com',
+          rpId: 'example.com',
+        ),
+      );
+
+      expect((response.json['data']! as Map)['reason'], 'rp_mismatch');
+      expect(prompts, isEmpty);
+    });
+
+    test('a subdomain may use its parent domain\'s passkey', () async {
+      final (:descriptor, :prompts) = await startWithPasskey();
+
+      final response = await _postBridge(
+        descriptor: descriptor,
+        path: '/passkey-assert',
+        body: body(
+          descriptor,
+          origin: 'https://login.example.com',
+          rpId: 'example.com',
+        ),
+      );
+
+      expect(response.json['ok'], isTrue);
+      expect(prompts, hasLength(1));
+    });
+
+    test(
+      'allowCredentials that names another credential finds nothing',
+      () async {
+        final (:descriptor, :prompts) = await startWithPasskey();
+
+        final response = await _postBridge(
+          descriptor: descriptor,
+          path: '/passkey-assert',
+          body: body(descriptor, allowCredentials: ['bm90LW1pbmU']),
+        );
+
+        expect((response.json['data']! as Map)['reason'], 'no_credential');
+        expect(prompts, isEmpty);
+      },
+    );
+
+    test(
+      'an unusable passkey is not held, so there is nothing to sign',
+      () async {
+        final (:descriptor, prompts: _) = await startWithPasskey(
+          entries: [
+            _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: '',
+              url: 'https://example.com/login',
+              passkeys: [
+                _passkey(unusableReason: VaultPasskeyUnusableReason.badKey),
+              ],
+            ),
+          ],
+        );
+
+        final response = await _postBridge(
+          descriptor: descriptor,
+          path: '/passkey-assert',
+          body: body(descriptor),
+        );
+
+        expect((response.json['data']! as Map)['reason'], 'no_credential');
+      },
+    );
+
+    test(
+      'EdDSA cannot be signed here and says so rather than failing',
+      () async {
+        final (:descriptor, prompts: _) = await startWithPasskey(
+          entries: [
+            _entry(
+              id: 'entry-1',
+              username: 'alice',
+              password: '',
+              url: 'https://example.com/login',
+              passkeys: [
+                _passkey(
+                  pem: eddsaPrivateKeyPem,
+                  algorithm: VaultPasskeyAlgorithm.eddsa,
+                ),
+              ],
+            ),
+          ],
+        );
+
+        final response = await _postBridge(
+          descriptor: descriptor,
+          path: '/passkey-assert',
+          body: body(descriptor),
+        );
+
+        expect(
+          (response.json['data']! as Map)['reason'],
+          'unsupported_algorithm',
+        );
+      },
+    );
+
+    // A passkey-only entry is held for signing, not for filling: answering
+    // /reveal for it would hand the popup an empty password.
+    test('a passkey-only entry cannot be revealed as a password', () async {
+      final (:descriptor, prompts: _) = await startWithPasskey();
+
+      final response = await _postBridge(
+        descriptor: descriptor,
+        body: {
+          'databaseId': descriptor.databaseId,
+          'entryId': 'entry-1',
+          'origin': 'https://example.com',
+        },
+      );
+
+      expect(response.statusCode, HttpStatus.notFound);
+      expect(
+        (response.json['error']! as Map)['code'],
+        'credential_unavailable',
+      );
+    });
+
+    test('a request for another database is refused', () async {
+      final (:descriptor, :prompts) = await startWithPasskey();
+
+      final response = await _postBridge(
+        descriptor: descriptor,
+        path: '/passkey-assert',
+        body: {...body(descriptor), 'databaseId': 'sha256:other'},
+      );
+
+      expect(response.statusCode, HttpStatus.badRequest);
+      expect(prompts, isEmpty);
+    });
+
+    test('an unauthenticated request never reaches the prompt', () async {
+      final (:descriptor, :prompts) = await startWithPasskey();
+
+      final response = await _postBridge(
+        descriptor: descriptor,
+        path: '/passkey-assert',
+        body: body(descriptor),
+        authorizationToken: 'wrong',
+      );
+
+      expect(response.statusCode, HttpStatus.unauthorized);
+      expect(prompts, isEmpty);
+    });
+  });
 }
 
 /// 009 / A012 — the origin-bound overlay endpoint on the app bridge.
@@ -1374,6 +1692,7 @@ VaultEntry _entry({
   required String password,
   required String url,
   List<VaultCustomField> customFields = const [],
+  List<VaultPasskey> passkeys = const [],
 }) {
   return VaultEntry(
     id: id,
@@ -1384,5 +1703,23 @@ VaultEntry _entry({
     url: url,
     notes: 'hidden',
     customFields: customFields,
+    passkeys: passkeys,
   );
 }
+
+VaultPasskey _passkey({
+  String relyingPartyId = 'example.com',
+  String username = 'ada',
+  String pem = es256PrivateKeyPem,
+  List<int> credentialId = const [1, 2, 3, 4, 5],
+  VaultPasskeyAlgorithm algorithm = VaultPasskeyAlgorithm.es256,
+  VaultPasskeyUnusableReason? unusableReason,
+}) => VaultPasskey(
+  relyingPartyId: relyingPartyId,
+  credentialId: Uint8List.fromList(credentialId),
+  userHandle: Uint8List.fromList(const [9, 9]),
+  username: username,
+  privateKeyPem: pem,
+  algorithm: algorithm,
+  unusableReason: unusableReason,
+);

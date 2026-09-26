@@ -1792,6 +1792,220 @@ void main() {
       );
     });
   });
+
+  // ===========================================================================
+  // 023 / T501 — passkeyAssert. The host is a courier: it forwards the
+  // request to the app and hands back the signature, holding no key and
+  // making no credential decision of its own.
+  // ===========================================================================
+
+  group('023 T501 — passkeyAssert', () {
+    late DesktopBrowserAutofillCacheStore store;
+    late _FakePasskeyBridge bridge;
+
+    Map<String, Object?> request({
+      String origin = 'https://example.com',
+      String rpId = 'example.com',
+      String challenge = 'Y2hhbGxlbmdl',
+      Object? allowCredentials,
+    }) => {
+      'version': nativeProtocolVersion,
+      'id': 'pk-1',
+      'type': 'passkeyAssert',
+      'payload': {
+        'origin': origin,
+        'rpId': rpId,
+        'challenge': challenge,
+        'allowCredentials': ?allowCredentials,
+      },
+    };
+
+    setUp(() async {
+      store = await _overlayStore(
+        databaseId: 'db-a',
+        cacheGeneration: 'cache-a',
+        entries: [_overlayEntry()],
+      );
+      bridge = await _FakePasskeyBridge.start();
+      addTearDown(bridge.close);
+      await store.writeBridgeDescriptor(bridge.descriptor());
+    });
+
+    test(
+      'hello advertises the capability only when the app declares it',
+      () async {
+        final advertised = await handleNativeHostRequest({
+          'version': nativeProtocolVersion,
+          'id': 'hello-pk',
+          'type': 'hello',
+        }, store: store);
+        final data = advertised['data']! as Map<String, Object?>;
+        expect(data['capabilities'], contains('passkeyAssertV1'));
+        expect(data['supportedMessages'], contains('passkeyAssert'));
+
+        // The host binary alone never claims it: signing belongs to the app.
+        expect(nativeHostCapabilities, isNot(contains('passkeyAssertV1')));
+
+        await store.writeBridgeDescriptor(
+          bridge.descriptor(appCapabilities: const []),
+        );
+        final notAdvertised = await handleNativeHostRequest({
+          'version': nativeProtocolVersion,
+          'id': 'hello-pk-2',
+          'type': 'hello',
+        }, store: store);
+        expect(
+          (notAdvertised['data']! as Map<String, Object?>)['capabilities'],
+          isNot(contains('passkeyAssertV1')),
+        );
+      },
+    );
+
+    test('an old host answers unsupported_type, so the page falls back', () {
+      // The frozen pre-009 list is the shape of a host the user may still
+      // have installed. Its absence there is what makes the fallback
+      // structural rather than contingent on a field check.
+      expect(_preSlice009MessageTypes, isNot(contains('passkeyAssert')));
+    });
+
+    test('forwards the request and returns the assertion', () async {
+      final response = await handleNativeHostRequest(request(), store: store);
+
+      expect(response['ok'], isTrue);
+      final data = response['data']! as Map<String, Object?>;
+      expect(data['credentialId'], 'AQIDBAU');
+      expect(data['signature'], 'c2ln');
+      expect(data['authenticatorData'], 'YXV0aA');
+      expect(data['clientDataJSON'], 'Y2xpZW50');
+      expect(data['userHandle'], 'CQk');
+
+      // What the app was asked, including the binding it did not have to
+      // trust the extension for.
+      expect(bridge.lastPayload!['databaseId'], 'db-a');
+      expect(bridge.lastPayload!['rpId'], 'example.com');
+      expect(bridge.lastPayload!['origin'], 'https://example.com');
+    });
+
+    test('a refusal is passed through as a reason, not an error', () async {
+      bridge.refusalReason = 'declined';
+
+      final response = await handleNativeHostRequest(request(), store: store);
+
+      expect(response['ok'], isTrue);
+      expect((response['data']! as Map<String, Object?>)['reason'], 'declined');
+    });
+
+    test('allowCredentials is forwarded, bounded, and filtered', () async {
+      await handleNativeHostRequest(
+        request(allowCredentials: ['AQIDBAU', 42, '', true]),
+        store: store,
+      );
+
+      // Non-strings are dropped rather than rejecting the whole request: an
+      // allow list is a hint, and a malformed one must not become a signing
+      // failure the page cannot explain.
+      expect(bridge.lastPayload!['allowCredentials'], ['AQIDBAU']);
+    });
+
+    test('allowCredentials that is not a list is refused', () async {
+      final response = await handleNativeHostRequest(
+        request(allowCredentials: 'AQIDBAU'),
+        store: store,
+      );
+
+      expect(response['ok'], isFalse);
+      expect(
+        (response['error']! as Map<String, Object?>)['code'],
+        'invalid_request',
+      );
+      expect(bridge.requestCount, 0);
+    });
+
+    test('a non-http(s) origin never reaches the app', () async {
+      final response = await handleNativeHostRequest(
+        request(origin: 'file:///etc/passwd'),
+        store: store,
+      );
+
+      expect(response['ok'], isFalse);
+      expect(
+        (response['error']! as Map<String, Object?>)['code'],
+        'invalid_request',
+      );
+      expect(bridge.requestCount, 0);
+    });
+
+    test('a missing challenge never reaches the app', () async {
+      final response = await handleNativeHostRequest(
+        request(challenge: '   '),
+        store: store,
+      );
+
+      expect(response['ok'], isFalse);
+      expect(bridge.requestCount, 0);
+    });
+
+    test(
+      'an app that cannot sign is told apart from one that refused',
+      () async {
+        await store.writeBridgeDescriptor(
+          bridge.descriptor(appCapabilities: const []),
+        );
+
+        final response = await handleNativeHostRequest(request(), store: store);
+
+        expect(response['ok'], isFalse);
+        expect(
+          (response['error']! as Map<String, Object?>)['code'],
+          'passkey_unavailable',
+        );
+        expect(bridge.requestCount, 0);
+      },
+    );
+
+    test('no descriptor at all is app_bridge_unavailable', () async {
+      await store.clearBridgeDescriptor();
+
+      final response = await handleNativeHostRequest(request(), store: store);
+
+      expect(
+        (response['error']! as Map<String, Object?>)['code'],
+        'app_bridge_unavailable',
+      );
+    });
+
+    test('a truncated app response is refused rather than half-used', () async {
+      bridge.overrideData = (_) => {'credentialId': 'AQIDBAU'};
+
+      final response = await handleNativeHostRequest(request(), store: store);
+
+      expect(
+        (response['error']! as Map<String, Object?>)['code'],
+        'app_bridge_invalid_response',
+      );
+    });
+
+    test(
+      'the challenge and credential ids never echo back in an error',
+      () async {
+        final response = await handleNativeHostRequest({
+          'version': nativeProtocolVersion,
+          'id': 'pk-echo',
+          'type': 'passkeyAssert',
+          'payload': {
+            'origin': 'file:///nope',
+            'rpId': 'example.com',
+            'challenge': 'super-distinctive-challenge',
+            'allowCredentials': ['super-distinctive-credential'],
+          },
+        }, store: store);
+
+        final encoded = jsonEncode(response);
+        expect(encoded, isNot(contains('super-distinctive-challenge')));
+        expect(encoded, isNot(contains('super-distinctive-credential')));
+      },
+    );
+  });
 }
 
 /// Captures everything written to the process `stderr` inside an
@@ -2316,6 +2530,108 @@ class _FakeRevealBridge {
     lastPayload = jsonDecode(payload) as Map<String, Object?>;
     request.response.statusCode = HttpStatus.ok;
     request.response.write(jsonEncode({'ok': true, 'data': responseData}));
+    await request.response.close();
+  }
+}
+
+/// Fake app bridge implementing `/passkey-assert`. It answers with fixed
+/// base64url strings: the host must not interpret them, only carry them.
+class _FakePasskeyBridge {
+  _FakePasskeyBridge._({required this.server, required this.token}) {
+    server.listen(_handleRequest);
+  }
+
+  static Future<_FakePasskeyBridge> start() async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    return _FakePasskeyBridge._(
+      server: server,
+      token: 'fake-token-fake-token-fake-token-fake-token',
+    );
+  }
+
+  final HttpServer server;
+  final String token;
+  int requestCount = 0;
+  Map<String, Object?>? lastPayload;
+  String? refusalReason;
+  Map<String, Object?> Function(Map<String, Object?> payload)? overrideData;
+
+  DesktopBrowserAutofillBridgeDescriptor descriptor({
+    List<String> appCapabilities = const [
+      desktopBrowserPasskeyAssertCapability,
+    ],
+  }) {
+    return DesktopBrowserAutofillBridgeDescriptor(
+      version: desktopBrowserAutofillBridgeDescriptorVersion,
+      port: server.port,
+      token: token,
+      databaseId: 'db-a',
+      cacheGeneration: 'cache-a',
+      bridgeGeneration: 'bridge-a',
+      createdAtEpochMs: 1,
+      appCapabilities: appCapabilities,
+    );
+  }
+
+  Future<void> close() => server.close(force: true);
+
+  Future<void> _handleRequest(HttpRequest request) async {
+    requestCount += 1;
+    request.response.headers.contentType = ContentType.json;
+    if (request.method != 'POST' || request.uri.path != '/passkey-assert') {
+      request.response.statusCode = HttpStatus.notFound;
+      request.response.write(
+        jsonEncode({
+          'ok': false,
+          'error': {'code': 'not_found'},
+        }),
+      );
+      await request.response.close();
+      return;
+    }
+    if (request.headers.value(HttpHeaders.authorizationHeader) !=
+        'Bearer $token') {
+      request.response.statusCode = HttpStatus.unauthorized;
+      request.response.write(
+        jsonEncode({
+          'ok': false,
+          'error': {'code': 'unauthorized'},
+        }),
+      );
+      await request.response.close();
+      return;
+    }
+
+    final payload =
+        jsonDecode(await utf8.decoder.bind(request).join())
+            as Map<String, Object?>;
+    lastPayload = payload;
+
+    request.response.statusCode = HttpStatus.ok;
+    if (refusalReason != null) {
+      request.response.write(
+        jsonEncode({
+          'ok': false,
+          'data': {'reason': refusalReason},
+        }),
+      );
+      await request.response.close();
+      return;
+    }
+    request.response.write(
+      jsonEncode({
+        'ok': true,
+        'data':
+            overrideData?.call(payload) ??
+            {
+              'credentialId': 'AQIDBAU',
+              'authenticatorData': 'YXV0aA',
+              'signature': 'c2ln',
+              'clientDataJSON': 'Y2xpZW50',
+              'userHandle': 'CQk',
+            },
+      }),
+    );
     await request.response.close();
   }
 }

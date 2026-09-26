@@ -56,6 +56,40 @@ replaces an unusable stream of prompts.
 **Turning it off** revokes the host permission, unregisters the content script
 and tears down every live overlay. See below.
 
+## Passkey sign-in (spec 023)
+
+On granted sites the extension can answer a site's passkey sign-in request
+with a passkey stored in the open KeyVault database. It rides the same single
+switch as the overlay: turning the overlay off unregisters the passkey scripts
+too.
+
+**What changes on this update.** Two more scripts are registered on the same
+`http://*/*`, `https://*/*` patterns you already granted. One of them,
+`passkey_page.js`, runs in the **page's own world** — the only world where
+`navigator.credentials.get` can be wrapped so the site sees it. No new
+permission is requested.
+
+**What the page world does and does not get.**
+
+- The private key never leaves the KeyVault app. The extension and the native
+  host carry a challenge one way and a signature the other; neither ever holds
+  a key. The page world holds neither.
+- The page cannot ask for another site's passkey. The origin the app checks
+  comes from the browser's own `sender.url`, not from the page's claim, so a
+  page that forges a message to the extension gains nothing it could not get
+  by calling `navigator.credentials.get` honestly.
+- **The app asks you before every signature**, naming the site, the record and
+  the account. There is no session, no remembered approval and no silent path.
+- A refusal tells the page nothing. Whether the vault is locked, holds no
+  passkey for that site, or you declined, the answer is the same: the page
+  falls through to the browser's own authenticator, so a security key or a
+  platform passkey keeps working exactly as before.
+
+**Known limit.** The resolved credential is a plain object with the WebAuthn
+fields on it, not a real `PublicKeyCredential` — that constructor is not
+reachable from a content script. Sites that read the fields work; a site that
+checks `instanceof PublicKeyCredential` falls back to the browser.
+
 ## One global switch, and revoke
 
 - The overlay is **off by default**. The user turns it on from the popup, which

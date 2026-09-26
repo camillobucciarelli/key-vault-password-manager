@@ -9,11 +9,35 @@ import 'package:flutter/foundation.dart';
 import '../../domain/models/vault_entry.dart';
 import '../../domain/repositories/password_generator_settings_repository.dart';
 import '../../domain/services/password_generator_service.dart';
+import '../../domain/models/vault_passkey.dart';
 import 'browser_exact_origin.dart';
 import 'desktop_browser_autofill_cache.dart';
 import 'desktop_browser_pending_generation_service.dart';
+import 'desktop_passkey_signer.dart';
 
 const _maxRevealRequestBytes = 4096;
+
+/// spec 023 FR-015 — what the in-app confirmation is allowed to say about a
+/// sign-in the page has asked for. Site, record and account: enough to tell
+/// two passkeys apart, and nothing about the key.
+class PasskeyAssertionPrompt {
+  const PasskeyAssertionPrompt({
+    required this.relyingPartyId,
+    required this.origin,
+    required this.entryTitle,
+    required this.username,
+  });
+
+  final String relyingPartyId;
+  final String origin;
+  final String entryTitle;
+  final String username;
+
+  @override
+  String toString() =>
+      'PasskeyAssertionPrompt(relyingPartyId: $relyingPartyId, '
+      'origin: $origin, entryTitle: $entryTitle)';
+}
 
 class DesktopBrowserAutofillRevealBridgeService {
   DesktopBrowserAutofillRevealBridgeService({
@@ -22,6 +46,7 @@ class DesktopBrowserAutofillRevealBridgeService {
     this.settingsRepository,
     this.passwordGenerator,
     this.pendingGeneration,
+    this.confirmPasskeyAssertion,
   });
 
   /// 009 / B006 — anti-grinding bound: fixed one-minute window per bridge
@@ -41,6 +66,14 @@ class DesktopBrowserAutofillRevealBridgeService {
   final PasswordGeneratorSettingsRepository? settingsRepository;
   final PasswordGeneratorService? passwordGenerator;
   final DesktopBrowserPendingGenerationService? pendingGeneration;
+
+  /// spec 023 FR-015 — asks the user, in the app, to authorise one signature.
+  ///
+  /// Null in a host that has no UI to ask with, and then `/passkey-assert`
+  /// declines everything and the capability is never advertised: the same
+  /// fail-closed shape as `generatePendingEntryV1` (009 / B007). A signature
+  /// nobody approved is a signature nobody asked for.
+  Future<bool> Function(PasskeyAssertionPrompt prompt)? confirmPasskeyAssertion;
 
   bool get _generationAvailable =>
       settingsRepository != null &&
@@ -132,9 +165,16 @@ class DesktopBrowserAutofillRevealBridgeService {
           createdAtEpochMs: DateTime.now().millisecondsSinceEpoch,
           // B007: the capability is advertised only when the endpoint truly
           // exists on this running bridge — the two can never disagree.
-          appCapabilities: _generationAvailable
-              ? const [desktopBrowserGeneratePendingCapability]
-              : const [],
+          appCapabilities: [
+            if (_generationAvailable) desktopBrowserGeneratePendingCapability,
+            // B007's reasoning, applied to passkeys: the capability appears
+            // only when this running bridge actually holds one, so the
+            // extension never wraps `navigator.credentials.get` for a vault
+            // that has no passkey to answer with.
+            if (confirmPasskeyAssertion != null &&
+                credentials.values.any((c) => c.passkeys.isNotEmpty))
+              desktopBrowserPasskeyAssertCapability,
+          ],
         ),
       );
     } catch (_) {
@@ -200,6 +240,7 @@ class DesktopBrowserAutofillRevealBridgeService {
           (request.uri.path != '/reveal' &&
               request.uri.path != '/overlay-reveal' &&
               request.uri.path != '/generate-pending' &&
+              request.uri.path != '/passkey-assert' &&
               request.uri.path != '/status')) {
         await _writeError(request, HttpStatus.notFound, 'not_found');
         return;
@@ -242,6 +283,11 @@ class DesktopBrowserAutofillRevealBridgeService {
         return;
       }
 
+      if (request.uri.path == '/passkey-assert') {
+        await _handlePasskeyAssert(request, payload);
+        return;
+      }
+
       final databaseId = _safeString(payload['databaseId'], maxLength: 128);
       if (databaseId == null || databaseId != _databaseId) {
         await _writeError(request, HttpStatus.conflict, 'database_mismatch');
@@ -256,7 +302,10 @@ class DesktopBrowserAutofillRevealBridgeService {
       }
 
       final credential = _credentials[entryId];
-      if (credential == null) {
+      // spec 023: a passkey-only entry is held for signing, not for filling.
+      // Answering `/reveal` for it would hand the popup an empty password as
+      // though it were the record's secret.
+      if (credential == null || credential.password.isEmpty) {
         await _writeError(
           request,
           HttpStatus.notFound,
@@ -344,6 +393,7 @@ class DesktopBrowserAutofillRevealBridgeService {
     // refusal must not disclose which rule rejected it, nor whether the entry
     // exists in this vault at all.
     if (credential == null ||
+        credential.password.isEmpty ||
         !isExactOriginAuthorized(
           serviceIdentifiers: credential.serviceIdentifiers,
           origin: origin,
@@ -390,6 +440,158 @@ class DesktopBrowserAutofillRevealBridgeService {
       },
     });
   }
+
+  /// spec 023 T502 — sign a WebAuthn assertion for the page, in this process.
+  ///
+  /// FR-013a is the whole shape of this endpoint: the browser extension and
+  /// the native host never see the private key. They send a challenge and an
+  /// origin; they get back a signature. The PEM is read out of
+  /// [_credentials], handed to [DesktopPasskeySigner], and never written to
+  /// the response, the descriptor, the metadata cache or a log.
+  ///
+  /// Every refusal answers with a `reason` rather than an HTTP error so the
+  /// page can fall through to the browser's own authenticator, and the
+  /// reasons are deliberately coarse: they must not tell a hostile page
+  /// whether this vault holds a passkey for the site it is asking about.
+  Future<void> _handlePasskeyAssert(
+    HttpRequest request,
+    Map<String, Object?> payload,
+  ) async {
+    final epochAtEntry = _sessionEpoch;
+    final confirm = confirmPasskeyAssertion;
+    if (confirm == null) {
+      await _writePasskeyRefusal(request, 'declined');
+      return;
+    }
+
+    final databaseId = _safeString(payload['databaseId'], maxLength: 128);
+    final rpId = _safeString(
+      payload['rpId'],
+      maxLength: 253,
+    )?.trim().toLowerCase();
+    final origin = browserExactOriginOrNull(payload['origin']);
+    final challenge = _safeString(payload['challenge'], maxLength: 2048);
+    if (databaseId == null ||
+        databaseId != _databaseId ||
+        rpId == null ||
+        rpId.isEmpty ||
+        origin == null ||
+        challenge == null ||
+        challenge.isEmpty) {
+      await _writeError(request, HttpStatus.badRequest, 'invalid_request');
+      return;
+    }
+
+    // FR-014: a passkey for one site is never offered to another. The rp id
+    // must be the page's own host or a parent of it, which is the WebAuthn
+    // rule; a bare suffix match would let `evil-example.com` claim
+    // `example.com`.
+    if (!_isRelyingPartyOfOrigin(rpId: rpId, origin: origin)) {
+      await _writePasskeyRefusal(request, 'rp_mismatch');
+      return;
+    }
+
+    final allowCredentials = _stringList(
+      payload['allowCredentials'],
+      maxItems: 32,
+      maxLength: 512,
+    );
+
+    final match = _findPasskey(rpId: rpId, allowCredentials: allowCredentials);
+    if (match == null) {
+      await _writePasskeyRefusal(request, 'no_credential');
+      return;
+    }
+    final (credential, passkey) = match;
+
+    // FR-015: the user authorises this signature, every time, in the app —
+    // the page asked, the app asks back. Awaited outside every lookup so a
+    // vault switch during the prompt is caught by the binding check below.
+    final approved = await confirm(
+      PasskeyAssertionPrompt(
+        relyingPartyId: rpId,
+        origin: origin,
+        entryTitle: credential.title,
+        username: passkey.username.trim().isEmpty
+            ? credential.username
+            : passkey.username,
+      ),
+    );
+    if (!approved) {
+      await _writePasskeyRefusal(request, 'declined');
+      return;
+    }
+
+    // SR-4, as the overlay reveal does it: a lock, a vault switch or a
+    // republish that landed while the prompt was open invalidates this
+    // request, however it was answered.
+    final durable = await store.readBridgeDescriptor();
+    if (_sessionEpoch != epochAtEntry ||
+        _databaseId != databaseId ||
+        durable == null ||
+        durable.databaseId != databaseId ||
+        durable.bridgeGeneration != _bridgeGeneration) {
+      await _writeError(request, HttpStatus.conflict, 'stale_session');
+      return;
+    }
+
+    final DesktopPasskeyAssertion assertion;
+    try {
+      assertion = const DesktopPasskeySigner().sign(
+        passkey: passkey,
+        challenge: challenge,
+        origin: origin,
+      );
+    } on DesktopPasskeySignException {
+      // EdDSA has no pointycastle implementation here (research R10), and a
+      // key that will not parse cannot sign. Either way the page falls
+      // through to the browser rather than seeing an error it cannot act on.
+      await _writePasskeyRefusal(request, 'unsupported_algorithm');
+      return;
+    }
+
+    await _writeJson(request, HttpStatus.ok, {
+      'ok': true,
+      'data': {
+        'credentialId': _base64UrlUnpadded(assertion.credentialId),
+        'authenticatorData': _base64UrlUnpadded(assertion.authenticatorData),
+        'signature': _base64UrlUnpadded(assertion.signature),
+        'clientDataJSON': _base64UrlUnpadded(assertion.clientDataJson),
+        'userHandle': assertion.userHandle == null
+            ? null
+            : _base64UrlUnpadded(assertion.userHandle!),
+      },
+    });
+  }
+
+  /// The first usable passkey for [rpId] that [allowCredentials] permits.
+  ///
+  /// An empty `allowCredentials` means "any credential for this site", which
+  /// is what a discoverable-credential sign-in sends.
+  (_DesktopBrowserRevealCredential, VaultPasskey)? _findPasskey({
+    required String rpId,
+    required List<String> allowCredentials,
+  }) {
+    for (final credential in _credentials.values) {
+      for (final passkey in credential.passkeys) {
+        if (passkey.relyingPartyId.toLowerCase() != rpId) continue;
+        if (allowCredentials.isNotEmpty &&
+            !allowCredentials.contains(
+              _base64UrlUnpadded(passkey.credentialId),
+            )) {
+          continue;
+        }
+        return (credential, passkey);
+      }
+    }
+    return null;
+  }
+
+  Future<void> _writePasskeyRefusal(HttpRequest request, String reason) =>
+      _writeJson(request, HttpStatus.ok, {
+        'ok': false,
+        'data': {'reason': reason},
+      });
 
   /// 009 / B006 — one-shot app-owned password generation.
   ///
@@ -604,7 +806,9 @@ class _DesktopBrowserRevealCredential {
     required this.id,
     required this.username,
     required this.password,
+    required this.title,
     required this.serviceIdentifiers,
+    this.passkeys = const [],
   });
 
   static _DesktopBrowserRevealCredential? fromEntry(
@@ -612,7 +816,18 @@ class _DesktopBrowserRevealCredential {
     required DesktopBrowserAutofillMetadataMapper mapper,
     required int updatedAtEpochMs,
   }) {
-    final metadata = mapper.mapEntry(entry, updatedAtEpochMs: updatedAtEpochMs);
+    // spec 023 T502: a passkey-only entry has no password to fill but a key
+    // to sign with, so the bridge keeps it even though the metadata cache
+    // does not. An entry with neither is still nothing to hold.
+    final passkeys = [
+      for (final passkey in entry.passkeys)
+        if (passkey.usable && passkey.relyingPartyId.isNotEmpty) passkey,
+    ];
+    final metadata = mapper.mapEntry(
+      entry,
+      updatedAtEpochMs: updatedAtEpochMs,
+      requirePassword: passkeys.isEmpty,
+    );
     if (metadata == null) {
       return null;
     }
@@ -620,14 +835,21 @@ class _DesktopBrowserRevealCredential {
       id: metadata.id,
       username: entry.username,
       password: entry.password,
+      title: metadata.title,
       serviceIdentifiers: metadata.serviceIdentifiers,
+      passkeys: passkeys,
     );
   }
 
   final String id;
   final String username;
   final String password;
+  final String title;
   final List<DesktopBrowserAutofillServiceIdentifier> serviceIdentifiers;
+
+  /// spec 023 — usable passkeys only. The PEM lives here, in this process,
+  /// and leaves it only as a signature (FR-013a).
+  final List<VaultPasskey> passkeys;
 }
 
 bool _isExactBrowserMatch(
@@ -668,6 +890,36 @@ String? _canonicalBrowserOrigin(Object? rawValue) {
     host: host,
     port: uri.hasPort ? uri.port : null,
   ).toString();
+}
+
+/// A bounded list of strings out of an untrusted payload. Anything that is
+/// not a list of sane strings becomes the empty list — which, for
+/// `allowCredentials`, means "any credential for this site", exactly as
+/// WebAuthn defines an absent list.
+List<String> _stringList(
+  Object? value, {
+  required int maxItems,
+  required int maxLength,
+}) {
+  if (value is! List) return const [];
+  return [
+    for (final item in value.take(maxItems))
+      if (item is String && item.isNotEmpty && item.length <= maxLength) item,
+  ];
+}
+
+String _base64UrlUnpadded(Uint8List bytes) =>
+    base64Url.encode(bytes).replaceAll('=', '');
+
+/// WebAuthn's relying-party rule: the id is the page's own registrable
+/// domain or a parent of it.
+///
+/// The `.` in the suffix test is what keeps `notexample.com` from claiming
+/// `example.com` — a bare `endsWith` would let it.
+bool _isRelyingPartyOfOrigin({required String rpId, required String origin}) {
+  final host = Uri.tryParse(origin)?.host.toLowerCase();
+  if (host == null || host.isEmpty) return false;
+  return host == rpId || host.endsWith('.$rpId');
 }
 
 String? _safeString(Object? value, {required int maxLength}) {

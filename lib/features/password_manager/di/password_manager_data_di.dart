@@ -25,6 +25,7 @@ import '../data/services/legacy_database_registry_migration.dart';
 import '../data/services/desktop_browser_autofill_cache.dart';
 import '../data/services/desktop_browser_autofill_reveal_bridge_service.dart';
 import '../data/services/desktop_browser_pending_generation_service.dart';
+import '../data/services/desktop_passkey_approval_service.dart';
 import '../data/services/drive_auth_service.dart';
 import '../data/services/google_drive_api_service.dart';
 import '../data/services/google_drive_storage_provider.dart';
@@ -125,6 +126,9 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
   sl.registerLazySingleton(() => const DesktopBrowserAutofillMetadataMapper());
   sl.registerLazySingleton(() => DesktopBrowserAutofillCacheStore());
   sl.registerLazySingleton(() => DesktopBrowserPendingGenerationService());
+  // spec 023 T502: the bridge has no UI, so its confirmation is delegated
+  // here and answered by the vault shell.
+  sl.registerLazySingleton(() => DesktopPasskeyApprovalService());
   sl.registerLazySingleton(
     () => DesktopBrowserAutofillRevealBridgeService(
       store: sl(),
@@ -132,6 +136,7 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
       settingsRepository: sl(),
       passwordGenerator: sl(),
       pendingGeneration: sl(),
+      confirmPasskeyAssertion: sl<DesktopPasskeyApprovalService>().request,
     ),
   );
   sl.registerLazySingleton<AppleAutofillV2Client>(

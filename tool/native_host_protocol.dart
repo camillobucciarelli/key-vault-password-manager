@@ -14,6 +14,16 @@ const _maxRevealUsernameBytes = 4096;
 const _maxRevealPasswordBytes = 32 * 1024;
 const _revealBridgeTimeout = Duration(seconds: 2);
 
+/// spec 023 T501 — `/passkey-assert` waits on a person, not on a lookup.
+///
+/// The 2-second reveal budget exists because those endpoints answer from
+/// memory; this one shows a confirmation in the app and waits for it
+/// (FR-015). A two-second ceiling would time out every real sign-in. The
+/// page is already waiting on `navigator.credentials.get`, which has no
+/// timeout of its own, and a stalled app still ends in a refusal rather
+/// than a hang.
+const _passkeyAssertBridgeTimeout = Duration(seconds: 90);
+
 const supportedNativeMessageTypes = <String>[
   'hello',
   'status',
@@ -35,7 +45,20 @@ const supportedNativeMessageTypes = <String>[
   // a host predating this slice answers `unsupported_type`, so an old peer
   // can never generate under any policy at all.
   'generatePendingEntry',
+  // 023 / T501. Same structural fail-closed reasoning as the types above: a
+  // host predating this slice answers `unsupported_type`, so the extension
+  // knows to leave `navigator.credentials.get` to the browser instead of
+  // wrapping a call nothing can answer.
+  'passkeyAssert',
 ];
+
+// 023 / T501 note: `challenge` and `allowCredentials` are deliberately NOT in
+// the set above, though the contract first said they should be. This set is a
+// *rejection* list — a request carrying any of these keys is refused outright
+// — and `passkeyAssert` has to carry both, so listing them would refuse every
+// sign-in. What the contract actually wanted is that they never come back in
+// an error frame, and they cannot: `nativeHostErrorResponse` writes a code and
+// a fixed message and never the request payload.
 
 /// Capabilities advertised by `hello`, so the extension can gate the overlay on
 /// the host actually implementing this contract instead of probing for it.
@@ -345,6 +368,12 @@ Future<Map<String, Object?>> handleNativeHostRequest(
       payload: payload,
       store: effectiveStore,
     ),
+    'passkeyAssert' => await _passkeyAssertResponse(
+      id: id,
+      type: type,
+      payload: payload,
+      store: effectiveStore,
+    ),
     _ => nativeHostErrorResponse(
       id: id,
       type: type,
@@ -405,6 +434,13 @@ Future<List<String>> _advertisedCapabilities(
           desktopBrowserGeneratePendingCapability,
         ))
       desktopBrowserGeneratePendingCapability,
+    // 023 / T501: same gate. The running app says whether it can sign; the
+    // host never claims it on the app's behalf.
+    if (descriptor != null &&
+        descriptor.appCapabilities.contains(
+          desktopBrowserPasskeyAssertCapability,
+        ))
+      desktopBrowserPasskeyAssertCapability,
   ];
 }
 
@@ -713,6 +749,151 @@ Future<Map<String, Object?>> _revealForFillResponse({
       'entryId': reveal.entryId,
       'username': reveal.username,
       'password': reveal.password,
+    },
+  );
+}
+
+/// 023 / T501 — forward a WebAuthn assertion request to the app and hand the
+/// signature back to the extension.
+///
+/// The host is a courier here and nothing more (FR-013a). It never sees a
+/// private key, holds no passkey metadata of its own, and makes no policy
+/// decision about which credential answers: the rp-id check, the credential
+/// lookup and the user's confirmation all happen in the app, which is the
+/// only process that has the key. What the host does own is the transport:
+/// the origin must be a real http(s) page origin, the payload must be
+/// bounded, and a refusal must come back as a refusal rather than a hang.
+Future<Map<String, Object?>> _passkeyAssertResponse({
+  required String? id,
+  required String type,
+  required Map<String, Object?> payload,
+  required DesktopBrowserAutofillCacheStore store,
+}) async {
+  final origin = _browserOriginFromPayload(payload);
+  final rpId = _safeOptionalString(payload['rpId'], maxLength: 253);
+  final challenge = _safeOptionalString(payload['challenge'], maxLength: 2048);
+  if (origin == null ||
+      rpId == null ||
+      rpId.trim().isEmpty ||
+      challenge == null ||
+      challenge.trim().isEmpty) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'invalid_request',
+      message:
+          'passkeyAssert requires an http(s) origin, an rpId and a challenge.',
+    );
+  }
+
+  final rawAllowCredentials = payload['allowCredentials'];
+  if (rawAllowCredentials != null && rawAllowCredentials is! List) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'invalid_request',
+      message: 'passkeyAssert allowCredentials must be a list of strings.',
+    );
+  }
+  final allowCredentials = <String>[
+    for (final item in (rawAllowCredentials as List? ?? const []).take(32))
+      if (item is String && item.isNotEmpty && item.length <= 512) item,
+  ];
+
+  final descriptor = await store.readBridgeDescriptor();
+  if (descriptor == null) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'app_bridge_unavailable',
+      message:
+          'KeyVault is unavailable. Open and unlock the desktop app first.',
+    );
+  }
+  if (!descriptor.appCapabilities.contains(
+    desktopBrowserPasskeyAssertCapability,
+  )) {
+    // The app is running but cannot sign — no passkey in this vault, or a
+    // build without the endpoint. Said plainly so the extension falls back
+    // to the browser instead of retrying.
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'passkey_unavailable',
+      message: 'This KeyVault database has no passkey for this site.',
+    );
+  }
+
+  final call = await _postToAppBridge(
+    descriptor: descriptor,
+    path: '/passkey-assert',
+    body: {
+      'databaseId': descriptor.databaseId,
+      'origin': origin,
+      'rpId': rpId.trim(),
+      'challenge': challenge.trim(),
+      'allowCredentials': allowCredentials,
+    },
+    timeout: _passkeyAssertBridgeTimeout,
+  );
+  if (call.errorCode != null) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: call.errorCode!,
+      message: _publicRevealErrorMessage(call.errorCode!),
+    );
+  }
+
+  final data = call.data;
+  // A refusal: the app answers 200 with a reason so the page can fall
+  // through to the browser's own authenticator. Passed on verbatim, and the
+  // reasons are coarse on purpose — none of them says whether this vault
+  // holds a passkey for the site.
+  final reason = _safeOptionalString(data?['reason'], maxLength: 64);
+  if (reason != null) {
+    return _successResponse(id: id, type: type, data: {'reason': reason});
+  }
+
+  final credentialId = _safeOptionalString(
+    data?['credentialId'],
+    maxLength: 1024,
+  );
+  final authenticatorData = _safeOptionalString(
+    data?['authenticatorData'],
+    maxLength: 4096,
+  );
+  final signature = _safeOptionalString(data?['signature'], maxLength: 4096);
+  final clientDataJson = _safeOptionalString(
+    data?['clientDataJSON'],
+    maxLength: 8192,
+  );
+  final rawUserHandle = data?['userHandle'];
+  final userHandle = rawUserHandle == null
+      ? null
+      : _safeOptionalString(rawUserHandle, maxLength: 1024);
+  if (credentialId == null ||
+      authenticatorData == null ||
+      signature == null ||
+      clientDataJson == null ||
+      (rawUserHandle != null && userHandle == null)) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'app_bridge_invalid_response',
+      message: _publicRevealErrorMessage('app_bridge_invalid_response'),
+    );
+  }
+
+  return _successResponse(
+    id: id,
+    type: type,
+    data: {
+      'credentialId': credentialId,
+      'authenticatorData': authenticatorData,
+      'signature': signature,
+      'clientDataJSON': clientDataJson,
+      'userHandle': userHandle,
     },
   );
 }
@@ -1429,9 +1610,10 @@ Future<({Map<String, Object?>? data, String? errorCode})> _postToAppBridge({
   required DesktopBrowserAutofillBridgeDescriptor descriptor,
   required String path,
   required Map<String, Object?> body,
+  Duration timeout = _revealBridgeTimeout,
 }) async {
   final client = HttpClient()
-    ..connectionTimeout = _revealBridgeTimeout
+    ..connectionTimeout = timeout
     ..findProxy = (_) => 'DIRECT';
   try {
     final uri = Uri(
@@ -1440,7 +1622,7 @@ Future<({Map<String, Object?>? data, String? errorCode})> _postToAppBridge({
       port: descriptor.port,
       path: path,
     );
-    final request = await client.postUrl(uri).timeout(_revealBridgeTimeout);
+    final request = await client.postUrl(uri).timeout(timeout);
     request.headers.contentType = ContentType.json;
     request.headers.set(
       HttpHeaders.authorizationHeader,
@@ -1448,11 +1630,11 @@ Future<({Map<String, Object?>? data, String? errorCode})> _postToAppBridge({
     );
     request.write(jsonEncode(body));
 
-    final response = await request.close().timeout(_revealBridgeTimeout);
+    final response = await request.close().timeout(timeout);
     final bytes = await _readHttpResponseBytes(
       response,
       maxNativeMessagePayloadBytes,
-    ).timeout(_revealBridgeTimeout);
+    ).timeout(timeout);
     final decoded = _decodeBridgeResponse(bytes);
     if (decoded == null) {
       return (data: null, errorCode: 'app_bridge_invalid_response');
@@ -1830,6 +2012,8 @@ String _publicRevealErrorMessage(String code) {
     'rate_limited' => 'Too many generation requests. Try again shortly.',
     'unsupported_capability' =>
       'KeyVault desktop does not support password generation yet.',
+    'passkey_unavailable' =>
+      'This KeyVault database has no passkey for this site.',
     _ => 'KeyVault reveal bridge failed.',
   };
 }

@@ -346,6 +346,13 @@ const EXTENSION_PAGE_ROUTES = new Set([
   ...LEGACY_ROUTES.keys(),
 ]);
 
+/** A string from an untrusted message, or null. */
+function boundedRequestString(value, maxLength) {
+  return typeof value === "string" && value.length > 0 && value.length <= maxLength
+    ? value
+    : null;
+}
+
 function routeTableFor(route) {
   if (route === securityModule.EXTENSION_PAGE_ROUTE) return EXTENSION_PAGE_ROUTES;
   if (route === securityModule.CONTENT_SCRIPT_ROUTE) return CONTENT_ROUTES;
@@ -408,6 +415,22 @@ class OverlayRouter {
       return overlayError("error", "invalid_request");
     }
     const type = message.type;
+
+    // spec 023 T503 — `passkeyGet` is deliberately outside CONTENT_ROUTES.
+    //
+    // That set is the overlay's four types and its exact-shape envelope, and
+    // it is frozen ("four types, no others, ever"). A passkey request has a
+    // different shape and a different origin story: it carries no `origin`
+    // claim at all, because it comes from the page's own world where such a
+    // claim would be worth nothing. Its authorization is the same authority,
+    // established the same way — `sender.url` — just checked here.
+    if (type === "passkeyGet") {
+      if (route !== securityModule.CONTENT_SCRIPT_ROUTE) {
+        return { ok: false };
+      }
+      return this._passkeyGet(message, sender);
+    }
+
     if (typeof type !== "string" || !table.has(type)) {
       // Includes the SR-1 confusion case: a content type arriving from an
       // extension page (or the reverse) is simply not in this table.
@@ -418,6 +441,72 @@ class OverlayRouter {
       return this._dispatchContent(type, message, sender);
     }
     return this._dispatchExtensionPage(type, message, sender);
+  }
+
+  /**
+   * spec 023 T503 — ask the app to sign a WebAuthn assertion for this frame.
+   *
+   * The answer is deliberately thin: either an assertion or `{ok:false}`.
+   * The page world falls back to the browser's own authenticator on anything
+   * that is not a signature, so there is nothing for a refusal reason to do
+   * there except tell a hostile page whether this vault holds a passkey for
+   * the site — which is exactly what it must not learn.
+   */
+  async _passkeyGet(message, sender) {
+    const senderResult = securityModule.validateContentScriptSender(
+      sender,
+      this._runtimeId
+    );
+    if (!senderResult.ok) return { ok: false };
+
+    const rpId = boundedRequestString(message.rpId, 253);
+    const challenge = boundedRequestString(message.challenge, 2048);
+    if (!rpId || !challenge) return { ok: false };
+    const allowCredentials = Array.isArray(message.allowCredentials)
+      ? message.allowCredentials
+          .slice(0, 32)
+          .map((value) => boundedRequestString(value, 512))
+          .filter((value) => value !== null)
+      : [];
+
+    // The same gate the overlay passes: the global switch must be on and the
+    // broad host permission still held. A wrapper left running in a page
+    // after the user turned KeyVault off must not be able to sign.
+    const auth = await this._lifecycle.authorizePasskeyRequest({
+      sender,
+      runtimeId: this._runtimeId,
+    });
+    if (!auth.ok) return { ok: false };
+
+    // The origin travels from `sender.url`, never from the message: the page
+    // owns the world the request came from and could claim any site.
+    const response = await this._native("passkeyAssert", {
+      origin: auth.sender.origin,
+      rpId,
+      challenge,
+      allowCredentials,
+    });
+    if (response?.ok !== true) return { ok: false };
+
+    const data = response.data;
+    const credentialId = boundedRequestString(data?.credentialId, 1024);
+    const authenticatorData = boundedRequestString(data?.authenticatorData, 4096);
+    const signature = boundedRequestString(data?.signature, 4096);
+    const clientDataJSON = boundedRequestString(data?.clientDataJSON, 8192);
+    if (!credentialId || !authenticatorData || !signature || !clientDataJSON) {
+      // Includes every refusal the app sends as `{reason}` rather than an
+      // assertion, which is why no reason ever reaches the page.
+      return { ok: false };
+    }
+
+    return {
+      ok: true,
+      credentialId,
+      authenticatorData,
+      signature,
+      clientDataJSON,
+      userHandle: boundedRequestString(data?.userHandle, 1024),
+    };
   }
 
   // -------------------------------------------------------------------------

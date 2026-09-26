@@ -82,9 +82,14 @@ Response (no match / declined / unavailable):
 An old host answers `{"type":"error","code":"unsupported_type"}`; the
 extension then calls the original `navigator.credentials.get`. `hello`
 advertises `passkeyAssertV1` in `capabilities` only when the app bridge
-descriptor lists it. Payload cap: existing 64 KiB. `challenge`,
-`allowCredentials` are added to `_sensitiveRequestKeys` so they are never
-echoed in error frames.
+descriptor lists it. Payload cap: existing 64 KiB.
+
+`challenge` and `allowCredentials` are **not** added to
+`_sensitiveRequestKeys`: that set is a rejection list — a request carrying any
+of its keys is refused outright — and this request type has to carry both, so
+listing them would refuse every sign-in. They are never echoed anyway, because
+`nativeHostErrorResponse` writes a code and a fixed message and never the
+request payload.
 
 ### Host ↔ app (`/passkey-assert` on the reveal bridge)
 

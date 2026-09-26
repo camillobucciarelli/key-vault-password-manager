@@ -52,6 +52,12 @@ const desktopBrowserAutofillBridgeDescriptorVersion = 2;
 /// `generatePendingEntry` request fail closed with `unsupported_capability` —
 /// never a fallback to extension/native-side generation.
 const desktopBrowserGeneratePendingCapability = 'generatePendingEntryV1';
+
+/// spec 023 T502 — advertised only when the running app serves
+/// `/passkey-assert`. An app predating this slice advertises nothing, so the
+/// extension leaves `navigator.credentials.get` alone instead of wrapping a
+/// call it cannot answer.
+const desktopBrowserPasskeyAssertCapability = 'passkeyAssertV1';
 const desktopBrowserAutofillPlatform = 'desktop/browser';
 const desktopBrowserAutofillMaxPendingAssociations = 100;
 
@@ -834,12 +840,18 @@ class DesktopBrowserAutofillMetadataMapper {
     );
   }
 
+  /// [requirePassword] is what keeps a passkey-only entry out of the
+  /// *password* metadata cache (spec 023 T210): it has nothing to fill, so
+  /// listing it in the popup would offer the user an empty password. The
+  /// reveal bridge passes `false`, because a passkey-only entry does have
+  /// something to sign with; nothing it builds is written to the cache.
   DesktopBrowserAutofillCredentialMetadata? mapEntry(
     VaultEntry entry, {
     required int updatedAtEpochMs,
+    bool requirePassword = true,
   }) {
     final id = entry.id.trim();
-    if (id.isEmpty || entry.password.isEmpty) {
+    if (id.isEmpty || (requirePassword && entry.password.isEmpty)) {
       return null;
     }
     final identifiers = _serviceIdentifiersForEntry(entry);

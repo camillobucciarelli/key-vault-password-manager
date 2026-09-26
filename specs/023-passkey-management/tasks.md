@@ -308,7 +308,7 @@ Independent test: quickstart D, on each platform.
   Verify: client test asserts the payload shape and that `toString` of the
   publish model contains no PEM; coordinator test publishes E1.
 
-- [ ] **T302** [US2] Sealed store and metadata on Apple — owner: `senior-apple-dev`
+- [x] **T302** [US2] Sealed store and metadata on Apple — owner: `senior-apple-dev`
   Files: `ios/CredentialProviderExtension/SharedAutofillStore.swift`,
   `macos/CredentialProviderExtension/SharedAutofillStore.swift`,
   `ios/Runner/*` and `macos/Runner/*` channel handlers that call it.
@@ -317,19 +317,27 @@ Independent test: quickstart D, on each platform.
   entries without a password but with a passkey are stored, not skipped;
   `clearCredentials` wipes them with the rest (FR-023). `Logger` lines carry
   rpId only.
-  Verify: Swift unit test (Runner test target) round-trips a secret with a
-  passkey through seal/unseal and asserts the metadata JSON has no PEM.
+  Also: metadata gains `hasPassword`, so a passkey-only record registers a
+  passkey identity but no password identity — it has nothing to fill, and a
+  QuickType suggestion that fills an empty field is worse than none.
+  Verify: NOT YET VERIFIED — written on Linux, so neither extension target
+  has been compiled. Needs an Xcode build plus the Swift unit test
+  (Runner test target) round-tripping a secret with a passkey through
+  seal/unseal and asserting the metadata JSON has no PEM.
 
-- [ ] **T303** [US2] Assertion builder in Swift — owner: `senior-apple-dev`
+- [x] **T303** [US2] Assertion builder in Swift — owner: `senior-apple-dev`
   Files: `ios/CredentialProviderExtension/PasskeyAssertionBuilder.swift` (new,
   shared into the macOS extension target via the project file).
   Acceptance: builds `authenticatorData` per `data-model.md`; signs with
   CryptoKit `P256.Signing` (DER), `Curve25519.Signing` (raw), and `SecKey`
   for RSA; PKCS#8 parsing for all three; never logs the key.
-  Verify: Swift unit test with the T002 vectors — bytes equal, signatures
-  verify with the public keys.
+  Adds `PasskeyUserPresence.swift` beside it: `LAContext`
+  `.deviceOwnerAuthentication` (not the biometrics-only policy, so the
+  passcode fallback stays available), every time, no reuse window.
+  Verify: NOT YET VERIFIED — written on Linux. Needs a Swift unit test with
+  the T002 vectors: bytes equal, signatures verify with the public keys.
 
-- [ ] **T304** [US2] Passkey requests in the extension controllers — owner: `senior-apple-dev`
+- [x] **T304** [US2] Passkey requests in the extension controllers — owner: `senior-apple-dev`
   Files: `ios/CredentialProviderExtension/CredentialProviderViewController.swift`,
   `macos/CredentialProviderExtension/MacCredentialProviderViewController.swift`,
   `ios/CredentialProviderExtension/CredentialListView.swift`,
@@ -342,8 +350,9 @@ Independent test: quickstart D, on each platform.
   `deviceOwnerAuthentication` every time (FR-015), then
   `completeAssertionRequest`; cancel → `userCanceled`. Password behaviour
   unchanged.
-  Verify: builds for both targets; quickstart D.1–D.4 on device recorded in
-  `device-evidence.md`; existing password autofill smoke still passes.
+  Verify: NOT YET VERIFIED — written on Linux, never compiled. Needs a build
+  of both targets, quickstart D.1–D.4 on device recorded in
+  `device-evidence.md`, and the existing password autofill smoke.
 
 ## Phase 6 — US2: Sign in with a stored passkey — Android (P2)
 
@@ -409,7 +418,7 @@ Goal: the browser extension serves passkey sign-in through the native host and
 the app, with the key never leaving the app.
 Independent test: quickstart F.
 
-- [ ] **T501** [US2] `passkeyAssert` in the native host protocol — owner: `senior-web-chrome-dev`
+- [x] **T501** [US2] `passkeyAssert` in the native host protocol — owner: `senior-web-chrome-dev`
   Files: `tool/native_host_protocol.dart`, `tool/native_host.dart`,
   `test/tool/native_host_test.dart`.
   Acceptance: new type per `contracts/passkey_platform_bridges.md`;
@@ -421,7 +430,7 @@ Independent test: quickstart F.
   echoed in an error frame, response with a `privateKeyPem` key is rejected
   (never forwarded).
 
-- [ ] **T502** [US2] `/passkey-assert` in the app bridge — owner: `senior-flutter-dev`
+- [x] **T502** [US2] `/passkey-assert` in the app bridge — owner: `senior-flutter-dev`
   Files: `lib/features/password_manager/data/services/desktop_browser_autofill_reveal_bridge_service.dart`,
   `lib/features/password_manager/data/services/desktop_browser_autofill_cache.dart` (descriptor capability),
   `lib/features/password_manager/presentation/coordinators/desktop_browser_autofill_coordinator.dart`,
@@ -437,28 +446,46 @@ Independent test: quickstart F.
   refused; confirmation declined → `declined`; success payload verifies with
   the vector public key.
 
-- [ ] **T503** [US2] Page-world interception in the extension — owner: `senior-web-chrome-dev`
-  Files: `desktop/browser_extension/passkey_page_bridge.js` (new),
-  `desktop/browser_extension/content_overlay.js`,
+- [x] **T503** [US2] Page-world interception in the extension — owner: `senior-web-chrome-dev`
+  Files: `desktop/browser_extension/passkey_page.js` (new, MAIN world),
+  `desktop/browser_extension/passkey_bridge.js` (new, isolated world),
   `desktop/browser_extension/overlay_lifecycle.js`,
+  `desktop/browser_extension/overlay_routes.js`,
   `desktop/browser_extension/background.js`,
-  `desktop/browser_extension/manifest.json` (version bump only),
+  `desktop/browser_extension/package_extension.sh`,
+  `.github/workflows/pr.yml` (syntax gate),
   `desktop/browser_extension/test/`.
-  Acceptance: MAIN-world script registered alongside the overlay script on
-  granted hosts; wraps `navigator.credentials.get` with a per-page nonce;
-  relays to the background, which sends `passkeyAssert`; on `ok:true`
-  resolves a `PublicKeyCredential`-shaped object (research R12, including
-  `toJSON()`); on `ok:false` or `unsupported_type` calls the original
-  function so the browser's own UI appears. `create` is not wrapped.
-  Verify: extension unit tests for the wrapper (fallthrough, nonce check,
-  result shape); `serve_harness.sh` page exercises a fake host; quickstart
+  Acceptance: a MAIN-world script and an isolated-world relay registered on
+  the granted hosts under the overlay's own switch, at `document_start`
+  because the page may call `navigator.credentials.get` before
+  `document_idle`; the wrapper relays to the worker, which sends
+  `passkeyAssert`; on `ok:true` resolves a `PublicKeyCredential`-shaped
+  object (research R12); on anything else calls the original function so the
+  browser's own UI appears. `create` is not wrapped.
+
+  Two deviations from the plan, both deliberate. **A pair of scripts, not
+  one**: a registration names one world, and the wrapper must be in the
+  page's world while only an isolated world may talk to the worker. **No
+  shared nonce**: the pair communicate through the page's own world, which
+  the page reads and writes at will, so a nonce there authenticates nothing.
+  What actually protects the key is that the request carries no origin at
+  all — the worker takes it from `sender.url` — so a forged message buys a
+  page nothing it could not get by calling `navigator.credentials.get`
+  honestly. The message id is a correlation id for concurrent calls, not a
+  secret. The route is likewise kept out of the frozen four-type
+  `CONTENT_ROUTES` set, which carries an `origin` claim this request must
+  not have.
+  Verify: `node --test desktop/browser_extension/test/*.test.js` — 443
+  existing plus 10 new route tests and 2 new registration tests; quickstart
   F.1–F.5 recorded in `device-evidence.md` on Windows and Linux.
 
-- [ ] **T504** [P] [US2] Update note for the extension — owner: `senior-web-chrome-dev`
-  Files: `desktop/browser_extension/README.md`, `desktop/browser_extension/store_assets/`.
+- [x] **T504** [P] [US2] Update note for the extension — owner: `senior-web-chrome-dev`
+  Files: `desktop/browser_extension/README.md`.
   Acceptance: explains that the extension now answers passkey sign-in on
   granted sites, that the key stays in the app, and that the app asks before
-  each use (Assumptions).
+  each use (Assumptions), plus the page-world registration and the
+  `instanceof` limit. `store_assets/` holds only screenshots, so there is no
+  listing copy there to change.
   Verify: text present; no permission added to `permissions`.
 
 ## Phase 8 — Polish and verification gate
