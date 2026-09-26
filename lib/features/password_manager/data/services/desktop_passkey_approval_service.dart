@@ -18,9 +18,16 @@ import 'desktop_browser_autofill_reveal_bridge_service.dart';
 class DesktopPasskeyApprovalService {
   final ValueNotifier<PasskeyAssertionPrompt?> _pending =
       ValueNotifier<PasskeyAssertionPrompt?>(null);
+  final ValueNotifier<PasskeyCreationPrompt?> _pendingCreation =
+      ValueNotifier<PasskeyCreationPrompt?>(null);
   Completer<bool>? _completer;
+  Completer<PasskeyCreationDecision?>? _creationCompleter;
 
   ValueListenable<PasskeyAssertionPrompt?> get pendingListenable => _pending;
+
+  /// spec 023 US3 — the open "create a passkey here?" question, if any.
+  ValueListenable<PasskeyCreationPrompt?> get pendingCreationListenable =>
+      _pendingCreation;
 
   /// Ask the user about one signature. Resolves false if nothing answers.
   ///
@@ -35,6 +42,32 @@ class DesktopPasskeyApprovalService {
     return completer.future;
   }
 
+  /// spec 023 US3 — ask the user where a new passkey should go.
+  ///
+  /// Same one-at-a-time rule as [request], and for the same reason: two
+  /// stacked confirmations is how someone approves the wrong one.
+  Future<PasskeyCreationDecision?> requestCreation(
+    PasskeyCreationPrompt prompt,
+  ) {
+    if (_creationCompleter != null || _completer != null) {
+      return Future.value(null);
+    }
+    final completer = Completer<PasskeyCreationDecision?>();
+    _creationCompleter = completer;
+    _pendingCreation.value = prompt;
+    return completer.future;
+  }
+
+  /// Answer the open creation prompt. `null` is a decline.
+  void resolveCreation(PasskeyCreationDecision? decision) {
+    final completer = _creationCompleter;
+    _creationCompleter = null;
+    _pendingCreation.value = null;
+    if (completer != null && !completer.isCompleted) {
+      completer.complete(decision);
+    }
+  }
+
   /// Answer the open prompt, if there is still one.
   void resolve({required bool approved}) {
     final completer = _completer;
@@ -47,10 +80,14 @@ class DesktopPasskeyApprovalService {
 
   /// Decline whatever is outstanding — a lock, a database switch, a bridge
   /// teardown. Safe to call when nothing is pending.
-  void declineAll() => resolve(approved: false);
+  void declineAll() {
+    resolve(approved: false);
+    resolveCreation(null);
+  }
 
   void dispose() {
     declineAll();
     _pending.dispose();
+    _pendingCreation.dispose();
   }
 }

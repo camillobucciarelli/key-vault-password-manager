@@ -23,6 +23,13 @@ const {
 const ORIGIN = "https://example.com";
 const PAGE_URL = "https://example.com/login";
 
+const REGISTRATION = Object.freeze({
+  credentialId: "Y3JlZA",
+  attestationObject: "YXR0",
+  clientDataJSON: "Y2xpZW50",
+  publicKeyCose: "Y29zZQ",
+});
+
 const ASSERTION = Object.freeze({
   credentialId: "AQIDBAU",
   authenticatorData: "YXV0aA",
@@ -36,11 +43,14 @@ class FakeNative {
     this.calls = [];
     /** Replaces the next `passkeyAssert` answer. */
     this.response = { ok: true, data: { ...ASSERTION } };
+    /** Replaces the next `passkeyCreate` answer. */
+    this.createResponse = { ok: true, data: { ...REGISTRATION } };
   }
 
   send = async (type, payload) => {
     this.calls.push({ type, payload });
     if (type === "passkeyAssert") return this.response;
+    if (type === "passkeyCreate") return this.createResponse;
     return { ok: true, data: {} };
   };
 
@@ -213,4 +223,100 @@ test("023 T503: passkeyGet is not one of the overlay's content routes", () => {
   // envelope; this request has neither that shape nor an `origin` claim.
   assert.equal(routes.CONTENT_ROUTES.has("passkeyGet"), false);
   assert.equal(routes.EXTENSION_PAGE_ROUTES.has("passkeyGet"), false);
+});
+
+// ---------------------------------------------------------------------------
+// spec 023 US3 — passkeyCreate.
+// ---------------------------------------------------------------------------
+
+function createRequest(overrides = {}) {
+  return {
+    type: "passkeyCreate",
+    rpId: "example.com",
+    challenge: "Y2hhbGxlbmdl",
+    username: "ada",
+    ...overrides,
+  };
+}
+
+test("023 US3: a created credential reaches the page", async () => {
+  const { native, router } = harness();
+
+  const response = await router.dispatch(
+    createRequest(),
+    contentScriptSender({ frameUrl: PAGE_URL })
+  );
+
+  assert.equal(response.ok, true);
+  assert.equal(response.credentialId, REGISTRATION.credentialId);
+  assert.equal(response.attestationObject, REGISTRATION.attestationObject);
+  assert.equal(response.publicKeyCose, REGISTRATION.publicKeyCose);
+
+  const call = native.callsOf("passkeyCreate")[0];
+  assert.equal(call.payload.rpId, "example.com");
+  assert.equal(call.payload.username, "ada");
+  // The same authority rule as the sign-in path.
+  assert.equal(call.payload.origin, ORIGIN);
+});
+
+test("023 US3: an empty username is allowed, not refused", async () => {
+  const { native, router } = harness();
+
+  const response = await router.dispatch(
+    createRequest({ username: "" }),
+    contentScriptSender({ frameUrl: PAGE_URL })
+  );
+
+  assert.equal(response.ok, true);
+  assert.equal(native.callsOf("passkeyCreate")[0].payload.username, "");
+});
+
+test("023 US3: a declined creation says nothing but no", async () => {
+  const { router, native } = harness();
+  native.createResponse = { ok: true, data: { reason: "declined" } };
+
+  const response = await router.dispatch(
+    createRequest(),
+    contentScriptSender({ frameUrl: PAGE_URL })
+  );
+
+  assert.deepEqual(response, { ok: false });
+});
+
+test("023 US3: a partial registration is refused rather than half-used", async () => {
+  const { router, native } = harness();
+  native.createResponse = { ok: true, data: { credentialId: "Y3JlZA" } };
+
+  const response = await router.dispatch(
+    createRequest(),
+    contentScriptSender({ frameUrl: PAGE_URL })
+  );
+
+  assert.deepEqual(response, { ok: false });
+});
+
+test("023 US3: with the switch off nothing is created", async () => {
+  const { native, router } = harness({ enabled: false });
+
+  const response = await router.dispatch(
+    createRequest(),
+    contentScriptSender({ frameUrl: PAGE_URL })
+  );
+
+  assert.deepEqual(response, { ok: false });
+  assert.deepEqual(native.callsOf("passkeyCreate"), []);
+});
+
+test("023 US3: an extension page cannot create a passkey", async () => {
+  const { native, router } = harness();
+
+  const response = await router.dispatch(createRequest(), extensionPageSender());
+
+  assert.deepEqual(response, { ok: false });
+  assert.deepEqual(native.callsOf("passkeyCreate"), []);
+});
+
+test("023 US3: passkeyCreate is not one of the overlay's content routes", () => {
+  assert.equal(routes.CONTENT_ROUTES.has("passkeyCreate"), false);
+  assert.equal(routes.EXTENSION_PAGE_ROUTES.has("passkeyCreate"), false);
 });

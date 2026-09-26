@@ -50,6 +50,10 @@ const supportedNativeMessageTypes = <String>[
   // knows to leave `navigator.credentials.get` to the browser instead of
   // wrapping a call nothing can answer.
   'passkeyAssert',
+  // 023 / US3. Same structural fail-closed reasoning: a host predating this
+  // slice answers `unsupported_type`, so the extension leaves
+  // `navigator.credentials.create` to the browser.
+  'passkeyCreate',
 ];
 
 // 023 / T501 note: `challenge` and `allowCredentials` are deliberately NOT in
@@ -374,6 +378,12 @@ Future<Map<String, Object?>> handleNativeHostRequest(
       payload: payload,
       store: effectiveStore,
     ),
+    'passkeyCreate' => await _passkeyCreateResponse(
+      id: id,
+      type: type,
+      payload: payload,
+      store: effectiveStore,
+    ),
     _ => nativeHostErrorResponse(
       id: id,
       type: type,
@@ -441,6 +451,12 @@ Future<List<String>> _advertisedCapabilities(
           desktopBrowserPasskeyAssertCapability,
         ))
       desktopBrowserPasskeyAssertCapability,
+    // 023 / US3: and whether it can create.
+    if (descriptor != null &&
+        descriptor.appCapabilities.contains(
+          desktopBrowserPasskeyCreateCapability,
+        ))
+      desktopBrowserPasskeyCreateCapability,
   ];
 }
 
@@ -894,6 +910,124 @@ Future<Map<String, Object?>> _passkeyAssertResponse({
       'signature': signature,
       'clientDataJSON': clientDataJson,
       'userHandle': userHandle,
+    },
+  );
+}
+
+/// 023 / US3 — forward a passkey registration to the app.
+///
+/// A courier again, with one difference that matters: the app writes the vault
+/// before it answers, so a success here means the credential is durably
+/// stored (FR-020). The host must not invent a success, retry on a timeout, or
+/// treat a refusal as one — a site told "registered" for a credential the
+/// vault does not hold will have deleted the user's password.
+Future<Map<String, Object?>> _passkeyCreateResponse({
+  required String? id,
+  required String type,
+  required Map<String, Object?> payload,
+  required DesktopBrowserAutofillCacheStore store,
+}) async {
+  final origin = _browserOriginFromPayload(payload);
+  final rpId = _safeOptionalString(payload['rpId'], maxLength: 253);
+  final challenge = _safeOptionalString(payload['challenge'], maxLength: 2048);
+  final username = _safeOptionalString(payload['username'], maxLength: 512);
+  if (origin == null ||
+      rpId == null ||
+      rpId.trim().isEmpty ||
+      challenge == null ||
+      challenge.trim().isEmpty) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'invalid_request',
+      message:
+          'passkeyCreate requires an http(s) origin, an rpId and a challenge.',
+    );
+  }
+
+  final descriptor = await store.readBridgeDescriptor();
+  if (descriptor == null) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'app_bridge_unavailable',
+      message:
+          'KeyVault is unavailable. Open and unlock the desktop app first.',
+    );
+  }
+  if (!descriptor.appCapabilities.contains(
+    desktopBrowserPasskeyCreateCapability,
+  )) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'passkey_create_unavailable',
+      message: _publicRevealErrorMessage('passkey_create_unavailable'),
+    );
+  }
+
+  final call = await _postToAppBridge(
+    descriptor: descriptor,
+    path: '/passkey-create',
+    body: {
+      'databaseId': descriptor.databaseId,
+      'origin': origin,
+      'rpId': rpId.trim(),
+      'challenge': challenge.trim(),
+      'username': username ?? '',
+    },
+    timeout: _passkeyAssertBridgeTimeout,
+  );
+  if (call.errorCode != null) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: call.errorCode!,
+      message: _publicRevealErrorMessage(call.errorCode!),
+    );
+  }
+
+  final data = call.data;
+  final reason = _safeOptionalString(data?['reason'], maxLength: 64);
+  if (reason != null) {
+    return _successResponse(id: id, type: type, data: {'reason': reason});
+  }
+
+  final credentialId = _safeOptionalString(
+    data?['credentialId'],
+    maxLength: 1024,
+  );
+  final attestationObject = _safeOptionalString(
+    data?['attestationObject'],
+    maxLength: 16384,
+  );
+  final clientDataJson = _safeOptionalString(
+    data?['clientDataJSON'],
+    maxLength: 8192,
+  );
+  final publicKeyCose = _safeOptionalString(
+    data?['publicKeyCose'],
+    maxLength: 4096,
+  );
+  if (credentialId == null ||
+      attestationObject == null ||
+      clientDataJson == null) {
+    return nativeHostErrorResponse(
+      id: id,
+      type: type,
+      code: 'app_bridge_invalid_response',
+      message: _publicRevealErrorMessage('app_bridge_invalid_response'),
+    );
+  }
+
+  return _successResponse(
+    id: id,
+    type: type,
+    data: {
+      'credentialId': credentialId,
+      'attestationObject': attestationObject,
+      'clientDataJSON': clientDataJson,
+      'publicKeyCose': publicKeyCose,
     },
   );
 }
@@ -2014,6 +2148,8 @@ String _publicRevealErrorMessage(String code) {
       'KeyVault desktop does not support password generation yet.',
     'passkey_unavailable' =>
       'This KeyVault database has no passkey for this site.',
+    'passkey_create_unavailable' =>
+      'This KeyVault build cannot create passkeys. Open and unlock the desktop app.',
     _ => 'KeyVault reveal bridge failed.',
   };
 }

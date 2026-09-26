@@ -90,6 +90,14 @@ fields on it, not a real `PublicKeyCredential` — that constructor is not
 reachable from a content script. Sites that read the fields work; a site that
 checks `instanceof PublicKeyCredential` falls back to the browser.
 
+**Creating a passkey** works the same way, with two extra rules. KeyVault
+creates ES256 credentials only, so a site that will not accept ES256 goes
+straight to the browser and you never see a prompt for a registration KeyVault
+could not have served. And a new passkey is always attached to a record that
+already exists with that site as its website: the app will not invent a record
+while the site is waiting, so if there is no matching record it says so and the
+browser handles the registration instead.
+
 ## One global switch, and revoke
 
 - The overlay is **off by default**. The user turns it on from the popup, which

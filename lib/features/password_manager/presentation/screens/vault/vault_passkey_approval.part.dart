@@ -37,6 +37,7 @@ class _PasskeyApprovalListenerState extends State<_PasskeyApprovalListener> {
       final approvals = di.sl<DesktopPasskeyApprovalService>();
       _approvals = approvals;
       approvals.pendingListenable.addListener(_onPendingChanged);
+      approvals.pendingCreationListenable.addListener(_onPendingCreation);
     }
   }
 
@@ -45,6 +46,7 @@ class _PasskeyApprovalListenerState extends State<_PasskeyApprovalListener> {
     final approvals = _approvals;
     if (approvals != null) {
       approvals.pendingListenable.removeListener(_onPendingChanged);
+      approvals.pendingCreationListenable.removeListener(_onPendingCreation);
       // The shell is going away — a lock, a database switch, a close.
       // Whatever was waiting on this window gets its no rather than a
       // signature nobody is left to approve.
@@ -85,6 +87,156 @@ class _PasskeyApprovalListenerState extends State<_PasskeyApprovalListener> {
     }
   }
 
+  void _onPendingCreation() {
+    final prompt = _approvals?.pendingCreationListenable.value;
+    if (prompt == null || _isAsking || !mounted) return;
+    unawaited(_askCreation(prompt));
+  }
+
+  /// spec 023 US3 / FR-018–FR-019 — where should the new passkey go, and may
+  /// an existing one be replaced?
+  ///
+  /// Two decisions, so two steps rather than one crowded sheet: first the
+  /// record, then — only when it already holds a passkey for this site — the
+  /// replacement. A user who declines the second has declined the whole thing;
+  /// nothing is written either way until the coordinator runs.
+  Future<void> _askCreation(PasskeyCreationPrompt prompt) async {
+    _isAsking = true;
+    try {
+      final target = await _chooseCreationTarget(prompt);
+      if (target == null || !mounted) {
+        _approvals?.resolveCreation(null);
+        return;
+      }
+
+      if (target.holdsPasskeyForThisSite) {
+        final replace = await showKvConfirmDialog(
+          context,
+          title: 'Replace the passkey on “${target.title}”?',
+          body:
+              '“${target.title}” already holds a passkey for '
+              '${prompt.relyingPartyId}. Creating this one replaces it, and '
+              'the old passkey cannot be recovered — you would have to remove '
+              'it at ${prompt.relyingPartyId} as well.\n\n'
+              'A dated copy of the vault is saved on this device first.',
+          confirmLabel: 'Replace passkey',
+        );
+        if (replace != true) {
+          _approvals?.resolveCreation(null);
+          return;
+        }
+      }
+
+      _approvals?.resolveCreation(
+        PasskeyCreationDecision(
+          entryId: target.entryId,
+          replaceExisting: target.holdsPasskeyForThisSite,
+        ),
+      );
+    } finally {
+      _isAsking = false;
+    }
+  }
+
+  /// The record the passkey lands on.
+  ///
+  /// There is deliberately no "create a new record" option: this flow can only
+  /// add a passkey to an entry that already exists, because a brand-new record
+  /// needs a title, a folder and the user's attention, and asking for those
+  /// while a site waits on `navigator.credentials.create` is how a
+  /// half-considered record gets made. With no candidate the request is
+  /// declined and the page falls back to the browser, and the copy says why.
+  Future<PasskeyCreationCandidate?> _chooseCreationTarget(
+    PasskeyCreationPrompt prompt,
+  ) async {
+    final candidates = prompt.candidateEntries;
+    if (candidates.isEmpty) {
+      await showKvConfirmDialog(
+        context,
+        title: 'No record for ${prompt.relyingPartyId}',
+        body:
+            '${prompt.origin} asked to create a passkey, but this vault has no '
+            'record for that site yet. Add one with its website set to '
+            '${prompt.relyingPartyId}, then try again.',
+        confirmLabel: 'OK',
+        cancelLabel: null,
+      );
+      return null;
+    }
+    if (candidates.length == 1) {
+      final only = candidates.single;
+      final confirmed = await showKvConfirmDialog(
+        context,
+        title: 'Create a passkey for ${prompt.relyingPartyId}?',
+        body:
+            '${prompt.origin} is asking to create a passkey. It will be saved '
+            'on “${only.title}”'
+            '${only.username.isEmpty ? '' : ' (${only.username})'}, in this '
+            'vault, protected by your master password — not by hardware key '
+            'isolation.',
+        confirmLabel: 'Create passkey',
+      );
+      return confirmed == true ? only : null;
+    }
+    return _showCreationTargetSheet(context, prompt);
+  }
+
   @override
   Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+/// spec 023 US3 — which of several matching records the new passkey goes on.
+///
+/// A chooser with a list, so a bottom sheet on a phone and a dialog elsewhere,
+/// which is this app's rule for exactly this shape (`KvBottomSheet`). Each row
+/// says whether it already holds a passkey for the site, because that is the
+/// choice that leads to a replacement.
+Future<PasskeyCreationCandidate?> _showCreationTargetSheet(
+  BuildContext context,
+  PasskeyCreationPrompt prompt,
+) {
+  return KvBottomSheet.show<PasskeyCreationCandidate>(
+    context: context,
+    builder: (sheetContext) {
+      final colors = Theme.of(sheetContext).extension<KeyVaultColors>()!;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Create a passkey for ${prompt.relyingPartyId}?',
+            style: AppTextStyles.screenTitle.copyWith(
+              color: colors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s1),
+          Text(
+            '${prompt.origin} is asking to create a passkey. Choose the record '
+            'it should be saved on.',
+            style: AppTextStyles.secondary.copyWith(
+              color: colors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          for (final candidate in prompt.candidateEntries) ...[
+            KvListRow(
+              title: candidate.title.isEmpty ? '(Untitled)' : candidate.title,
+              subtitle: [
+                if (candidate.username.isNotEmpty) candidate.username,
+                if (candidate.holdsPasskeyForThisSite)
+                  'already has a passkey for this site',
+              ].join(' · '),
+              onTap: () => Navigator.of(sheetContext).pop(candidate),
+            ),
+            const SizedBox(height: AppSpacing.s1),
+          ],
+          const SizedBox(height: AppSpacing.s1),
+          Text(
+            _kPasskeySecurityNote,
+            style: AppTextStyles.meta.copyWith(color: colors.textSecondary),
+          ),
+        ],
+      );
+    },
+  );
 }

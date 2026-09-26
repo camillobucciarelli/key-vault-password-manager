@@ -37,6 +37,11 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
         mapper: sl(),
         revealBridge: sl(),
         pendingGeneration: sl(),
+        // spec 023: creating a passkey needs both a writer and a way to ask
+        // the user where it goes. Either missing and the bridge advertises no
+        // passkey capability at all.
+        passkeyCoordinator: sl(),
+        passkeyApprovals: sl(),
       ),
     ]),
   );

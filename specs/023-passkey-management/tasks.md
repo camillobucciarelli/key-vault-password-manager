@@ -1,8 +1,9 @@
 # 023 — Tasks
 
 Ordered work for [spec.md](spec.md), against [plan.md](plan.md). Beta scope:
-User Stories 1, 1b and 2. User Story 3 (registration) has no tasks here and
-is not counted by the board until it is planned.
+User Stories 1, 1b and 2, plus the desktop half of User Story 3 (Phase 9).
+`plan.md` does not cover registration, so Phase 9's design decisions are
+recorded in the tasks themselves.
 
 Owners name the agent best suited to the task; a human may take any of them.
 Each task states the files it touches, what "done" means, and how that is
@@ -500,6 +501,119 @@ Independent test: quickstart F.
   `instanceof` limit. `store_assets/` holds only screenshots, so there is no
   listing copy there to change.
   Verify: text present; no permission added to `permissions`.
+
+## Phase 9 — US3: Create a new passkey (P3, desktop only)
+
+Goal: a site's `navigator.credentials.create` can put a new credential in the
+open vault.
+Independent test: a registration on a test relying party from a desktop
+browser, then signing in with the credential it created (Phase 7).
+
+**Why desktop and not Apple, which is what the spec's US3 names.** Only the
+vault-writing process can satisfy FR-020, and on Apple the credential provider
+extension is not that process: it has no master password, so it cannot write
+the `.kdbx` at all. It could seal a credential into its own cache and hope the
+app adopts it later, but then the site would be told "registered" for something
+the vault does not hold — exactly the failure FR-020 forbids, and the one that
+costs the user their account, because a site that accepts a passkey often
+retires the password. On desktop the app *is* running and unlocked when the
+request arrives, so the write completes before the site is answered. Apple
+registration stays unbuilt and needs its own design.
+
+- [x] **T701** [US3] Key generation — owner: `senior-flutter-dev`
+  Files: `lib/features/password_manager/data/services/passkey_generator.dart`
+  (new), `test/features/password_manager/data/services/passkey_generator_test.dart`
+  (new).
+  Acceptance: ES256 only (the one algorithm every relying party accepts, the
+  desktop signer can sign and all three platforms verify — offering EdDSA
+  would create credentials the desktop bridge cannot use, research R10); a
+  32-byte credential id; PKCS#8 PEM the existing parser reads back; a
+  canonical EC2 COSE_Key; an `fmt: "none"` attestation object with the AT flag
+  set and a zero AAGUID and sign counter. CBOR is hand-encoded — this is the
+  only CBOR the app writes and its shape is fixed.
+  Verify: 8 tests, including a signature produced by
+  `DesktopPasskeySigner` verified against the COSE key the generator
+  published, which is the relying party's own side of the exchange.
+
+- [x] **T702** [US3] `createPasskey` on the service — owner: `senior-flutter-dev`
+  Files: `lib/features/password_manager/data/services/vault_kdbx_service.dart`,
+  `lib/features/password_manager/domain/errors/passkey_errors.dart`,
+  `test/.../vault_kdbx_service_test.dart`.
+  Acceptance: writes the KeePassXC layout with KeePassXC's own protection
+  flags (key, credential id and user handle protected; rp, username and flags
+  not) into the first free suffix group, under `DatabasePathMutex`, in one
+  locked action so the file holds the whole credential or none of it (FR-020);
+  throws `PasskeyAlreadyExists` on a `(rpId, userHandle)` clash unless
+  `replaceExisting` (FR-019); a replacement removes the clashing group whole,
+  unparsed fields included.
+  Verify: 7 tests — protection flags, second group, clash, different account,
+  replacement, no-handle, unknown entry.
+
+- [x] **T703** [US3] `PasskeyCoordinator.createPasskey` — owner: `senior-flutter-dev`
+  Files: `lib/features/password_manager/presentation/coordinators/passkey_coordinator.dart`,
+  matching tests.
+  Acceptance: refuses on a locked session; dated backup before the write; a
+  clash reports `alreadyExists`; a failed write returns no `GeneratedPasskey`
+  at all, so a caller cannot report success for a credential the vault does
+  not hold (FR-020).
+  Verify: 6 tests, including that the backup exists on disk when the write
+  runs.
+
+- [x] **T704** [US3] `/passkey-create` on the app bridge — owner: `senior-flutter-dev`
+  Files: `lib/features/password_manager/data/services/desktop_browser_autofill_reveal_bridge_service.dart`,
+  `lib/features/password_manager/data/services/desktop_passkey_approval_service.dart`,
+  `lib/features/password_manager/presentation/coordinators/desktop_browser_autofill_coordinator.dart`,
+  matching tests.
+  Acceptance: rp id checked against the origin as on the assert path (FR-014);
+  the confirmation offers the records whose site already matches so a passkey
+  can be attached to an existing entry (FR-018) and says which of them would
+  be replaced (FR-019); the write happens before the response; SR-4 binding
+  re-checked after the prompt; `passkeyCreateV1` advertised only when both the
+  confirmation and the writer are wired. The hooks are bound per vault session
+  by the coordinator, which is the only place that knows which database is
+  open — binding them in DI would let a write land in a vault the user had
+  switched away from.
+  Verify: 9 service tests.
+
+- [x] **T705** [US3] `passkeyCreate` in the native host — owner: `senior-web-chrome-dev`
+  Files: `tool/native_host_protocol.dart`.
+  Acceptance: a new request type (so an old host answers `unsupported_type`
+  and the extension falls back); forwards to `/passkey-create` on the 90 s
+  budget; passes a `{reason}` refusal through unchanged; refuses a truncated
+  response rather than half-using it; `passkeyCreateV1` advertised only when
+  the app descriptor lists it.
+  Verify: covered by the existing `native_host_test.dart` suite staying green;
+  its own cases are not written yet.
+
+- [x] **T706** [US3] `navigator.credentials.create` in the extension — owner: `senior-web-chrome-dev`
+  Files: `desktop/browser_extension/{passkey_page.js,passkey_bridge.js,overlay_routes.js}`,
+  `desktop/browser_extension/test/passkey_routes.test.js`.
+  Acceptance: the page-world wrapper falls through to the browser when the
+  site will not accept ES256, so a user never sees a confirmation for a
+  registration KeyVault could not have served; resolves a registration-shaped
+  object with `getPublicKey`, `getPublicKeyAlgorithm`, `getTransports` and
+  `getAuthenticatorData`; the worker route takes its origin from `sender.url`
+  and answers `{ok:false}` to every refusal, so no reason reaches the page.
+  Verify: 7 route tests.
+
+- [x] **T707** [US3] The creation confirmation — owner: `senior-flutter-dev`
+  Files: `lib/features/password_manager/presentation/screens/vault/vault_passkey_approval.part.dart`.
+  Acceptance: one matching record → one confirmation naming it; several → a
+  chooser saying which already hold a passkey for the site; none → an
+  explanation rather than a silent refusal; a record that already holds one →
+  a second, explicit replacement confirmation (FR-019) mentioning the dated
+  backup. Never creates a new record: a brand-new entry needs a title and a
+  folder, and asking for those while a site waits is how a half-considered
+  record gets made.
+  Verify: NOT YET COVERED by a widget test — the flow needs a fake bridge
+  prompt through the vault shell harness.
+
+- [ ] **T708** [US3] Registration on Apple — owner: `senior-apple-dev`
+  Blocked on a design decision, not on code: see the note at the top of this
+  phase. The extension cannot write the vault, so satisfying FR-020 needs
+  either a staged-credential handshake with the app (and a rule for what the
+  site is told meanwhile) or a decision that Apple registration is out of
+  scope. Do not implement before that is settled.
 
 ## Phase 8 — Polish and verification gate
 

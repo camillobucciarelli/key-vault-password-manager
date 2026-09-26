@@ -424,11 +424,13 @@ class OverlayRouter {
     // claim at all, because it comes from the page's own world where such a
     // claim would be worth nothing. Its authorization is the same authority,
     // established the same way — `sender.url` — just checked here.
-    if (type === "passkeyGet") {
+    if (type === "passkeyGet" || type === "passkeyCreate") {
       if (route !== securityModule.CONTENT_SCRIPT_ROUTE) {
         return { ok: false };
       }
-      return this._passkeyGet(message, sender);
+      return type === "passkeyGet"
+        ? this._passkeyGet(message, sender)
+        : this._passkeyCreate(message, sender);
     }
 
     if (typeof type !== "string" || !table.has(type)) {
@@ -506,6 +508,64 @@ class OverlayRouter {
       signature,
       clientDataJSON,
       userHandle: boundedRequestString(data?.userHandle, 1024),
+    };
+  }
+
+  /**
+   * spec 023 US3 — ask the app to create a passkey for this frame and write it
+   * to the vault.
+   *
+   * The answer is thin for the same reason `_passkeyGet`'s is: the page world
+   * falls back to the browser on anything that is not a credential, so a
+   * refusal reason would only tell a hostile page what this vault contains.
+   */
+  async _passkeyCreate(message, sender) {
+    const senderResult = securityModule.validateContentScriptSender(
+      sender,
+      this._runtimeId
+    );
+    if (!senderResult.ok) return { ok: false };
+
+    const rpId = boundedRequestString(message.rpId, 253);
+    const challenge = boundedRequestString(message.challenge, 2048);
+    if (!rpId || !challenge) return { ok: false };
+    // An empty username is legitimate: some relying parties register a
+    // credential with no display name at all.
+    const username = boundedRequestString(message.username, 512) ?? "";
+
+    const auth = await this._lifecycle.authorizePasskeyRequest({
+      sender,
+      runtimeId: this._runtimeId,
+    });
+    if (!auth.ok) return { ok: false };
+
+    const response = await this._native("passkeyCreate", {
+      origin: auth.sender.origin,
+      rpId,
+      challenge,
+      username,
+    });
+    if (response?.ok !== true) return { ok: false };
+
+    const data = response.data;
+    const credentialId = boundedRequestString(data?.credentialId, 1024);
+    const attestationObject = boundedRequestString(
+      data?.attestationObject,
+      16384
+    );
+    const clientDataJSON = boundedRequestString(data?.clientDataJSON, 8192);
+    if (!credentialId || !attestationObject || !clientDataJSON) {
+      // Includes every `{reason}` refusal the app sends, which is why no
+      // reason ever reaches the page.
+      return { ok: false };
+    }
+
+    return {
+      ok: true,
+      credentialId,
+      attestationObject,
+      clientDataJSON,
+      publicKeyCose: boundedRequestString(data?.publicKeyCose, 4096),
     };
   }
 

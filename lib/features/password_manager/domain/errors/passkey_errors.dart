@@ -16,3 +16,24 @@ final class PasskeyNotFound implements Exception {
   String toString() =>
       'PasskeyNotFound(entryId: $entryId, relyingPartyId: $relyingPartyId)';
 }
+
+/// spec 023 US3 FR-019 — the entry already holds a passkey for this relying
+/// party and account.
+///
+/// Thrown rather than overwritten: a passkey has exactly one copy of its
+/// private key, so replacing one silently is how a user loses a credential
+/// they could still have been signing in with.
+final class PasskeyAlreadyExists implements Exception {
+  const PasskeyAlreadyExists({
+    required this.entryId,
+    required this.relyingPartyId,
+  });
+
+  final String entryId;
+  final String relyingPartyId;
+
+  @override
+  String toString() =>
+      'PasskeyAlreadyExists(entryId: $entryId, '
+      'relyingPartyId: $relyingPartyId)';
+}

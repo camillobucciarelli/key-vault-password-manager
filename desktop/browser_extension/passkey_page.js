@@ -26,6 +26,10 @@
 
   const CHANNEL = "keyvault-passkey";
   const originalGet = credentials.get.bind(credentials);
+  const originalCreate =
+    typeof credentials.create === "function"
+      ? credentials.create.bind(credentials)
+      : null;
 
   // Correlates one request with its answer. Not a secret — the page can read
   // it — just a way to keep two concurrent sign-ins apart.
@@ -37,7 +41,11 @@
     // an opener is not an answer to anything asked here.
     if (event.source !== window) return;
     const data = event.data;
-    if (!data || data.channel !== CHANNEL || data.kind !== "passkey-get-result") {
+    if (
+      !data ||
+      data.channel !== CHANNEL ||
+      (data.kind !== "passkey-get-result" && data.kind !== "passkey-create-result")
+    ) {
       return;
     }
     const resolve = pending.get(data.requestId);
@@ -61,12 +69,12 @@
     return bytes.buffer;
   }
 
-  function askExtension(request) {
+  function askExtension(kind, request) {
     return new Promise((resolve) => {
       const requestId = nextRequestId++;
       pending.set(requestId, resolve);
       window.postMessage(
-        { channel: CHANNEL, kind: "passkey-get", requestId, ...request },
+        { channel: CHANNEL, kind, requestId, ...request },
         window.location.origin
       );
     });
@@ -127,7 +135,7 @@
       return originalGet(options);
     }
 
-    const result = await askExtension(request);
+    const result = await askExtension("passkey-get", request);
     // Every refusal — no passkey here, the user declined, the app is locked,
     // the extension never answered — falls through to the browser's own
     // authenticator. KeyVault having nothing to offer must never stop a
@@ -141,4 +149,102 @@
       return originalGet(options);
     }
   };
+
+  // spec 023 US3 — registration.
+  //
+  // Wrapped for the same reason `get` is, and with the same fallthrough: a
+  // site whose registration KeyVault declines must still be able to register a
+  // platform passkey or a security key.
+  if (originalCreate) {
+    credentials.create = async function create(options) {
+      const publicKey = options?.publicKey;
+      if (!publicKey || !publicKey.challenge) return originalCreate(options);
+      if (options?.signal?.aborted) return originalCreate(options);
+
+      // KeyVault creates ES256 credentials only. A site that will not accept
+      // ES256 is one this authenticator cannot serve, so it goes straight to
+      // the browser rather than being refused after a confirmation the user
+      // did not need to see.
+      const params = publicKey.pubKeyCredParams;
+      if (
+        Array.isArray(params) &&
+        params.length > 0 &&
+        !params.some((param) => param?.alg === -7)
+      ) {
+        return originalCreate(options);
+      }
+
+      let request;
+      try {
+        request = {
+          rpId: publicKey.rp?.id || window.location.hostname,
+          challenge: base64UrlFromBuffer(publicKey.challenge),
+          username: publicKey.user?.name || "",
+        };
+      } catch {
+        return originalCreate(options);
+      }
+
+      const result = await askExtension("passkey-create", request);
+      if (!result || result.ok !== true) return originalCreate(options);
+      try {
+        return toRegistrationCredential(result);
+      } catch {
+        return originalCreate(options);
+      }
+    };
+  }
+
+  /**
+   * The registration shape a relying party reads. Same documented limit as the
+   * sign-in one: a plain object, not a real `PublicKeyCredential`.
+   */
+  function toRegistrationCredential(result) {
+    const rawId = bufferFromBase64Url(result.credentialId);
+    const attestationObject = bufferFromBase64Url(result.attestationObject);
+    const clientDataJSON = bufferFromBase64Url(result.clientDataJSON);
+    const publicKey = result.publicKeyCose
+      ? bufferFromBase64Url(result.publicKeyCose)
+      : null;
+    return {
+      id: result.credentialId,
+      rawId,
+      type: "public-key",
+      authenticatorAttachment: "cross-platform",
+      response: {
+        clientDataJSON,
+        attestationObject,
+        // The three accessors a modern relying party calls instead of parsing
+        // the attestation object itself.
+        getTransports: () => ["internal", "hybrid"],
+        getPublicKeyAlgorithm: () => -7,
+        getPublicKey: () => publicKey,
+        getAuthenticatorData: () => authenticatorDataFrom(attestationObject),
+      },
+      getClientExtensionResults: () => ({}),
+    };
+  }
+
+  /**
+   * The authData bytes out of the CBOR attestation object.
+   *
+   * The object is always `{fmt, attStmt, authData}` with authData last and its
+   * own byte-string header, so the payload is whatever follows that header —
+   * no CBOR parser needed for a shape this app itself produced.
+   */
+  function authenticatorDataFrom(attestationObject) {
+    const bytes = new Uint8Array(attestationObject);
+    // "authData" as CBOR text(8): 0x68 'a' 'u' 't' 'h' 'D' 'a' 't' 'a'.
+    const marker = [0x68, 0x61, 0x75, 0x74, 0x68, 0x44, 0x61, 0x74, 0x61];
+    for (let i = 0; i + marker.length < bytes.length; i += 1) {
+      if (marker.every((byte, offset) => bytes[i + offset] === byte)) {
+        let cursor = i + marker.length;
+        const header = bytes[cursor++];
+        if (header === 0x58) cursor += 1;
+        else if (header === 0x59) cursor += 2;
+        return bytes.slice(cursor).buffer;
+      }
+    }
+    return new ArrayBuffer(0);
+  }
 })();

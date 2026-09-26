@@ -31,6 +31,7 @@ import 'package:password_manager/features/password_manager/domain/entities/datab
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry_revision.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_passkey.dart';
 import 'package:password_manager/features/password_manager/domain/repositories/database_registry_repository.dart';
 // `KdbxNode.node` is a public, exported `XmlElement`: constructs the library
 // does not model (entry colors' RGB value, entry AutoType) are read and
@@ -959,6 +960,205 @@ void main() {
         await expectLater(attempt(), throwsA(isA<PasskeyNotFound>()));
       },
     );
+
+    // ---- US3: createPasskey -------------------------------------------
+
+    VaultPasskey newPasskey({
+      String relyingPartyId = 'example.org',
+      List<int> credentialId = const [7, 7, 7],
+      List<int>? userHandle = const [8, 8],
+      String username = 'ada',
+    }) => VaultPasskey(
+      relyingPartyId: relyingPartyId,
+      credentialId: Uint8List.fromList(credentialId),
+      userHandle: userHandle == null ? null : Uint8List.fromList(userHandle),
+      username: username,
+      privateKeyPem: es256PrivateKeyPem,
+      algorithm: VaultPasskeyAlgorithm.es256,
+    );
+
+    Future<String> createPlainEntry({
+      String url = 'https://example.org',
+    }) async {
+      final rootGroupId = await _rootGroupId(service, databasePath, password);
+      await service.createEntry(
+        databasePath: databasePath,
+        password: password,
+        groupId: rootGroupId,
+        title: 'Example',
+        username: 'ada',
+        entryPassword: '',
+        url: url,
+        notes: '',
+      );
+      return (await service.loadAllEntries(
+        databasePath: databasePath,
+        password: password,
+      )).single.id;
+    }
+
+    test('writes the KeePassXC layout, with its protection flags', () async {
+      final entryId = await createPlainEntry();
+
+      await service.createPasskey(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        passkey: newPasskey(),
+      );
+
+      final raw = await rawPasskeyStrings();
+      // Secret and account material protected; routing and flags not — the
+      // same split KeePassXC writes, which is what keeps the file usable
+      // there.
+      expect(raw['KPEX_PASSKEY_PRIVATE_KEY_PEM']!.$2, isTrue);
+      expect(raw['KPEX_PASSKEY_CREDENTIAL_ID']!.$2, isTrue);
+      expect(raw['KPEX_PASSKEY_USER_HANDLE']!.$2, isTrue);
+      expect(raw['KPEX_PASSKEY_RELYING_PARTY']!.$2, isFalse);
+      expect(raw['KPEX_PASSKEY_USERNAME']!.$2, isFalse);
+      expect(raw['KPEX_PASSKEY_FLAG_BE']!.$2, isFalse);
+      // Unpadded base64url, as KeePassXC spells it.
+      expect(raw['KPEX_PASSKEY_CREDENTIAL_ID']!.$1, 'BwcH');
+      expect(raw['KPEX_PASSKEY_USER_HANDLE']!.$1, 'CAg');
+
+      final stored = (await service.loadAllEntries(
+        databasePath: databasePath,
+        password: password,
+      )).single.passkeys.single;
+      expect(stored.usable, isTrue);
+      expect(stored.relyingPartyId, 'example.org');
+      expect(stored.algorithm, VaultPasskeyAlgorithm.es256);
+    });
+
+    test(
+      'a second passkey goes in the next group, keeping the first',
+      () async {
+        final entryId = await createPasskeyEntry();
+
+        await service.createPasskey(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          passkey: newPasskey(),
+        );
+
+        final stored = (await service.loadAllEntries(
+          databasePath: databasePath,
+          password: password,
+        )).single.passkeys;
+        expect(
+          stored.map((p) => p.relyingPartyId),
+          containsAll(['webauthn.io', 'example.org']),
+        );
+        expect(stored.map((p) => p.fieldSuffix), containsAll(['', '_1']));
+        // The unparsed field of the original group is untouched.
+        expect((await rawPasskeyStrings()).keys, contains('KPEX_PASSKEY_PRF'));
+      },
+    );
+
+    // FR-019: never silently.
+    test('a clash on (rpId, userHandle) throws and writes nothing', () async {
+      final entryId = await createPasskeyEntry();
+      final before = await rawPasskeyStrings();
+
+      await expectLater(
+        service.createPasskey(
+          databasePath: databasePath,
+          password: password,
+          entryId: entryId,
+          // The fixture entry's handle is `BAUG` = 0x04 0x05 0x06.
+          passkey: newPasskey(
+            relyingPartyId: 'webauthn.io',
+            userHandle: const [4, 5, 6],
+          ),
+        ),
+        throwsA(isA<PasskeyAlreadyExists>()),
+      );
+      expect(await rawPasskeyStrings(), before);
+    });
+
+    test('the same site with a different account is not a clash', () async {
+      final entryId = await createPasskeyEntry();
+
+      await service.createPasskey(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        passkey: newPasskey(
+          relyingPartyId: 'webauthn.io',
+          userHandle: const [1, 1, 1],
+        ),
+      );
+
+      expect(
+        (await service.loadAllEntries(
+          databasePath: databasePath,
+          password: password,
+        )).single.passkeys,
+        hasLength(2),
+      );
+    });
+
+    test('replaceExisting overwrites exactly the clashing group', () async {
+      final entryId = await createPasskeyEntry();
+
+      await service.createPasskey(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        passkey: newPasskey(
+          relyingPartyId: 'webauthn.io',
+          userHandle: const [4, 5, 6],
+          credentialId: const [9, 9, 9],
+        ),
+        replaceExisting: true,
+      );
+
+      final stored = (await service.loadAllEntries(
+        databasePath: databasePath,
+        password: password,
+      )).single.passkeys;
+      expect(stored, hasLength(1));
+      expect(stored.single.credentialId, Uint8List.fromList([9, 9, 9]));
+      // The replaced group went whole, unparsed field included: it belonged
+      // to the credential that is gone.
+      expect(
+        (await rawPasskeyStrings()).keys,
+        isNot(contains('KPEX_PASSKEY_PRF')),
+      );
+    });
+
+    test('a passkey with no user handle writes no handle field', () async {
+      final entryId = await createPlainEntry(url: '');
+
+      await service.createPasskey(
+        databasePath: databasePath,
+        password: password,
+        entryId: entryId,
+        passkey: newPasskey(userHandle: null),
+      );
+
+      expect(
+        (await rawPasskeyStrings()).keys,
+        isNot(contains('KPEX_PASSKEY_USER_HANDLE')),
+      );
+    });
+
+    test('an unknown entry throws and writes nothing', () async {
+      await createPasskeyEntry();
+      final before = await rawPasskeyStrings();
+
+      await expectLater(
+        service.createPasskey(
+          databasePath: databasePath,
+          password: password,
+          entryId: 'no-such-entry',
+          passkey: newPasskey(),
+        ),
+        throwsA(isA<Exception>()),
+      );
+      expect(await rawPasskeyStrings(), before);
+    });
 
     test(
       'a credential id that does not match throws, and writes nothing',

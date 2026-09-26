@@ -18,10 +18,11 @@
   const MAX_CHALLENGE = 2048;
   const MAX_CREDENTIAL_ID = 512;
   const MAX_ALLOW_CREDENTIALS = 32;
+  const MAX_USERNAME = 512;
 
-  function refuse(requestId) {
+  function refuse(requestId, kind) {
     window.postMessage(
-      { channel: CHANNEL, kind: "passkey-get-result", requestId, ok: false },
+      { channel: CHANNEL, kind, requestId, ok: false },
       window.location.origin
     );
   }
@@ -35,14 +36,17 @@
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
     const data = event.data;
-    if (!data || data.channel !== CHANNEL || data.kind !== "passkey-get") return;
+    if (!data || data.channel !== CHANNEL) return;
+    const isCreate = data.kind === "passkey-create";
+    if (data.kind !== "passkey-get" && !isCreate) return;
+    const resultKind = isCreate ? "passkey-create-result" : "passkey-get-result";
     const requestId = data.requestId;
     if (typeof requestId !== "number") return;
 
     const rpId = boundedString(data.rpId, MAX_RP_ID);
     const challenge = boundedString(data.challenge, MAX_CHALLENGE);
     if (!rpId || !challenge) {
-      refuse(requestId);
+      refuse(requestId, resultKind);
       return;
     }
     const allowCredentials = Array.isArray(data.allowCredentials)
@@ -56,30 +60,47 @@
     // cannot ask for a passkey belonging to another site by claiming to be
     // it. The same reason `_requestMatches` forwards the authority rather
     // than the claim (A024).
-    chrome.runtime.sendMessage(
-      { type: "passkeyGet", rpId, challenge, allowCredentials },
-      (response) => {
-        // A worker that never answered, a disconnected extension, a refusal:
-        // all one thing to the page world, which falls back to the browser.
-        if (chrome.runtime.lastError || response?.ok !== true) {
-          refuse(requestId);
-          return;
+    const request = isCreate
+      ? {
+          type: "passkeyCreate",
+          rpId,
+          challenge,
+          username: boundedString(data.username, MAX_USERNAME) ?? "",
         }
-        window.postMessage(
-          {
-            channel: CHANNEL,
-            kind: "passkey-get-result",
-            requestId,
-            ok: true,
-            credentialId: response.credentialId,
-            authenticatorData: response.authenticatorData,
-            signature: response.signature,
-            clientDataJSON: response.clientDataJSON,
-            userHandle: response.userHandle ?? null,
-          },
-          window.location.origin
-        );
+      : { type: "passkeyGet", rpId, challenge, allowCredentials };
+
+    chrome.runtime.sendMessage(request, (response) => {
+      // A worker that never answered, a disconnected extension, a refusal:
+      // all one thing to the page world, which falls back to the browser.
+      if (chrome.runtime.lastError || response?.ok !== true) {
+        refuse(requestId, resultKind);
+        return;
       }
-    );
+      window.postMessage(
+        isCreate
+          ? {
+              channel: CHANNEL,
+              kind: resultKind,
+              requestId,
+              ok: true,
+              credentialId: response.credentialId,
+              attestationObject: response.attestationObject,
+              clientDataJSON: response.clientDataJSON,
+              publicKeyCose: response.publicKeyCose ?? null,
+            }
+          : {
+              channel: CHANNEL,
+              kind: resultKind,
+              requestId,
+              ok: true,
+              credentialId: response.credentialId,
+              authenticatorData: response.authenticatorData,
+              signature: response.signature,
+              clientDataJSON: response.clientDataJSON,
+              userHandle: response.userHandle ?? null,
+            },
+        window.location.origin
+      );
+    });
   });
 })();

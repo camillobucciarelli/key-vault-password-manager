@@ -2041,6 +2041,15 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
           entryId: event.entryId,
           info: 'That passkey is no longer on this record.',
         );
+      case PasskeyOutcome.alreadyExists:
+        // Unreachable on a delete: only `createPasskey` refuses this way.
+        _safeEmit(
+          emit,
+          state.copyWith(
+            isSaving: false,
+            errorMessage: 'Unable to delete this passkey. Nothing was changed.',
+          ),
+        );
       case PasskeyOutcome.failed:
         _safeEmit(
           emit,

@@ -58,6 +58,10 @@ const desktopBrowserGeneratePendingCapability = 'generatePendingEntryV1';
 /// extension leaves `navigator.credentials.get` alone instead of wrapping a
 /// call it cannot answer.
 const desktopBrowserPasskeyAssertCapability = 'passkeyAssertV1';
+
+/// spec 023 US3 — advertised only when the running app can both ask the user
+/// where a new passkey should go and write it to the vault.
+const desktopBrowserPasskeyCreateCapability = 'passkeyCreateV1';
 const desktopBrowserAutofillPlatform = 'desktop/browser';
 const desktopBrowserAutofillMaxPendingAssociations = 100;
 

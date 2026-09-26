@@ -136,7 +136,10 @@ void registerPasswordManagerDataDependencies(GetIt sl) {
       settingsRepository: sl(),
       passwordGenerator: sl(),
       pendingGeneration: sl(),
-      confirmPasskeyAssertion: sl<DesktopPasskeyApprovalService>().request,
+      // spec 023: the passkey hooks are bound per vault session by
+      // `DesktopBrowserAutofillCoordinator`, which is the only place that
+      // knows which database is open. Binding them here would let a write land
+      // in a vault the user has switched away from.
     ),
   );
   sl.registerLazySingleton<AppleAutofillV2Client>(

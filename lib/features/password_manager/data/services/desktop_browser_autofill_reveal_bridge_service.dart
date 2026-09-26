@@ -39,6 +39,81 @@ class PasskeyAssertionPrompt {
       'origin: $origin, entryTitle: $entryTitle)';
 }
 
+/// spec 023 US3 — what the vault write answered: the public half to report to
+/// the relying party, or the reason there is nothing to report.
+class PasskeyCreationOutcome {
+  const PasskeyCreationOutcome({
+    required this.reason,
+    this.credentialId,
+    this.attestationObject,
+    this.publicKeyCose,
+  });
+
+  /// Null on success; otherwise the coarse reason the extension passes on.
+  final String? reason;
+
+  /// base64url, unpadded.
+  final String? credentialId;
+  final String? attestationObject;
+  final String? publicKeyCose;
+
+  bool get ok => reason == null;
+}
+
+/// spec 023 US3 FR-018/FR-019 — what the in-app confirmation says about a
+/// passkey a site wants to create, and what it must answer.
+class PasskeyCreationPrompt {
+  const PasskeyCreationPrompt({
+    required this.relyingPartyId,
+    required this.origin,
+    required this.username,
+    required this.candidateEntries,
+  });
+
+  final String relyingPartyId;
+  final String origin;
+  final String username;
+
+  /// Entries whose site already matches, so the user can attach the new
+  /// credential to a record they already have rather than growing a duplicate
+  /// (FR-018, acceptance scenario 2). Id and label only — no secret.
+  final List<PasskeyCreationCandidate> candidateEntries;
+
+  @override
+  String toString() =>
+      'PasskeyCreationPrompt(relyingPartyId: $relyingPartyId, '
+      'origin: $origin, candidates: ${candidateEntries.length})';
+}
+
+class PasskeyCreationCandidate {
+  const PasskeyCreationCandidate({
+    required this.entryId,
+    required this.title,
+    required this.username,
+    required this.holdsPasskeyForThisSite,
+  });
+
+  final String entryId;
+  final String title;
+  final String username;
+
+  /// True when this entry already holds a passkey for the requesting site, so
+  /// the confirmation can say what would be replaced before anything is
+  /// (FR-019).
+  final bool holdsPasskeyForThisSite;
+}
+
+/// What the user decided. `null` means they declined.
+class PasskeyCreationDecision {
+  const PasskeyCreationDecision({
+    required this.entryId,
+    this.replaceExisting = false,
+  });
+
+  final String entryId;
+  final bool replaceExisting;
+}
+
 class DesktopBrowserAutofillRevealBridgeService {
   DesktopBrowserAutofillRevealBridgeService({
     required this.store,
@@ -47,6 +122,8 @@ class DesktopBrowserAutofillRevealBridgeService {
     this.passwordGenerator,
     this.pendingGeneration,
     this.confirmPasskeyAssertion,
+    this.confirmPasskeyCreation,
+    this.writePasskey,
   });
 
   /// 009 / B006 — anti-grinding bound: fixed one-minute window per bridge
@@ -74,6 +151,29 @@ class DesktopBrowserAutofillRevealBridgeService {
   /// fail-closed shape as `generatePendingEntryV1` (009 / B007). A signature
   /// nobody approved is a signature nobody asked for.
   Future<bool> Function(PasskeyAssertionPrompt prompt)? confirmPasskeyAssertion;
+
+  /// spec 023 US3 — asks the user where a newly created passkey should go, and
+  /// whether to replace one that is already there.
+  ///
+  /// Null in a host with no UI, and then `/passkey-create` refuses everything
+  /// and `passkeyCreateV1` is never advertised, so the extension leaves
+  /// `navigator.credentials.create` to the browser.
+  Future<PasskeyCreationDecision?> Function(PasskeyCreationPrompt prompt)?
+  confirmPasskeyCreation;
+
+  /// spec 023 US3 — writes the credential and reports what to tell the site.
+  ///
+  /// Injected rather than called directly: the write belongs to the
+  /// coordinator, which owns the dated backup, the mutex and the
+  /// all-or-nothing guarantee, and this data service must not reach into the
+  /// presentation layer to get it.
+  Future<PasskeyCreationOutcome> Function({
+    required String entryId,
+    required String relyingPartyId,
+    required String username,
+    required bool replaceExisting,
+  })?
+  writePasskey;
 
   bool get _generationAvailable =>
       settingsRepository != null &&
@@ -174,6 +274,12 @@ class DesktopBrowserAutofillRevealBridgeService {
             if (confirmPasskeyAssertion != null &&
                 credentials.values.any((c) => c.passkeys.isNotEmpty))
               desktopBrowserPasskeyAssertCapability,
+            // spec 023 US3: creation needs both a way to ask the user and a
+            // way to write the vault. Either missing and the capability is
+            // absent, so the extension never wraps a `create` nothing can
+            // answer.
+            if (confirmPasskeyCreation != null && writePasskey != null)
+              desktopBrowserPasskeyCreateCapability,
           ],
         ),
       );
@@ -241,6 +347,7 @@ class DesktopBrowserAutofillRevealBridgeService {
               request.uri.path != '/overlay-reveal' &&
               request.uri.path != '/generate-pending' &&
               request.uri.path != '/passkey-assert' &&
+              request.uri.path != '/passkey-create' &&
               request.uri.path != '/status')) {
         await _writeError(request, HttpStatus.notFound, 'not_found');
         return;
@@ -285,6 +392,11 @@ class DesktopBrowserAutofillRevealBridgeService {
 
       if (request.uri.path == '/passkey-assert') {
         await _handlePasskeyAssert(request, payload);
+        return;
+      }
+
+      if (request.uri.path == '/passkey-create') {
+        await _handlePasskeyCreate(request, payload);
         return;
       }
 
@@ -562,6 +674,135 @@ class DesktopBrowserAutofillRevealBridgeService {
             : _base64UrlUnpadded(assertion.userHandle!),
       },
     });
+  }
+
+  /// spec 023 US3 — create a passkey for the page and write it to the vault.
+  ///
+  /// The order is the contract (FR-020): ask the user, write the vault, and
+  /// only then answer the site. A response that went out before the write
+  /// completed would leave the relying party believing in a credential the
+  /// vault does not hold, which is the one failure mode that cannot be
+  /// recovered from — the site would have deleted the user's password.
+  Future<void> _handlePasskeyCreate(
+    HttpRequest request,
+    Map<String, Object?> payload,
+  ) async {
+    final epochAtEntry = _sessionEpoch;
+    final confirm = confirmPasskeyCreation;
+    final write = writePasskey;
+    if (confirm == null || write == null) {
+      await _writePasskeyRefusal(request, 'declined');
+      return;
+    }
+
+    final databaseId = _safeString(payload['databaseId'], maxLength: 128);
+    final rpId = _safeString(
+      payload['rpId'],
+      maxLength: 253,
+    )?.trim().toLowerCase();
+    final origin = browserExactOriginOrNull(payload['origin']);
+    final challenge = _safeString(payload['challenge'], maxLength: 2048);
+    final username = _safeString(payload['username'], maxLength: 512) ?? '';
+    if (databaseId == null ||
+        databaseId != _databaseId ||
+        rpId == null ||
+        rpId.isEmpty ||
+        origin == null ||
+        challenge == null ||
+        challenge.isEmpty) {
+      await _writeError(request, HttpStatus.badRequest, 'invalid_request');
+      return;
+    }
+
+    // FR-014's rule applies to creation too: a page may only create a
+    // credential for its own registrable domain or a parent of it.
+    if (!_isRelyingPartyOfOrigin(rpId: rpId, origin: origin)) {
+      await _writePasskeyRefusal(request, 'rp_mismatch');
+      return;
+    }
+
+    final decision = await confirm(
+      PasskeyCreationPrompt(
+        relyingPartyId: rpId,
+        origin: origin,
+        username: username,
+        candidateEntries: _creationCandidates(rpId: rpId, origin: origin),
+      ),
+    );
+    if (decision == null) {
+      await _writePasskeyRefusal(request, 'declined');
+      return;
+    }
+
+    // The same SR-4 check the assertion path makes: a lock, a vault switch or
+    // a republish during the prompt invalidates this request.
+    final durable = await store.readBridgeDescriptor();
+    if (_sessionEpoch != epochAtEntry ||
+        _databaseId != databaseId ||
+        durable == null ||
+        durable.databaseId != databaseId ||
+        durable.bridgeGeneration != _bridgeGeneration) {
+      await _writeError(request, HttpStatus.conflict, 'stale_session');
+      return;
+    }
+
+    final outcome = await write(
+      entryId: decision.entryId,
+      relyingPartyId: rpId,
+      username: username,
+      replaceExisting: decision.replaceExisting,
+    );
+    if (!outcome.ok) {
+      await _writePasskeyRefusal(request, outcome.reason!);
+      return;
+    }
+
+    await _writeJson(request, HttpStatus.ok, {
+      'ok': true,
+      'data': {
+        'credentialId': outcome.credentialId,
+        'attestationObject': outcome.attestationObject,
+        'publicKeyCose': outcome.publicKeyCose,
+        'clientDataJSON': _base64UrlUnpadded(
+          DesktopPasskeySigner.clientDataJson(
+            challenge: challenge,
+            origin: origin,
+            type: 'webauthn.create',
+          ),
+        ),
+      },
+    });
+  }
+
+  /// Records whose site already matches, so the user can attach the new
+  /// credential to one instead of growing a duplicate.
+  List<PasskeyCreationCandidate> _creationCandidates({
+    required String rpId,
+    required String origin,
+  }) {
+    final candidates = <PasskeyCreationCandidate>[];
+    for (final credential in _credentials.values) {
+      final matchesSite =
+          isExactOriginAuthorized(
+            serviceIdentifiers: credential.serviceIdentifiers,
+            origin: origin,
+          ) ||
+          credential.passkeys.any(
+            (passkey) => passkey.relyingPartyId.toLowerCase() == rpId,
+          );
+      if (!matchesSite) continue;
+      candidates.add(
+        PasskeyCreationCandidate(
+          entryId: credential.id,
+          title: credential.title,
+          username: credential.username,
+          holdsPasskeyForThisSite: credential.passkeys.any(
+            (passkey) => passkey.relyingPartyId.toLowerCase() == rpId,
+          ),
+        ),
+      );
+    }
+    return candidates;
   }
 
   /// The first usable passkey for [rpId] that [allowCredentials] permits.

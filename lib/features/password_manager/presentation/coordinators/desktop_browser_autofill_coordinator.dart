@@ -1,11 +1,16 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:loggy/loggy.dart';
 
 import '../../data/services/desktop_browser_autofill_cache.dart';
 import '../../data/services/desktop_browser_autofill_reveal_bridge_service.dart';
 import '../../data/services/desktop_browser_pending_generation_service.dart';
+import '../../data/services/desktop_passkey_approval_service.dart';
 import '../../domain/models/apple_autofill_v2_models.dart';
 import '../../domain/models/vault_entry.dart';
 import 'apple_autofill_v2_coordinator.dart';
+import 'passkey_coordinator.dart';
 
 class DesktopBrowserAutofillCoordinator
     implements AppleAutofillV2CoordinatorContract {
@@ -14,6 +19,8 @@ class DesktopBrowserAutofillCoordinator
     required this.mapper,
     required this.revealBridge,
     this.pendingGeneration,
+    this.passkeyCoordinator,
+    this.passkeyApprovals,
   });
 
   final DesktopBrowserAutofillCacheStore store;
@@ -25,6 +32,14 @@ class DesktopBrowserAutofillCoordinator
   /// close all route through [clearCredentials]; a republish invalidates the
   /// previous session in [publishVault].
   final DesktopBrowserPendingGenerationService? pendingGeneration;
+
+  /// spec 023 US3 — writes a created passkey to the open vault. Null in a host
+  /// that cannot write one, and then the bridge never advertises
+  /// `passkeyCreateV1`.
+  final PasskeyCoordinator? passkeyCoordinator;
+
+  /// spec 023 — where the bridge's confirmations are answered.
+  final DesktopPasskeyApprovalService? passkeyApprovals;
 
   @override
   Future<void> publishVault({
@@ -41,6 +56,11 @@ class DesktopBrowserAutofillCoordinator
         mapper.mapVault(databasePath: databasePath, entries: entries),
       );
       metadataPublished = true;
+      // spec 023: the bridge's passkey hooks are bound per session, because
+      // both need the path of the vault that is open right now. Rebinding on
+      // every publish is what keeps a write from landing in the vault the user
+      // just switched away from.
+      _bindPasskeyHooks(databasePath);
       await revealBridge.start(databasePath: databasePath, entries: entries);
     } catch (e, st) {
       await _cleanupAfterPublishFailure(metadataPublished: metadataPublished);
@@ -53,6 +73,7 @@ class DesktopBrowserAutofillCoordinator
   }) async {
     try {
       pendingGeneration?.clearAll();
+      _unbindPasskeyHooks();
       await revealBridge.stop();
       if (!metadataPublished) {
         await store.clearCredentials();
@@ -62,9 +83,69 @@ class DesktopBrowserAutofillCoordinator
     }
   }
 
+  /// spec 023 — the two callbacks `/passkey-assert` and `/passkey-create` need.
+  ///
+  /// Both are cleared by [_unbindPasskeyHooks] on teardown, so a bridge that
+  /// outlived its vault answers nothing rather than writing to a path that is
+  /// no longer open.
+  void _bindPasskeyHooks(String databasePath) {
+    final approvals = passkeyApprovals;
+    final coordinator = passkeyCoordinator;
+    revealBridge.confirmPasskeyAssertion = approvals?.request;
+    if (approvals == null || coordinator == null) {
+      revealBridge.confirmPasskeyCreation = null;
+      revealBridge.writePasskey = null;
+      return;
+    }
+    revealBridge.confirmPasskeyCreation = approvals.requestCreation;
+    revealBridge.writePasskey =
+        ({
+          required String entryId,
+          required String relyingPartyId,
+          required String username,
+          required bool replaceExisting,
+        }) async {
+          final result = await coordinator.createPasskey(
+            databasePath: databasePath,
+            entryId: entryId,
+            relyingPartyId: relyingPartyId,
+            username: username,
+            replaceExisting: replaceExisting,
+          );
+          final created = result.created;
+          if (created == null) {
+            return PasskeyCreationOutcome(
+              reason: switch (result.outcome) {
+                PasskeyOutcome.vaultLocked => 'vault_locked',
+                PasskeyOutcome.alreadyExists => 'already_exists',
+                PasskeyOutcome.notFound => 'no_credential',
+                PasskeyOutcome.failed || PasskeyOutcome.done => 'write_failed',
+              },
+            );
+          }
+          return PasskeyCreationOutcome(
+            reason: null,
+            credentialId: _base64UrlUnpadded(created.passkey.credentialId),
+            attestationObject: _base64UrlUnpadded(created.attestationObject),
+            publicKeyCose: _base64UrlUnpadded(created.publicKeyCose),
+          );
+        };
+  }
+
+  void _unbindPasskeyHooks() {
+    revealBridge.confirmPasskeyAssertion = null;
+    revealBridge.confirmPasskeyCreation = null;
+    revealBridge.writePasskey = null;
+    passkeyApprovals?.declineAll();
+  }
+
+  static String _base64UrlUnpadded(Uint8List bytes) =>
+      base64Url.encode(bytes).replaceAll('=', '');
+
   @override
   Future<void> clearCredentials({String? databasePath}) async {
     pendingGeneration?.clearAll();
+    _unbindPasskeyHooks();
     try {
       await revealBridge.stop();
       if (store.directory == null) {
