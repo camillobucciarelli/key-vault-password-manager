@@ -1020,7 +1020,10 @@
         "itself is unreadable, and containment cannot make revisions monotonic.",
         "They overlap by design, which is why neither mutation alone produces a leaked",
         "secret in the suite \u2014 defence in depth is the point, and each layer is pinned",
-        "on its own observable behaviour."
+        "on its own observable behaviour.",
+        "The second edit carries the comment above the refusal because spec 023's",
+        "authorizePasskeyRequest refuses on corruption with the same two lines;",
+        "without it the find matches twice and the runner rejects the definition."
       ],
       "edits": [
         {
@@ -1028,7 +1031,7 @@
           "replace": "      // mutation: grants survive an observed corruption"
         },
         {
-          "find": "      this._reconciled = null;\n      return { ok: false, error: \"stale_session\" };",
+          "find": "      // Dropping the memo makes the NEXT request reconcile and rebuild, while\n      // this one still fails closed.\n      this._reconciled = null;\n      return { ok: false, error: \"stale_session\" };",
           "replace": "      void 0;"
         }
       ]
