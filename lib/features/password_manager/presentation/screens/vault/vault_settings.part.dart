@@ -46,10 +46,36 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
   String? _loadingForPath;
   String? _autofillStatusSubtitle;
 
+  /// spec 023 T405 — what the passkey row says. Null while unknown, and on
+  /// every platform but Android, where the row is not shown at all.
+  String? _passkeyProviderSubtitle;
+
   @override
   void initState() {
     super.initState();
     unawaited(_loadAutofillStatus());
+    unawaited(_loadPasskeyProviderStatus());
+  }
+
+  /// spec 023 T405 / FR-013 — an Android below API 34 has no credential
+  /// provider to register with, so the row states that plainly rather than
+  /// offering a switch that would do nothing.
+  Future<void> _loadPasskeyProviderStatus() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    String? label;
+    try {
+      final availability = await di
+          .sl<AppleAutofillV2Client>()
+          .getPasskeyProviderAvailability();
+      label = availability.available
+          ? 'Available — turn KeyVault on in Android\u2019s passkey settings'
+          : 'Needs Android 14 or later '
+                '(this device runs API ${availability.apiLevel})';
+    } catch (_) {
+      label = null;
+    }
+    if (!mounted) return;
+    setState(() => _passkeyProviderSubtitle = label);
   }
 
   /// One line of truth on the row instead of a generic tagline: the Apple
@@ -614,6 +640,18 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
                     'Biometric keyboard, desktop helper',
                 onTap: () => _openAutofillSettings(context),
               ),
+              // spec 023 T405: Android only — the one place that says whether
+              // passkey sign-in can work on this device.
+              if (defaultTargetPlatform == TargetPlatform.android &&
+                  _passkeyProviderSubtitle != null) ...[
+                const SizedBox(height: 8),
+                _SettingsRow(
+                  glyph: AppGlyph.fingerprint,
+                  title: 'Passkey sign-in',
+                  subtitle: _passkeyProviderSubtitle!,
+                  onTap: () => _openAndroidAutofillSettings(context),
+                ),
+              ],
               const SizedBox(height: 8),
               _SettingsRow(
                 glyph: AppGlyph.magic,

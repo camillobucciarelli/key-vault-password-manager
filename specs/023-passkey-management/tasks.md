@@ -360,25 +360,30 @@ Goal: a Credential Manager provider serves passkeys on API 34+, and the app
 says so below it.
 Independent test: quickstart E.
 
-- [ ] **T401** [US2] Publish passkeys to the Android sealed store — owner: `senior-android-dev`
+- [x] **T401** [US2] Publish passkeys to the Android sealed store — owner: `senior-android-dev`
   Files: `android/app/src/main/kotlin/dev/camillobucciarelli/kdbxKeyVault/autofill/{AndroidAutofillModels.kt,AndroidAutofillJson.kt,AndroidAutofillStore.kt,AndroidAutofillV2Channel.kt}`.
-  Acceptance: the secret record gains the `passkey` block; metadata gains
-  `hasPasskey`, `passkeyRpId`, `passkeyCredentialId`; an entry with a passkey
-  and no password is stored (the `entry_without_password_skipped` warning
-  applies only to entries with neither); `clearCredentials` wipes it.
-  Verify: Kotlin unit test round-trips a passkey record through the AES-GCM
-  seal and asserts the metadata file has no PEM.
+  Acceptance: the secret record gains a `passkeys` list; metadata gains the
+  same list reduced to `rpId`/`credentialId`, plus `hasPassword` so a
+  passkey-only record is never offered as an autofill dataset; an entry with a
+  passkey and no password is stored (the `entry_without_password_skipped`
+  warning applies only to entries with neither); `clearCredentials` wipes it.
+  Verify: PARTIAL — `AndroidPasskeySerializationTest` covers the JSON round
+  trip, the metadata redaction, the pre-023 default and the BE/BS rule, but
+  has NOT been run: no Android SDK on the machine this was written on. The
+  AES-GCM seal itself is still uncovered (it needs a device or Robolectric).
 
-- [ ] **T402** [P] [US2] Assertion builder in Kotlin — owner: `senior-android-dev`
+- [x] **T402** [P] [US2] Assertion builder in Kotlin — owner: `senior-android-dev`
   Files: `android/.../autofill/PasskeyAssertionBuilder.kt` (new), test under
   `android/app/src/test/`.
   Acceptance: `authenticatorData` per `data-model.md`; JCA signing for
   `SHA256withECDSA`, `Ed25519` (API 33+; below → unusable), `SHA256withRSA`
   from PKCS#8; `clientDataJSON` with `origin` from `callingAppInfo.origin` or
   `android:apk-key-hash:`; produces the WebAuthn `PublicKeyCredential` JSON.
-  Verify: unit test with the T002 vectors.
+  Verify: NOT YET VERIFIED — `android.util.Base64` and the JCA providers need
+  a device or Robolectric, and nothing here has been compiled. Needs a unit
+  test with the T002 vectors.
 
-- [ ] **T403** [US2] Credential provider service — owner: `senior-android-dev`
+- [x] **T403** [US2] Credential provider service — owner: `senior-android-dev`
   Files: `android/app/build.gradle.kts` (`androidx.credentials:credentials`,
   current stable pinned in the task), `android/app/src/main/AndroidManifest.xml`,
   `android/app/src/main/res/xml/keyvault_credential_provider.xml` (new),
@@ -388,20 +393,28 @@ Independent test: quickstart E.
   `allowCredentials` and returns one `PublicKeyCredentialEntry` per match with
   a `PendingIntent` to T404; no match → empty response. The autofill service
   of spec 016 is untouched.
-  Verify: builds on API 34 SDK; instrumented or manual check that the
-  provider appears in system settings on an API 34+ device.
+  The service ships `android:enabled="false"` and
+  `AndroidPasskeyProviderAvailability.reconcile` turns it on at runtime on API
+  34+: a component declared on API 29–33 would show a setting that does
+  nothing.
+  Verify: NOT YET VERIFIED — never compiled (no Android SDK). Needs a build
+  against the API 34 SDK and a check that the provider appears in system
+  settings on an API 34+ device.
 
-- [ ] **T404** [US2] Per-assertion authentication activity — owner: `senior-android-dev`
+- [x] **T404** [US2] Per-assertion authentication activity — owner: `senior-android-dev`
   Files: `android/.../autofill/PasskeyAuthActivity.kt` (new), manifest entry.
   Acceptance: `BiometricPrompt` with `BIOMETRIC_STRONG | DEVICE_CREDENTIAL`
   on every request, never reading `AndroidAutofillAuthSession` (FR-015);
   success → secret → T402 → `PendingIntentHandler.setGetCredentialResponse`;
   cancel → `GetCredentialCancellationException`; missing →
   `NoCredentialException`.
-  Verify: quickstart E.1 and E.3 recorded in `device-evidence.md`.
+  Verify: NOT YET VERIFIED — never compiled. Needs quickstart E.1 and E.3
+  recorded in `device-evidence.md`.
 
-- [ ] **T405** [US2] API floor and settings row — owner: `senior-android-dev`, `senior-flutter-dev`
-  Files: `android/.../MainActivity.kt` (component enable on start),
+- [x] **T405** [US2] API floor and settings row — owner: `senior-android-dev`, `senior-flutter-dev`
+  Files: `android/.../autofill/AndroidPasskeyProviderAvailability.kt` (new —
+  the component enable lives here and runs from the channel's `init`, which
+  every app start constructs, rather than in `MainActivity`),
   `android/.../autofill/AndroidAutofillV2Channel.kt` (`getPasskeyProviderAvailability`),
   `lib/features/password_manager/data/services/apple_autofill_v2_method_channel_client.dart`,
   `lib/features/password_manager/presentation/screens/vault/vault_settings.part.dart`,

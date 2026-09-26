@@ -350,6 +350,43 @@ class AppleAutofillV2Status extends Equatable {
   ];
 }
 
+/// spec 023 T405 — whether this device can be a passkey provider at all.
+///
+/// Android only. Credential Manager's provider side arrived in API 34, so on
+/// an older device the settings row says so rather than offering a switch that
+/// does nothing (FR-013).
+class AndroidPasskeyProviderAvailability extends Equatable {
+  const AndroidPasskeyProviderAvailability({
+    required this.available,
+    required this.apiLevel,
+  });
+
+  factory AndroidPasskeyProviderAvailability.fromMap(
+    Map<dynamic, dynamic>? map,
+  ) {
+    return AndroidPasskeyProviderAvailability(
+      available: _readBool(map, 'available'),
+      apiLevel: _readInt(map, 'apiLevel'),
+    );
+  }
+
+  /// Not Android, or an Android too old to have a provider to register with.
+  const AndroidPasskeyProviderAvailability.unsupported()
+    : this(available: false, apiLevel: 0);
+
+  final bool available;
+
+  /// The device's SDK level, so the row can say *how* old it is. `0` where the
+  /// question does not apply.
+  final int apiLevel;
+
+  /// API 34, where the platform first has a credential provider.
+  static const minimumApiLevel = 34;
+
+  @override
+  List<Object?> get props => [available, apiLevel];
+}
+
 class AppleAutofillV2PendingAssociation extends Equatable {
   const AppleAutofillV2PendingAssociation({
     required this.id,
