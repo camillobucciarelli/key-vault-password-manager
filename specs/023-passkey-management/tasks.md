@@ -282,6 +282,14 @@ Independent test: quickstart A, B, C.
   1024×768 light+dark, unusable 390×844 light, badge 390×844 dark, confirm
   390×844 light); contrast assertions on section text and note.
   Verify: both golden runs green (plain and randomized seed).
+  **Needs a Mac, and that is why it is still open.** The committed reference
+  PNGs are macOS-rasterized — it is the reason both the `test` and
+  `test-random-order` CI jobs exclude `test/goldens/*` — so generating them on
+  Linux would replace the reference set with images that fail for every
+  maintainer on the platform of record. The contrast half of the acceptance is
+  done and does not depend on a PNG: it lives in T602's
+  `passkey_contrast_test.dart`, which runs everywhere, reads each background off
+  the render tree rather than assuming one, and covers light and dark.
 
 - [ ] **T212** [US1] KeePassXC round-trip on the fixture — owner: `senior-tester`
   Files: `specs/023-passkey-management/device-evidence.md`.
@@ -618,8 +626,13 @@ registration cannot be completed by any design. That transport is T709.
   backup. Never creates a new record: a brand-new entry needs a title and a
   folder, and asking for those while a site waits is how a half-considered
   record gets made.
-  Verify: NOT YET COVERED by a widget test — the flow needs a fake bridge
-  prompt through the vault shell harness.
+  Verify: 6 widget tests in
+  `test/.../vault/vault_passkey_creation_prompt_test.dart`, driven through the
+  real `DesktopPasskeyApprovalService` and the vault shell: one candidate, a
+  decline, no candidate, several candidates, the replacement confirmation and a
+  declined replacement. Each asserts the decision handed back to the bridge, not
+  only what appeared — a dialog that reads right but resolves the wrong entry
+  would pass on the copy alone.
 
 - [x] **T708** [US3] Registration on Apple — the decision and the refusal — owner: `senior-apple-dev`
   Files: `ios/CredentialProviderExtension/{CredentialProviderViewController.swift,CredentialListView.swift}`,
@@ -657,12 +670,16 @@ registration cannot be completed by any design. That transport is T709.
 
 - [ ] **T601** Redaction sweep — owner: `senior-tester`
   Files: none new; `specs/023-passkey-management/device-evidence.md`.
-  Acceptance: quickstart G — the grep hits only the parser's PEM header
+  Acceptance: quickstart G — the grep hits only the generator's PEM header
   constant; verbose logs from one run of A, D, E and F contain no
   `PRIVATE KEY` (SC-002).
   Verify: evidence row with the grep output summary and log sizes.
+  Half done: the grep is clean as of this commit — the one hit is
+  `passkey_generator.dart:224`, the header the app itself writes. It took
+  de-PEM-ing the Kotlin round-trip fixture, which nothing on that path parses.
+  The log half needs the device runs and stays open.
 
-- [ ] **T602** [P] Contrast and accessibility assertions — owner: `senior-tester`
+- [x] **T602** [P] Contrast and accessibility assertions — owner: `senior-tester`
   Files: `test/features/password_manager/presentation/accessibility/passkey_contrast_test.dart` (new).
   Acceptance: every new text/background pairing ≥ 4.5:1 in light and dark;
   badge has a semantic label; delete action ≥ 44×44 with a focus ring

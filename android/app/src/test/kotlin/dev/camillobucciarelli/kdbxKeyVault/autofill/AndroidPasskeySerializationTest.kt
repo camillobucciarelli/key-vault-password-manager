@@ -11,10 +11,23 @@ import org.junit.Test
  * plaintext metadata never learns the key.
  */
 class AndroidPasskeySerializationTest {
+    /**
+     * Stands in for the stored private key, and deliberately NOT PEM-shaped.
+     *
+     * Nothing this test exercises parses the value — `AndroidAutofillJson`
+     * carries it as an opaque string, and `derFromPem` lives on the signing
+     * path, which has its own fixtures. A real PEM header here is reported as a
+     * leaked private key by the secret scanners on every commit that touches
+     * the file, and it makes quickstart G's PEM-header sweep hit a fixture
+     * instead of only the generator's own header constant.
+     *
+     * Multi-line and distinctive for the same reason a real key would be: the
+     * round-trip assertions compare it whole, so a truncation is still caught.
+     */
     private val pem = """
-        -----BEGIN PRIVATE KEY-----
-        ZmFrZS1maXh0dXJlLWtleQ==
-        -----END PRIVATE KEY-----
+        KEYVAULT-FIXTURE-PRIVATE-VALUE-LINE-1
+        KEYVAULT-FIXTURE-PRIVATE-VALUE-LINE-2
+        KEYVAULT-FIXTURE-PRIVATE-VALUE-LINE-3
     """.trimIndent()
 
     private fun passkey(

@@ -15,6 +15,7 @@ import 'package:password_manager/core/utils/clipboard_guard.dart';
 import 'package:password_manager/core/theme/theme_cubit.dart';
 import 'package:password_manager/features/password_manager/data/datasources/biometric_data_source.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
+import 'package:password_manager/features/password_manager/data/services/desktop_passkey_approval_service.dart';
 import 'package:password_manager/features/password_manager/data/services/desktop_browser_pending_generation_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_csv_import_service.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_duplicate_service.dart';
@@ -26,6 +27,7 @@ import 'package:password_manager/features/password_manager/domain/repositories/d
 import 'package:password_manager/features/password_manager/domain/services/password_generator_service.dart';
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_bloc.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/duplicate_merge_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/entry_history_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/google_drive_reconnect_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/otpauth_deep_link_coordinator.dart';
@@ -67,6 +69,13 @@ Future<Widget> pumpableVaultShell({
   // spec 017 T304: lets the history tests hand the bloc a recording
   // coordinator, so "confirming calls it once" is assertable.
   EntryHistoryCoordinator? entryHistoryCoordinator,
+  // spec 023 T707: lets a caller drive the browser-bridge passkey
+  // confirmations. Registered only when passed, because
+  // `_PasskeyApprovalListener` is deliberately a no-op on a host that never
+  // registered the service — every other shell test relies on that.
+  DesktopPasskeyApprovalService? passkeyApprovalService,
+  // spec 023 T207: the merge sequence, when a test needs the merge to run.
+  DuplicateMergeCoordinator? duplicateMergeCoordinator,
 }) async {
   SharedPreferences.setMockInitialValues({});
   final sharedPreferences = await SharedPreferences.getInstance();
@@ -112,6 +121,11 @@ Future<Widget> pumpableVaultShell({
       databaseSyncRepository: resolvedSyncRepository,
     ),
   );
+  if (passkeyApprovalService != null) {
+    di.sl.registerLazySingleton<DesktopPasskeyApprovalService>(
+      () => passkeyApprovalService,
+    );
+  }
   di.sl.registerFactoryParam<VaultBloc, String, void>(
     (path, _) => VaultBloc(
       databasePath: path,
@@ -126,6 +140,7 @@ Future<Widget> pumpableVaultShell({
       appleAutofillV2Coordinator:
           appleAutofillV2Coordinator ?? const NoopAppleAutofillV2Coordinator(),
       entryHistoryCoordinator: entryHistoryCoordinator,
+      duplicateMergeCoordinator: duplicateMergeCoordinator,
     ),
   );
 

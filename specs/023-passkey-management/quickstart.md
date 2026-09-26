@@ -121,6 +121,9 @@ fvm flutter test test/features/password_manager/domain/models/vault_passkey_test
 grep -rn "BEGIN PRIVATE KEY" lib desktop tool android/app/src ios/CredentialProviderExtension macos/CredentialProviderExtension
 ```
 
-The grep must hit only the parser's PEM header constant. Then run each
+The grep must hit only `passkey_generator.dart`'s PEM header constant — the one
+place the app writes a header, and the only production use of the phrase. A hit
+in a test fixture is a finding, not noise: it is also what the secret scanners
+flag, so fixtures carry a non-PEM marker instead. Then run each
 platform flow with verbose logging on and search the captured logs for
 `PRIVATE KEY`: zero hits.
