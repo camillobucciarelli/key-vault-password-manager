@@ -45,6 +45,22 @@ class DesktopPasskeyApprovalService {
   Completer<PasskeyCreationDecision?>? _creationCompleter;
   final ValueNotifier<int> _written = ValueNotifier<int>(0);
 
+  /// True from the moment a prompt's budget expires until the widget that was
+  /// showing it reports back.
+  ///
+  /// The expiry frees the *request*, not the slot. A dialog the user is looking
+  /// at outlives the request it belongs to — the app cannot reach into the
+  /// widget tree from here — and the answer it eventually produces must not
+  /// become the answer to a different site's request. So while a stale prompt
+  /// is outstanding this service keeps refusing new ones, exactly as it did
+  /// before the deadline existed, and swallows the late answer that clears it.
+  ///
+  /// Two guards, deliberately: the widget also closes the dialog when its
+  /// prompt stops being the pending one, which is what makes this state
+  /// short-lived. This one is what makes the outcome safe if it is not.
+  bool _staleAssertion = false;
+  bool _staleCreation = false;
+
   ValueListenable<PasskeyAssertionPrompt?> get pendingListenable => _pending;
 
   /// spec 023 US3 — the open "create a passkey here?" question, if any.
@@ -67,7 +83,9 @@ class DesktopPasskeyApprovalService {
   /// declined rather than queued. Two sign-in confirmations stacked on each
   /// other is exactly the situation in which someone approves the wrong one.
   Future<bool> request(PasskeyAssertionPrompt prompt) {
-    if (_completer != null) return Future.value(false);
+    if (_completer != null || _staleAssertion || _staleCreation) {
+      return Future.value(false);
+    }
     final completer = Completer<bool>();
     _completer = completer;
     _pending.value = prompt;
@@ -76,10 +94,24 @@ class DesktopPasskeyApprovalService {
       onTimeout: () {
         // Only if this prompt is still the open one: a later request must not
         // be cancelled by an earlier request's deadline.
-        if (identical(_completer, completer)) resolve(approved: false);
+        if (identical(_completer, completer)) _expire();
         return false;
       },
     );
+  }
+
+  /// The deadline passed. Take the prompt off the screen, free the request, and
+  /// hold the slot until whatever was showing it answers.
+  void _expire() {
+    _completer = null;
+    _pending.value = null;
+    _staleAssertion = true;
+  }
+
+  void _expireCreation() {
+    _creationCompleter = null;
+    _pendingCreation.value = null;
+    _staleCreation = true;
   }
 
   /// spec 023 US3 — ask the user where a new passkey should go.
@@ -89,7 +121,10 @@ class DesktopPasskeyApprovalService {
   Future<PasskeyCreationDecision?> requestCreation(
     PasskeyCreationPrompt prompt,
   ) {
-    if (_creationCompleter != null || _completer != null) {
+    if (_creationCompleter != null ||
+        _completer != null ||
+        _staleCreation ||
+        _staleAssertion) {
       return Future.value(null);
     }
     final completer = Completer<PasskeyCreationDecision?>();
@@ -98,14 +133,23 @@ class DesktopPasskeyApprovalService {
     return completer.future.timeout(
       promptBudget,
       onTimeout: () {
-        if (identical(_creationCompleter, completer)) resolveCreation(null);
+        if (identical(_creationCompleter, completer)) _expireCreation();
         return null;
       },
     );
   }
 
   /// Answer the open creation prompt. `null` is a decline.
+  ///
+  /// An answer that arrives after the prompt expired is discarded, not applied
+  /// to whatever is open now: it was given about a site and a record the user
+  /// was looking at then, and the request it belonged to has already been told
+  /// no.
   void resolveCreation(PasskeyCreationDecision? decision) {
+    if (_staleCreation) {
+      _staleCreation = false;
+      return;
+    }
     final completer = _creationCompleter;
     _creationCompleter = null;
     _pendingCreation.value = null;
@@ -114,8 +158,13 @@ class DesktopPasskeyApprovalService {
     }
   }
 
-  /// Answer the open prompt, if there is still one.
+  /// Answer the open prompt, if there is still one. Same rule as
+  /// [resolveCreation] for an answer that arrives too late.
   void resolve({required bool approved}) {
+    if (_staleAssertion) {
+      _staleAssertion = false;
+      return;
+    }
     final completer = _completer;
     _completer = null;
     _pending.value = null;
@@ -127,7 +176,12 @@ class DesktopPasskeyApprovalService {
   /// Decline whatever is outstanding — a lock, a database switch, a bridge
   /// teardown. Safe to call when nothing is pending.
   void declineAll() {
+    // Twice over for the stale case: the first call clears the stale flag, the
+    // second declines whatever is genuinely open. A teardown must leave nothing
+    // outstanding in either slot.
     resolve(approved: false);
+    resolve(approved: false);
+    resolveCreation(null);
     resolveCreation(null);
   }
 

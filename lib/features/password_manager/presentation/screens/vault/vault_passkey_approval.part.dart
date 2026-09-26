@@ -63,8 +63,33 @@ class _PasskeyApprovalListenerState extends State<_PasskeyApprovalListener> {
     unawaited(_ask(prompt));
   }
 
+  /// True once [prompt] is no longer the question the service is waiting on —
+  /// it expired, the vault locked, or the bridge was torn down.
+  ///
+  /// Drives the dialog's own dismissal. Without it the user reads a
+  /// confirmation whose request has already been answered no, presses the
+  /// positive action, and nothing happens. The service refuses to apply a late
+  /// answer to anything, so this is about not leaving a dead question on
+  /// screen, not about safety.
+  ValueNotifier<bool> _staleWhenNotPending<T>(
+    ValueListenable<T?> pending,
+    T prompt,
+  ) {
+    final stale = ValueNotifier<bool>(false);
+    void check() {
+      if (!identical(pending.value, prompt)) stale.value = true;
+    }
+
+    pending.addListener(check);
+    _detachStale = () => pending.removeListener(check);
+    return stale;
+  }
+
+  VoidCallback? _detachStale;
+
   Future<void> _ask(PasskeyAssertionPrompt prompt) async {
     _isAsking = true;
+    final stale = _staleWhenNotPending(_approvals!.pendingListenable, prompt);
     try {
       final account = prompt.username.trim().isEmpty
           ? 'the account with no username'
@@ -82,9 +107,13 @@ class _PasskeyApprovalListenerState extends State<_PasskeyApprovalListener> {
             'the page your passkey, your password or anything else from this '
             'vault.',
         confirmLabel: 'Sign in',
+        closeWhen: stale,
       );
       _approvals?.resolve(approved: approved == true);
     } finally {
+      _detachStale?.call();
+      _detachStale = null;
+      stale.dispose();
       _isAsking = false;
     }
   }
@@ -117,8 +146,12 @@ class _PasskeyApprovalListenerState extends State<_PasskeyApprovalListener> {
   /// nothing is written either way until the coordinator runs.
   Future<void> _askCreation(PasskeyCreationPrompt prompt) async {
     _isAsking = true;
+    final stale = _staleWhenNotPending(
+      _approvals!.pendingCreationListenable,
+      prompt,
+    );
     try {
-      final target = await _chooseCreationTarget(prompt);
+      final target = await _chooseCreationTarget(prompt, stale: stale);
       if (target == null || !mounted) {
         _approvals?.resolveCreation(null);
         return;
@@ -135,6 +168,7 @@ class _PasskeyApprovalListenerState extends State<_PasskeyApprovalListener> {
               'it at ${prompt.relyingPartyId} as well.\n\n'
               'A dated copy of the vault is saved on this device first.',
           confirmLabel: 'Replace passkey',
+          closeWhen: stale,
         );
         if (replace != true) {
           _approvals?.resolveCreation(null);
@@ -149,6 +183,9 @@ class _PasskeyApprovalListenerState extends State<_PasskeyApprovalListener> {
         ),
       );
     } finally {
+      _detachStale?.call();
+      _detachStale = null;
+      stale.dispose();
       _isAsking = false;
     }
   }
@@ -162,8 +199,9 @@ class _PasskeyApprovalListenerState extends State<_PasskeyApprovalListener> {
   /// half-considered record gets made. With no candidate the request is
   /// declined and the page falls back to the browser, and the copy says why.
   Future<PasskeyCreationCandidate?> _chooseCreationTarget(
-    PasskeyCreationPrompt prompt,
-  ) async {
+    PasskeyCreationPrompt prompt, {
+    required ValueListenable<bool> stale,
+  }) async {
     final candidates = prompt.candidateEntries;
     if (candidates.isEmpty) {
       await showKvConfirmDialog(
@@ -175,6 +213,7 @@ class _PasskeyApprovalListenerState extends State<_PasskeyApprovalListener> {
             '${prompt.relyingPartyId}, then try again.',
         confirmLabel: 'OK',
         cancelLabel: null,
+        closeWhen: stale,
       );
       return null;
     }
@@ -190,6 +229,7 @@ class _PasskeyApprovalListenerState extends State<_PasskeyApprovalListener> {
             'vault, protected by your master password — not by hardware key '
             'isolation.',
         confirmLabel: 'Create passkey',
+        closeWhen: stale,
       );
       return confirmed == true ? only : null;
     }

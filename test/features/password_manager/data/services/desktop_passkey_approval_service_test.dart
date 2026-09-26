@@ -59,19 +59,6 @@ void main() {
     expect(service.pendingCreationListenable.value, isNull);
   });
 
-  test('an expired prompt does not wedge the next request', () async {
-    final service = build();
-    addTearDown(service.dispose);
-
-    await service.request(assertionPrompt);
-    // The one-at-a-time rule must now let a fresh sign-in through, and this
-    // one gets answered.
-    final second = service.request(assertionPrompt);
-    expect(service.pendingListenable.value, isNotNull);
-    service.resolve(approved: true);
-    expect(await second, isTrue);
-  });
-
   test('an answer inside the budget is the answer', () async {
     final service = DesktopPasskeyApprovalService(
       promptBudget: const Duration(seconds: 30),
@@ -84,18 +71,116 @@ void main() {
     expect(await pending, isTrue);
   });
 
-  test("an earlier prompt's deadline never cancels a later one", () async {
-    final service = build();
+  test("an answered prompt's deadline never expires a later one", () async {
+    final service = DesktopPasskeyApprovalService(
+      promptBudget: const Duration(milliseconds: 40),
+    );
     addTearDown(service.dispose);
 
-    await service.request(assertionPrompt);
-    final second = service.request(assertionPrompt);
+    // First prompt is answered well inside its budget, so its timer is still
+    // pending when the second prompt opens.
+    final first = service.request(assertionPrompt);
     service.resolve(approved: true);
-    // Well past the first prompt's budget: if its onTimeout still owned the
-    // slot it would clear this prompt out from under the user.
-    await Future<void>.delayed(const Duration(milliseconds: 60));
+    expect(await first, isTrue);
+
+    final second = service.request(assertionPrompt);
+    // Past the first prompt's deadline but not the second's: if the first
+    // timer still owned the slot it would take this prompt off the screen and
+    // decline it under the user.
+    await Future<void>.delayed(const Duration(milliseconds: 25));
+    expect(service.pendingListenable.value, isNotNull);
+    service.resolve(approved: true);
 
     expect(await second, isTrue);
+  });
+
+  // The regression the deadline itself introduced. Expiring frees the request,
+  // but the dialog the user is looking at outlives it — nothing in this service
+  // can reach into the widget tree — so the answer it eventually produces must
+  // not become the answer to a different site's request.
+  group('a prompt that expired while its dialog was still up', () {
+    test('does not let a later request be accepted into its slot', () async {
+      final service = build();
+      addTearDown(service.dispose);
+
+      // First prompt expires. Its dialog is, as far as this service knows,
+      // still on screen: nothing has answered.
+      expect(await service.request(assertionPrompt), isFalse);
+
+      // A second sign-in for another site must not be accepted, or the stale
+      // dialog's "Sign in" would answer it.
+      const other = PasskeyAssertionPrompt(
+        relyingPartyId: 'evil.example',
+        origin: 'https://evil.example',
+        entryTitle: 'Other',
+        username: 'bob',
+      );
+      expect(await service.request(other), isFalse);
+      expect(
+        service.pendingListenable.value,
+        isNull,
+        reason: 'and the second prompt was never put on screen either',
+      );
+    });
+
+    test('its late approval signs nothing', () async {
+      final service = build();
+      addTearDown(service.dispose);
+      await service.request(assertionPrompt);
+
+      // The user presses "Sign in" on the stale dialog. It resolves nothing,
+      // and it releases the slot.
+      service.resolve(approved: true);
+
+      final next = service.request(assertionPrompt);
+      expect(service.pendingListenable.value, isNotNull);
+      service.resolve(approved: true);
+      expect(await next, isTrue);
+    });
+
+    test('blocks a creation request too, and vice versa', () async {
+      final service = build();
+      addTearDown(service.dispose);
+
+      await service.request(assertionPrompt);
+      expect(await service.requestCreation(creationPrompt), isNull);
+
+      service.resolve(approved: false);
+
+      await service.requestCreation(creationPrompt);
+      expect(await service.request(assertionPrompt), isFalse);
+    });
+
+    test("a stale creation's late decision creates nothing", () async {
+      final service = build();
+      addTearDown(service.dispose);
+      await service.requestCreation(creationPrompt);
+
+      service.resolveCreation(
+        const PasskeyCreationDecision(entryId: 'e1', replaceExisting: true),
+      );
+
+      final next = service.requestCreation(creationPrompt);
+      expect(service.pendingCreationListenable.value, isNotNull);
+      service.resolveCreation(null);
+      expect(await next, isNull);
+    });
+
+    test('a teardown leaves neither slot outstanding', () async {
+      final service = build();
+      addTearDown(service.dispose);
+      await service.request(assertionPrompt);
+      await service.requestCreation(creationPrompt);
+
+      service.declineAll();
+
+      // Both slots are free again: a lock must not leave the app unable to
+      // ask anything for the rest of the session.
+      final next = service.request(assertionPrompt);
+      expect(service.pendingListenable.value, isNotNull);
+      service.resolve(approved: true);
+      expect(await next, isTrue);
+    });
   });
 
   test('a written passkey is announced exactly once per write', () {
