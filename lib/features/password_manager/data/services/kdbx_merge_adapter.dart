@@ -1617,25 +1617,51 @@ class KdbxMergeAdapter {
     }
   }
 
-  /// spec 023 T209's counterpart to [_isEngagedCredentialBlockMember]: a
-  /// SHARED member of an engaged passkey group, which [_applyPasskeyBlocks]
-  /// owns. A one-sided member is left to the general loop's union, so a passkey
-  /// present on only one side is preserved whole rather than dropped.
+  /// spec 023 T209's counterpart to [_isEngagedCredentialBlockMember]: EVERY
+  /// member of an engaged passkey group, which [_applyPasskeyBlocks] owns
+  /// outright.
+  ///
+  /// **Unlike the credential block, one-sided members are claimed too**, and
+  /// that asymmetry is the whole point. FR-3a's block is a closed set of the
+  /// entry's own fields (`username`/`password`/`url`): a member present on one
+  /// side only is simply a field the other side lacks, and FR-4's no-deletion
+  /// invariant says preserve it. A `KPEX_PASSKEY_*` member is not the entry's
+  /// field, it is *part of one credential*. Leaving a one-sided member to the
+  /// general loop's union attaches it to whichever credential won — so a
+  /// `KPEX_PASSKEY_USER_HANDLE` or `KPEX_PASSKEY_PRF` written only on the
+  /// losing side would end up beside the winner's key and id. That is exactly
+  /// the mixed credential FR-008 forbids, and it fails in the worst way: the
+  /// group still parses, so sign-in is attempted and the relying party rejects
+  /// a handle it never issued.
+  ///
+  /// A group that is NOT engaged is untouched by this and flows through the
+  /// general loop, so a passkey present on one side only is still preserved
+  /// whole.
   bool _isEngagedPasskeyBlockMember(
     KdbxFieldDiff field,
     Set<KdbxPasskeyBlockRef> engagedBlocks,
   ) {
     final ref = kdbxPasskeyBlockRefOf(field);
-    if (ref == null || !engagedBlocks.contains(ref)) return false;
-    return field.classification == KdbxFieldClassification.identical ||
-        field.classification == KdbxFieldClassification.fieldConflict;
+    return ref != null && engagedBlocks.contains(ref);
   }
 
-  /// spec 023 T209: for every engaged passkey group, every SHARED member is
-  /// taken from the group's single answer, by copying the winning side's
-  /// `StringValue` object wholesale — so the protection flag travels with the
-  /// value and the secret is never read into a Dart string here, exactly as in
-  /// [_applyCredentialBlocks].
+  /// spec 023 T209: an engaged passkey group ends up holding **exactly the
+  /// winning side's members** — nothing of the loser's survives beside them.
+  ///
+  /// The winner's members are copied by taking its `StringValue` object
+  /// wholesale, so the protection flag travels with the value and the secret is
+  /// never read into a Dart string here, exactly as in
+  /// [_applyCredentialBlocks]. A member the winner does not have is REMOVED
+  /// from local when local is the side carrying it, and simply not copied when
+  /// the loser is remote.
+  ///
+  /// That removal is a deliberate exception to FR-4's no-deletion invariant,
+  /// and the narrowest one that works: what is dropped is one member of a
+  /// credential the user chose to replace, not a field of the entry and not the
+  /// credential the user kept. Preserving it instead would leave one
+  /// credential's user handle or PRF secret attached to another credential's
+  /// key — a group that parses, attempts a sign-in, and is refused by the
+  /// relying party (FR-008).
   void _applyPasskeyBlocks({
     required KdbxFile local,
     required KdbxFile remote,
@@ -1652,17 +1678,25 @@ class KdbxMergeAdapter {
           resolution.passkeyBlockChoiceFor(ref) == MergeChoice.local;
 
       for (final field in passkeyBlockFieldsOf(diff, ref)) {
-        if (field.local is! KdbxFieldPresent ||
-            field.remote is! KdbxFieldPresent) {
-          continue; // one-sided: preserved by the general loop already.
+        final winnerPresence = winnerIsLocal ? field.local : field.remote;
+        final winnerKey = winnerIsLocal ? field.localKey : field.remoteKey;
+        final localKey = field.localKey;
+
+        if (winnerPresence is! KdbxFieldPresent || winnerKey == null) {
+          // The winning credential has no such member. Drop local's copy if it
+          // has one; a remote-only member is never added, because this method
+          // owns every member of an engaged group and the general loop skips
+          // them all.
+          if (localKey != null) localEntry.removeString(KdbxKey(localKey));
+          continue;
         }
-        final targetKey = winnerIsLocal ? field.localKey! : field.remoteKey!;
+
         final sourceEntry = winnerIsLocal ? localEntry : remoteEntry;
-        final winningValue = sourceEntry.getString(KdbxKey(targetKey));
-        if (field.localKey != null && field.localKey != targetKey) {
-          localEntry.removeString(KdbxKey(field.localKey!));
+        final winningValue = sourceEntry.getString(KdbxKey(winnerKey));
+        if (localKey != null && localKey != winnerKey) {
+          localEntry.removeString(KdbxKey(localKey));
         }
-        localEntry.setString(KdbxKey(targetKey), winningValue);
+        localEntry.setString(KdbxKey(winnerKey), winningValue);
       }
     }
   }

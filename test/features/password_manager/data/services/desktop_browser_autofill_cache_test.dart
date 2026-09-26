@@ -9,6 +9,11 @@ import 'package:password_manager/features/password_manager/domain/models/vault_c
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_passkey.dart';
 
+/// Same reason as the CSV fixtures: the entry under test has to carry a
+/// password, because the property is that the published cache does NOT, but it
+/// does not have to read as a credential to the secret scanners.
+const _fixturePassword = 'KEYVAULT-FIXTURE-PASSWORD-VALUE';
+
 void main() {
   group('DesktopBrowserAutofillCacheStore', () {
     test(
@@ -495,7 +500,7 @@ void main() {
       groupId: 'root',
       title: 'webauthn.io both',
       username: 'alice',
-      password: 'secret-pw',
+      password: _fixturePassword,
       url: 'https://webauthn.io',
       notes: 'not published',
       customFields: const [
@@ -532,7 +537,7 @@ void main() {
       expect(json, isNot(contains('FIXTURE-KEY')));
       expect(json, isNot(contains('PROTECTED-MUST-NOT-BE-PUBLISHED')));
       // Nor the entry's password or notes, which were never published either.
-      expect(json, isNot(contains('secret-pw')));
+      expect(json, isNot(contains(_fixturePassword)));
       expect(json, isNot(contains('not published')));
     });
 
