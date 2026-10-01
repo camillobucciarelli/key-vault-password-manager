@@ -23,7 +23,7 @@ dependencies:
   kdbx: ^2.5.0
   local_auth: ^3.0.2
   loggy: ^2.0.3
-  otp: ^3.2.0
+  otp: ^3.2.1
   mobile_scanner: ^7.4.2
   oauth2: ^2.0.5
   path: ^1.9.1
