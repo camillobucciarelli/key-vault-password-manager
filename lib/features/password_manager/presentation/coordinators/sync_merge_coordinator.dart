@@ -14,18 +14,13 @@ import '../../domain/usecases/sync_merge_usecases.dart';
 
 class SyncMergeCoordinator {
   SyncMergeCoordinator({
-    required StartSyncMergeReviewUseCase startReview,
-    required UpdateSyncMergeDecisionUseCase updateDecision,
-    required CommitSyncMergeUseCase commit,
-    required CancelSyncMergeUseCase cancel,
-    required InvalidateSyncMergeUseCase invalidate,
-    required RecoverPendingSyncMergeUploadUseCase recoverPending,
-  }) : _startReview = startReview,
-       _updateDecision = updateDecision,
-       _commit = commit,
-       _cancel = cancel,
-       _invalidate = invalidate,
-       _recoverPending = recoverPending;
+    required this._startReview,
+    required this._updateDecision,
+    required this._commit,
+    required this._cancel,
+    required this._invalidate,
+    required this._recoverPending,
+  });
 
   final StartSyncMergeReviewUseCase _startReview;
   final UpdateSyncMergeDecisionUseCase _updateDecision;

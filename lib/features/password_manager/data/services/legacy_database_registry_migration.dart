@@ -35,10 +35,9 @@ class LegacyDatabaseRegistryMigration {
   LegacyDatabaseRegistryMigration({
     required this.sharedPreferences,
     required this.registryRepository,
-    Future<bool> Function(String key, bool value)? setBool,
-    Future<bool> Function(String key)? removePreference,
-  }) : _setBool = setBool,
-       _removePreference = removePreference;
+    this._setBool,
+    this._removePreference,
+  });
 
   static const cachedDatabasePathKey = 'CACHED_DATABASE_PATH';
   static const recentDatabasePathsKey = 'RECENT_DATABASE_PATHS';

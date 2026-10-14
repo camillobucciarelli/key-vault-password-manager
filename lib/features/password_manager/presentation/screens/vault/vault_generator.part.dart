@@ -357,15 +357,13 @@ class _GeneratorSheetScaffoldState extends State<_GeneratorSheetScaffold> {
                   _showCenteredCopyToast(context, 'Copied password.');
                 }
                 if (context.mounted) {
-                  VaultOperationScope.of(
-                    context,
-                  ).complete(GeneratedPasswordResult(password));
+                  VaultOperationScope.of(context)
+                      .complete(GeneratedPasswordResult(password));
                 }
                 return;
               }
-              VaultOperationScope.of(
-                context,
-              ).complete(GeneratedPasswordResult(password));
+              VaultOperationScope.of(context)
+                  .complete(GeneratedPasswordResult(password));
             },
           ),
         ],

@@ -38,44 +38,39 @@ void main() {
       expect(offenders, isEmpty, reason: offenders.join('\n'));
     });
 
-    test(
-      '$relative retains MergeFieldDisplay only in a State that disposes it',
-      () {
-        final offenders = <String>[];
-        for (final declaration in unit.declarations) {
-          if (declaration is! ClassDeclaration) continue;
-          final source = declaration.toSource();
-          for (final member in declaration.body.members) {
-            if (member is! FieldDeclaration) continue;
-            final type = member.fields.type?.toSource() ?? '';
-            if (!RegExp(
-              r'\bMerge(FieldDisplay|DisplaySide)\b',
-            ).hasMatch(type)) {
-              continue;
-            }
-            final name = member.fields.variables.first.name.lexeme;
-            final extendsState =
-                declaration.extendsClause?.superclass.toSource().startsWith(
-                  'State<',
-                ) ??
-                false;
-            final hasDispose = declaration.body.members.any(
-              (m) => m is MethodDeclaration && m.name.lexeme == 'dispose',
+    test('$relative retains MergeFieldDisplay only in a State that disposes it', () {
+      final offenders = <String>[];
+      for (final declaration in unit.declarations) {
+        if (declaration is! ClassDeclaration) continue;
+        final source = declaration.toSource();
+        for (final member in declaration.body.members) {
+          if (member is! FieldDeclaration) continue;
+          final type = member.fields.type?.toSource() ?? '';
+          if (!RegExp(r'\bMerge(FieldDisplay|DisplaySide)\b').hasMatch(type)) {
+            continue;
+          }
+          final name = member.fields.variables.first.name.lexeme;
+          final extendsState =
+              declaration.extendsClause?.superclass.toSource().startsWith(
+                'State<',
+              ) ??
+              false;
+          final hasDispose = declaration.body.members.any(
+            (m) => m is MethodDeclaration && m.name.lexeme == 'dispose',
+          );
+          final disposesField = RegExp(
+            '${RegExp.escape(name)}\\??\\.dispose\\(\\)',
+          ).hasMatch(source);
+          if (!extendsState || !hasDispose || !disposesField) {
+            offenders.add(
+              '${declaration.namePart.typeName.lexeme}.$name holds a $type but is not a '
+              'State whose dispose() disposes it',
             );
-            final disposesField = RegExp(
-              '${RegExp.escape(name)}\\??\\.dispose\\(\\)',
-            ).hasMatch(source);
-            if (!extendsState || !hasDispose || !disposesField) {
-              offenders.add(
-                '${declaration.namePart.typeName.lexeme}.$name holds a $type but is not a '
-                'State whose dispose() disposes it',
-              );
-            }
           }
         }
-        expect(offenders, isEmpty, reason: offenders.join('\n'));
-      },
-    );
+      }
+      expect(offenders, isEmpty, reason: offenders.join('\n'));
+    });
   }
 }
 

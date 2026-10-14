@@ -344,20 +344,23 @@ void main() {
         });
       }
 
-      test('denies an explicit https entry on a private-IP http page', () async {
-        // The de-pin only covers inferred schemes: a declared origin still wins.
-        _expectRevealRefused(
-          await _reveal(
-            entry: _entry(
-              id: 'entry-1',
-              username: 'alice',
-              password: 'test-only-secret',
-              url: 'https://192.168.1.10',
+      test(
+        'denies an explicit https entry on a private-IP http page',
+        () async {
+          // The de-pin only covers inferred schemes: a declared origin still wins.
+          _expectRevealRefused(
+            await _reveal(
+              entry: _entry(
+                id: 'entry-1',
+                username: 'alice',
+                password: 'test-only-secret',
+                url: 'https://192.168.1.10',
+              ),
+              origin: 'http://192.168.1.10',
             ),
-            origin: 'http://192.168.1.10',
-          ),
-        );
-      });
+          );
+        },
+      );
     });
 
     group('default ports written explicitly', () {

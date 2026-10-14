@@ -535,9 +535,8 @@ void main() {
         ),
       );
 
-      await DatabaseFileHashRecorder(
-        registryRepository: registry,
-      ).reconcileMissingHashes();
+      await DatabaseFileHashRecorder(registryRepository: registry)
+          .reconcileMissingHashes();
 
       expect(
         registry.records.single.fileHash,
@@ -560,9 +559,8 @@ void main() {
         ),
       );
 
-      await DatabaseFileHashRecorder(
-        registryRepository: registry,
-      ).reconcileMissingHashes();
+      await DatabaseFileHashRecorder(registryRepository: registry)
+          .reconcileMissingHashes();
 
       expect(registry.records.single.fileHash, 'trusted-hash');
     });
@@ -585,9 +583,8 @@ void main() {
       registry.failListWith = const FormatException('corrupt registry');
 
       await expectLater(
-        DatabaseFileHashRecorder(
-          registryRepository: registry,
-        ).reconcileMissingHashes(),
+        DatabaseFileHashRecorder(registryRepository: registry)
+            .reconcileMissingHashes(),
         completes,
       );
 
@@ -958,46 +955,43 @@ void main() {
     },
   );
 
-  test(
-    'sets last password change timestamp to update timestamp when password changes',
-    () async {
-      final rootGroupId = await _rootGroupId(service, databasePath, password);
-      await service.createEntry(
-        databasePath: databasePath,
-        password: password,
-        groupId: rootGroupId,
-        title: 'Bank',
-        username: 'user',
-        entryPassword: 'old-password',
-        url: '',
-        notes: '',
-      );
+  test('sets last password change timestamp to update timestamp when password changes', () async {
+    final rootGroupId = await _rootGroupId(service, databasePath, password);
+    await service.createEntry(
+      databasePath: databasePath,
+      password: password,
+      groupId: rootGroupId,
+      title: 'Bank',
+      username: 'user',
+      entryPassword: 'old-password',
+      url: '',
+      notes: '',
+    );
 
-      final first = (await service.loadAllEntries(
-        databasePath: databasePath,
-        password: password,
-      )).single;
+    final first = (await service.loadAllEntries(
+      databasePath: databasePath,
+      password: password,
+    )).single;
 
-      await service.updateEntry(
-        databasePath: databasePath,
-        password: password,
-        entryId: first.id,
-        title: first.title,
-        username: first.username,
-        entryPassword: 'new-password',
-        url: first.url,
-        notes: first.notes,
-        customFields: first.customFields,
-      );
+    await service.updateEntry(
+      databasePath: databasePath,
+      password: password,
+      entryId: first.id,
+      title: first.title,
+      username: first.username,
+      entryPassword: 'new-password',
+      url: first.url,
+      notes: first.notes,
+      customFields: first.customFields,
+    );
 
-      final updated = (await service.loadAllEntries(
-        databasePath: databasePath,
-        password: password,
-      )).single;
+    final updated = (await service.loadAllEntries(
+      databasePath: databasePath,
+      password: password,
+    )).single;
 
-      expect(updated.lastPasswordChangedAt, updated.updatedAt);
-    },
-  );
+    expect(updated.lastPasswordChangedAt, updated.updatedAt);
+  });
 
   test(
     'updateEntry persists changed title, username, password, url, notes',
@@ -2001,9 +1995,8 @@ void main() {
           credentials: credentials,
         ).save();
         final bytes = Uint8List.fromList(saved);
-        ByteData.sublistView(
-          bytes,
-        ).setUint16(majorVersionOffset, major, Endian.little);
+        ByteData.sublistView(bytes)
+            .setUint16(majorVersionOffset, major, Endian.little);
         await KdbxFormat().read(bytes, credentials);
       }
 
@@ -2441,14 +2434,13 @@ void main() {
       final before = await File(databasePath).readAsBytes();
 
       await expectLater(
-        VaultKdbxService(
-          safeWriter: _FailingSafeVaultFileWriter(),
-        ).restoreEntryRevision(
-          databasePath: databasePath,
-          password: password,
-          entryId: entryId,
-          replacedAt: revision.replacedAt,
-        ),
+        VaultKdbxService(safeWriter: _FailingSafeVaultFileWriter())
+            .restoreEntryRevision(
+              databasePath: databasePath,
+              password: password,
+              entryId: entryId,
+              replacedAt: revision.replacedAt,
+            ),
         throwsException,
       );
 

@@ -230,8 +230,7 @@ class DatabaseSessionCoordinator {
     if (dedup.hasDuplicate) {
       return DatabaseSelectionSessionResult(
         status: DatabaseSessionStatus.duplicateDecisionRequired,
-        message:
-            'A database with the same source or content already exists. Choose how to continue.',
+        message: 'A database with the same source or content already exists. Choose how to continue.',
         items: await _loadSelectionItems(),
         duplicatePrompt: DatabaseDuplicatePrompt(
           imported: staged.imported,
@@ -286,8 +285,7 @@ class DatabaseSessionCoordinator {
         storedHash != imported.fileHash) {
       return DatabaseSelectionSessionResult(
         status: DatabaseSessionStatus.error,
-        message:
-            'Selected file does not match the missing database. Use "Open existing database" instead.',
+        message: 'Selected file does not match the missing database. Use "Open existing database" instead.',
         items: await _loadSelectionItems(),
       );
     }
@@ -486,8 +484,7 @@ class DatabaseSessionCoordinator {
     if (dedup.hasDuplicate) {
       return DatabaseSelectionSessionResult(
         status: DatabaseSessionStatus.duplicateDecisionRequired,
-        message:
-            'A database with the same source or content already exists. Choose how to continue.',
+        message: 'A database with the same source or content already exists. Choose how to continue.',
         items: await _loadSelectionItems(),
         duplicatePrompt: DatabaseDuplicatePrompt(
           imported: staged.imported,
@@ -1131,8 +1128,7 @@ class DatabaseSessionCoordinator {
     if (dedup.hasDuplicate && duplicateResolution == null) {
       return DatabaseSelectionSessionResult(
         status: DatabaseSessionStatus.duplicateDecisionRequired,
-        message:
-            'A database with the same source or content already exists. Choose how to continue.',
+        message: 'A database with the same source or content already exists. Choose how to continue.',
         items: await _loadSelectionItems(),
         duplicatePrompt: DatabaseDuplicatePrompt(
           imported: imported,
@@ -1226,8 +1222,7 @@ class DatabaseSessionCoordinator {
     return switch (duplicateResolution) {
       DatabaseDuplicateResolution.keepBoth =>
         'Duplicate detected. Kept both databases as requested.',
-      DatabaseDuplicateResolution.replaceExisting =>
-        'Duplicate detected. Existing database metadata was updated with the selected file.',
+      DatabaseDuplicateResolution.replaceExisting => 'Duplicate detected. Existing database metadata was updated with the selected file.',
       _ => 'Existing database reused to avoid duplicates.',
     };
   }
@@ -1269,8 +1264,7 @@ class DatabaseSessionCoordinator {
           path: result.path,
           items: result.items,
           promptBiometricSetup: true,
-          message:
-              'Database opened, but auto-link to Drive failed. You can link it from the Vault sync menu.',
+          message: 'Database opened, but auto-link to Drive failed. You can link it from the Vault sync menu.',
         );
       }
       return DatabaseSelectionSessionResult(

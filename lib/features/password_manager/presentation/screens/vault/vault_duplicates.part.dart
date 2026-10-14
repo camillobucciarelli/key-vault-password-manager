@@ -56,9 +56,9 @@ class _DuplicatesScreen extends StatelessWidget {
                   KvCircleIconButton(
                     glyph: AppGlyph.back,
                     tooltip: 'Back',
-                    onPressed: () => VaultOperationScope.of(
-                      context,
-                    ).complete(const VaultDone()),
+                    onPressed: () =>
+                        VaultOperationScope.of(context)
+                            .complete(const VaultDone()),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -392,9 +392,8 @@ class _MergePreviewScreen extends StatelessWidget {
     final customFieldKeysToCopy = <String>{
       for (final p in previews) ...p.customFieldKeysToCopy,
     }.toList(growable: false);
-    final urlsToCopy = <String>{
-      for (final p in previews) ...p.urlsToCopy,
-    }.toList(growable: false);
+    final urlsToCopy = <String>{for (final p in previews) ...p.urlsToCopy}
+        .toList(growable: false);
 
     return Scaffold(
       backgroundColor: colors.ground,
@@ -410,9 +409,9 @@ class _MergePreviewScreen extends StatelessWidget {
                     KvCircleIconButton(
                       glyph: AppGlyph.back,
                       tooltip: 'Back',
-                      onPressed: () => VaultOperationScope.of(
-                        context,
-                      ).complete(ConfirmDecision.cancel),
+                      onPressed: () =>
+                          VaultOperationScope.of(context)
+                              .complete(ConfirmDecision.cancel),
                     ),
                     const SizedBox(width: 8),
                     Text(
@@ -487,16 +486,16 @@ class _MergePreviewScreen extends StatelessWidget {
                   label: previews.length == 1
                       ? 'Merge and move duplicate'
                       : 'Merge and move ${previews.length} duplicates',
-                  onPressed: () => VaultOperationScope.of(
-                    context,
-                  ).complete(ConfirmDecision.confirm),
+                  onPressed: () =>
+                      VaultOperationScope.of(context)
+                          .complete(ConfirmDecision.confirm),
                 ),
                 const SizedBox(height: 9),
                 KvSecondaryPillButton(
                   label: 'Cancel',
-                  onPressed: () => VaultOperationScope.of(
-                    context,
-                  ).complete(ConfirmDecision.cancel),
+                  onPressed: () =>
+                      VaultOperationScope.of(context)
+                          .complete(ConfirmDecision.cancel),
                 ),
               ],
             ),

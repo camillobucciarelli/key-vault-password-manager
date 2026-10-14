@@ -144,9 +144,10 @@ class PasskeyParser {
 
   /// Returns null when the text is not a single PEM block.
   static Uint8List? pemToDer(String pem) {
-    final lines = LineSplitter.split(
-      pem,
-    ).map((line) => line.trim()).where((line) => line.isNotEmpty).toList();
+    final lines = LineSplitter.split(pem)
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
     if (lines.length < 3 ||
         !lines.first.startsWith('-----BEGIN ') ||
         !lines.last.startsWith('-----END ')) {

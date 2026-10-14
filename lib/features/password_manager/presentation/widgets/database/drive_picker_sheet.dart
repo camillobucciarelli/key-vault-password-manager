@@ -59,12 +59,9 @@ String driveOpenErrorMessage(Object error) {
   // `toString()`; the substring branches below serve untyped exceptions.
   if (error is CloudStorageException) {
     return switch (error.code) {
-      CloudStorageErrorCode.cancelled =>
-        'Google sign-in was cancelled during authorization. Please try again and grant Drive permissions.',
-      CloudStorageErrorCode.forbidden =>
-        'Google Drive permission was not granted. Enable Drive access and try again.',
-      CloudStorageErrorCode.authorizationRequired =>
-        'Google Drive session expired or unavailable. Use Reconnect below to sign in again.',
+      CloudStorageErrorCode.cancelled => 'Google sign-in was cancelled during authorization. Please try again and grant Drive permissions.',
+      CloudStorageErrorCode.forbidden => 'Google Drive permission was not granted. Enable Drive access and try again.',
+      CloudStorageErrorCode.authorizationRequired => 'Google Drive session expired or unavailable. Use Reconnect below to sign in again.',
       _ => error.safeMessage,
     };
   }
@@ -237,9 +234,9 @@ class _DrivePickerSheetContentState extends State<_DrivePickerSheetContent> {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(AppRadii.card),
-                  onTap: () => Navigator.of(
-                    context,
-                  ).pop(DrivePickerSheetResult.file(file)),
+                  onTap: () =>
+                      Navigator.of(context)
+                          .pop(DrivePickerSheetResult.file(file)),
                   child: Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -298,16 +295,16 @@ class _DriveEmptyState extends StatelessWidget {
         const SizedBox(height: 16),
         KvPillButton(
           label: 'Create & upload a new database',
-          onPressed: () => Navigator.of(
-            context,
-          ).pop(const DrivePickerSheetResult.createAndUpload()),
+          onPressed: () =>
+              Navigator.of(context)
+                  .pop(const DrivePickerSheetResult.createAndUpload()),
         ),
         const SizedBox(height: 10),
         KvSecondaryPillButton(
           label: 'Switch account',
-          onPressed: () => Navigator.of(
-            context,
-          ).pop(const DrivePickerSheetResult.switchAccount()),
+          onPressed: () =>
+              Navigator.of(context)
+                  .pop(const DrivePickerSheetResult.switchAccount()),
         ),
       ],
     );

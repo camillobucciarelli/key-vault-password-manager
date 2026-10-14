@@ -4,16 +4,22 @@ publish_to: "none"
 version: 0.6.0+3
 
 environment:
-  sdk: ^3.11.1
+  sdk: ^3.13.5
 
 dependencies:
   flutter:
     sdk: flutter
   bloc: ^9.2.1
   equatable: ^3.0.0
-  file_picker: ^11.0.2
+  # Held at 11.x: from 12.0 `saveFile` requires `bytes` and writes the file
+  # itself (no path-only save dialog). Exports and new-database paths here
+  # pick a path, then write through DatabaseFileRepository / DatabasePathMutex
+  # / the safe writer; adopting 12+ needs a design for that, not a bump.
+  file_picker: ^11.0.3
   flutter_bloc: ^9.1.1
-  flutter_secure_storage: ^10.3.1
+  # Held at 10.x: every 11.x needs win32 ^6 (via flutter_secure_storage_windows
+  # 4.2.2), which only file_picker >=12 accepts. Moves together with file_picker.
+  flutter_secure_storage: ^10.3.4
   flutter_svg: ^2.3.0
   google_sign_in: ^7.2.0
   get_it: ^9.3.0
@@ -34,7 +40,7 @@ dependencies:
   # `lib/` must not import a package it does not declare. Same pattern and
   # justification as `xml` below.
   pointycastle: ^4.0.0
-  shared_preferences: ^2.5.5
+  shared_preferences: ^2.5.6
   stream_transform: ^2.1.2
   url_launcher: ^6.3.3
   # Already resolved transitively via `kdbx` at the same version; declared
@@ -43,6 +49,7 @@ dependencies:
   # AutoType) straight off the public, exported `KdbxNode.node`. Promoted from
   # `dev_dependencies` in Phase 3 slice 2, exactly as the note there said it
   # would be when the adapter landed in `lib/`.
+  # Held at 6.x: kdbx 2.5.0 (latest) constrains xml <7.0.0.
   xml: ^6.6.1
 
 dev_dependencies:
@@ -65,10 +72,10 @@ dev_dependencies:
   plugin_platform_interface: ^2.1.8
   # Used only by the C-7 import gate test
   # (test/.../database_session_coordinator_imports_test.dart).
-  # Do NOT raise to ^14 without checking `flutter pub get` still resolves:
-  # analyzer 14 needs meta ^1.18.3, while flutter_test from the pinned Flutter
-  # version (.fvmrc: 3.44.8) ships meta 1.18.0.
-  analyzer: ^14.4.0  # pinned: analyzer >=14 needs meta ^1.18.3, but the pinned Flutter SDK (fvm, 3.44.8) ships flutter_test with meta 1.18.0 — see PR #32. Revisit when the toolchain pin moves.
+  # analyzer's `meta` floor must stay satisfiable by the meta that
+  # flutter_test pins in the .fvmrc SDK; re-check `flutter pub get` on a
+  # toolchain bump.
+  analyzer: ^14.5.0
 
 flutter:
   uses-material-design: true

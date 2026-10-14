@@ -210,9 +210,8 @@ void main() {
   group('T015 / FR-9 no migration', () {
     test('a plaintext (non-conforming) metadata file is an explicit cipher '
         'error, never half-parsed and never repaired', () async {
-      final metadataDir = await Directory(
-        p.join(tempDir.path, 'metadata'),
-      ).create(recursive: true);
+      final metadataDir = await Directory(p.join(tempDir.path, 'metadata'))
+          .create(recursive: true);
       final file = File(
         p.join(metadataDir.path, 'database_registry_records.json'),
       );

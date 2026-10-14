@@ -151,9 +151,8 @@ void main() {
     });
 
     test('presentation never imports the provider port', () {
-      final offenders = _filesUnder(
-        _presentation,
-      ).where((f) => _read(f).contains('cloud_storage_provider.dart'));
+      final offenders = _filesUnder(_presentation)
+          .where((f) => _read(f).contains('cloud_storage_provider.dart'));
       expect(offenders, isEmpty);
     });
   });
@@ -175,9 +174,9 @@ void main() {
         'lib',
       ).where((f) => _read(f).contains('abstract class CloudStorageProvider'));
       final impls = _filesUnder('lib').where(
-        (f) => RegExp(
-          r'class \w+ implements CloudStorageProvider',
-        ).hasMatch(_read(f)),
+        (f) =>
+            RegExp(r'class \w+ implements CloudStorageProvider')
+                .hasMatch(_read(f)),
       );
       expect(ports, hasLength(1));
       expect(impls, hasLength(1));
@@ -210,40 +209,37 @@ void main() {
       },
     );
 
-    test(
-      'T601b: every *Drive* identifier in presentation is individually allowlisted',
-      () {
-        final pattern = RegExp(r'\b[A-Za-z_][A-Za-z0-9_]*Drive[A-Za-z0-9_]*\b');
-        Set<String> namesIn(List<String> files) => {
-          for (final f in files)
-            ...pattern.allMatches(_read(f)).map((m) => m.group(0)!),
-        };
+    test('T601b: every *Drive* identifier in presentation is individually allowlisted', () {
+      final pattern = RegExp(r'\b[A-Za-z_][A-Za-z0-9_]*Drive[A-Za-z0-9_]*\b');
+      Set<String> namesIn(List<String> files) => {
+        for (final f in files)
+          ...pattern.allMatches(_read(f)).map((m) => m.group(0)!),
+      };
 
-        final production = namesIn(_filesUnder(_presentation));
-        expect(
-          production.difference(_presentationDriveAllowlist),
-          isEmpty,
-          reason: 'production presentation names',
-        );
-        expect(
-          production.intersection(_testOnlyGoogleServiceNames),
-          isEmpty,
-          reason: 'a Google service name reached production presentation',
-        );
+      final production = namesIn(_filesUnder(_presentation));
+      expect(
+        production.difference(_presentationDriveAllowlist),
+        isEmpty,
+        reason: 'production presentation names',
+      );
+      expect(
+        production.intersection(_testOnlyGoogleServiceNames),
+        isEmpty,
+        reason: 'a Google service name reached production presentation',
+      );
 
-        final tests = namesIn([
-          ..._filesUnder('test/features/password_manager/presentation'),
-          ..._filesUnder('test/goldens'),
-        ]);
-        expect(
-          tests.difference(
-            _presentationDriveAllowlist.union(_testOnlyGoogleServiceNames),
-          ),
-          isEmpty,
-          reason: 'presentation test names',
-        );
-      },
-    );
+      final tests = namesIn([
+        ..._filesUnder('test/features/password_manager/presentation'),
+        ..._filesUnder('test/goldens'),
+      ]);
+      expect(
+        tests.difference(
+          _presentationDriveAllowlist.union(_testOnlyGoogleServiceNames),
+        ),
+        isEmpty,
+        reason: 'presentation test names',
+      );
+    });
   });
 }
 
@@ -261,8 +257,8 @@ List<String> _filesUnder(String root) =>
 String _read(String path) => File(path).readAsStringSync();
 
 bool _importsAny(String path, List<String> needles) {
-  final imports = _read(
-    path,
-  ).split('\n').where((line) => line.startsWith('import '));
+  final imports = _read(path)
+      .split('\n')
+      .where((line) => line.startsWith('import '));
   return imports.any((line) => needles.any(line.contains));
 }

@@ -10,8 +10,10 @@ import '../../domain/models/merge_field_display.dart';
 import '../../domain/models/sync_merge_models.dart';
 import '../../domain/usecases/load_sync_merge_field_display_usecase.dart';
 
-typedef SyncMergeFieldDisplayBuilder =
-    Widget Function(BuildContext context, MergeFieldDisplay? display);
+typedef SyncMergeFieldDisplayBuilder = Widget Function(
+  BuildContext context,
+  MergeFieldDisplay? display,
+);
 
 class SyncMergeFieldDisplayView extends StatefulWidget {
   const SyncMergeFieldDisplayView({

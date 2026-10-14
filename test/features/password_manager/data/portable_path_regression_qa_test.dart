@@ -42,12 +42,10 @@ void main() {
   setUp(() async {
     secure = InMemorySecureDataSource();
     containerRoot = await Directory.systemTemp.createTemp('portable_regr_');
-    oldDocs = await Directory(
-      p.join(containerRoot.path, 'UUID-A', 'Documents'),
-    ).create(recursive: true);
-    newDocs = await Directory(
-      p.join(containerRoot.path, 'UUID-B', 'Documents'),
-    ).create(recursive: true);
+    oldDocs = await Directory(p.join(containerRoot.path, 'UUID-A', 'Documents'))
+        .create(recursive: true);
+    newDocs = await Directory(p.join(containerRoot.path, 'UUID-B', 'Documents'))
+        .create(recursive: true);
     pathProvider = _MutablePathProvider(oldDocs.path);
     PathProviderPlatform.instance = pathProvider;
   });
@@ -109,13 +107,11 @@ void main() {
       );
       await relocate();
 
-      await SyncMetadataDataSourceImpl(
-        secureDataSource: secure,
-      ).removeMapping('db-1');
+      await SyncMetadataDataSourceImpl(secureDataSource: secure)
+          .removeMapping('db-1');
       expect(
-        await SyncMetadataDataSourceImpl(
-          secureDataSource: secure,
-        ).getAllMappings(),
+        await SyncMetadataDataSourceImpl(secureDataSource: secure)
+            .getAllMappings(),
         isEmpty,
       );
     });
@@ -135,9 +131,8 @@ void main() {
 
       final from = p.join(newDocs.path, 'databases', 'v.kdbx');
       final to = p.join(newDocs.path, 'databases', 'renamed.kdbx');
-      await SyncMetadataDataSourceImpl(
-        secureDataSource: secure,
-      ).moveMappingPath(fromDatabasePath: from, toDatabasePath: to);
+      await SyncMetadataDataSourceImpl(secureDataSource: secure)
+          .moveMappingPath(fromDatabasePath: from, toDatabasePath: to);
 
       final raw = await readSealed(
         p.join(newDocs.path, 'metadata', 'sync_mappings.json'),
@@ -145,9 +140,9 @@ void main() {
       final decoded = (jsonDecode(raw) as List).single as Map;
       expect(decoded['databasePath'], 'appdocs:databases/renamed.kdbx');
       expect(
-        (await SyncMetadataDataSourceImpl(
-          secureDataSource: secure,
-        ).getMapping('db-1'))?.remoteFileId,
+        (await SyncMetadataDataSourceImpl(secureDataSource: secure)
+                .getMapping('db-1'))
+            ?.remoteFileId,
         'id',
       );
     });

@@ -212,9 +212,8 @@ class _RemoteFilePickerScreenState extends State<_RemoteFilePickerScreen> {
       }
       return;
     }
-    VaultOperationScope.of(
-      context,
-    ).complete(DriveLinkResult.existing(selectedId));
+    VaultOperationScope.of(context)
+        .complete(DriveLinkResult.existing(selectedId));
   }
 
   Future<void> _reconnectAndReload() async {
@@ -491,9 +490,9 @@ Future<void> _openSyncMergeReview({
         child: Builder(
           builder: (screenContext) => SyncMergeScreen(
             loadFieldDisplay: loadFieldDisplay,
-            onClose: () => VaultOperationScope.of(
-              screenContext,
-            ).complete(const VaultDone()),
+            onClose: () =>
+                VaultOperationScope.of(screenContext)
+                    .complete(const VaultDone()),
           ),
         ),
       ),

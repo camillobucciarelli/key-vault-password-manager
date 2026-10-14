@@ -276,8 +276,7 @@ class DatabaseUnlockBloc
         emit,
         state.copyWith(
           phase: UnlockPhase.ready,
-          errorMessage:
-              'No saved credentials found. Insert password or select a key file.',
+          errorMessage: 'No saved credentials found. Insert password or select a key file.',
         ),
       );
       return;

@@ -299,18 +299,17 @@ class DatabaseSelectionScreen extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               TextButton(
-                onPressed: () => Navigator.of(
-                  sheetContext,
-                ).pop(RecentDatabaseRemovalMode.removeOnly),
+                onPressed: () =>
+                    Navigator.of(sheetContext)
+                        .pop(RecentDatabaseRemovalMode.removeOnly),
                 child: const Text('Remove from list'),
               ),
               KvSecondaryPillButton(
                 label: 'Remove and delete file',
                 onPressed: kIsWeb
                     ? null
-                    : () => Navigator.of(
-                        sheetContext,
-                      ).pop(RecentDatabaseRemovalMode.removeAndDeleteFile),
+                    : () => Navigator.of(sheetContext)
+                          .pop(RecentDatabaseRemovalMode.removeAndDeleteFile),
               ),
               const SizedBox(height: 8),
               TextButton(
@@ -398,9 +397,8 @@ class DatabaseSelectionScreen extends StatelessWidget {
       bloc.add(const DiscardUnreadableMetadata());
       return;
     }
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(state.message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(state.message)));
   }
 
   @override
@@ -418,9 +416,8 @@ class DatabaseSelectionScreen extends StatelessWidget {
             }
             if (state is DatabaseSelectionSuccess) {
               if (state.userMessage != null && state.userMessage!.isNotEmpty) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text(state.userMessage!)));
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(SnackBar(content: Text(state.userMessage!)));
               }
               AppNavigation.pushFadeReplacement(
                 context,
@@ -435,9 +432,8 @@ class DatabaseSelectionScreen extends StatelessWidget {
               _handleTypedFailure(context, state);
             }
             if (state is DatabaseSelectionInfo) {
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(SnackBar(content: Text(state.message)));
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(SnackBar(content: Text(state.message)));
             }
           },
           builder: (context, state) {

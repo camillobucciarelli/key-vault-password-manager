@@ -315,9 +315,9 @@ class _HealthCategoryListScreen extends StatelessWidget {
                   KvCircleIconButton(
                     glyph: AppGlyph.back,
                     tooltip: 'Back',
-                    onPressed: () => VaultOperationScope.of(
-                      context,
-                    ).complete(const VaultDone()),
+                    onPressed: () =>
+                        VaultOperationScope.of(context)
+                            .complete(const VaultDone()),
                   ),
                   const SizedBox(width: 12),
                   Expanded(

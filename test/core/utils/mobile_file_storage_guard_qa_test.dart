@@ -46,9 +46,8 @@ void main() {
     // host to supply it left CI unable to exercise the resolved-spelling path.
     final rawRoot = await Directory.systemTemp.createTemp('guard_qa_');
     root = Directory(rawRoot.resolveSymbolicLinksSync());
-    final realDocs = await Directory(
-      p.join(root.path, 'Documents.real'),
-    ).create();
+    final realDocs = await Directory(p.join(root.path, 'Documents.real'))
+        .create();
     final docsLink = Link(p.join(root.path, 'Documents'));
     await docsLink.create(realDocs.path);
 
@@ -94,9 +93,8 @@ void main() {
     );
 
     test('sibling directory with a shared prefix is still refused', () async {
-      final sibling = await Directory(
-        '${p.join(docs.path, sub)}_evil',
-      ).create(recursive: true);
+      final sibling = await Directory('${p.join(docs.path, sub)}_evil')
+          .create(recursive: true);
       final victim = File(p.join(sibling.path, 'x.kdbx'));
       await victim.writeAsString('secret');
 

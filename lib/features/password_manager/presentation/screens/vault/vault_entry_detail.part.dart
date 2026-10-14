@@ -1013,8 +1013,7 @@ Future<void> _openEntryUrl(BuildContext context, String url) async {
     opened = false;
   }
   if (!opened && context.mounted) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('Unable to open $target')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('Unable to open $target')));
   }
 }

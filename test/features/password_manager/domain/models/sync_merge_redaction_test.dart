@@ -263,9 +263,8 @@ void main() {
           MergeFailureCode.staleRecoveryLocal,
           localCommitCompleted: true,
         ).toString(),
-        const MergeRecoveryOutcome(
-          MergeRecoveryDisposition.staleRecoveryLocal,
-        ).toString(),
+        const MergeRecoveryOutcome(MergeRecoveryDisposition.staleRecoveryLocal)
+            .toString(),
       ].join('\n');
 
       expect(rendered, isNot(contains(marker)));

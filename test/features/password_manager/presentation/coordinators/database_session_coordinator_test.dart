@@ -642,9 +642,10 @@ void main() {
 
       expect(await File(targetPath).readAsBytes(), originalBytes);
       expect(
-        await Directory(
-          '${tempDir.path}/databases',
-        ).list().where((entry) => entry is File).length,
+        await Directory('${tempDir.path}/databases')
+            .list()
+            .where((entry) => entry is File)
+            .length,
         1,
       );
     });

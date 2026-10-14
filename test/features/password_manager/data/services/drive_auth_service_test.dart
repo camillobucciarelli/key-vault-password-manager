@@ -109,28 +109,25 @@ void main() {
       expect(tokens.clearCount, 0);
     });
 
-    test(
-      'terminal error_description with non-terminal error preserves credentials',
-      () async {
-        final tokens = _StoredGoogleTokenDataSource();
-        final original = tokens.value;
-        final service = _desktopService(
-          tokens: tokens,
-          client: MockClient(
-            (_) async => http.Response(
-              '{"error":"temporarily_unavailable",'
-              '"error_description":"invalid_grant"}',
-              400,
-            ),
+    test('terminal error_description with non-terminal error preserves credentials', () async {
+      final tokens = _StoredGoogleTokenDataSource();
+      final original = tokens.value;
+      final service = _desktopService(
+        tokens: tokens,
+        client: MockClient(
+          (_) async => http.Response(
+            '{"error":"temporarily_unavailable",'
+            '"error_description":"invalid_grant"}',
+            400,
           ),
-        );
+        ),
+      );
 
-        await expectLater(service.getValidAccessToken(), throwsException);
+      await expectLater(service.getValidAccessToken(), throwsException);
 
-        expect(tokens.value, original);
-        expect(tokens.clearCount, 0);
-      },
-    );
+      expect(tokens.value, original);
+      expect(tokens.clearCount, 0);
+    });
 
     test('cleanup failure preserves typed reconnect-required error', () async {
       final tokens = _StoredGoogleTokenDataSource(throwOnClear: true);

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
+
 import 'managed_storage_root.dart';
 
 /// Serialization boundary helper that keeps persisted file paths portable

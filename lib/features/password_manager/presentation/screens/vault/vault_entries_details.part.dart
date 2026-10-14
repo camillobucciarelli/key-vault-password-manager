@@ -325,9 +325,8 @@ class _RecordsEmptyState extends StatelessWidget {
             // spec-019: the list holds records only, and the folder menu it
             // used to point at was deleted with the folder rows (C-03-03).
             isSearchActive ? 'No records found' : 'No records yet',
-            style: Theme.of(
-              context,
-            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+            style: Theme.of(context).textTheme.titleSmall
+                ?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 4),
           Text(

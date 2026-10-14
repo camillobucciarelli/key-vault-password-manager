@@ -31,8 +31,10 @@ class NativeHostInstallCommand {
   final String displayCommand;
 }
 
-typedef NativeHostProcessRunner =
-    Future<ProcessResult> Function(String executable, List<String> arguments);
+typedef NativeHostProcessRunner = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments,
+);
 
 /// Result of verifying desktop browser autofill connectivity.
 enum BridgeCheckResult {
@@ -45,12 +47,10 @@ enum BridgeCheckResult {
 class BrowserSetupService {
   BrowserSetupService({
     DesktopBrowserAutofillCacheStore? cacheStore,
-    Directory? projectRoot,
-    BrowserSetupHostPlatform? platformOverride,
+    this._projectRoot,
+    this._platformOverride,
     NativeHostProcessRunner? processRunner,
   }) : _cacheStore = cacheStore ?? DesktopBrowserAutofillCacheStore(),
-       _projectRoot = projectRoot,
-       _platformOverride = platformOverride,
        _processRunner = processRunner ?? Process.run;
 
   static final RegExp _extensionIdPattern = RegExp(r'^[a-p]{32}$');
@@ -332,8 +332,7 @@ class BrowserSetupService {
               'Brave-Browser',
               'NativeMessagingHosts',
             ),
-            system:
-                '/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts',
+            system: '/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts',
           ),
           (
             user: p.join(appSupport, 'Vivaldi', 'NativeMessagingHosts'),
@@ -350,8 +349,7 @@ class BrowserSetupService {
               'com.operasoftware.Opera',
               'NativeMessagingHosts',
             ),
-            system:
-                '/Library/Application Support/com.operasoftware.Opera/NativeMessagingHosts',
+            system: '/Library/Application Support/com.operasoftware.Opera/NativeMessagingHosts',
           ),
         ];
       case BrowserSetupHostPlatform.linux:
