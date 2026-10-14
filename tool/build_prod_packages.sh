@@ -400,7 +400,7 @@ for raw_platform in "${selected_platforms[@]}"; do
       echo "Building macOS app..."
       (cd "${ROOT_DIR}" && flutter build macos "${build_args[@]}")
 
-      macos_app="${ROOT_DIR}/build/macos/Build/Products/Release/password_manager.app"
+      macos_app="${ROOT_DIR}/build/macos/Build/Products/Release/KeyVault.app"
       copy_if_exists "${macos_app}" "${OUTPUT_DIR}/password_manager-macos-release.app"
       zip_dir "${OUTPUT_DIR}/password_manager-macos-release.app" "${OUTPUT_DIR}/password_manager-macos-release.zip"
       ;;
