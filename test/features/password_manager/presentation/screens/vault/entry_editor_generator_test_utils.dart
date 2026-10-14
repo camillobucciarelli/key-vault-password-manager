@@ -78,8 +78,7 @@ VaultSnapshot buildFixtureSnapshot() {
     password: 'q9!Ztn-3Xpr%Ke7w',
     url: 'https://sella.it',
     notes: '',
-    otpUri:
-        'otpauth://totp/Sella:CB77219?secret=JBSWY3DPEHPK3PXP&period=30&digits=6',
+    otpUri: 'otpauth://totp/Sella:CB77219?secret=JBSWY3DPEHPK3PXP&period=30&digits=6',
     createdAt: created,
     updatedAt: now,
     lastPasswordChangedAt: now.subtract(const Duration(days: 60)),

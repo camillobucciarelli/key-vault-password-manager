@@ -74,9 +74,8 @@ class GoogleDriveApiService {
         queryParameters['pageToken'] = nextPageToken;
       }
 
-      final uri = Uri.parse(
-        '$_apiBase/files',
-      ).replace(queryParameters: queryParameters);
+      final uri = Uri.parse('$_apiBase/files')
+          .replace(queryParameters: queryParameters);
 
       final response = await _authedGet(uri);
       _ensureSuccess(response, 'Unable to list Drive files');
@@ -109,9 +108,8 @@ class GoogleDriveApiService {
     required Uint8List bytes,
   }) async {
     final boundary = _generateBoundary();
-    final uri = Uri.parse(
-      '$_uploadBase/files',
-    ).replace(queryParameters: {'uploadType': 'multipart'});
+    final uri = Uri.parse('$_uploadBase/files')
+        .replace(queryParameters: {'uploadType': 'multipart'});
 
     final metadata = jsonEncode({'name': fileName});
     final body = _buildMultipartBody(
@@ -140,9 +138,8 @@ class GoogleDriveApiService {
     required String fileId,
     required Uint8List bytes,
   }) async {
-    final uri = Uri.parse(
-      '$_uploadBase/files/$fileId',
-    ).replace(queryParameters: {'uploadType': 'media'});
+    final uri = Uri.parse('$_uploadBase/files/$fileId')
+        .replace(queryParameters: {'uploadType': 'media'});
 
     final response = await _authedRequest(
       (headers) => _httpClient.patch(
@@ -156,9 +153,8 @@ class GoogleDriveApiService {
   }
 
   Future<Uint8List> downloadFile(String fileId) async {
-    final uri = Uri.parse(
-      '$_apiBase/files/$fileId',
-    ).replace(queryParameters: {'alt': 'media'});
+    final uri = Uri.parse('$_apiBase/files/$fileId')
+        .replace(queryParameters: {'alt': 'media'});
 
     final response = await _authedGet(uri);
     _ensureSuccess(response, 'Unable to download Drive file');

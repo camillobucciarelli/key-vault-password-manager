@@ -43,14 +43,16 @@ class AppleAutofillV2MethodChannelClient implements AppleAutofillV2Client {
       return const AppleAutofillV2PublishResult.unsupported();
     }
 
-    final result = await _channel
-        .invokeMethod<Map<dynamic, dynamic>>('publishCredentials', {
-          'databaseId': databaseId,
-          'entries': credentials
-              .map((credential) => credential.toChannelMap())
-              .toList(growable: false),
-          'authSessionTtlMs': authSessionTtlMs,
-        });
+    final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
+      'publishCredentials',
+      {
+        'databaseId': databaseId,
+        'entries': credentials
+            .map((credential) => credential.toChannelMap())
+            .toList(growable: false),
+        'authSessionTtlMs': authSessionTtlMs,
+      },
+    );
     return AppleAutofillV2PublishResult.fromMap(result);
   }
 

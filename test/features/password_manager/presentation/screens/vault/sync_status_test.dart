@@ -159,50 +159,53 @@ void main() {
     );
   });
 
-  group('AC3: disconnected explains the security model before any auth call', () {
-    testWidgets(
-      'first render of the disconnected hero calls zero DatabaseSyncRepository.connect()',
-      (tester) async {
-        addTearDown(resetVaultShellTestDi);
-        final spyRepo = _SpyDatabaseSyncRepository();
+  group(
+    'AC3: disconnected explains the security model before any auth call',
+    () {
+      testWidgets(
+        'first render of the disconnected hero calls zero DatabaseSyncRepository.connect()',
+        (tester) async {
+          addTearDown(resetVaultShellTestDi);
+          final spyRepo = _SpyDatabaseSyncRepository();
 
-        tester.view.physicalSize = const Size(390, 844);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
+          tester.view.physicalSize = const Size(390, 844);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
 
-        await tester.pumpWidget(
-          await pumpableVaultShell(databaseSyncRepository: spyRepo),
-        );
-        await tester.pumpAndSettle();
+          await tester.pumpWidget(
+            await pumpableVaultShell(databaseSyncRepository: spyRepo),
+          );
+          await tester.pumpAndSettle();
 
-        // Navigate to the Sync tab — the disconnected hero renders because
-        // the fake repository reports not-connected.
-        await tester.tap(find.text('Sync'));
-        await tester.pumpAndSettle();
+          // Navigate to the Sync tab — the disconnected hero renders because
+          // the fake repository reports not-connected.
+          await tester.tap(find.text('Sync'));
+          await tester.pumpAndSettle();
 
-        expect(tester.takeException(), isNull);
-        expect(
-          find.textContaining('the master password never leaves this device'),
-          findsOneWidget,
-          reason: 'security explanation must be on screen before any tap',
-        );
-        expect(
-          spyRepo.connectCallCount,
-          0,
-          reason:
-              'no Drive auth call may happen before the user taps '
-              'the Google Drive provider tile',
-        );
+          expect(tester.takeException(), isNull);
+          expect(
+            find.textContaining('the master password never leaves this device'),
+            findsOneWidget,
+            reason: 'security explanation must be on screen before any tap',
+          );
+          expect(
+            spyRepo.connectCallCount,
+            0,
+            reason:
+                'no Drive auth call may happen before the user taps '
+                'the Google Drive provider tile',
+          );
 
-        // Now the user acts — only then is the auth call allowed.
-        await tester.tap(find.text('Google Drive'));
-        await tester.pumpAndSettle();
+          // Now the user acts — only then is the auth call allowed.
+          await tester.tap(find.text('Google Drive'));
+          await tester.pumpAndSettle();
 
-        expect(spyRepo.connectCallCount, 1);
-      },
-    );
-  });
+          expect(spyRepo.connectCallCount, 1);
+        },
+      );
+    },
+  );
 }
 
 class _SpyDatabaseSyncRepository extends FakeDatabaseSyncRepository {

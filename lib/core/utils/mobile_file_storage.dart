@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+
 import 'managed_storage_root.dart';
 
 import 'portable_path.dart';

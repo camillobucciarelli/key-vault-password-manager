@@ -156,53 +156,50 @@ void main() {
       },
     );
 
-    test(
-      'the FR-3 default is decided by the data, not by the perspective',
-      () async {
-        // Two mirrored harnesses over the same pair with local and remote
-        // swapped. The chosen VALUE must be the same on both, or two devices
-        // write over each other forever.
-        final forward = await _Harness.build(temp, tiedTimestamps: true);
-        final mirrored = await _Harness.build(
-          temp,
-          tiedTimestamps: true,
-          mirrored: true,
-        );
+    test('the FR-3 default is decided by the data, not by the perspective', () async {
+      // Two mirrored harnesses over the same pair with local and remote
+      // swapped. The chosen VALUE must be the same on both, or two devices
+      // write over each other forever.
+      final forward = await _Harness.build(temp, tiedTimestamps: true);
+      final mirrored = await _Harness.build(
+        temp,
+        tiedTimestamps: true,
+        mirrored: true,
+      );
 
-        final a = await forward.repository.startReview(forward.databaseId);
-        final b = await mirrored.repository.startReview(mirrored.databaseId);
+      final a = await forward.repository.startReview(forward.databaseId);
+      final b = await mirrored.repository.startReview(mirrored.databaseId);
 
-        // UserName and Password both diverge on the shared entry, so this is
-        // the one engaged credential-block row (T401c), anchored on
-        // `password` — its single choice moves both fields together.
-        final choiceA = a.decisions
-            .firstWhere((d) => d.category == MergeFieldCategory.password)
-            .choice;
-        final choiceB = b.decisions
-            .firstWhere((d) => d.category == MergeFieldCategory.password)
-            .choice;
+      // UserName and Password both diverge on the shared entry, so this is
+      // the one engaged credential-block row (T401c), anchored on
+      // `password` — its single choice moves both fields together.
+      final choiceA = a.decisions
+          .firstWhere((d) => d.category == MergeFieldCategory.password)
+          .choice;
+      final choiceB = b.decisions
+          .firstWhere((d) => d.category == MergeFieldCategory.password)
+          .choice;
 
-        // The value each perspective's chosen SIDE actually holds.
-        String elected(MergeChoice choice, {required bool mirrored}) {
-          final onLocal = mirrored ? 'remote-secret' : 'local-secret';
-          final onRemote = mirrored ? 'local-secret' : 'remote-secret';
-          return choice == MergeChoice.local ? onLocal : onRemote;
-        }
+      // The value each perspective's chosen SIDE actually holds.
+      String elected(MergeChoice choice, {required bool mirrored}) {
+        final onLocal = mirrored ? 'remote-secret' : 'local-secret';
+        final onRemote = mirrored ? 'local-secret' : 'remote-secret';
+        return choice == MergeChoice.local ? onLocal : onRemote;
+      }
 
-        expect(
-          choiceA,
-          isNot(choiceB),
-          reason: 'the sides are swapped, so the SIDE must swap with them',
-        );
-        expect(
-          elected(choiceA, mirrored: false),
-          elected(choiceB, mirrored: true),
-          reason:
-              'both perspectives must elect the SAME value; "prefer local" as a '
-              'tie-break makes the merge non-commutative (FR-3)',
-        );
-      },
-    );
+      expect(
+        choiceA,
+        isNot(choiceB),
+        reason: 'the sides are swapped, so the SIDE must swap with them',
+      );
+      expect(
+        elected(choiceA, mirrored: false),
+        elected(choiceB, mirrored: true),
+        reason:
+            'both perspectives must elect the SAME value; "prefer local" as a '
+            'tie-break makes the merge non-commutative (FR-3)',
+      );
+    });
 
     test(
       'updateDecision records the answer and clears the default flag',
@@ -317,9 +314,8 @@ void main() {
       // Simulates an ordinary vault edit racing the open review — written
       // directly, bypassing the merge port entirely, exactly like a VaultBloc
       // CRUD op would.
-      await File(
-        harness.databasePath,
-      ).writeAsBytes(Uint8List.fromList([...harness.localBytes, 0]));
+      await File(harness.databasePath)
+          .writeAsBytes(Uint8List.fromList([...harness.localBytes, 0]));
 
       final outcome = await harness.repository.commit(summary.sessionId);
 
@@ -475,9 +471,8 @@ void main() {
       () async {
         final harness = await _Harness.build(temp);
         expect(
-          (await harness.repository.recoverPending(
-            harness.databaseId,
-          )).disposition,
+          (await harness.repository.recoverPending(harness.databaseId))
+              .disposition,
           MergeRecoveryDisposition.none,
         );
       },
@@ -865,30 +860,25 @@ void main() {
       );
     });
 
-    test(
-      'T404 the semantic short-circuit drops the pending record too',
-      () async {
-        final fixture = await _t401Fixture(t401Temp);
-        final harness = await _Harness.build(t401Temp, fixture: fixture);
-        final summary = await harness.repository.startReview(
-          harness.databaseId,
-        );
-        // Same content, different bytes: finalized on the observed checksum via
-        // the second success path, which must clear the record just as the first
-        // one does.
-        harness.remote.onUpload = (uploaded) =>
-            _resave(uploaded, fixture.credentials);
+    test('T404 the semantic short-circuit drops the pending record too', () async {
+      final fixture = await _t401Fixture(t401Temp);
+      final harness = await _Harness.build(t401Temp, fixture: fixture);
+      final summary = await harness.repository.startReview(harness.databaseId);
+      // Same content, different bytes: finalized on the observed checksum via
+      // the second success path, which must clear the record just as the first
+      // one does.
+      harness.remote.onUpload = (uploaded) =>
+          _resave(uploaded, fixture.credentials);
 
-        final outcome = await harness.repository.commit(summary.sessionId);
+      final outcome = await harness.repository.commit(summary.sessionId);
 
-        expect(outcome, isA<MergeApplied>());
-        expect(harness.syncMetadata.pendingUploadCalls, isNotEmpty);
-        expect(
-          await harness.syncMetadata.getPendingUpload(harness.databasePath),
-          isNull,
-        );
-      },
-    );
+      expect(outcome, isA<MergeApplied>());
+      expect(harness.syncMetadata.pendingUploadCalls, isNotEmpty);
+      expect(
+        await harness.syncMetadata.getPendingUpload(harness.databasePath),
+        isNull,
+      );
+    });
 
     test('T406 a failed re-download after divergence marks the record '
         'ambiguous', () async {
@@ -1167,57 +1157,55 @@ void main() {
   group('T302a opaque id minting', () {
     final source = File(_implPath).readAsStringSync();
 
-    test(
-      'the ONLY source of variability in a token is _secureRandom.nextInt',
-      () {
-        // The previous version of this group checked the file for the *strings*
-        // `Random.secure()` and `Random(`, which a tester walked straight past:
-        // leave `_secureRandom` declared, initialised and referenced in a dead
-        // branch, mint from a hand-rolled LCG that never writes the word
-        // `Random`, and all three source assertions plus "25 distinct tokens"
-        // plus "no token is a digest" stay green — while every session id in the
-        // process becomes predictable from one observed token.
-        //
-        // So the assertion is on the BODY of the minting function, and it is
-        // fail-closed: every call it makes must be in this list, which contains
-        // exactly one source of entropy.
-        const allowedCalls = <String>{
-          'nextInt', // the CSPRNG draw
-          'write', // StringBuffer
-          'toRadixString',
-          'padLeft',
-          'toString',
-        };
+    test('the ONLY source of variability in a token is _secureRandom.nextInt', () {
+      // The previous version of this group checked the file for the *strings*
+      // `Random.secure()` and `Random(`, which a tester walked straight past:
+      // leave `_secureRandom` declared, initialised and referenced in a dead
+      // branch, mint from a hand-rolled LCG that never writes the word
+      // `Random`, and all three source assertions plus "25 distinct tokens"
+      // plus "no token is a digest" stay green — while every session id in the
+      // process becomes predictable from one observed token.
+      //
+      // So the assertion is on the BODY of the minting function, and it is
+      // fail-closed: every call it makes must be in this list, which contains
+      // exactly one source of entropy.
+      const allowedCalls = <String>{
+        'nextInt', // the CSPRNG draw
+        'write', // StringBuffer
+        'toRadixString',
+        'padLeft',
+        'toString',
+      };
 
-        final body = _topLevelFunctionBody(source, '_mintToken');
-        final calls = RegExp(
-          r'\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\(',
-        ).allMatches(body).map((m) => m.group(1)!).toSet();
+      final body = _topLevelFunctionBody(source, '_mintToken');
+      final calls = RegExp(r'\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\(')
+          .allMatches(body)
+          .map((m) => m.group(1)!)
+          .toSet();
 
+      expect(
+        calls.difference(allowedCalls),
+        isEmpty,
+        reason:
+            '_mintToken calls something outside $allowedCalls. If a new call '
+            'is genuinely not a source of entropy, argue it here — this check '
+            'refuses what it cannot evaluate.',
+      );
+      expect(
+        RegExp(r'_secureRandom\.nextInt\(').allMatches(body),
+        hasLength(1),
+        reason: 'exactly one CSPRNG draw per byte, from the one generator',
+      );
+      // No arithmetic generator smuggled in beside the draw: an LCG needs a
+      // multiply or a modulo, and a token has no use for either.
+      for (final operator in const ['*', '%', '^', '>>', '<<', '~/']) {
         expect(
-          calls.difference(allowedCalls),
-          isEmpty,
-          reason:
-              '_mintToken calls something outside $allowedCalls. If a new call '
-              'is genuinely not a source of entropy, argue it here — this check '
-              'refuses what it cannot evaluate.',
+          body,
+          isNot(contains(operator)),
+          reason: 'an arithmetic "$operator" in a token mint is a PRNG',
         );
-        expect(
-          RegExp(r'_secureRandom\.nextInt\(').allMatches(body),
-          hasLength(1),
-          reason: 'exactly one CSPRNG draw per byte, from the one generator',
-        );
-        // No arithmetic generator smuggled in beside the draw: an LCG needs a
-        // multiply or a modulo, and a token has no use for either.
-        for (final operator in const ['*', '%', '^', '>>', '<<', '~/']) {
-          expect(
-            body,
-            isNot(contains(operator)),
-            reason: 'an arithmetic "$operator" in a token mint is a PRNG',
-          );
-        }
-      },
-    );
+      }
+    });
 
     test('_secureRandom is declared once and used exactly once', () {
       final code = source.replaceAll(RegExp('^[ ]*//.*', multiLine: true), '');
@@ -1947,54 +1935,46 @@ void main() {
     for (final withKeyFile in const [false, true]) {
       final label = withKeyFile ? 'password + key file' : 'password only';
 
-      test(
-        'the candidate reopens with $label and its manifest matches',
-        () async {
-          final harness = await _Harness.build(temp, withKeyFile: withKeyFile);
-          var summary = await harness.repository.startReview(
-            harness.databaseId,
-          );
-          summary = await harness.applyShortcut(
-            summary,
-            MergeShortcut.preferLocal,
-          );
+      test('the candidate reopens with $label and its manifest matches', () async {
+        final harness = await _Harness.build(temp, withKeyFile: withKeyFile);
+        var summary = await harness.repository.startReview(harness.databaseId);
+        summary = await harness.applyShortcut(
+          summary,
+          MergeShortcut.preferLocal,
+        );
 
-          // `buildCandidateBytes` refuses with `serializationParityFailed`
-          // unless the candidate reopens with the ORIGINAL credentials and its
-          // canonical semantic manifest survives the round trip. Reaching the
-          // next line is that assertion.
-          final bytes = await harness.repository.buildCandidateBytes(
-            summary.sessionId,
-          );
+        // `buildCandidateBytes` refuses with `serializationParityFailed`
+        // unless the candidate reopens with the ORIGINAL credentials and its
+        // canonical semantic manifest survives the round trip. Reaching the
+        // next line is that assertion.
+        final bytes = await harness.repository.buildCandidateBytes(
+          summary.sessionId,
+        );
 
-          // Reopened again here with credentials this test composed
-          // independently, so the internal check cannot have passed against some
-          // other credential object.
-          final reopened = await KdbxFormat().read(
-            bytes,
-            await harness.buildCredentials(),
-          );
-          final manifest = kdbxSemanticManifest(reopened);
+        // Reopened again here with credentials this test composed
+        // independently, so the internal check cannot have passed against some
+        // other credential object.
+        final reopened = await KdbxFormat().read(
+          bytes,
+          await harness.buildCredentials(),
+        );
+        final manifest = kdbxSemanticManifest(reopened);
 
-          expect(reopened.body.rootGroup.uuid, harness.rootUuid);
-          // Substantive, not an empty structure that would compare equal to
-          // anything: the union carries at least the shared entry, both
-          // one-sided entries and the kept record.
-          expect(manifest['entries'], hasLength(greaterThanOrEqualTo(4)));
-          expect(
-            kdbxManifestDigest(manifest),
-            kdbxManifestDigest(
-              kdbxSemanticManifest(
-                await KdbxFormat().read(
-                  bytes,
-                  await harness.buildCredentials(),
-                ),
-              ),
+        expect(reopened.body.rootGroup.uuid, harness.rootUuid);
+        // Substantive, not an empty structure that would compare equal to
+        // anything: the union carries at least the shared entry, both
+        // one-sided entries and the kept record.
+        expect(manifest['entries'], hasLength(greaterThanOrEqualTo(4)));
+        expect(
+          kdbxManifestDigest(manifest),
+          kdbxManifestDigest(
+            kdbxSemanticManifest(
+              await KdbxFormat().read(bytes, await harness.buildCredentials()),
             ),
-            reason: 'the manifest must be a function of the content alone',
-          );
-        },
-      );
+          ),
+          reason: 'the manifest must be a function of the content alone',
+        );
+      });
 
       test(
         'unrelated metadata, history, icons and settings survive with $label',
@@ -2513,9 +2493,8 @@ void main() {
                 .readAsLinesSync()
                 .where((l) => !l.trimLeft().startsWith('//'))
                 .join('\n');
-            if (RegExp(
-              r'\b(conditionalWrite|versionHistory|hasCapability)\b',
-            ).hasMatch(code)) {
+            if (RegExp(r'\b(conditionalWrite|versionHistory|hasCapability)\b')
+                .hasMatch(code)) {
               offenders.add(file.path);
             }
           }

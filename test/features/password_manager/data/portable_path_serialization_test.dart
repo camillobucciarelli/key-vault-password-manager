@@ -1,5 +1,7 @@
 import 'dart:convert';
+
 import 'datasources/in_memory_secure_data_source.dart';
+
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -48,12 +50,10 @@ void main() {
     secure = InMemorySecureDataSource();
     containerRoot = await Directory.systemTemp.createTemp('portable_path_');
     // Stand-ins for /var/mobile/Containers/Data/Application/<UUID>/Documents.
-    oldDocs = await Directory(
-      p.join(containerRoot.path, 'UUID-A', 'Documents'),
-    ).create(recursive: true);
-    newDocs = await Directory(
-      p.join(containerRoot.path, 'UUID-B', 'Documents'),
-    ).create(recursive: true);
+    oldDocs = await Directory(p.join(containerRoot.path, 'UUID-A', 'Documents'))
+        .create(recursive: true);
+    newDocs = await Directory(p.join(containerRoot.path, 'UUID-B', 'Documents'))
+        .create(recursive: true);
 
     pathProvider = _MutablePathProvider(oldDocs.path);
     PathProviderPlatform.instance = pathProvider;
@@ -168,23 +168,21 @@ void main() {
       // migration or plaintext fallback, so this file must read as empty
       // rather than be parsed.
       final legacyPath = p.join(oldDocs.path, 'databases', 'legacy.kdbx');
-      final metadata = await Directory(
-        p.join(oldDocs.path, 'metadata'),
-      ).create(recursive: true);
-      await File(
-        p.join(metadata.path, 'database_registry_records.json'),
-      ).writeAsString(
-        jsonEncode([
-          {
-            'databaseId': 'legacy',
-            'canonicalPath': legacyPath,
-            'displayName': 'Legacy',
-            'sourceType': 'local',
-            'createdAt': '2024-01-01T00:00:00.000Z',
-            'updatedAt': '2024-01-01T00:00:00.000Z',
-          },
-        ]),
-      );
+      final metadata = await Directory(p.join(oldDocs.path, 'metadata'))
+          .create(recursive: true);
+      await File(p.join(metadata.path, 'database_registry_records.json'))
+          .writeAsString(
+            jsonEncode([
+              {
+                'databaseId': 'legacy',
+                'canonicalPath': legacyPath,
+                'displayName': 'Legacy',
+                'sourceType': 'local',
+                'createdAt': '2024-01-01T00:00:00.000Z',
+                'updatedAt': '2024-01-01T00:00:00.000Z',
+              },
+            ]),
+          );
 
       await relocateContainer();
 
@@ -274,9 +272,8 @@ void main() {
       await relocateContainer();
 
       final newPath = p.join(newDocs.path, 'databases', 'vault.kdbx');
-      final mapping = await SyncMetadataDataSourceImpl(
-        secureDataSource: secure,
-      ).getMapping('db-1');
+      final mapping = await SyncMetadataDataSourceImpl(secureDataSource: secure)
+          .getMapping('db-1');
       expect(mapping, isNotNull);
       expect(mapping!.remoteFileId, 'drive-id');
       expect(mapping.databasePath, newPath);
@@ -296,9 +293,8 @@ void main() {
 
       await relocateContainer();
 
-      final mapping = await SyncMetadataDataSourceImpl(
-        secureDataSource: secure,
-      ).getMapping('db-1');
+      final mapping = await SyncMetadataDataSourceImpl(secureDataSource: secure)
+          .getMapping('db-1');
       expect(mapping, isNotNull);
       expect(mapping!.databasePath, externalPath);
     });

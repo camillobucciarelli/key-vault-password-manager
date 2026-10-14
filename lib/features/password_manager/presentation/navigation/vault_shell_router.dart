@@ -424,12 +424,11 @@ VaultSurfacePresentation presentationFor<R extends VaultRouteResult>(
 
 typedef VaultOperationIdFactory = VaultOperationId Function();
 typedef VaultPaneChanged = void Function(Widget? pane);
-typedef VaultModalHost =
-    Future<void> Function(
-      BuildContext context,
-      WidgetBuilder builder,
-      void Function(VoidCallback dismiss) mounted,
-    );
+typedef VaultModalHost = Future<void> Function(
+  BuildContext context,
+  WidgetBuilder builder,
+  void Function(VoidCallback dismiss) mounted,
+);
 
 final class VaultShellRouter {
   VaultShellRouter({
@@ -516,15 +515,15 @@ final class VaultShellRouter {
           content: Text(body),
           actions: [
             TextButton(
-              onPressed: () => VaultOperationScope.of(
-                surfaceContext,
-              ).complete(ConfirmDecision.cancel),
+              onPressed: () =>
+                  VaultOperationScope.of(surfaceContext)
+                      .complete(ConfirmDecision.cancel),
               child: Text(cancelLabel),
             ),
             FilledButton(
-              onPressed: () => VaultOperationScope.of(
-                surfaceContext,
-              ).complete(ConfirmDecision.confirm),
+              onPressed: () =>
+                  VaultOperationScope.of(surfaceContext)
+                      .complete(ConfirmDecision.confirm),
               child: Text(confirmLabel),
             ),
           ],

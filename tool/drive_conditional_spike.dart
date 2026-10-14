@@ -197,9 +197,8 @@ class _Spike {
     final name = 'kv-spike-${DateTime.now().millisecondsSinceEpoch}.bin';
     final bytes = _randomBytes();
     final boundary = 'kv-spike-boundary-${_random.nextInt(1 << 32)}';
-    final uri = Uri.parse(
-      '$_uploadBase/files',
-    ).replace(queryParameters: {'uploadType': 'multipart'});
+    final uri = Uri.parse('$_uploadBase/files')
+        .replace(queryParameters: {'uploadType': 'multipart'});
 
     final response = await _client.post(
       uri,
@@ -256,9 +255,8 @@ class _Spike {
   Future<void> _reconnaissance(String fileId) async {
     _section('1. Ricognizione — GET files/$fileId?fields=*');
 
-    final uri = Uri.parse(
-      '$_apiBase/files/$fileId',
-    ).replace(queryParameters: {'fields': '*'});
+    final uri = Uri.parse('$_apiBase/files/$fileId')
+        .replace(queryParameters: {'fields': '*'});
     final response = await _client.get(uri, headers: _authHeader);
     stdout.writeln('GET $uri');
     _printResponse(response, alwaysPrintBody: false);
@@ -307,9 +305,8 @@ class _Spike {
   Future<void> _headerPassthroughControl(String fileId) async {
     _section('2. Controllo — gli header arbitrari arrivano a Drive? (Range)');
 
-    final uri = Uri.parse(
-      '$_apiBase/files/$fileId',
-    ).replace(queryParameters: {'alt': 'media'});
+    final uri = Uri.parse('$_apiBase/files/$fileId')
+        .replace(queryParameters: {'alt': 'media'});
     final headers = {..._authHeader, 'Range': 'bytes=0-3'};
     _printRequestHeaders(headers);
     final response = await _client.get(uri, headers: headers);
@@ -509,9 +506,8 @@ class _Spike {
     stdout.writeln('   atteso: $expectation');
 
     final payload = _randomBytes();
-    final uri = Uri.parse(
-      '$_uploadBase/files/$fileId',
-    ).replace(queryParameters: {'uploadType': 'media'});
+    final uri = Uri.parse('$_uploadBase/files/$fileId')
+        .replace(queryParameters: {'uploadType': 'media'});
     final headers = {
       ..._authHeader,
       'Content-Type': 'application/octet-stream',
@@ -542,9 +538,8 @@ class _Spike {
     String fileId,
     Uint8List attemptedBytes,
   ) async {
-    final uri = Uri.parse(
-      '$_apiBase/files/$fileId',
-    ).replace(queryParameters: {'alt': 'media'});
+    final uri = Uri.parse('$_apiBase/files/$fileId')
+        .replace(queryParameters: {'alt': 'media'});
     final response = await _client.get(uri, headers: _authHeader);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       stdout.writeln(

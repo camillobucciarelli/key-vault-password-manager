@@ -22,7 +22,9 @@ import 'package:password_manager/features/password_manager/domain/repositories/d
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/vault_session_coordinator.dart';
+
 import 'fake_database_ports.dart';
+
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
 import 'package:path/path.dart' as p;
 
@@ -350,62 +352,59 @@ void main() {
       },
     );
 
-    test(
-      'updateDatabaseSettings does not persist profile paths when password change fails',
-      () async {
-        final tempDir = await Directory.systemTemp.createTemp(
-          'vault_session_test_',
-        );
-        addTearDown(() => tempDir.delete(recursive: true));
+    test('updateDatabaseSettings does not persist profile paths when password change fails', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'vault_session_test_',
+      );
+      addTearDown(() => tempDir.delete(recursive: true));
 
-        final oldFile = File('${tempDir.path}/old.kdbx');
-        await oldFile.writeAsBytes(const [1, 2, 3], flush: true);
-        final keyFile = File('${tempDir.path}/main.key');
-        await keyFile.writeAsBytes(const [4, 5, 6], flush: true);
+      final oldFile = File('${tempDir.path}/old.kdbx');
+      await oldFile.writeAsBytes(const [1, 2, 3], flush: true);
+      final keyFile = File('${tempDir.path}/main.key');
+      await keyFile.writeAsBytes(const [4, 5, 6], flush: true);
 
-        registryRepository.records = [
-          DatabaseRecord(
-            databaseId: 'db-1',
-            canonicalPath: oldFile.path,
-            displayName: 'old.kdbx',
-            sourceType: DatabaseSourceType.local,
-            createdAt: DateTime.now(),
-            updatedAt: DateTime.now(),
+      registryRepository.records = [
+        DatabaseRecord(
+          databaseId: 'db-1',
+          canonicalPath: oldFile.path,
+          displayName: 'old.kdbx',
+          sourceType: DatabaseSourceType.local,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ),
+      ];
+      vaultKdbxService.shouldThrowOnChangeMasterPassword = true;
+
+      await expectLater(
+        coordinator.updateDatabaseSettings(
+          DatabaseSettingsUpdateRequest(
+            currentDatabasePath: oldFile.path,
+            fileName: 'renamed.kdbx',
+            keyFilePath: keyFile.path,
+            biometricProtectionEnabled: true,
+            changePassword: true,
+            inactivityLockTimeoutSeconds: null,
+            currentPassword: 'old-secret',
+            newPassword: 'new-secret',
           ),
-        ];
-        vaultKdbxService.shouldThrowOnChangeMasterPassword = true;
+        ),
+        throwsA(isA<Exception>()),
+      );
 
-        await expectLater(
-          coordinator.updateDatabaseSettings(
-            DatabaseSettingsUpdateRequest(
-              currentDatabasePath: oldFile.path,
-              fileName: 'renamed.kdbx',
-              keyFilePath: keyFile.path,
-              biometricProtectionEnabled: true,
-              changePassword: true,
-              inactivityLockTimeoutSeconds: null,
-              currentPassword: 'old-secret',
-              newPassword: 'new-secret',
-            ),
-          ),
-          throwsA(isA<Exception>()),
-        );
-
-        // `p.join`, not string interpolation: production builds the renamed
-        // path with `p.join`, so on Windows it produces a `\` separator while
-        // the interpolated literal kept a `/`. The rollback pair being
-        // asserted (rename forward, then rename back) is unchanged.
-        final renamedPath = p.join(tempDir.path, 'renamed.kdbx');
-        expect(oldFile.existsSync(), isTrue);
-        expect(File(renamedPath).existsSync(), isFalse);
-        expect(syncRepository.moves, [
-          (oldFile.path, renamedPath),
-          (renamedPath, oldFile.path),
-        ]);
-        expect(securityRepository.profiles['db-1'], isNull);
-        expect(secureDataSource.passwords, isEmpty);
-      },
-    );
+      // `p.join`, not string interpolation: production builds the renamed
+      // path with `p.join`, so on Windows it produces a `\` separator while
+      // the interpolated literal kept a `/`. The rollback pair being
+      // asserted (rename forward, then rename back) is unchanged.
+      final renamedPath = p.join(tempDir.path, 'renamed.kdbx');
+      expect(oldFile.existsSync(), isTrue);
+      expect(File(renamedPath).existsSync(), isFalse);
+      expect(syncRepository.moves, [
+        (oldFile.path, renamedPath),
+        (renamedPath, oldFile.path),
+      ]);
+      expect(securityRepository.profiles['db-1'], isNull);
+      expect(secureDataSource.passwords, isEmpty);
+    });
 
     test('mapping failure rolls database rename back', () async {
       final tempDir = await Directory.systemTemp.createTemp(
@@ -681,9 +680,8 @@ void main() {
           .toList();
       expect(backups, hasLength(1));
       expect(
-        RegExp(
-          r'vault\.\d{8}-\d{6}-\d{6}\.pre-rekey\.kdbx$',
-        ).hasMatch(backups.single.path),
+        RegExp(r'vault\.\d{8}-\d{6}-\d{6}\.pre-rekey\.kdbx$')
+            .hasMatch(backups.single.path),
         isTrue,
         reason: 'Backup file name: ${backups.single.path}',
       );
@@ -783,54 +781,48 @@ void main() {
       expect(appleAutofillV2Coordinator.clearCallCount, 1);
     });
 
-    test(
-      'getInactivityLockTimeoutForPath returns correct timeout when database is registered',
-      () async {
-        const databasePath = '/tmp/test.kdbx';
-        registryRepository.records = [
-          DatabaseRecord(
-            databaseId: 'db-1',
-            canonicalPath: databasePath,
-            displayName: 'test.kdbx',
-            sourceType: DatabaseSourceType.local,
-            createdAt: DateTime.now(),
-            updatedAt: DateTime.now(),
-          ),
-        ];
-        securityRepository.profiles['db-1'] = DatabaseSecurityProfile(
+    test('getInactivityLockTimeoutForPath returns correct timeout when database is registered', () async {
+      const databasePath = '/tmp/test.kdbx';
+      registryRepository.records = [
+        DatabaseRecord(
           databaseId: 'db-1',
-          inactivityLockTimeoutSeconds: 300,
-        );
+          canonicalPath: databasePath,
+          displayName: 'test.kdbx',
+          sourceType: DatabaseSourceType.local,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ),
+      ];
+      securityRepository.profiles['db-1'] = DatabaseSecurityProfile(
+        databaseId: 'db-1',
+        inactivityLockTimeoutSeconds: 300,
+      );
 
-        final result = await coordinator.getInactivityLockTimeoutForPath(
-          databasePath: databasePath,
-        );
+      final result = await coordinator.getInactivityLockTimeoutForPath(
+        databasePath: databasePath,
+      );
 
-        expect(result, 300);
-      },
-    );
+      expect(result, 300);
+    });
 
-    test(
-      'getInactivityLockTimeoutForPath returns null when database path is empty',
-      () async {
-        registryRepository.records = [
-          DatabaseRecord(
-            databaseId: 'db-1',
-            canonicalPath: '/tmp/test.kdbx',
-            displayName: 'test.kdbx',
-            sourceType: DatabaseSourceType.local,
-            createdAt: DateTime.now(),
-            updatedAt: DateTime.now(),
-          ),
-        ];
+    test('getInactivityLockTimeoutForPath returns null when database path is empty', () async {
+      registryRepository.records = [
+        DatabaseRecord(
+          databaseId: 'db-1',
+          canonicalPath: '/tmp/test.kdbx',
+          displayName: 'test.kdbx',
+          sourceType: DatabaseSourceType.local,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ),
+      ];
 
-        final result = await coordinator.getInactivityLockTimeoutForPath(
-          databasePath: '',
-        );
+      final result = await coordinator.getInactivityLockTimeoutForPath(
+        databasePath: '',
+      );
 
-        expect(result, isNull);
-      },
-    );
+      expect(result, isNull);
+    });
   });
 }
 

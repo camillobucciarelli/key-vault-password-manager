@@ -466,98 +466,90 @@ void main() {
 
     tearDown(() async => bloc.close());
 
-    test(
-      'vault loads (loadVault called) without network Drive check during init',
-      () async {
-        // isConnectedResult is false, but mapping exists.
-        // InitializeVault must NOT call isConnected() — if it did,
-        // isDriveConnected would be set to false and syncStatus to disconnected.
-        // Instead, preload from local mapping sets isDriveLinked: true, syncStatus: idle.
-        bloc.add(const InitializeVault());
-        await _waitUntil(() => bloc.state.currentGroupId == 'root');
+    test('vault loads (loadVault called) without network Drive check during init', () async {
+      // isConnectedResult is false, but mapping exists.
+      // InitializeVault must NOT call isConnected() — if it did,
+      // isDriveConnected would be set to false and syncStatus to disconnected.
+      // Instead, preload from local mapping sets isDriveLinked: true, syncStatus: idle.
+      bloc.add(const InitializeVault());
+      await _waitUntil(() => bloc.state.currentGroupId == 'root');
 
-        expect(kdbx.loadCallCount, greaterThanOrEqualTo(1));
-        expect(bloc.state.isDriveLinked, isTrue);
-        expect(bloc.state.syncStatus, equals(DatabaseSyncStatus.idle));
-        expect(bloc.state.isLoading, isFalse);
-      },
-    );
+      expect(kdbx.loadCallCount, greaterThanOrEqualTo(1));
+      expect(bloc.state.isDriveLinked, isTrue);
+      expect(bloc.state.syncStatus, equals(DatabaseSyncStatus.idle));
+      expect(bloc.state.isLoading, isFalse);
+    });
   });
 
-  test(
-    'cleanup failure still surfaces authorization renewal during Drive list load',
-    () async {
-      http.Request? refreshRequest;
-      final httpClient = MockClient((request) async {
-        refreshRequest = request;
-        return http.Response(
-          jsonEncode({'error': 'invalid_grant'}),
-          HttpStatus.badRequest,
-        );
-      });
-      addTearDown(httpClient.close);
+  test('cleanup failure still surfaces authorization renewal during Drive list load', () async {
+    http.Request? refreshRequest;
+    final httpClient = MockClient((request) async {
+      refreshRequest = request;
+      return http.Response(
+        jsonEncode({'error': 'invalid_grant'}),
+        HttpStatus.badRequest,
+      );
+    });
+    addTearDown(httpClient.close);
 
-      final storedTokens = _StoredGoogleTokenDataSource(
-        DesktopOAuthTokenSet(
-          accessToken: 'expired-access-token',
-          refreshToken: 'old-client-refresh-token',
-          expiresAt: DateTime.utc(2000),
-        ).toJson(),
-        throwOnClear: true,
-      );
-      final auth = DriveAuthService(
-        config: const GoogleOAuthConfig(
-          mobileClientId: null,
-          androidServerClientId: null,
-          desktopClientId: 'current-client-id',
-          desktopClientSecret: 'current-client-secret',
-        ),
-        googleTokenDataSource: storedTokens,
-        desktopOAuthPkceService: DesktopOAuthPkceService(
-          httpClient: httpClient,
-        ),
-        isDesktopOverride: true,
-      );
-      final api = GoogleDriveApiService(
-        driveAuthService: auth,
-        httpClient: httpClient,
-      );
-      final repo = _FakeSyncRepo()
-        ..mapping = _testMapping.copyWith(autoSyncEnabled: false)
-        ..isConnectedResult = true
-        ..listRemoteFilesOverride = (_) async {
-          await api.listKdbxFilesInDrive();
-          fail('token refresh must fail before any listing is returned');
-        };
-      final bloc = _makeBloc(repo, _FakeVaultKdbxService());
-      addTearDown(bloc.close);
+    final storedTokens = _StoredGoogleTokenDataSource(
+      DesktopOAuthTokenSet(
+        accessToken: 'expired-access-token',
+        refreshToken: 'old-client-refresh-token',
+        expiresAt: DateTime.utc(2000),
+      ).toJson(),
+      throwOnClear: true,
+    );
+    final auth = DriveAuthService(
+      config: const GoogleOAuthConfig(
+        mobileClientId: null,
+        androidServerClientId: null,
+        desktopClientId: 'current-client-id',
+        desktopClientSecret: 'current-client-secret',
+      ),
+      googleTokenDataSource: storedTokens,
+      desktopOAuthPkceService: DesktopOAuthPkceService(httpClient: httpClient),
+      isDesktopOverride: true,
+    );
+    final api = GoogleDriveApiService(
+      driveAuthService: auth,
+      httpClient: httpClient,
+    );
+    final repo = _FakeSyncRepo()
+      ..mapping = _testMapping.copyWith(autoSyncEnabled: false)
+      ..isConnectedResult = true
+      ..listRemoteFilesOverride = (_) async {
+        await api.listKdbxFilesInDrive();
+        fail('token refresh must fail before any listing is returned');
+      };
+    final bloc = _makeBloc(repo, _FakeVaultKdbxService());
+    addTearDown(bloc.close);
 
-      bloc.add(const BackgroundDriveSync());
-      await _waitUntil(
-        () => bloc.state.isDriveConnected && bloc.state.isDriveLinked,
-      );
-      bloc.add(const LoadRemoteFiles());
-      await _waitUntil(() => bloc.state.remoteFilesError != null);
+    bloc.add(const BackgroundDriveSync());
+    await _waitUntil(
+      () => bloc.state.isDriveConnected && bloc.state.isDriveLinked,
+    );
+    bloc.add(const LoadRemoteFiles());
+    await _waitUntil(() => bloc.state.remoteFilesError != null);
 
-      final request = refreshRequest;
-      expect(request, isNotNull);
-      expect(request!.url.host, 'oauth2.googleapis.com');
-      expect(Uri.splitQueryString(request.body), {
-        'client_id': 'current-client-id',
-        'client_secret': 'current-client-secret',
-        'grant_type': 'refresh_token',
-        'refresh_token': 'old-client-refresh-token',
-      });
-      expect(storedTokens.value, isNotNull);
-      expect(bloc.state.isDriveConnected, isFalse);
-      expect(bloc.state.isDriveLinked, isFalse);
-      expect(
-        bloc.state.remoteFilesError,
-        'Google authorization expired. Reconnect Google Drive to continue.',
-      );
-      expect(bloc.state.remoteFilesReconnectRequired, isTrue);
-    },
-  );
+    final request = refreshRequest;
+    expect(request, isNotNull);
+    expect(request!.url.host, 'oauth2.googleapis.com');
+    expect(Uri.splitQueryString(request.body), {
+      'client_id': 'current-client-id',
+      'client_secret': 'current-client-secret',
+      'grant_type': 'refresh_token',
+      'refresh_token': 'old-client-refresh-token',
+    });
+    expect(storedTokens.value, isNotNull);
+    expect(bloc.state.isDriveConnected, isFalse);
+    expect(bloc.state.isDriveLinked, isFalse);
+    expect(
+      bloc.state.remoteFilesError,
+      'Google authorization expired. Reconnect Google Drive to continue.',
+    );
+    expect(bloc.state.remoteFilesReconnectRequired, isTrue);
+  });
 
   group('BackgroundDriveSync', () {
     late _FakeSyncRepo repo;
@@ -775,35 +767,30 @@ void main() {
       },
     );
 
-    test(
-      'a non-network error (HTTP-status-like) sets syncStatus.error, not isOffline',
-      () async {
-        final repo = _FakeSyncRepo()
-          ..mapping = _testMapping.copyWith(autoSyncEnabled: false)
-          ..isConnectedResult = true
-          ..syncNowError = Exception('HTTP 500 Internal Server Error');
-        final kdbx = _FakeVaultKdbxService();
-        final bloc = _makeBloc(repo, kdbx);
-        addTearDown(bloc.close);
+    test('a non-network error (HTTP-status-like) sets syncStatus.error, not isOffline', () async {
+      final repo = _FakeSyncRepo()
+        ..mapping = _testMapping.copyWith(autoSyncEnabled: false)
+        ..isConnectedResult = true
+        ..syncNowError = Exception('HTTP 500 Internal Server Error');
+      final kdbx = _FakeVaultKdbxService();
+      final bloc = _makeBloc(repo, kdbx);
+      addTearDown(bloc.close);
 
-        bloc.add(const InitializeVault());
-        await _waitUntil(
-          () => bloc.state.isDriveConnected && bloc.state.isDriveLinked,
-        );
+      bloc.add(const InitializeVault());
+      await _waitUntil(
+        () => bloc.state.isDriveConnected && bloc.state.isDriveLinked,
+      );
 
-        bloc.add(const SyncCurrentDatabaseNow());
-        await _waitUntil(
-          () => bloc.state.syncStatus == DatabaseSyncStatus.error,
-        );
+      bloc.add(const SyncCurrentDatabaseNow());
+      await _waitUntil(() => bloc.state.syncStatus == DatabaseSyncStatus.error);
 
-        expect(bloc.state.syncStatus, DatabaseSyncStatus.error);
-        expect(
-          bloc.state.isOffline,
-          isFalse,
-          reason: 'a transient server error must never look like "offline"',
-        );
-      },
-    );
+      expect(bloc.state.syncStatus, DatabaseSyncStatus.error);
+      expect(
+        bloc.state.isOffline,
+        isFalse,
+        reason: 'a transient server error must never look like "offline"',
+      );
+    });
   });
   // spec 010 Phase 4: the provider port converts every remote failure into a
   // typed `CloudStorageException`; presentation maps by code and never shows

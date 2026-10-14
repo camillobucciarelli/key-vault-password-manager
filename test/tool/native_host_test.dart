@@ -1940,9 +1940,9 @@ class _FakeGenerateBridge {
       return;
     }
 
-    final payload =
-        jsonDecode(await utf8.decoder.bind(request).join())
-            as Map<String, Object?>;
+    final payload = jsonDecode(
+      await utf8.decoder.bind(request).join(),
+    ) as Map<String, Object?>;
     lastPayload = payload;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
 
@@ -2149,9 +2149,9 @@ class _FakeOverlayBridge {
       return;
     }
 
-    final payload =
-        jsonDecode(await utf8.decoder.bind(request).join())
-            as Map<String, Object?>;
+    final payload = jsonDecode(
+      await utf8.decoder.bind(request).join(),
+    ) as Map<String, Object?>;
     lastPayload = payload;
     await onRequest?.call();
 

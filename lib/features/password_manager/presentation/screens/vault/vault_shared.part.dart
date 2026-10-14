@@ -355,8 +355,8 @@ Future<void> _startCsvImportFlow(BuildContext context) async {
             fileSizeBytes: pickedFile.size,
             preview: preview,
             onCancel: () => VaultOperationScope.of(dialogContext).cancel(),
-            onImport: (avoidDuplicates) =>
-                VaultOperationScope.of(dialogContext).complete(
+            onImport: (avoidDuplicates) => VaultOperationScope.of(dialogContext)
+                .complete(
                   CsvImportResult(
                     filePath: filePath,
                     avoidDuplicates: avoidDuplicates,

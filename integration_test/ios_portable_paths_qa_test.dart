@@ -204,9 +204,8 @@ void main() {
       );
 
       // Leave a breadcrumb so the verify phase can prove the root moved.
-      await File(
-        p.join(metadataDir, 'qa_state.json'),
-      ).writeAsString(jsonEncode({'docsRoot': docsRoot}), flush: true);
+      await File(p.join(metadataDir, 'qa_state.json'))
+          .writeAsString(jsonEncode({'docsRoot': docsRoot}), flush: true);
 
       // Stash Documents/ on the host so the verify phase can restore it into
       // the freshly-rotated container.

@@ -198,9 +198,8 @@ void main() {
     // FILE where the registry's own metadata directory needs to go, so
     // `Directory(...).create()` throws when the migration tries to
     // persist the first legacy record.
-    await File(
-      p.join(documentsDirectory.path, 'metadata'),
-    ).create(recursive: true);
+    await File(p.join(documentsDirectory.path, 'metadata'))
+        .create(recursive: true);
 
     await expectLater(di.init(), completes);
 

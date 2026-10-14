@@ -163,9 +163,8 @@ void main() {
       expect(service.clears, ['e1']);
       expect(backupsAtClear, hasLength(1));
       expect(
-        RegExp(
-          r'vault\.\d{8}-\d{6}-\d{6}\.pre-clear-history\.kdbx$',
-        ).hasMatch(backupsAtClear!.single.path),
+        RegExp(r'vault\.\d{8}-\d{6}-\d{6}\.pre-clear-history\.kdbx$')
+            .hasMatch(backupsAtClear!.single.path),
         isTrue,
         reason: backupsAtClear!.single.path,
       );

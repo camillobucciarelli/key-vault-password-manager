@@ -16,8 +16,7 @@ class SharedPreferencesPasswordGeneratorSettingsRepository
     implements PasswordGeneratorSettingsRepository {
   SharedPreferencesPasswordGeneratorSettingsRepository({
     required this.sharedPreferences,
-    @visibleForTesting
-    this._debugWriteOverride,
+    @visibleForTesting this._debugWriteOverride,
   });
 
   static const storageKey = 'password_generator_settings_v1';

@@ -11,7 +11,8 @@ import 'package:flutter/widgets.dart';
 final class VaultShellSession {
   VaultShellSession({
     required VoidCallback this._onUserActivity,
-    required Future<void> Function(String databasePath) this._lockAndReauthenticate,
+    required Future<void> Function(String databasePath)
+    this._lockAndReauthenticate,
   });
 
   final ValueNotifier<bool> _locked = ValueNotifier<bool>(false);

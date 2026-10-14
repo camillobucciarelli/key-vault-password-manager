@@ -74,9 +74,9 @@ class _RecycleBinScreen extends StatelessWidget {
                   KvCircleIconButton(
                     glyph: AppGlyph.back,
                     tooltip: 'Back',
-                    onPressed: () => VaultOperationScope.of(
-                      context,
-                    ).complete(const VaultDone()),
+                    onPressed: () =>
+                        VaultOperationScope.of(context)
+                            .complete(const VaultDone()),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -412,8 +412,7 @@ Future<ConfirmDecision?> _showEmptyBinConfirmDialog(BuildContext context) {
   return VaultShellRouterScope.of(context).confirm(
     context: context,
     title: 'Empty the bin?',
-    body:
-        'This will permanently remove all items from recycle bin. This action cannot be undone.',
+    body: 'This will permanently remove all items from recycle bin. This action cannot be undone.',
     confirmLabel: 'Empty bin',
   );
 }

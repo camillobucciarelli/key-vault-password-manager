@@ -209,8 +209,7 @@ void main() {
     expect(
       shared.map((e) => e.key.toString()).toSet(),
       {'ConfirmationSurface<VaultDone>', 'EntrySurface<VaultDone>'},
-      reason:
-          'unexpected surface-family sharing; verify against FR-6 before merging rows',
+      reason: 'unexpected surface-family sharing; verify against FR-6 before merging rows',
     );
   });
 }

@@ -193,9 +193,8 @@ class DesktopOAuthPkceService {
     required String accessToken,
     required String requiredScope,
   }) async {
-    final uri = Uri.parse(
-      _tokenInfoEndpoint,
-    ).replace(queryParameters: {'access_token': accessToken});
+    final uri = Uri.parse(_tokenInfoEndpoint)
+        .replace(queryParameters: {'access_token': accessToken});
     final response = await _httpClient.get(uri);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw _authenticationFailed(

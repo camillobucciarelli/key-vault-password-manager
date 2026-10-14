@@ -28,8 +28,9 @@ class InternalKeyFileManagerResult {
 /// real `dart:io` directory listing (which does not resolve inside
 /// `testWidgets`'s fake-async zone without `tester.runAsync`). Defaults to
 /// the real implementation for production use.
-typedef KeyFileLister =
-    Future<List<AppStorageFileEntry>> Function({required String subdirectory});
+typedef KeyFileLister = Future<List<AppStorageFileEntry>> Function({
+  required String subdirectory,
+});
 
 /// T18: typed sheet replacement for the former dialog — same
 /// [InternalKeyFileManagerResult] contract and actions, moved to
@@ -164,9 +165,8 @@ class _InternalKeyFileManagerSheetState
       targetPath: savePath,
     );
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Key file exported.')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Key file exported.')));
   }
 
   Future<void> _deleteKeyFile(AppStorageFileEntry entry) async {

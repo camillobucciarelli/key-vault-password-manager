@@ -35,8 +35,11 @@ import 'dart:io';
 
 typedef _CPtrFromCString = Pointer<Void> Function(Pointer<Uint8>);
 typedef _CMsgSend0 = Pointer<Void> Function(Pointer<Void>, Pointer<Void>);
-typedef _CMsgSend1 =
-    Pointer<Void> Function(Pointer<Void>, Pointer<Void>, Pointer<Void>);
+typedef _CMsgSend1 = Pointer<Void> Function(
+  Pointer<Void>,
+  Pointer<Void>,
+  Pointer<Void>,
+);
 typedef _CPoolPush = Pointer<Void> Function();
 typedef _CPoolPop = Void Function(Pointer<Void>);
 typedef _CMalloc = Pointer<Uint8> Function(IntPtr);

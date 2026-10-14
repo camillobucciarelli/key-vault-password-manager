@@ -166,9 +166,8 @@ class _EntryDialogState extends State<_EntryDialog> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _generatorColumnOpen = VaultShellRouterScope.of(
-      context,
-    ).generatorColumnOpen;
+    _generatorColumnOpen = VaultShellRouterScope.of(context)
+        .generatorColumnOpen;
   }
 
   @override
@@ -1554,9 +1553,9 @@ class _CameraDeniedScreen extends StatelessWidget {
                   return KvSecondaryPillButton(
                     label: 'Save the URI',
                     onPressed: trimmed.startsWith('otpauth://')
-                        ? () => VaultOperationScope.of(
-                            context,
-                          ).complete(OtpScanResult(trimmed))
+                        ? () =>
+                              VaultOperationScope.of(context)
+                                  .complete(OtpScanResult(trimmed))
                         : null,
                   );
                 },
