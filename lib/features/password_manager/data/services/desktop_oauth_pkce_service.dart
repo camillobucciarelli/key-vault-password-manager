@@ -48,8 +48,7 @@ class DesktopOAuthTokenSet {
 }
 
 class DesktopOAuthPkceService {
-  DesktopOAuthPkceService({required http.Client httpClient})
-    : _httpClient = httpClient;
+  DesktopOAuthPkceService({required this._httpClient});
 
   static const _authEndpoint = 'https://accounts.google.com/o/oauth2/v2/auth';
   static const _tokenEndpoint = 'https://oauth2.googleapis.com/token';

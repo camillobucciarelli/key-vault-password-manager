@@ -433,16 +433,12 @@ typedef VaultModalHost =
 
 final class VaultShellRouter {
   VaultShellRouter({
-    VaultPaneChanged? onPaneChanged,
-    VaultOperationIdFactory? operationIdFactory,
-    VaultModalHost? routeHost,
-    VaultModalHost? sheetHost,
-    VaultModalHost? dialogHost,
-  }) : _onPaneChanged = onPaneChanged,
-       _operationIdFactory = operationIdFactory,
-       _routeHost = routeHost,
-       _sheetHost = sheetHost,
-       _dialogHost = dialogHost;
+    this._onPaneChanged,
+    this._operationIdFactory,
+    this._routeHost,
+    this._sheetHost,
+    this._dialogHost,
+  });
 
   final VaultPaneChanged? _onPaneChanged;
   final VaultOperationIdFactory? _operationIdFactory;
@@ -974,8 +970,8 @@ final class _TypedVaultOperationSession<R extends VaultRouteResult>
     required super.parentId,
     required super.sequence,
     required super.presentation,
-    required VaultSurface<R> surface,
-  }) : _surface = surface;
+    required VaultSurface<R> this._surface,
+  });
 
   final Completer<R?> _completer = Completer<R?>();
   VaultSurface<R>? _surface;

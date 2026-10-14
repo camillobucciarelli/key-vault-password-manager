@@ -7,9 +7,8 @@ import '../../domain/repositories/autofill_ports.dart';
 class AppleAutofillV2MethodChannelClient implements AppleAutofillV2Client {
   AppleAutofillV2MethodChannelClient({
     MethodChannel? channel,
-    bool? isSupportedOverride,
-  }) : _channel = channel ?? const MethodChannel(channelName),
-       _isSupportedOverride = isSupportedOverride;
+    this._isSupportedOverride,
+  }) : _channel = channel ?? const MethodChannel(channelName);
 
   static const channelName =
       'dev.camillobucciarelli.keyvault/apple_autofill_v2';

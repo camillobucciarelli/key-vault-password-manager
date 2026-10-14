@@ -110,19 +110,17 @@ class SyncMergeRepositoryImpl implements SyncMergeRepository {
     required DatabaseSecurityRepository securityRepository,
     required DatabaseSyncRepository syncRepository,
     required SecureDataSource secureDataSource,
-    required DatabasePathMutex mutex,
+    required this._mutex,
     required GoogleDriveApiService driveApiService,
     required SyncMetadataDataSource syncMetadataDataSource,
-    KdbxMergeAdapter adapter = const KdbxMergeAdapter(),
+    this._adapter = const KdbxMergeAdapter(),
     SafeVaultFileWriter? safeWriter,
   }) : _registry = registryRepository,
        _security = securityRepository,
        _sync = syncRepository,
        _secure = secureDataSource,
-       _mutex = mutex,
        _drive = driveApiService,
        _syncMetadata = syncMetadataDataSource,
-       _adapter = adapter,
        _safeWriter = safeWriter ?? SafeVaultFileWriter();
 
   final DatabaseRegistryRepository _registry;

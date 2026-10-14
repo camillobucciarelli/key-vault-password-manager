@@ -24,10 +24,9 @@ import 'database_path_mutex.dart';
 /// itself, and the mutex is not reentrant (T105 anti-nesting audit).
 class DatabaseRenameTransaction {
   DatabaseRenameTransaction({
-    required DatabasePathMutex mutex,
-    required DatabaseSyncRepository syncRepository,
-  }) : _mutex = mutex,
-       _syncRepository = syncRepository;
+    required this._mutex,
+    required this._syncRepository,
+  });
 
   final DatabasePathMutex _mutex;
   final DatabaseSyncRepository _syncRepository;

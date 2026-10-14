@@ -24,9 +24,9 @@ import 'database_path_identity_resolver.dart';
 ///   conservative: never two independent locks on paths that might alias.
 class DatabasePathMutex {
   DatabasePathMutex({
-    DatabasePathIdentityResolver resolver =
+    this._resolver =
         const DatabasePathIdentityResolver(),
-  }) : _resolver = resolver;
+  });
 
   final DatabasePathIdentityResolver _resolver;
 

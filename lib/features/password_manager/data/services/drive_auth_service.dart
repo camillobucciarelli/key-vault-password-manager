@@ -13,15 +13,11 @@ import 'google_oauth_config.dart';
 
 class DriveAuthService {
   DriveAuthService({
-    required GoogleOAuthConfig config,
-    required GoogleTokenDataSource googleTokenDataSource,
-    required DesktopOAuthPkceService desktopOAuthPkceService,
-    bool? isDesktopOverride,
-  }) : _config = config,
-       _googleTokenDataSource = googleTokenDataSource,
-       _desktopOAuthPkceService = desktopOAuthPkceService,
-       _googleSignIn = GoogleSignIn.instance,
-       _isDesktopOverride = isDesktopOverride;
+    required this._config,
+    required this._googleTokenDataSource,
+    required this._desktopOAuthPkceService,
+    this._isDesktopOverride,
+  }) : _googleSignIn = GoogleSignIn.instance;
 
   final GoogleOAuthConfig _config;
   final GoogleTokenDataSource _googleTokenDataSource;

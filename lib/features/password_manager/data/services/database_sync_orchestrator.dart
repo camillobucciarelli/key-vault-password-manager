@@ -19,19 +19,16 @@ import 'safe_vault_file_writer.dart';
 
 class DatabaseSyncOrchestrator {
   DatabaseSyncOrchestrator({
-    required SyncMetadataDataSource syncMetadataDataSource,
+    required this._syncMetadataDataSource,
     required CloudStorageProvider cloudStorageProvider,
-    required Future<String?> Function(String databasePath) resolveDatabaseId,
+    required this._resolveDatabaseId,
     DatabasePathMutex? mutex,
     SafeVaultFileWriter? safeWriter,
-    DatabaseFileHashRecorder? fileHashRecorder,
+    this._fileHashRecorder,
     this.remoteCallTimeout = const Duration(seconds: 30),
-  }) : _syncMetadataDataSource = syncMetadataDataSource,
-       _provider = cloudStorageProvider,
-       _resolveDatabaseId = resolveDatabaseId,
+  }) : _provider = cloudStorageProvider,
        _mutex = mutex ?? DatabasePathMutex(),
-       _safeWriter = safeWriter ?? SafeVaultFileWriter(),
-       _fileHashRecorder = fileHashRecorder;
+       _safeWriter = safeWriter ?? SafeVaultFileWriter();
 
   /// Upper bound on each individual remote call made while `syncNow` holds
   /// the database lock. The mutex is in-process and non-cancellable: a hung

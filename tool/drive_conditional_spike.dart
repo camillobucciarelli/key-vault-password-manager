@@ -152,9 +152,7 @@ enum _ContentState {
 }
 
 class _Spike {
-  _Spike({required http.Client client, required String token})
-    : _client = client,
-      _token = token;
+  _Spike({required this._client, required this._token});
 
   final http.Client _client;
   final String _token;

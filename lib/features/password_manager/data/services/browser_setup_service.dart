@@ -45,12 +45,10 @@ enum BridgeCheckResult {
 class BrowserSetupService {
   BrowserSetupService({
     DesktopBrowserAutofillCacheStore? cacheStore,
-    Directory? projectRoot,
-    BrowserSetupHostPlatform? platformOverride,
+    this._projectRoot,
+    this._platformOverride,
     NativeHostProcessRunner? processRunner,
   }) : _cacheStore = cacheStore ?? DesktopBrowserAutofillCacheStore(),
-       _projectRoot = projectRoot,
-       _platformOverride = platformOverride,
        _processRunner = processRunner ?? Process.run;
 
   static final RegExp _extensionIdPattern = RegExp(r'^[a-p]{32}$');

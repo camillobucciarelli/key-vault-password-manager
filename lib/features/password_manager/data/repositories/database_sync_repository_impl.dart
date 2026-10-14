@@ -10,9 +10,8 @@ import '../services/database_sync_orchestrator.dart';
 class DatabaseSyncRepositoryImpl implements DatabaseSyncRepository {
   DatabaseSyncRepositoryImpl({
     required CloudStorageProvider cloudStorageProvider,
-    required DatabaseSyncOrchestrator databaseSyncOrchestrator,
-  }) : _provider = cloudStorageProvider,
-       _databaseSyncOrchestrator = databaseSyncOrchestrator;
+    required this._databaseSyncOrchestrator,
+  }) : _provider = cloudStorageProvider;
 
   final CloudStorageProvider _provider;
   final DatabaseSyncOrchestrator _databaseSyncOrchestrator;

@@ -26,14 +26,11 @@
 final class MergeDisplaySide {
   MergeDisplaySide.present(
     String value, {
-    DateTime? changedAt,
-    int? sizeBytes,
-    String? fingerprint,
+    this._changedAt,
+    this._sizeBytes,
+    this._fingerprint,
   }) : isPresent = true,
-       _value = value,
-       _changedAt = changedAt,
-       _sizeBytes = sizeBytes,
-       _fingerprint = fingerprint;
+       _value = value;
 
   MergeDisplaySide.missing()
     : isPresent = false,
@@ -92,11 +89,11 @@ final class MergeDisplaySide {
 /// `LoadSyncMergeFieldDisplayUseCase` and discarded on dispose or lock.
 final class MergeFieldDisplay {
   MergeFieldDisplay({
-    required String label,
+    required String this._label,
     required this.local,
     required this.remote,
     required this.protected,
-  }) : _label = label;
+  });
 
   /// The field's human label — a custom field name or an attachment name, which
   /// FR-4 keeps data-private until this single transient response is requested.

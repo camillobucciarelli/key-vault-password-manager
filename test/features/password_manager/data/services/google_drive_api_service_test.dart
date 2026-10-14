@@ -524,8 +524,7 @@ Future<_UploadResult> _spikeConditionalUpdate({
 /// `If-Match`. It models the behaviour the real service MUST be verified to
 /// have; it is not evidence that the real service has it.
 class _FakeDriveServer {
-  _FakeDriveServer({required this.fileId, required Uint8List bytes})
-    : _bytes = bytes;
+  _FakeDriveServer({required this.fileId, required this._bytes});
 
   final String fileId;
   Uint8List _bytes;

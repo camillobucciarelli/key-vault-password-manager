@@ -17,10 +17,9 @@ const googleDriveProviderId = 'google_drive';
 
 class GoogleDriveApiService {
   GoogleDriveApiService({
-    required DriveAuthService driveAuthService,
-    required http.Client httpClient,
-  }) : _driveAuthService = driveAuthService,
-       _httpClient = httpClient;
+    required this._driveAuthService,
+    required this._httpClient,
+  });
 
   static const _apiBase = 'https://www.googleapis.com/drive/v3';
   static const _uploadBase = 'https://www.googleapis.com/upload/drive/v3';

@@ -25,12 +25,10 @@ class DatabaseImportService implements DatabaseFileRepository {
     required this.validateDatabaseUseCase,
     DatabasePathMutex? mutex,
     SafeVaultFileWriter? safeWriter,
-    DatabaseFileHashRecorder? fileHashRecorder,
-    Future<void> Function()? afterCommitInstall,
+    this._fileHashRecorder,
+    this._afterCommitInstall,
   }) : _mutex = mutex ?? DatabasePathMutex(),
-       _safeWriter = safeWriter ?? SafeVaultFileWriter(),
-       _fileHashRecorder = fileHashRecorder,
-       _afterCommitInstall = afterCommitInstall;
+       _safeWriter = safeWriter ?? SafeVaultFileWriter();
 
   final ValidateDatabaseUseCase validateDatabaseUseCase;
 

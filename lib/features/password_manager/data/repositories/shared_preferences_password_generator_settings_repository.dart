@@ -17,8 +17,8 @@ class SharedPreferencesPasswordGeneratorSettingsRepository
   SharedPreferencesPasswordGeneratorSettingsRepository({
     required this.sharedPreferences,
     @visibleForTesting
-    Future<bool> Function(String key, String value)? debugWriteOverride,
-  }) : _debugWriteOverride = debugWriteOverride;
+    this._debugWriteOverride,
+  });
 
   static const storageKey = 'password_generator_settings_v1';
 
