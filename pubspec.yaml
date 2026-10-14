@@ -78,6 +78,11 @@ dev_dependencies:
   analyzer: ^14.5.0
 
 flutter:
+  # Per-project switch (overrides `flutter config`): every iOS/macOS plugin
+  # ships a Package.swift, so CocoaPods is not used. Keeps CI and the
+  # self-hosted release runners independent of their global Flutter config.
+  config:
+    enable-swift-package-manager: true
   uses-material-design: true
   assets:
     - assets/fonts/OFL.txt
