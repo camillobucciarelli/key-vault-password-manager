@@ -9,7 +9,9 @@ import '../presentation/coordinators/android_autofill_save_coordinator.dart';
 import '../presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import '../presentation/coordinators/database_session_coordinator.dart';
 import '../presentation/coordinators/desktop_browser_autofill_coordinator.dart';
+import '../presentation/coordinators/duplicate_merge_coordinator.dart';
 import '../presentation/coordinators/entry_history_coordinator.dart';
+import '../presentation/coordinators/passkey_coordinator.dart';
 import '../presentation/coordinators/google_drive_reconnect_coordinator.dart';
 import '../presentation/coordinators/otpauth_deep_link_coordinator.dart';
 import '../presentation/coordinators/session_secret_holder.dart';
@@ -36,6 +38,19 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
         mapper: sl(),
         revealBridge: sl(),
         pendingGeneration: sl(),
+        // spec 023: creating a passkey needs both a writer and a way to ask
+        // the user where it goes. Either missing and the bridge advertises no
+        // passkey capability at all.
+        passkeyCoordinator: sl(),
+        passkeyApprovals: sl(),
+        // spec 014 FR-8: the same source `VaultBloc` reads, so a browser-side
+        // write opens a key-file-protected vault exactly as an in-app one does.
+        //
+        // Resolved inside the closure, not here: `VaultSessionCoordinator`
+        // takes this very coordinator as its autofill contract, so looking it
+        // up while this one is being constructed would be a cycle.
+        currentKeyFilePath: () =>
+            sl<VaultSessionCoordinator>().getSelectedKeyFilePath(),
       ),
     ]),
   );
@@ -113,6 +128,24 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
     ),
   );
 
+  // spec 023 T207: dated backup + merge sequencing for Vault health.
+  sl.registerLazySingleton<DuplicateMergeCoordinator>(
+    () => DuplicateMergeCoordinator(
+      vaultKdbxService: sl(),
+      sessionSecretHolder: sl(),
+      databaseFileRepository: sl(),
+    ),
+  );
+
+  // spec 023 T204: dated backup + delete sequencing for the passkey section.
+  sl.registerLazySingleton<PasskeyCoordinator>(
+    () => PasskeyCoordinator(
+      vaultKdbxService: sl(),
+      sessionSecretHolder: sl(),
+      databaseFileRepository: sl(),
+    ),
+  );
+
   sl.registerFactory(
     () => DatabaseSelectionBloc(databaseSessionCoordinator: sl()),
   );
@@ -145,6 +178,8 @@ void registerPasswordManagerPresentationDependencies(GetIt sl) {
       folderExpansionPreferences: sl<SharedPreferences>(),
       syncMergeCoordinator: sl(),
       entryHistoryCoordinator: sl(),
+      duplicateMergeCoordinator: sl(),
+      passkeyCoordinator: sl(),
       resolveDatabaseId: (databasePath) async {
         final records = await sl<DatabaseRegistryRepository>().list();
         for (final record in records) {

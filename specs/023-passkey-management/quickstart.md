@@ -83,6 +83,12 @@ iOS and macOS, each recorded separately.
 3. On https://passkeys.io, where only E3 matches. **Expect**: only E3 offered.
 4. Lock the database in KeyVault, retry step 1. **Expect**: KeyVault offers
    nothing for the site (cache wiped, FR-023).
+5. On https://webauthn.io choose "Register" and pick KeyVault as the place to
+   save the passkey (spec 023 T708). **Expect**: a screen saying the passkey is
+   created in the KeyVault app, naming the site and the account; dismissing it
+   leaves the site reporting a **failed** registration, never a successful one,
+   and the vault unchanged — check that no new passkey appears on any record.
+   **Must not**: a blank sheet, a hang, or the site reporting success.
 
 ## E — Android sign-in (US2)
 
@@ -115,6 +121,9 @@ fvm flutter test test/features/password_manager/domain/models/vault_passkey_test
 grep -rn "BEGIN PRIVATE KEY" lib desktop tool android/app/src ios/CredentialProviderExtension macos/CredentialProviderExtension
 ```
 
-The grep must hit only the parser's PEM header constant. Then run each
+The grep must hit only `passkey_generator.dart`'s PEM header constant — the one
+place the app writes a header, and the only production use of the phrase. A hit
+in a test fixture is a finding, not noise: it is also what the secret scanners
+flag, so fixtures carry a non-PEM marker instead. Then run each
 platform flow with verbose logging on and search the captured logs for
 `PRIVATE KEY`: zero hits.

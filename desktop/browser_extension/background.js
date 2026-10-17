@@ -10,6 +10,16 @@ const HOST_NAME = "dev.camillobucciarelli.keyvault_native_host";
 const PROTOCOL_VERSION = 2;
 const NATIVE_TIMEOUT_MS = 3000;
 
+// spec 023 T503 — a passkey assertion waits on a person.
+//
+// Every other native call answers from memory in milliseconds, so 3 s is a
+// generous ceiling for them. `/passkey-assert` shows a confirmation in the
+// desktop app and waits for the user to answer it (FR-015); three seconds
+// would time out every real sign-in. The site is already waiting on
+// `navigator.credentials.get`, which has no timeout of its own, and a
+// stalled app still ends in a refusal rather than a hang.
+const PASSKEY_NATIVE_TIMEOUT_MS = 95000;
+
 function createRequestId() {
   if (globalThis.crypto?.randomUUID) {
     return globalThis.crypto.randomUUID();
@@ -44,6 +54,8 @@ function withTimeout(promise, timeoutMs) {
 }
 
 async function sendNativeV2(type, payload = {}) {
+  const timeoutMs =
+    type === "passkeyAssert" ? PASSKEY_NATIVE_TIMEOUT_MS : NATIVE_TIMEOUT_MS;
   const request = {
     version: PROTOCOL_VERSION,
     id: createRequestId(),
@@ -66,7 +78,7 @@ async function sendNativeV2(type, payload = {}) {
     });
   });
 
-  const response = await withTimeout(nativeCall, NATIVE_TIMEOUT_MS);
+  const response = await withTimeout(nativeCall, timeoutMs);
   if (response.version !== PROTOCOL_VERSION) {
     return {
       version: PROTOCOL_VERSION,

@@ -23,6 +23,11 @@ class PasskeyParser {
 
   static final _suffix = RegExp(r'^(.*?)(_\d+)?$');
 
+  /// The group marker of a `KPEX_PASSKEY_*` key: `''` for the first group,
+  /// `_1`, `_2`, … for KeePassDX-style repeats. Exposed so a writer can
+  /// select one group's keys with the same rule the parser grouped them by.
+  static String suffixOf(String key) => _suffix.firstMatch(key)!.group(2) ?? '';
+
   List<VaultPasskey> parse(
     List<VaultCustomField> fields, {
     DateTime? createdAt,

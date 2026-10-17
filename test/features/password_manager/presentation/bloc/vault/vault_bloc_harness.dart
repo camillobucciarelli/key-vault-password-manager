@@ -23,6 +23,7 @@ import 'package:password_manager/features/password_manager/domain/services/vault
 import 'package:password_manager/features/password_manager/presentation/bloc/vault/vault_bloc.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/entry_history_coordinator.dart';
+import 'package:password_manager/features/password_manager/presentation/coordinators/passkey_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/link_database_to_remote_usecase.dart';
 import 'package:password_manager/features/password_manager/domain/usecases/sync_database_now_usecase.dart';
@@ -57,6 +58,7 @@ VaultBloc buildTestVaultBloc({
   SharedPreferences? folderExpansionPreferences,
   String databasePath = testDatabasePath,
   EntryHistoryCoordinator? entryHistoryCoordinator,
+  PasskeyCoordinator? passkeyCoordinator,
   SessionSecretHolder? sessionSecretHolder,
 }) {
   final syncRepository = FakeSyncRepository();
@@ -81,6 +83,7 @@ VaultBloc buildTestVaultBloc({
     vaultHealthService: healthService ?? const VaultHealthService(),
     folderExpansionPreferences: folderExpansionPreferences,
     entryHistoryCoordinator: entryHistoryCoordinator,
+    passkeyCoordinator: passkeyCoordinator,
   );
 }
 

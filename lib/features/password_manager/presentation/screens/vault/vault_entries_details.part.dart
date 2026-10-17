@@ -100,6 +100,22 @@ class _RecordListItem extends StatelessWidget {
                   ],
                 ),
               ),
+              // spec 023 T201 (FR-011): a record that holds a passkey says so
+              // in the list, with a glyph *and* a semantic label — never the
+              // glyph's colour alone (Constitution V).
+              if (entry.hasPasskey) ...[
+                Semantics(
+                  label: 'Passkey',
+                  child: KvIcon(
+                    glyph: AppGlyph.fingerprint,
+                    size: 15,
+                    color: isSelected
+                        ? AppColors.accent900
+                        : colors.iconNeutral,
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
               KvHealthDot(
                 state: isPasswordWarning
                     ? KvHealthState.warning

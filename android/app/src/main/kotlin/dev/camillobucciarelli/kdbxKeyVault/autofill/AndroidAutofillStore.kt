@@ -51,7 +51,12 @@ internal class AndroidAutofillStore(context: Context) {
                 warnings.add("duplicate_entry_id_skipped")
                 continue
             }
-            if (entry.password.isEmpty()) {
+            // spec 023: a passkey-only record has nothing to fill but
+            // something to sign with, so an empty password no longer
+            // disqualifies it. A record with neither is still nothing to
+            // publish.
+            val passkeys = entry.passkeys.filter { it.rpId.isNotEmpty() }
+            if (entry.password.isEmpty() && passkeys.isEmpty()) {
                 skippedCount += 1
                 warnings.add("entry_without_password_skipped")
                 continue
@@ -74,6 +79,13 @@ internal class AndroidAutofillStore(context: Context) {
                     displayService = displayService,
                     serviceIdentifiers = identifiers,
                     updatedAtEpochMs = generatedAt,
+                    passkeys = passkeys.map {
+                        AndroidAutofillPasskeyMetadata(
+                            rpId = it.rpId,
+                            credentialId = it.credentialId,
+                        )
+                    },
+                    hasPassword = entry.password.isNotEmpty(),
                 ),
             )
             secretEntries.add(
@@ -81,6 +93,7 @@ internal class AndroidAutofillStore(context: Context) {
                     id = id,
                     username = username,
                     password = entry.password,
+                    passkeys = passkeys,
                 ),
             )
         }
@@ -98,6 +111,7 @@ internal class AndroidAutofillStore(context: Context) {
                 "skippedCount" to skippedCount,
                 "identityCount" to 0,
                 "identityStoreSynced" to false,
+                "passkeyPublishedCount" to 0,
                 "warnings" to warnings.toList(),
             )
         }
@@ -129,6 +143,7 @@ internal class AndroidAutofillStore(context: Context) {
             "skippedCount" to skippedCount,
             "identityCount" to sortedMetadata.size,
             "identityStoreSynced" to true,
+            "passkeyPublishedCount" to sortedMetadata.sumOf { it.passkeys.size },
             "warnings" to warnings.toList(),
         )
     }
