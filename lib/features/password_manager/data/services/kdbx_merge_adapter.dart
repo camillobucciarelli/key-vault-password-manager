@@ -720,14 +720,25 @@ List<KdbxFieldDiff> passkeyBlockFieldsOf(
 /// something, and naming it after the side being replaced would read as a
 /// promise the merge does not make. `null` when neither side carries it, which
 /// is a passkey the parser would itself call unusable.
-String? passkeyBlockRelyingPartyId(List<KdbxFieldDiff> blockFields) {
-  final rpKey = PasskeyParser.relyingPartyKey.toLowerCase();
+String? passkeyBlockRelyingPartyId(List<KdbxFieldDiff> blockFields) =>
+    passkeyBlockRelyingPartyIdOn(blockFields, local: true) ??
+    passkeyBlockRelyingPartyIdOn(blockFields, local: false);
+
+/// The relying party one side of the group names, for that side's own
+/// display: when the field itself conflicts, each side must show the site its
+/// credential is actually for, or the user picks blind. Matched on the group's
+/// own suffixed key, so `_1`, `_2` groups resolve as the first group does.
+String? passkeyBlockRelyingPartyIdOn(
+  List<KdbxFieldDiff> blockFields, {
+  required bool local,
+}) {
   for (final field in blockFields) {
+    final rpKey =
+        PasskeyParser.relyingPartyKey.toLowerCase() +
+        passkeyBlockSuffixOf(field.canonicalKey);
     if (field.canonicalKey != rpKey) continue;
-    final local = field.local;
-    if (local is KdbxFieldPresent) return local.semanticValue;
-    final remote = field.remote;
-    if (remote is KdbxFieldPresent) return remote.semanticValue;
+    final value = local ? field.local : field.remote;
+    if (value is KdbxFieldPresent) return value.semanticValue;
   }
   return null;
 }

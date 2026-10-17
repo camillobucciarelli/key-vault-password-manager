@@ -3128,10 +3128,10 @@ void main() {
       );
       final diff = adapter.diffPresence(validated);
 
-      expect(
-        passkeyBlockRelyingPartyId(passkeyBlockFieldsOf(diff, refOf(''))),
-        'webauthn.io',
-      );
+      final fields = passkeyBlockFieldsOf(diff, refOf(''));
+      expect(passkeyBlockRelyingPartyId(fields), 'webauthn.io');
+      expect(passkeyBlockRelyingPartyIdOn(fields, local: true), 'webauthn.io');
+      expect(passkeyBlockRelyingPartyIdOn(fields, local: false), 'webauthn.io');
     });
 
     test('an absent choice for an engaged group is a programming error', () {

@@ -1609,8 +1609,12 @@ final class _DecisionRecord {
       if (!present) return MergeDisplaySide.missing();
       final entry = session.entryOn(file, ref.entryUuid);
       if (entry == null) return MergeDisplaySide.missing();
+      // Each side names its own site: on a conflicting relying party the
+      // shared row label is the local one, and showing it on the remote side
+      // too would hide which credential choosing remote keeps.
+      final sideRp = passkeyBlockRelyingPartyIdOn(blockFields, local: local);
       return MergeDisplaySide.present(
-        label,
+        sideRp == null || sideRp.isEmpty ? 'Passkey' : 'Passkey ($sideRp)',
         changedAt: entry.times.lastModificationTime.get(),
       );
     }

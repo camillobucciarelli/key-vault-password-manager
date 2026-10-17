@@ -1780,6 +1780,44 @@ void main() {
       expect(found, isTrue, reason: 'no passkey row was produced');
     });
 
+    // The two sides wrote different credentials into the same group, so the
+    // relying party itself conflicts: each side must name its own site, or
+    // choosing remote would drop the local key without the row saying so.
+    for (final suffix in const ['', '_1']) {
+      test('each side of the passkey row names its own relying party '
+          '(group "$suffix")', () async {
+        final harness = await _Harness.build(
+          temp,
+          withPasskey: true,
+          passkeySuffix: suffix,
+          remotePasskeyRelyingParty: 'other.example',
+        );
+        final summary = await harness.repository.startReview(
+          harness.databaseId,
+        );
+
+        var found = false;
+        for (final decision in summary.decisions) {
+          if (decision.kind != MergeDecisionKind.fieldConflict) continue;
+          final display = await harness.repository.loadFieldDisplay(
+            sessionId: summary.sessionId,
+            decisionId: decision.decisionId,
+          );
+          if (!display.label.startsWith('Passkey')) {
+            display.dispose();
+            continue;
+          }
+          found = true;
+          expect(display.label, 'Passkey (webauthn.io)');
+          expect(display.local.value, 'Passkey (webauthn.io)');
+          expect(display.remote.value, 'Passkey (other.example)');
+          display.dispose();
+        }
+
+        expect(found, isTrue, reason: 'no passkey row was produced');
+      });
+    }
+
     test('a protected value is flagged so the widget can mask it', () async {
       final harness = await _Harness.build(temp);
       final summary = await harness.repository.startReview(harness.databaseId);
@@ -2905,6 +2943,8 @@ class _Harness {
     bool foreignRemote = false,
     bool tiedTimestamps = false,
     bool withPasskey = false,
+    String passkeySuffix = '',
+    String remotePasskeyRelyingParty = 'webauthn.io',
   }) async {
     Uint8List? keyFileBytes;
     final keyFilePath = '${temp.path}/fixture-key-file.keyx';
@@ -2944,8 +2984,13 @@ class _Harness {
       _divergeLocal(localFile, tiedTimestamps: tiedTimestamps);
       deletionTime = _divergeRemote(remoteFile, tiedTimestamps: tiedTimestamps);
       if (withPasskey) {
-        _writePasskeyGroup(localFile, side: 'local');
-        _writePasskeyGroup(remoteFile, side: 'remote');
+        _writePasskeyGroup(localFile, side: 'local', suffix: passkeySuffix);
+        _writePasskeyGroup(
+          remoteFile,
+          side: 'remote',
+          suffix: passkeySuffix,
+          relyingParty: remotePasskeyRelyingParty,
+        );
       }
     }
 
@@ -2966,6 +3011,8 @@ class _Harness {
     bool foreignRemote = false,
     bool tiedTimestamps = false,
     bool withPasskey = false,
+    String passkeySuffix = '',
+    String remotePasskeyRelyingParty = 'webauthn.io',
     bool mirrored = false,
     bool withoutRemoteMapping = false,
     _FixturePair? fixture,
@@ -2980,6 +3027,8 @@ class _Harness {
           foreignRemote: foreignRemote,
           tiedTimestamps: tiedTimestamps,
           withPasskey: withPasskey,
+          passkeySuffix: passkeySuffix,
+          remotePasskeyRelyingParty: remotePasskeyRelyingParty,
         );
     final keyFilePath = built.keyFilePath;
     final keyFileBytes = built.keyFileBytes;
@@ -3138,19 +3187,24 @@ void _divergeLocal(KdbxFile file, {required bool tiedTimestamps}) {
 /// spec 023 T209 — one `KPEX_PASSKEY_*` group on the shared entry, written
 /// with a different credential id and private key per [side] so every member
 /// of the group conflicts.
-void _writePasskeyGroup(KdbxFile file, {required String side}) {
+void _writePasskeyGroup(
+  KdbxFile file, {
+  required String side,
+  String suffix = '',
+  String relyingParty = 'webauthn.io',
+}) {
   final shared = _entry(file, _sharedEntryUuid)!;
   shared
     ..setString(
-      KdbxKey('KPEX_PASSKEY_RELYING_PARTY'),
-      PlainValue('webauthn.io'),
+      KdbxKey('KPEX_PASSKEY_RELYING_PARTY$suffix'),
+      PlainValue(relyingParty),
     )
     ..setString(
-      KdbxKey('KPEX_PASSKEY_CREDENTIAL_ID'),
+      KdbxKey('KPEX_PASSKEY_CREDENTIAL_ID$suffix'),
       ProtectedValue.fromString('cred-$side'),
     )
     ..setString(
-      KdbxKey('KPEX_PASSKEY_PRIVATE_KEY_PEM'),
+      KdbxKey('KPEX_PASSKEY_PRIVATE_KEY_PEM$suffix'),
       ProtectedValue.fromString('$_passkeyFixtureKeyMarker-$side'),
     );
 }
