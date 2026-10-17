@@ -277,8 +277,7 @@ Future<Map<String, Object?>> handleNativeHostRequest(
       id: id,
       type: type ?? 'error',
       code: 'legacy_fields_rejected',
-      message:
-          'Native Messaging v2 rejects legacy secret-bearing fields. Open and unlock KeyVault in the desktop app instead.',
+      message: 'Native Messaging v2 rejects legacy secret-bearing fields. Open and unlock KeyVault in the desktop app instead.',
     );
   }
 
@@ -603,8 +602,7 @@ Future<Map<String, Object?>> _searchCredentialsResponse({
       'results': results
           .map((entry) => _metadataResult(entry, 'manual'))
           .toList(growable: false),
-      'message':
-          'Global search returned metadata only. Selecting a result creates a pending association for app confirmation.',
+      'message': 'Global search returned metadata only. Selecting a result creates a pending association for app confirmation.',
     },
   );
 }
@@ -631,8 +629,7 @@ Future<Map<String, Object?>> _createPendingAssociationResponse({
       id: id,
       type: type,
       code: 'invalid_request',
-      message:
-          'createPendingAssociation only accepts http(s) page origins for the target.',
+      message: 'createPendingAssociation only accepts http(s) page origins for the target.',
     );
   }
 
@@ -645,8 +642,7 @@ Future<Map<String, Object?>> _createPendingAssociationResponse({
       id: id,
       type: type,
       code: 'pending_association_failed',
-      message:
-          'Unable to create pending association. Open and unlock KeyVault, then try again.',
+      message: 'Unable to create pending association. Open and unlock KeyVault, then try again.',
     );
   }
 
@@ -655,8 +651,7 @@ Future<Map<String, Object?>> _createPendingAssociationResponse({
     type: type,
     data: {
       'pendingAssociation': pending.toJson(),
-      'message':
-          'Pending association saved. Confirm or reject it in the KeyVault desktop app.',
+      'message': 'Pending association saved. Confirm or reject it in the KeyVault desktop app.',
     },
   );
 }
@@ -719,8 +714,7 @@ Future<Map<String, Object?>> _revealForFillResponse({
       id: id,
       type: type,
       code: 'strong_match_required',
-      message:
-          'Credential reveal requires an exact strong match for the current site.',
+      message: 'Credential reveal requires an exact strong match for the current site.',
     );
   }
 
@@ -730,8 +724,7 @@ Future<Map<String, Object?>> _revealForFillResponse({
       id: id,
       type: type,
       code: 'app_bridge_unavailable',
-      message:
-          'KeyVault reveal bridge is unavailable. Open and unlock the desktop app first.',
+      message: 'KeyVault reveal bridge is unavailable. Open and unlock the desktop app first.',
     );
   }
   if (descriptor.databaseId != cache.databaseId) {
@@ -1221,8 +1214,7 @@ Future<Map<String, Object?>> _overlayRevealForFillResponse({
       id: id,
       type: type,
       code: 'app_bridge_unavailable',
-      message:
-          'KeyVault reveal bridge is unavailable. Open and unlock the desktop app first.',
+      message: 'KeyVault reveal bridge is unavailable. Open and unlock the desktop app first.',
     );
   }
 
@@ -1384,8 +1376,7 @@ Future<Map<String, Object?>> _generatePendingEntryResponse({
       id: id,
       type: type,
       code: 'app_bridge_unavailable',
-      message:
-          'KeyVault reveal bridge is unavailable. Open and unlock the desktop app first.',
+      message: 'KeyVault reveal bridge is unavailable. Open and unlock the desktop app first.',
     );
   }
   // B007 negotiation: an app that does not declare the endpoint gets a hard
@@ -1669,8 +1660,7 @@ Map<String, Object?> _cacheUnavailableResponse({
     id: id,
     type: type,
     code: 'app_bridge_unavailable',
-    message:
-        'KeyVault desktop metadata cache is unavailable. Open and unlock the desktop app first.',
+    message: 'KeyVault desktop metadata cache is unavailable. Open and unlock the desktop app first.',
   );
 }
 
@@ -2164,8 +2154,7 @@ String _publicRevealErrorMessage(String code) {
       'KeyVault desktop does not support password generation yet.',
     'passkey_unavailable' =>
       'This KeyVault database has no passkey for this site.',
-    'passkey_create_unavailable' =>
-      'This KeyVault build cannot create passkeys. Open and unlock the desktop app.',
+    'passkey_create_unavailable' => 'This KeyVault build cannot create passkeys. Open and unlock the desktop app.',
     _ => 'KeyVault reveal bridge failed.',
   };
 }

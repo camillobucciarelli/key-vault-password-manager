@@ -743,9 +743,9 @@ int comparePasskeyBlockImage(
 ) {
   final keys = <String>{...local.keys, ...remote.keys}.toList()
     ..sort(compareUtf8Bytes);
-  String imageOf(Map<String, KdbxFieldPresent> side) => [
-    for (final key in keys) side[key]?.semanticValue ?? '',
-  ].join(_credentialBlockImageSeparator);
+  String imageOf(Map<String, KdbxFieldPresent> side) =>
+      [for (final key in keys) side[key]?.semanticValue ?? '']
+          .join(_credentialBlockImageSeparator);
   return compareUtf8Bytes(imageOf(local), imageOf(remote));
 }
 

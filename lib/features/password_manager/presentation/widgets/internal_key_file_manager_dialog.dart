@@ -160,9 +160,8 @@ class _InternalKeyFileManagerDialogState
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Key file exported.')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Key file exported.')));
   }
 
   Future<void> _deleteKeyFile(AppStorageFileEntry entry) async {

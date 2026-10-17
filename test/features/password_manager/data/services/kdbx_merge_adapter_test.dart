@@ -378,9 +378,8 @@ void main() {
       () async {
         const majorVersionOffset = 10;
         final bytes = Uint8List.fromList(await _buildSide(credentials).save());
-        ByteData.sublistView(
-          bytes,
-        ).setUint16(majorVersionOffset, 9, Endian.little);
+        ByteData.sublistView(bytes)
+            .setUint16(majorVersionOffset, 9, Endian.little);
 
         await expectLater(
           adapter.openSide(bytes: bytes, credentials: credentials),
@@ -395,9 +394,8 @@ void main() {
       // KdbxUnsupportedException. One refusal covers both.
       const majorVersionOffset = 10;
       final bytes = Uint8List.fromList(await _buildSide(credentials).save());
-      ByteData.sublistView(
-        bytes,
-      ).setUint16(majorVersionOffset, 2, Endian.little);
+      ByteData.sublistView(bytes)
+          .setUint16(majorVersionOffset, 2, Endian.little);
 
       await expectLater(
         adapter.openSide(bytes: bytes, credentials: credentials),
@@ -1061,9 +1059,8 @@ void main() {
       // Diverge the fields too: without the bin, this pair would produce a
       // perfectly ordinary field conflict, which is exactly the failure mode —
       // the user would be asked to pick a username for a record they deleted.
-      _sharedEntry(
-        pair.local,
-      ).setString(KdbxKeyCommon.USER_NAME, PlainValue('changed-locally'));
+      _sharedEntry(pair.local)
+          .setString(KdbxKeyCommon.USER_NAME, PlainValue('changed-locally'));
       KdbxDao(pair.remote).deleteEntry(_sharedEntry(pair.remote));
 
       final diff = run(pair.local, pair.remote);
@@ -1119,9 +1116,8 @@ void main() {
     test('a permanent tombstone NEWER than the live side is a deletion '
         'conflict', () {
       final pair = _replicaPair(credentials);
-      _sharedEntry(
-        pair.local,
-      ).times.lastModificationTime.set(DateTime.utc(2020));
+      _sharedEntry(pair.local).times.lastModificationTime
+          .set(DateTime.utc(2020));
       KdbxDao(pair.remote).deletePermanently(_sharedEntry(pair.remote));
 
       final record = recordFor(run(pair.local, pair.remote), _sharedEntryUuid);
@@ -1139,9 +1135,8 @@ void main() {
       // that outranked a later edit would delete work the user did after it.
       final pair = _replicaPair(credentials);
       KdbxDao(pair.remote).deletePermanently(_sharedEntry(pair.remote));
-      _sharedEntry(
-        pair.local,
-      ).times.lastModificationTime.set(DateTime.utc(2099));
+      _sharedEntry(pair.local).times.lastModificationTime
+          .set(DateTime.utc(2099));
 
       final record = recordFor(run(pair.local, pair.remote), _sharedEntryUuid);
       expect(record.classification, KdbxRecordClassification.recordLocalOnly);
@@ -1485,9 +1480,8 @@ void main() {
         // Force the merge to actually touch the objects, so the wall clock
         // would otherwise win: a remote-only field on the shared entry, and a
         // remote-only record under the root group.
-        _sharedEntry(
-          pair.remote,
-        ).setString(KdbxKey('Custom_RemoteOnly'), PlainValue('v'));
+        _sharedEntry(pair.remote)
+            .setString(KdbxKey('Custom_RemoteOnly'), PlainValue('v'));
         _sharedEntry(pair.remote).times.lastModificationTime.set(remoteAt);
         final extra = KdbxEntry.create(pair.remote, pair.remote.body.rootGroup)
           ..forceSetUuid(KdbxUuid.random());
@@ -2175,12 +2169,10 @@ void main() {
       required String remoteSpelling,
     }) {
       final pair = _replicaPair(credentials);
-      _sharedEntry(
-        pair.local,
-      ).setString(KdbxKey(localSpelling), PlainValue('same'));
-      _sharedEntry(
-        pair.remote,
-      ).setString(KdbxKey(remoteSpelling), PlainValue('same'));
+      _sharedEntry(pair.local)
+          .setString(KdbxKey(localSpelling), PlainValue('same'));
+      _sharedEntry(pair.remote)
+          .setString(KdbxKey(remoteSpelling), PlainValue('same'));
       final validated = adapter.validatePair(
         local: pair.local,
         remote: pair.remote,
@@ -2192,10 +2184,11 @@ void main() {
       );
     }
 
-    String? spellingOf(KdbxFile file) => _sharedEntry(file).stringEntries
-        .firstWhere((e) => canonicalFieldKey(e.key.key) == 'custom_totp')
-        .key
-        .key;
+    String? spellingOf(KdbxFile file) =>
+        _sharedEntry(file).stringEntries
+            .firstWhere((e) => canonicalFieldKey(e.key.key) == 'custom_totp')
+            .key
+            .key;
 
     test('resolves to the UTF-8-greater spelling regardless of which side '
         'is local — mirrored perspectives agree', () {
@@ -2239,12 +2232,10 @@ void main() {
       required String remoteValue,
     }) {
       final pair = _replicaPair(credentials);
-      _sharedEntry(
-        pair.local,
-      ).setString(KdbxKey(localSpelling), PlainValue(localValue));
-      _sharedEntry(
-        pair.remote,
-      ).setString(KdbxKey(remoteSpelling), PlainValue(remoteValue));
+      _sharedEntry(pair.local)
+          .setString(KdbxKey(localSpelling), PlainValue(localValue));
+      _sharedEntry(pair.remote)
+          .setString(KdbxKey(remoteSpelling), PlainValue(remoteValue));
       final validated = adapter.validatePair(
         local: pair.local,
         remote: pair.remote,
@@ -2272,9 +2263,9 @@ void main() {
       );
     }
 
-    MapEntry<KdbxKey, StringValue?> fieldOf(KdbxFile file) => _sharedEntry(file)
-        .stringEntries
-        .firstWhere((e) => canonicalFieldKey(e.key.key) == 'custom_totp');
+    MapEntry<KdbxKey, StringValue?> fieldOf(KdbxFile file) =>
+        _sharedEntry(file).stringEntries
+            .firstWhere((e) => canonicalFieldKey(e.key.key) == 'custom_totp');
 
     test('mirrored perspectives persist the SAME verbatim spelling, not each '
         'device its own', () {
@@ -2585,12 +2576,10 @@ void main() {
     test('Title and Notes conflicting alongside an engaged block are '
         'resolved independently, never folded into the block', () {
       final built = engagedPair(tiedAt: DateTime.utc(2022));
-      _sharedEntry(
-        built.local,
-      ).setString(KdbxKeyCommon.TITLE, PlainValue('local-title'));
-      _sharedEntry(
-        built.remote,
-      ).setString(KdbxKeyCommon.TITLE, PlainValue('remote-title'));
+      _sharedEntry(built.local)
+          .setString(KdbxKeyCommon.TITLE, PlainValue('local-title'));
+      _sharedEntry(built.remote)
+          .setString(KdbxKeyCommon.TITLE, PlainValue('remote-title'));
 
       final validated = adapter.validatePair(
         local: built.local,

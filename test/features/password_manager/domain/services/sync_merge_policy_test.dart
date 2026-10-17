@@ -133,38 +133,35 @@ void main() {
       }
     });
 
-    test(
-      'a one-sided row without deletion evidence cannot exist as a decision',
-      () {
-        for (final presence in [
-          MergePresence.localOnly,
-          MergePresence.remoteOnly,
+    test('a one-sided row without deletion evidence cannot exist as a decision', () {
+      for (final presence in [
+        MergePresence.localOnly,
+        MergePresence.remoteOnly,
+      ]) {
+        for (final kind in [
+          MergeDecisionKind.fieldConflict,
+          MergeDecisionKind.groupConflict,
         ]) {
-          for (final kind in [
-            MergeDecisionKind.fieldConflict,
-            MergeDecisionKind.groupConflict,
-          ]) {
-            expect(
-              () => RedactedMergeDecision(
-                decisionId: _id(1),
-                ordinal: 0,
-                kind: kind,
-                category: MergeFieldCategory.customField,
-                presence: presence,
-                choice: MergeChoice.local,
-                isDefault: true,
-                timestampRelation: TimestampRelation.tie,
-              ),
-              throwsArgumentError,
-              reason:
-                  'FR-4: one-sided data without deletion evidence is an '
-                  'automatic union, so it must be unrepresentable as a decision '
-                  'and therefore unreachable by a shortcut',
-            );
-          }
+          expect(
+            () => RedactedMergeDecision(
+              decisionId: _id(1),
+              ordinal: 0,
+              kind: kind,
+              category: MergeFieldCategory.customField,
+              presence: presence,
+              choice: MergeChoice.local,
+              isDefault: true,
+              timestampRelation: TimestampRelation.tie,
+            ),
+            throwsArgumentError,
+            reason:
+                'FR-4: one-sided data without deletion evidence is an '
+                'automatic union, so it must be unrepresentable as a decision '
+                'and therefore unreachable by a shortcut',
+          );
         }
-      },
-    );
+      }
+    });
   });
 
   group('the missing side can never be selected', () {
@@ -278,15 +275,13 @@ void main() {
 
     test('FR-11: above 200 conflicts the review is shortcuts-only', () {
       expect(
-        _summary([
-          for (var i = 0; i < 200; i++) _fieldConflict(i),
-        ]).exceedsPerDecisionReviewLimit,
+        _summary([for (var i = 0; i < 200; i++) _fieldConflict(i)])
+            .exceedsPerDecisionReviewLimit,
         isFalse,
       );
       expect(
-        _summary([
-          for (var i = 0; i < 201; i++) _fieldConflict(i),
-        ]).exceedsPerDecisionReviewLimit,
+        _summary([for (var i = 0; i < 201; i++) _fieldConflict(i)])
+            .exceedsPerDecisionReviewLimit,
         isTrue,
       );
     });

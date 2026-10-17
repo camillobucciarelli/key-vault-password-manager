@@ -83,8 +83,7 @@ class OtpAuthDeepLinkEvent {
     }
 
     return const OtpAuthDeepLinkEvent._(
-      errorMessage:
-          'Only standard otpauth://totp links are supported. HOTP and migration links are not imported yet.',
+      errorMessage: 'Only standard otpauth://totp links are supported. HOTP and migration links are not imported yet.',
     );
   }
 

@@ -266,11 +266,10 @@ class SafeVaultFileWriteResult {
 ///   followed (T109 HIGH-4 follow-up).
 class SafeVaultFileWriter {
   SafeVaultFileWriter({
-    SafeVaultFileIo io = const SafeVaultFileIo(),
+    this._io = const SafeVaultFileIo(),
     DateTime Function()? clock,
     Random? random,
-  }) : _io = io,
-       _clock = clock ?? DateTime.now,
+  }) : _clock = clock ?? DateTime.now,
        _random = random ?? Random.secure();
 
   final SafeVaultFileIo _io;

@@ -39,9 +39,8 @@ Future<GroupEditResult?> _showGroupDialog(
                   if (!formKey.currentState!.validate()) {
                     return;
                   }
-                  VaultOperationScope.of(
-                    context,
-                  ).complete(GroupEditResult(name.trim()));
+                  VaultOperationScope.of(context)
+                      .complete(GroupEditResult(name.trim()));
                 },
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
@@ -62,9 +61,8 @@ Future<GroupEditResult?> _showGroupDialog(
                 if (!formKey.currentState!.validate()) {
                   return;
                 }
-                VaultOperationScope.of(
-                  context,
-                ).complete(GroupEditResult(name.trim()));
+                VaultOperationScope.of(context)
+                    .complete(GroupEditResult(name.trim()));
               },
               child: Text(actionLabel),
             ),
@@ -144,9 +142,9 @@ Future<MoveTargetResult?> _showMoveTargetDialog(
                   child: const Text('Cancel'),
                 ),
                 FilledButton(
-                  onPressed: () => VaultOperationScope.of(
-                    context,
-                  ).complete(MoveTargetResult(selectedGroupId)),
+                  onPressed: () =>
+                      VaultOperationScope.of(context)
+                          .complete(MoveTargetResult(selectedGroupId)),
                   child: const Text('Move'),
                 ),
               ]),
@@ -210,9 +208,8 @@ Future<VaultDone?> _showAttachmentsDialog(
                                       destinationDirectory: directory,
                                     ),
                                   );
-                                  VaultOperationScope.of(
-                                    dialogContext,
-                                  ).complete(const VaultDone());
+                                  VaultOperationScope.of(dialogContext)
+                                      .complete(const VaultDone());
                                 }
                                 break;
                               case _AttachmentAction.remove:
@@ -229,9 +226,8 @@ Future<VaultDone?> _showAttachmentsDialog(
                                       attachmentKey: attachment.key,
                                     ),
                                   );
-                                  VaultOperationScope.of(
-                                    dialogContext,
-                                  ).complete(const VaultDone());
+                                  VaultOperationScope.of(dialogContext)
+                                      .complete(const VaultDone());
                                 }
                                 break;
                             }
@@ -265,17 +261,16 @@ Future<VaultDone?> _showAttachmentsDialog(
                   dialogContext.read<VaultBloc>().add(
                     AddVaultAttachment(entryId: entry.id, filePath: path),
                   );
-                  VaultOperationScope.of(
-                    dialogContext,
-                  ).complete(const VaultDone());
+                  VaultOperationScope.of(dialogContext)
+                      .complete(const VaultDone());
                 }
               },
               child: const Text('Add attachment'),
             ),
             FilledButton(
-              onPressed: () => VaultOperationScope.of(
-                dialogContext,
-              ).complete(const VaultDone()),
+              onPressed: () =>
+                  VaultOperationScope.of(dialogContext)
+                      .complete(const VaultDone()),
               child: const Text('Close'),
             ),
           ]),

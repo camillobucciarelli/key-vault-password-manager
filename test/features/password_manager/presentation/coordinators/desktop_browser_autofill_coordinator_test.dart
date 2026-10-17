@@ -9,6 +9,7 @@ import 'package:password_manager/features/password_manager/presentation/coordina
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
 
 import 'fake_database_ports.dart';
+
 import 'package:password_manager/features/password_manager/data/services/desktop_browser_autofill_cache.dart';
 import 'package:password_manager/features/password_manager/data/services/desktop_browser_autofill_reveal_bridge_service.dart';
 import 'package:password_manager/features/password_manager/data/services/desktop_browser_pending_generation_service.dart';

@@ -100,21 +100,18 @@ class AppleAutofillV2PayloadMapper {
     if (normalizedUrl != null) {
       add(AppleAutofillV2ServiceIdentifier.url(normalizedUrl));
       add(
-        _normalizedHostFromWebValue(
-          normalizedUrl,
-        ).map(AppleAutofillV2ServiceIdentifier.domain),
+        _normalizedHostFromWebValue(normalizedUrl)
+            .map(AppleAutofillV2ServiceIdentifier.domain),
       );
     }
 
     add(
-      _bundleIdFromIosBundleUrl(
-        entry.url,
-      ).map(AppleAutofillV2ServiceIdentifier.bundleId),
+      _bundleIdFromIosBundleUrl(entry.url)
+          .map(AppleAutofillV2ServiceIdentifier.bundleId),
     );
     add(
-      _packageNameFromAndroidAppUrl(
-        entry.url,
-      ).map(AppleAutofillV2ServiceIdentifier.androidPackage),
+      _packageNameFromAndroidAppUrl(entry.url)
+          .map(AppleAutofillV2ServiceIdentifier.androidPackage),
     );
 
     for (final field in entry.customFields) {
@@ -122,9 +119,8 @@ class AppleAutofillV2PayloadMapper {
       if (_isAndroidPackageField(key)) {
         for (final value in _splitCustomFieldValues(field.value)) {
           add(
-            _normalizedAndroidPackageName(
-              value,
-            ).map(AppleAutofillV2ServiceIdentifier.androidPackage),
+            _normalizedAndroidPackageName(value)
+                .map(AppleAutofillV2ServiceIdentifier.androidPackage),
           );
         }
         continue;
@@ -133,9 +129,8 @@ class AppleAutofillV2PayloadMapper {
       if (_isAppleBundleField(key)) {
         for (final value in _splitCustomFieldValues(field.value)) {
           add(
-            _normalizedBundleId(
-              value,
-            ).map(AppleAutofillV2ServiceIdentifier.bundleId),
+            _normalizedBundleId(value)
+                .map(AppleAutofillV2ServiceIdentifier.bundleId),
           );
         }
         continue;
@@ -144,9 +139,8 @@ class AppleAutofillV2PayloadMapper {
       if (_isDomainField(key)) {
         for (final value in _splitCustomFieldValues(field.value)) {
           add(
-            _normalizedHostFromWebValue(
-              value,
-            ).map(AppleAutofillV2ServiceIdentifier.domain),
+            _normalizedHostFromWebValue(value)
+                .map(AppleAutofillV2ServiceIdentifier.domain),
           );
         }
         continue;
@@ -156,17 +150,15 @@ class AppleAutofillV2PayloadMapper {
         for (final value in _splitCustomFieldValues(field.value)) {
           if (_isAndroidAppValue(value)) {
             add(
-              _normalizedAndroidPackageName(
-                value,
-              ).map(AppleAutofillV2ServiceIdentifier.androidPackage),
+              _normalizedAndroidPackageName(value)
+                  .map(AppleAutofillV2ServiceIdentifier.androidPackage),
             );
             continue;
           }
           if (_isIosBundleValue(value)) {
             add(
-              _normalizedBundleId(
-                value,
-              ).map(AppleAutofillV2ServiceIdentifier.bundleId),
+              _normalizedBundleId(value)
+                  .map(AppleAutofillV2ServiceIdentifier.bundleId),
             );
             continue;
           }

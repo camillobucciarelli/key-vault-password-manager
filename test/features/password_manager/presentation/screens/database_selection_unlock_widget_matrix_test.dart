@@ -798,9 +798,8 @@ void main() {
     }
 
     test('KvBottomSheet.show always uses the root navigator', () {
-      final source = File(
-        'lib/core/widgets/kv_bottom_sheet.dart',
-      ).readAsStringSync();
+      final source = File('lib/core/widgets/kv_bottom_sheet.dart')
+          .readAsStringSync();
       expect(source, contains('useRootNavigator: true'));
     });
   });

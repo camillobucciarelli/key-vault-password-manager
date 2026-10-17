@@ -444,9 +444,8 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
       opened = false;
     }
     if (!opened && context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Unable to open $url')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Unable to open $url')));
     }
   }
 
@@ -602,9 +601,8 @@ class _VaultSettingsDestinationState extends State<_VaultSettingsDestination> {
               // shortcuts — there these rows are a duplicate path
               // (2026-08-31, user-directed). The phone has no folder
               // column, so they stay its only entry point.
-              if (!VaultLayoutClass.fromWidth(
-                MediaQuery.sizeOf(context).width,
-              ).hasFolderPane) ...[
+              if (!VaultLayoutClass.fromWidth(MediaQuery.sizeOf(context).width)
+                  .hasFolderPane) ...[
                 const SizedBox(height: 8),
                 _SettingsRow(
                   glyph: AppGlyph.delete,

@@ -177,9 +177,8 @@ void main() {
     for (final entry in _dartFilesUnder(p.join(root, 'lib'))) {
       final relative = p.relative(entry.path, from: root).replaceAll(r'\', '/');
       if (mergeFieldDisplayImporters.contains(relative)) continue;
-      final imported = importsOf(
-        entry.path,
-      ).where((uri) => transientBasenames.any(uri.endsWith));
+      final imported = importsOf(entry.path)
+          .where((uri) => transientBasenames.any(uri.endsWith));
       if (imported.isNotEmpty) {
         offenders.add('$relative -> ${imported.join(', ')}');
       }
@@ -517,10 +516,11 @@ Set<String> _declaredTopLevelNames(String path) {
   return names..removeWhere((name) => name.startsWith('_'));
 }
 
-Iterable<File> _dartFilesUnder(String directory) => Directory(directory)
-    .listSync(recursive: true)
-    .whereType<File>()
-    .where((f) => f.path.endsWith('.dart'));
+Iterable<File> _dartFilesUnder(String directory) =>
+    Directory(directory)
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'));
 
 String? _internalViolation(String resolved) {
   final segments = p.split(resolved);

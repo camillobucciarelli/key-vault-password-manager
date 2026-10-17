@@ -275,13 +275,11 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
         case BridgeCheckResult.notRunning:
           _appBridgeConnected = false;
           _connectionStatus = _StepStatus.error;
-          _errorMessage =
-              'Bridge non raggiungibile. Riavvia KeyVault, sblocca il vault e riprova.';
+          _errorMessage = 'Bridge non raggiungibile. Riavvia KeyVault, sblocca il vault e riprova.';
         case BridgeCheckResult.v2AppBridgeUnavailable:
           _appBridgeConnected = false;
           _connectionStatus = _StepStatus.error;
-          _errorMessage =
-              'Collegamento non disponibile. Blocca e sblocca il vault, poi riprova.';
+          _errorMessage = 'Collegamento non disponibile. Blocca e sblocca il vault, poi riprova.';
       }
     });
   }
@@ -357,9 +355,9 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                                     const SizedBox(height: 2),
                                     Text(
                                       'Installa l\'estensione e collegala a KeyVault',
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.bodySmall,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall,
                                     ),
                                   ],
                                 ),
@@ -387,8 +385,7 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                           _SetupStep(
                             number: 1,
                             title: 'Installa l\'estensione',
-                            description:
-                                'Apri Chrome Web Store e installa l\'estensione KeyVault.',
+                            description: 'Apri Chrome Web Store e installa l\'estensione KeyVault.',
                             status: _extensionStatus,
                             actionLabel: _extensionStatus == _StepStatus.loading
                                 ? 'Apertura in corso…'
@@ -455,8 +452,7 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                           _SetupStep(
                             number: 3,
                             title: 'Verifica la connessione',
-                            description:
-                                'Sblocca il vault e tieni KeyVault aperto, poi verifica che il bridge app sia pronto.',
+                            description: 'Sblocca il vault e tieni KeyVault aperto, poi verifica che il bridge app sia pronto.',
                             status: _connectionStatus,
                             actionLabel: _isCheckingConnection
                                 ? 'Verifica in corso…'
@@ -502,9 +498,8 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                                     .withValues(alpha: 0.3),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.error.withValues(alpha: 0.4),
+                                  color: Theme.of(context).colorScheme.error
+                                      .withValues(alpha: 0.4),
                                 ),
                               ),
                               child: Row(
@@ -523,9 +518,9 @@ class _BrowserSetupScreenState extends State<BrowserSetupScreen> {
                                           .textTheme
                                           .bodySmall
                                           ?.copyWith(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.onErrorContainer,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onErrorContainer,
                                           ),
                                     ),
                                   ),
@@ -589,9 +584,8 @@ class _StaleManifestCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   'Vecchia registrazione di sviluppo trovata',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                  style: Theme.of(context).textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
             ],
@@ -607,10 +601,8 @@ class _StaleManifestCard extends StatelessWidget {
           for (final path in paths)
             Text(
               path,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                fontFamily: 'monospace',
-                fontSize: 11,
-              ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(fontFamily: 'monospace', fontSize: 11),
             ),
           const SizedBox(height: 10),
           Align(

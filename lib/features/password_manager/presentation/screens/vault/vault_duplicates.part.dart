@@ -64,9 +64,9 @@ class _DuplicatesScreen extends StatelessWidget {
                   KvCircleIconButton(
                     glyph: AppGlyph.back,
                     tooltip: 'Back',
-                    onPressed: () => VaultOperationScope.of(
-                      context,
-                    ).complete(const VaultDone()),
+                    onPressed: () =>
+                        VaultOperationScope.of(context)
+                            .complete(const VaultDone()),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -400,9 +400,8 @@ class _MergePreviewScreen extends StatelessWidget {
     final customFieldKeysToCopy = <String>{
       for (final p in previews) ...p.customFieldKeysToCopy,
     }.toList(growable: false);
-    final urlsToCopy = <String>{
-      for (final p in previews) ...p.urlsToCopy,
-    }.toList(growable: false);
+    final urlsToCopy = <String>{for (final p in previews) ...p.urlsToCopy}
+        .toList(growable: false);
     // spec 023 FR-008 — one row for the whole credential, named by its
     // relying party. No field of it is ever listed or displayed.
     final passkeySites = <String>{
@@ -425,9 +424,9 @@ class _MergePreviewScreen extends StatelessWidget {
                     KvCircleIconButton(
                       glyph: AppGlyph.back,
                       tooltip: 'Back',
-                      onPressed: () => VaultOperationScope.of(
-                        context,
-                      ).complete(ConfirmDecision.cancel),
+                      onPressed: () =>
+                          VaultOperationScope.of(context)
+                              .complete(ConfirmDecision.cancel),
                     ),
                     const SizedBox(width: 8),
                     Text(
@@ -528,16 +527,16 @@ class _MergePreviewScreen extends StatelessWidget {
                       : 'Merge and move ${previews.length} duplicates',
                   onPressed: passkeyConflict
                       ? null
-                      : () => VaultOperationScope.of(
-                          context,
-                        ).complete(ConfirmDecision.confirm),
+                      : () =>
+                            VaultOperationScope.of(context)
+                                .complete(ConfirmDecision.confirm),
                 ),
                 const SizedBox(height: 9),
                 KvSecondaryPillButton(
                   label: 'Cancel',
-                  onPressed: () => VaultOperationScope.of(
-                    context,
-                  ).complete(ConfirmDecision.cancel),
+                  onPressed: () =>
+                      VaultOperationScope.of(context)
+                          .complete(ConfirmDecision.cancel),
                 ),
               ],
             ),

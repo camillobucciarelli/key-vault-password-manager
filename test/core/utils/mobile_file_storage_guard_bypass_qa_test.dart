@@ -48,9 +48,8 @@ void main() {
     // reproduced on Linux as well as macOS.
     final rawRoot = await Directory.systemTemp.createTemp('guard_bypass_');
     root = Directory(rawRoot.resolveSymbolicLinksSync());
-    final realDocs = await Directory(
-      p.join(root.path, 'Documents.real'),
-    ).create();
+    final realDocs = await Directory(p.join(root.path, 'Documents.real'))
+        .create();
     final docsLink = Link(p.join(root.path, 'Documents'));
     await docsLink.create(realDocs.path);
 

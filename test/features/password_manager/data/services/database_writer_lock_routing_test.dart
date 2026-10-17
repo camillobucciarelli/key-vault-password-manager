@@ -241,14 +241,15 @@ void main() {
       final destination = p.join(destinationDir.path, 'attachment.bin');
 
       await expectLater(
-        () => VaultKdbxService(mutex: RefusingDatabasePathMutex())
-            .exportAttachment(
-              databasePath: databasePath,
-              password: _password,
-              entryId: entryId,
-              attachmentKey: 'attachment.bin',
-              destinationDirectory: destinationDir.path,
-            ),
+        () =>
+            VaultKdbxService(mutex: RefusingDatabasePathMutex())
+                .exportAttachment(
+                  databasePath: databasePath,
+                  password: _password,
+                  entryId: entryId,
+                  attachmentKey: 'attachment.bin',
+                  destinationDirectory: destinationDir.path,
+                ),
         throwsA(isA<LockRefused>()),
       );
       expect(File(destination).existsSync(), isFalse);
@@ -515,17 +516,16 @@ void main() {
       final target = p.join(tempDir.path, 'copy.kdbx');
 
       await expectLater(
-        () => service(
-          RefusingDatabasePathMutex(),
-        ).copyFile(sourcePath: source.path, targetPath: target),
+        () =>
+            service(RefusingDatabasePathMutex())
+                .copyFile(sourcePath: source.path, targetPath: target),
         throwsA(isA<LockRefused>()),
       );
       expect(File(target).existsSync(), isFalse);
 
       final recording = RecordingDatabasePathMutex();
-      await service(
-        recording,
-      ).copyFile(sourcePath: source.path, targetPath: target);
+      await service(recording)
+          .copyFile(sourcePath: source.path, targetPath: target);
       expect(File(target).existsSync(), isTrue);
       expect(recording.acquisitions, [
         [source.path, target],
@@ -538,18 +538,17 @@ void main() {
       final target = p.join(tempDir.path, 'renamed.kdbx');
 
       await expectLater(
-        () => service(
-          RefusingDatabasePathMutex(),
-        ).renameFile(sourcePath: source.path, targetPath: target),
+        () =>
+            service(RefusingDatabasePathMutex())
+                .renameFile(sourcePath: source.path, targetPath: target),
         throwsA(isA<LockRefused>()),
       );
       expect(source.existsSync(), isTrue);
       expect(File(target).existsSync(), isFalse);
 
       final recording = RecordingDatabasePathMutex();
-      await service(
-        recording,
-      ).renameFile(sourcePath: source.path, targetPath: target);
+      await service(recording)
+          .renameFile(sourcePath: source.path, targetPath: target);
       expect(source.existsSync(), isFalse);
       expect(File(target).existsSync(), isTrue);
       expect(recording.acquisitions, [
@@ -582,18 +581,17 @@ void main() {
       final import = stagedImport(staged);
 
       await expectLater(
-        () => service(
-          RefusingDatabasePathMutex(),
-        ).commitStagedDatabase(import, targetPath: target.path),
+        () =>
+            service(RefusingDatabasePathMutex())
+                .commitStagedDatabase(import, targetPath: target.path),
         throwsA(isA<LockRefused>()),
       );
       expect(await target.readAsBytes(), [9, 9, 9]);
       expect(staged.existsSync(), isTrue);
 
       final recording = RecordingDatabasePathMutex();
-      final commit = await service(
-        recording,
-      ).commitStagedDatabase(import, targetPath: target.path);
+      final commit = await service(recording)
+          .commitStagedDatabase(import, targetPath: target.path);
       expect(await target.readAsBytes(), _kdbxMagic);
       expect(commit.backupPath, isNotNull);
       expect(recording.acquisitions, [

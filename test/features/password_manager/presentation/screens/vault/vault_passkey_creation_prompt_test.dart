@@ -158,7 +158,10 @@ void main() {
     expect(find.text('Webauthn work'), findsOneWidget);
     expect(find.text('Webauthn personal'), findsOneWidget);
     // The row that leads to a replacement says so before it is chosen.
-    expect(find.textContaining('already has a passkey for this site'), findsOneWidget);
+    expect(
+      find.textContaining('already has a passkey for this site'),
+      findsOneWidget,
+    );
 
     await tester.tap(find.text('Webauthn work'));
     await tester.pumpAndSettle();

@@ -28,16 +28,15 @@ void main() {
   test('iOS registers a Google callback under CFBundleURLTypes', () {
     final plist = File('ios/Runner/Info.plist').readAsStringSync();
     final schemes = _iosUrlSchemes(plist);
-    final reindented = XmlDocument.parse(
-      plist,
-    ).toXmlString(pretty: true, indent: '  ');
+    final reindented = XmlDocument.parse(plist)
+        .toXmlString(pretty: true, indent: '  ');
 
     expect(_iosUrlSchemes(reindented), schemes);
     expect(
       schemes.any(
-        (scheme) => RegExp(
-          r'^com\.googleusercontent\.apps\.[A-Za-z0-9._-]+$',
-        ).hasMatch(scheme),
+        (scheme) =>
+            RegExp(r'^com\.googleusercontent\.apps\.[A-Za-z0-9._-]+$')
+                .hasMatch(scheme),
       ),
       isTrue,
     );
@@ -50,9 +49,8 @@ void main() {
           'com.googleusercontent.apps.${_iosClientId.replaceFirst('.apps.googleusercontent.com', '')}';
 
       expect(
-        _iosUrlSchemes(
-          File('ios/Runner/Info.plist').readAsStringSync(),
-        ).contains(callbackScheme),
+        _iosUrlSchemes(File('ios/Runner/Info.plist').readAsStringSync())
+            .contains(callbackScheme),
         isTrue,
         reason: 'Installed iOS callback scheme does not match OAuth config.',
       );
@@ -94,20 +92,16 @@ void main() {
             'iOS Google Sign-In is not configured. Check GOOGLE_IOS_CLIENT_ID.',
       ),
       (
-        error:
-            'Desktop OAuth is not configured. Set GOOGLE_DESKTOP_CLIENT_ID and GOOGLE_DESKTOP_CLIENT_SECRET.',
-        visible:
-            'Desktop Google Sign-In is not configured. Check GOOGLE_DESKTOP_CLIENT_ID and GOOGLE_DESKTOP_CLIENT_SECRET.',
+        error: 'Desktop OAuth is not configured. Set GOOGLE_DESKTOP_CLIENT_ID and GOOGLE_DESKTOP_CLIENT_SECRET.',
+        visible: 'Desktop Google Sign-In is not configured. Check GOOGLE_DESKTOP_CLIENT_ID and GOOGLE_DESKTOP_CLIENT_SECRET.',
       ),
       (
         error: 'Unable to open system browser for Google sign-in.',
-        visible:
-            'Unable to open the system browser for Google sign-in. Check your default browser and try again.',
+        visible: 'Unable to open the system browser for Google sign-in. Check your default browser and try again.',
       ),
       (
         error: 'Google authentication timeout.',
-        visible:
-            'Google sign-in timed out. Complete authorization in your browser and try again.',
+        visible: 'Google sign-in timed out. Complete authorization in your browser and try again.',
       ),
     ];
 
@@ -213,76 +207,78 @@ void main() {
     expect(find.text('Vault.kdbx'), findsOneWidget);
   });
 
-  testWidgets(
-    'an untyped stale-grant failure reads as expired authorization',
-    (tester) async {
-      // spec 010 types most provider failures, but `driveOpenErrorMessage`
-      // still routes untyped exceptions by message. A type-only predicate let
-      // the heading and button say "Unable to connect"/"Retry" above a body
-      // telling the user to press Reconnect.
-      await tester.pumpWidget(
-        _driveSheetHost(
-          () async => throw Exception(
-            'Google Drive authorization needs to be renewed with full Drive access.',
-          ),
-        ),
-      );
-
-      await tester.tap(find.text('Connect Google Drive'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Google authorization expired'), findsOneWidget);
-      expect(find.text('Unable to connect to Google Drive'), findsNothing);
-      expect(
-        find.text(
-          'Google Drive session expired or unavailable. Use Reconnect below to sign in again.',
-        ),
-        findsOneWidget,
-      );
-      expect(find.text('Reconnect'), findsOneWidget);
-      expect(find.text('Retry'), findsNothing);
-      expect(find.bySemanticsLabel('Reconnect Google Drive'), findsOneWidget);
-    },
-  );
-
-  testWidgets('Reconnect runs the forced-reconnect loader, not the plain load', (
+  testWidgets('an untyped stale-grant failure reads as expired authorization', (
     tester,
   ) async {
-    var loads = 0;
-    var reconnects = 0;
+    // spec 010 types most provider failures, but `driveOpenErrorMessage`
+    // still routes untyped exceptions by message. A type-only predicate let
+    // the heading and button say "Unable to connect"/"Retry" above a body
+    // telling the user to press Reconnect.
     await tester.pumpWidget(
       _driveSheetHost(
-        () async {
-          loads += 1;
-          throw Exception('Google account not connected. Please reconnect.');
-        },
-        reconnectPickerData: () async {
-          reconnects += 1;
-          return const RemoteFileSelectionData(
-            files: [
-              RemoteFile(
-                providerId: 'google_drive',
-                id: 'remote-1',
-                name: 'Vault.kdbx',
-              ),
-            ],
-            account: StorageAccountSummary(displayLabel: 'Google Drive account'),
-          );
-        },
+        () async => throw Exception(
+          'Google Drive authorization needs to be renewed with full Drive access.',
+        ),
       ),
     );
 
     await tester.tap(find.text('Connect Google Drive'));
     await tester.pumpAndSettle();
-    expect(loads, 1);
 
-    await tester.tap(find.bySemanticsLabel('Reconnect Google Drive'));
-    await tester.pumpAndSettle();
-
-    expect(loads, 1);
-    expect(reconnects, 1);
-    expect(find.text('Vault.kdbx'), findsOneWidget);
+    expect(find.text('Google authorization expired'), findsOneWidget);
+    expect(find.text('Unable to connect to Google Drive'), findsNothing);
+    expect(
+      find.text(
+        'Google Drive session expired or unavailable. Use Reconnect below to sign in again.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Reconnect'), findsOneWidget);
+    expect(find.text('Retry'), findsNothing);
+    expect(find.bySemanticsLabel('Reconnect Google Drive'), findsOneWidget);
   });
+
+  testWidgets(
+    'Reconnect runs the forced-reconnect loader, not the plain load',
+    (tester) async {
+      var loads = 0;
+      var reconnects = 0;
+      await tester.pumpWidget(
+        _driveSheetHost(
+          () async {
+            loads += 1;
+            throw Exception('Google account not connected. Please reconnect.');
+          },
+          reconnectPickerData: () async {
+            reconnects += 1;
+            return const RemoteFileSelectionData(
+              files: [
+                RemoteFile(
+                  providerId: 'google_drive',
+                  id: 'remote-1',
+                  name: 'Vault.kdbx',
+                ),
+              ],
+              account: StorageAccountSummary(
+                displayLabel: 'Google Drive account',
+              ),
+            );
+          },
+        ),
+      );
+
+      await tester.tap(find.text('Connect Google Drive'));
+      await tester.pumpAndSettle();
+      expect(loads, 1);
+
+      await tester.tap(find.bySemanticsLabel('Reconnect Google Drive'));
+      await tester.pumpAndSettle();
+
+      expect(loads, 1);
+      expect(reconnects, 1);
+      expect(find.text('Vault.kdbx'), findsOneWidget);
+    },
+  );
 
   testWidgets('a non-authorization failure still retries the plain load', (
     tester,
@@ -304,7 +300,9 @@ void main() {
                 name: 'Vault.kdbx',
               ),
             ],
-            account: StorageAccountSummary(displayLabel: 'Google Drive account'),
+            account: StorageAccountSummary(
+              displayLabel: 'Google Drive account',
+            ),
           );
         },
         reconnectPickerData: () async {

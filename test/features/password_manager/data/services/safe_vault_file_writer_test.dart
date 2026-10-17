@@ -1038,9 +1038,8 @@ void main() {
       final documents = await Directory(
         p.join(tempDir.path, 'home', 'Documents'),
       ).create(recursive: true);
-      final dropbox = await Directory(
-        p.join(tempDir.path, 'home', 'Dropbox'),
-      ).create();
+      final dropbox = await Directory(p.join(tempDir.path, 'home', 'Dropbox'))
+          .create();
       final cloudVault = File(p.join(dropbox.path, 'vault.kdbx'));
       await cloudVault.writeAsBytes(const [1, 2, 3], flush: true);
       final linkPath = p.join(documents.path, 'vault.kdbx');

@@ -1,4 +1,5 @@
 import 'dart:io';
+
 import '../../data/datasources/in_memory_secure_data_source.dart';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -16,7 +17,9 @@ import 'package:password_manager/features/password_manager/domain/entities/datab
 import 'package:password_manager/features/password_manager/domain/repositories/database_sync_repository.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/apple_autofill_v2_coordinator.dart';
 import 'package:password_manager/features/password_manager/presentation/coordinators/vault_session_coordinator.dart';
+
 import 'fake_database_ports.dart';
+
 import 'package:password_manager/features/password_manager/presentation/coordinators/session_secret_holder.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -64,12 +67,10 @@ void main() {
   setUp(() async {
     secure = InMemorySecureDataSource();
     containerRoot = await Directory.systemTemp.createTemp('keyfile_e2e_');
-    oldDocs = await Directory(
-      p.join(containerRoot.path, 'UUID-A', 'Documents'),
-    ).create(recursive: true);
-    newDocs = await Directory(
-      p.join(containerRoot.path, 'UUID-B', 'Documents'),
-    ).create(recursive: true);
+    oldDocs = await Directory(p.join(containerRoot.path, 'UUID-A', 'Documents'))
+        .create(recursive: true);
+    newDocs = await Directory(p.join(containerRoot.path, 'UUID-B', 'Documents'))
+        .create(recursive: true);
     pathProvider = _MutablePathProvider(oldDocs.path);
     PathProviderPlatform.instance = pathProvider;
     SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -121,9 +122,8 @@ void main() {
     // Carry the key material across too, like an iOS container migration.
     final keys = Directory(p.join(oldDocs.path, 'keys'));
     if (await keys.exists()) {
-      final target = await Directory(
-        p.join(newDocs.path, 'keys'),
-      ).create(recursive: true);
+      final target = await Directory(p.join(newDocs.path, 'keys'))
+          .create(recursive: true);
       await for (final entry in keys.list(followLinks: false)) {
         if (entry is File) {
           await entry.copy(p.join(target.path, p.basename(entry.path)));
@@ -135,9 +135,8 @@ void main() {
 
   test('getSelectedKeyFilePath resolves the ACTIVE database profile and '
       'survives relocation (spec 014 FR-8)', () async {
-    final keysDir = await Directory(
-      p.join(oldDocs.path, 'keys'),
-    ).create(recursive: true);
+    final keysDir = await Directory(p.join(oldDocs.path, 'keys'))
+        .create(recursive: true);
     final keyFile = File(p.join(keysDir.path, 'vault.keyx'));
     await keyFile.writeAsString('key-material');
 
@@ -172,9 +171,8 @@ void main() {
 
   test('an unregistered database resolves NO key file — it never borrows '
       'another database\'s (spec 014 FR-8, T014d)', () async {
-    final keysDir = await Directory(
-      p.join(oldDocs.path, 'keys'),
-    ).create(recursive: true);
+    final keysDir = await Directory(p.join(oldDocs.path, 'keys'))
+        .create(recursive: true);
     final otherKey = File(p.join(keysDir.path, 'other.keyx'));
     await otherKey.writeAsString('key-material');
 
@@ -212,9 +210,8 @@ void main() {
 
   test('getPersistedKeyFilePath prefers the security profile and that also '
       'survives relocation', () async {
-    final keysDir = await Directory(
-      p.join(oldDocs.path, 'keys'),
-    ).create(recursive: true);
+    final keysDir = await Directory(p.join(oldDocs.path, 'keys'))
+        .create(recursive: true);
     final keyFile = File(p.join(keysDir.path, 'profile.keyx'));
     await keyFile.writeAsString('key-material');
 
@@ -246,9 +243,8 @@ void main() {
   });
 
   test('getProtectedKeyFilePaths resolves against the new root', () async {
-    final keysDir = await Directory(
-      p.join(oldDocs.path, 'keys'),
-    ).create(recursive: true);
+    final keysDir = await Directory(p.join(oldDocs.path, 'keys'))
+        .create(recursive: true);
     final keyFile = File(p.join(keysDir.path, 'protected.keyx'));
     await keyFile.writeAsString('key-material');
 

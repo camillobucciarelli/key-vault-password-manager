@@ -46,31 +46,34 @@ void main() {
   };
 
   group('list', () {
-    test('no query: one GET with the base .kdbx query and size field', () async {
-      final api = service(
-        (_) async => json({
-          'files': [file('a')],
-        }),
-      );
+    test(
+      'no query: one GET with the base .kdbx query and size field',
+      () async {
+        final api = service(
+          (_) async => json({
+            'files': [file('a')],
+          }),
+        );
 
-      final files = await api.listKdbxFilesInDrive();
+        final files = await api.listKdbxFilesInDrive();
 
-      expect(requests, hasLength(1));
-      final uri = requests.single.url;
-      expect(uri.path, '/drive/v3/files');
-      expect(
-        uri.queryParameters['q'],
-        "mimeType != 'application/vnd.google-apps.folder' and trashed = false and name contains '.kdbx'",
-      );
-      expect(
-        uri.queryParameters['fields'],
-        'nextPageToken,files(id,name,modifiedTime,md5Checksum,size)',
-      );
-      expect(uri.queryParameters['pageSize'], '1000');
-      expect(uri.queryParameters['orderBy'], 'modifiedTime desc');
-      expect(files.map((f) => f.id), ['a']);
-      expect(() => files.add(files.first), throwsUnsupportedError);
-    });
+        expect(requests, hasLength(1));
+        final uri = requests.single.url;
+        expect(uri.path, '/drive/v3/files');
+        expect(
+          uri.queryParameters['q'],
+          "mimeType != 'application/vnd.google-apps.folder' and trashed = false and name contains '.kdbx'",
+        );
+        expect(
+          uri.queryParameters['fields'],
+          'nextPageToken,files(id,name,modifiedTime,md5Checksum,size)',
+        );
+        expect(uri.queryParameters['pageSize'], '1000');
+        expect(uri.queryParameters['orderBy'], 'modifiedTime desc');
+        expect(files.map((f) => f.id), ['a']);
+        expect(() => files.add(files.first), throwsUnsupportedError);
+      },
+    );
 
     test('pagination follows nextPageToken until absent', () async {
       final api = service((request) async {

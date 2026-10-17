@@ -5,6 +5,7 @@
 // `ubuntu-latest`, and macOS is unaffected.
 
 import 'dart:io';
+
 import 'datasources/in_memory_secure_data_source.dart';
 
 import 'package:flutter_test/flutter_test.dart';

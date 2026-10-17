@@ -76,9 +76,8 @@ void main() {
 
       // The toggle label reads at 4.5:1 or better on its card.
       final label = find.text('Secret').first;
-      final colors = Theme.of(
-        tester.element(label),
-      ).extension<KeyVaultColors>()!;
+      final colors = Theme.of(tester.element(label))
+          .extension<KeyVaultColors>()!;
       final style = tester.widget<Text>(label).style!;
       expect(
         contrastRatio(style.color!, colors.surface),

@@ -8,7 +8,6 @@ if (keystorePropertiesFile.exists()) {
 
 plugins {
     id("com.android.application")
-    id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
     id("com.github.triplet.play")
@@ -22,10 +21,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
     defaultConfig {
@@ -74,7 +69,13 @@ android {
 // absent by design, and release unit tests buy nothing here.
 androidComponents {
     beforeVariants(selector().withBuildType("release")) { variant ->
-        variant.enableUnitTest = false
+        variant.hostTests[com.android.build.api.variant.HostTestBuilder.UNIT_TEST_TYPE]?.enable = false
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
 
@@ -86,7 +87,7 @@ dependencies {
     implementation("androidx.biometric:biometric:1.1.0")
     // spec-016 T102: InlineSuggestionUi, the only supported way to build the
     // Slice an IME renders on its suggestion strip.
-    implementation("androidx.autofill:autofill:1.1.0")
+    implementation("androidx.autofill:autofill:1.3.0")
     // spec 023 T403: the Credential Manager *provider* APIs
     // (CredentialProviderService, BeginGetCredentialRequest,
     // PublicKeyCredentialEntry, PendingIntentHandler). Only the base artifact

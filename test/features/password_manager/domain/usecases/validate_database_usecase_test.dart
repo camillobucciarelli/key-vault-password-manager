@@ -33,9 +33,8 @@ void main() {
       'returns invalidStructure for a present file with the wrong header',
       () async {
         final path = p.join(tempDir.path, 'not-a-vault.kdbx');
-        await File(
-          path,
-        ).writeAsBytes(Uint8List.fromList('not a kdbx'.codeUnits));
+        await File(path)
+            .writeAsBytes(Uint8List.fromList('not a kdbx'.codeUnits));
 
         final result = await useCase(path);
 

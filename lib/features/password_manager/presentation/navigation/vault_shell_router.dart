@@ -424,25 +424,20 @@ VaultSurfacePresentation presentationFor<R extends VaultRouteResult>(
 
 typedef VaultOperationIdFactory = VaultOperationId Function();
 typedef VaultPaneChanged = void Function(Widget? pane);
-typedef VaultModalHost =
-    Future<void> Function(
-      BuildContext context,
-      WidgetBuilder builder,
-      void Function(VoidCallback dismiss) mounted,
-    );
+typedef VaultModalHost = Future<void> Function(
+  BuildContext context,
+  WidgetBuilder builder,
+  void Function(VoidCallback dismiss) mounted,
+);
 
 final class VaultShellRouter {
   VaultShellRouter({
-    VaultPaneChanged? onPaneChanged,
-    VaultOperationIdFactory? operationIdFactory,
-    VaultModalHost? routeHost,
-    VaultModalHost? sheetHost,
-    VaultModalHost? dialogHost,
-  }) : _onPaneChanged = onPaneChanged,
-       _operationIdFactory = operationIdFactory,
-       _routeHost = routeHost,
-       _sheetHost = sheetHost,
-       _dialogHost = dialogHost;
+    this._onPaneChanged,
+    this._operationIdFactory,
+    this._routeHost,
+    this._sheetHost,
+    this._dialogHost,
+  });
 
   final VaultPaneChanged? _onPaneChanged;
   final VaultOperationIdFactory? _operationIdFactory;
@@ -520,15 +515,15 @@ final class VaultShellRouter {
           content: Text(body),
           actions: [
             TextButton(
-              onPressed: () => VaultOperationScope.of(
-                surfaceContext,
-              ).complete(ConfirmDecision.cancel),
+              onPressed: () =>
+                  VaultOperationScope.of(surfaceContext)
+                      .complete(ConfirmDecision.cancel),
               child: Text(cancelLabel),
             ),
             FilledButton(
-              onPressed: () => VaultOperationScope.of(
-                surfaceContext,
-              ).complete(ConfirmDecision.confirm),
+              onPressed: () =>
+                  VaultOperationScope.of(surfaceContext)
+                      .complete(ConfirmDecision.confirm),
               child: Text(confirmLabel),
             ),
           ],
@@ -974,8 +969,8 @@ final class _TypedVaultOperationSession<R extends VaultRouteResult>
     required super.parentId,
     required super.sequence,
     required super.presentation,
-    required VaultSurface<R> surface,
-  }) : _surface = surface;
+    required VaultSurface<R> this._surface,
+  });
 
   final Completer<R?> _completer = Completer<R?>();
   VaultSurface<R>? _surface;

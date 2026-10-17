@@ -321,9 +321,8 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     }
     final errorMessage = event.errorMessage;
     if (errorMessage != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(errorMessage)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(errorMessage)));
       return;
     }
 
@@ -522,8 +521,7 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
     final confirmed = await _showConfirmation(
       shellContext,
       title: 'Close database',
-      body:
-          'Close this database and return to file selection? Saved credentials for the current database will be removed.',
+      body: 'Close this database and return to file selection? Saved credentials for the current database will be removed.',
       confirmLabel: 'Close database',
     );
 
@@ -678,12 +676,12 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
             username: entry == null
                 ? null
                 : (entry.username.isEmpty ? 'No username' : entry.username),
-            onReject: () => VaultOperationScope.of(
-              surfaceContext,
-            ).complete(ConfirmDecision.cancel),
-            onLink: () => VaultOperationScope.of(
-              surfaceContext,
-            ).complete(ConfirmDecision.confirm),
+            onReject: () =>
+                VaultOperationScope.of(surfaceContext)
+                    .complete(ConfirmDecision.cancel),
+            onLink: () =>
+                VaultOperationScope.of(surfaceContext)
+                    .complete(ConfirmDecision.confirm),
           ),
         ),
       );
@@ -861,9 +859,8 @@ class _VaultViewState extends State<_VaultView> with WidgetsBindingObserver {
                                     // records list, at every width. Its actions
                                     // did not go away — they moved to the header
                                     // below and to the folder column (FR-015).
-                                    if (!_effectiveLayout(
-                                      context,
-                                    ).hasFolderPane) ...[
+                                    if (!_effectiveLayout(context)
+                                        .hasFolderPane) ...[
                                       Row(
                                         children: [
                                           Expanded(

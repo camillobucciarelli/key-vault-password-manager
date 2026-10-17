@@ -529,9 +529,8 @@ void _showCenteredCopyToast(BuildContext context, String message) {
 
   final overlay = Overlay.maybeOf(context, rootOverlay: true);
   if (overlay == null) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
     return;
   }
 

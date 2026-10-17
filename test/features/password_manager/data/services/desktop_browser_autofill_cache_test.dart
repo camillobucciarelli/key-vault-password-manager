@@ -58,9 +58,8 @@ void main() {
     Directory fakeLegacyStore(Directory root) {
       final legacy = Directory('${root.path}/legacy')
         ..createSync(recursive: true);
-      File(
-        '${legacy.path}/bridge.json',
-      ).writeAsStringSync('{"token":"stale-bearer"}');
+      File('${legacy.path}/bridge.json')
+          .writeAsStringSync('{"token":"stale-bearer"}');
       File('${legacy.path}/metadata.json').writeAsStringSync('{}');
       return legacy;
     }
@@ -119,9 +118,8 @@ void main() {
           '${root.path}/Library/Group Containers/'
           'group.dev.camillobucciarelli.kdbxKeyVault/browser_v2',
         )..createSync(recursive: true);
-        File(
-          '${legacyDirectory.path}/bridge.json',
-        ).writeAsStringSync('{"token":"stale-bearer"}');
+        File('${legacyDirectory.path}/bridge.json')
+            .writeAsStringSync('{"token":"stale-bearer"}');
         final store = DesktopBrowserAutofillCacheStore();
 
         await store.cleanupLegacyStore(environment: {'HOME': root.path});
@@ -139,9 +137,8 @@ void main() {
         '${root.path}/Library/Group Containers/'
         'group.dev.camillobucciarelli.kdbxKeyVault/browser_v2',
       )..createSync(recursive: true);
-      File(
-        '${legacyDirectory.path}/bridge.json',
-      ).writeAsStringSync('{"token":"stale-bearer"}');
+      File('${legacyDirectory.path}/bridge.json')
+          .writeAsStringSync('{"token":"stale-bearer"}');
       final store = DesktopBrowserAutofillCacheStore(
         directory: Directory('${root.path}/new'),
       );
@@ -396,9 +393,8 @@ void main() {
 
     test('a protocol-relative url declares no scheme either', () {
       expect(
-        identifiersFor(
-          '//bank.example/login',
-        ).where((identifier) => identifier.type == 'url'),
+        identifiersFor('//bank.example/login')
+            .where((identifier) => identifier.type == 'url'),
         isEmpty,
       );
     });

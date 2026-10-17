@@ -481,9 +481,8 @@ Future<void> _writeDescriptor(
 
 Future<Directory> _fakeProjectRoot({required String scriptName}) async {
   final root = await Directory.systemTemp.createTemp('kv-browser-setup-');
-  await Directory(
-    p.join(root.path, 'desktop', 'browser_extension'),
-  ).create(recursive: true);
+  await Directory(p.join(root.path, 'desktop', 'browser_extension'))
+      .create(recursive: true);
   final script = File(p.join(root.path, 'desktop', 'native_host', scriptName));
   await script.create(recursive: true);
   return root;

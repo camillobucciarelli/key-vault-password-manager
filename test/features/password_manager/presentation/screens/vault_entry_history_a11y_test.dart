@@ -257,9 +257,8 @@ void main() {
       of: find.text('Restore this version').first,
       matching: find.byType(TextButton),
     );
-    Focus.of(
-      tester.element(find.text('Restore this version').first),
-    ).requestFocus();
+    Focus.of(tester.element(find.text('Restore this version').first))
+        .requestFocus();
     await tester.pumpAndSettle();
     final material = tester.widget<Material>(
       find.descendant(of: restore, matching: find.byType(Material)).first,

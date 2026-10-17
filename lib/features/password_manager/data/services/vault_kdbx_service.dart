@@ -37,10 +37,9 @@ class VaultKdbxService {
     this.credentialTempWriter,
     DatabasePathMutex? mutex,
     SafeVaultFileWriter? safeWriter,
-    DatabaseFileHashRecorder? fileHashRecorder,
+    this._fileHashRecorder,
   }) : _mutex = mutex ?? DatabasePathMutex(),
-       _safeWriter = safeWriter ?? SafeVaultFileWriter(),
-       _fileHashRecorder = fileHashRecorder;
+       _safeWriter = safeWriter ?? SafeVaultFileWriter();
 
   /// spec 008 T105: every mutation below runs inside this lock so vault
   /// edits, sync replacement, import commits and renames on the same file
@@ -798,9 +797,9 @@ class VaultKdbxService {
       // The primary's own passkeys plus the ones earlier secondaries would
       // add: two secondaries carrying the same identity collide with each
       // other just as surely as with the primary.
-      final claimedIdentities = _mapPasskeys(
-        primary,
-      ).map(_passkeyIdentityKey).toSet();
+      final claimedIdentities = _mapPasskeys(primary)
+          .map(_passkeyIdentityKey)
+          .toSet();
       for (final secondary in secondaries) {
         for (final passkey in _mapPasskeys(secondary)) {
           if (!claimedIdentities.add(_passkeyIdentityKey(passkey))) {

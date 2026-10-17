@@ -10,10 +10,10 @@ import 'package:flutter/widgets.dart';
 /// the vault it holds. The shell calls [dispose], which drops the hooks.
 final class VaultShellSession {
   VaultShellSession({
-    required VoidCallback onUserActivity,
-    required Future<void> Function(String databasePath) lockAndReauthenticate,
-  }) : _onUserActivity = onUserActivity,
-       _lockAndReauthenticate = lockAndReauthenticate;
+    required VoidCallback this._onUserActivity,
+    required Future<void> Function(String databasePath)
+    this._lockAndReauthenticate,
+  });
 
   final ValueNotifier<bool> _locked = ValueNotifier<bool>(false);
   VoidCallback? _onUserActivity;

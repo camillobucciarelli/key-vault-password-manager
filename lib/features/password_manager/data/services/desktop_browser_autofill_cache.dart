@@ -385,10 +385,9 @@ class DesktopBrowserAutofillAssociationTarget {
 
 class DesktopBrowserAutofillCacheStore {
   DesktopBrowserAutofillCacheStore({
-    Directory? directory,
-    Directory? legacyDirectoryOverride,
-  }) : _directory = directory,
-       _legacyDirectoryOverride = legacyDirectoryOverride;
+    this._directory,
+    this._legacyDirectoryOverride,
+  });
 
   final Directory? _directory;
 

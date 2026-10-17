@@ -148,9 +148,8 @@ class DatabaseSyncMapping extends Equatable {
       lastSyncedRemoteChecksum: map['lastSyncedRemoteChecksum'] as String?,
       lastSyncedRemoteModifiedTime: map['lastSyncedRemoteModifiedTime'] == null
           ? null
-          : DateTime.tryParse(
-              map['lastSyncedRemoteModifiedTime'] as String,
-            )?.toLocal(),
+          : DateTime.tryParse(map['lastSyncedRemoteModifiedTime'] as String)
+                ?.toLocal(),
       lastSyncAt: map['lastSyncAt'] == null
           ? null
           : DateTime.tryParse(map['lastSyncAt'] as String)?.toLocal(),

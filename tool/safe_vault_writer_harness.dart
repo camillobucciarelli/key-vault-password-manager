@@ -400,9 +400,10 @@ Future<HarnessCase> _preexistingNameCollision(Directory dir) async {
   const seed = 20260101;
 
   // Same derivation as `SafeVaultFileWriter._claimFreshName`.
-  final predictedSuffix = Random(
-    seed,
-  ).nextInt(0x100000).toRadixString(16).padLeft(5, '0');
+  final predictedSuffix = Random(seed)
+      .nextInt(0x100000)
+      .toRadixString(16)
+      .padLeft(5, '0');
   final squatted = File(
     '${target.path}.${frozen.microsecondsSinceEpoch}-$predictedSuffix.bak',
   );
