@@ -203,3 +203,60 @@ private struct CredentialBadgeView: View {
       .clipShape(Capsule())
   }
 }
+
+/// spec 023 T708 — what the extension shows when a site asks it to CREATE a
+/// passkey.
+///
+/// The decision this screen implements: a passkey is created by the KeyVault
+/// app, never by this extension. The extension is a plugin of the app and
+/// holds no logic the app does not know about — and here that is not a
+/// preference but the only correct behaviour. Creating a credential means
+/// writing it into the `.kdbx`, and this process has no master password, so it
+/// cannot write the vault at all. What it *could* do is mint a key, seal it
+/// into its own cache and answer the site "registered" in the hope the app
+/// adopts it later. That is the one failure FR-020 forbids: the site would
+/// retire the password for a credential the vault does not hold, and the
+/// account would be lost.
+///
+/// So the ceremony is refused, clearly and immediately, and the site gets an
+/// ordinary failure it can fall back from instead of a hung sheet. Nothing is
+/// staged, nothing is half-written, and the user is told where creating a
+/// passkey does work today.
+struct PasskeyRegistrationUnavailableView: View {
+  let relyingPartyId: String
+  let userName: String
+  let onCancel: () -> Void
+
+  var body: some View {
+    VStack(spacing: 16) {
+      Image(systemName: "key.horizontal")
+        .font(.system(size: 48))
+        .foregroundColor(.secondary)
+      Text("Create this passkey in KeyVault")
+        .font(.headline)
+        .multilineTextAlignment(.center)
+      Text(detail)
+        .font(.footnote)
+        .foregroundColor(.secondary)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 24)
+      Button("Cancel", action: onCancel)
+        .buttonStyle(.bordered)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .padding()
+  }
+
+  private var detail: String {
+    let site = relyingPartyId.isEmpty ? "this site" : relyingPartyId
+    let account = userName.isEmpty ? "" : " for \(userName)"
+    return """
+    A passkey is written into your vault, which only the KeyVault app can \
+    open. This AutoFill extension cannot write it, so it will not tell \(site) \
+    that a passkey exists when it does not.
+
+    To add a passkey\(account), open KeyVault on a computer, unlock the vault, \
+    and register on \(site) from a browser with the KeyVault extension.
+    """
+  }
+}

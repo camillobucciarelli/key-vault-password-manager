@@ -47,6 +47,7 @@ internal object AndroidAutofillJson {
                         .put("id", secret.id)
                         .put("username", secret.username)
                         .put("password", secret.password)
+                        .put("passkeys", JSONArray(secret.passkeys.map(::passkeySecretToJson)))
                 }),
             )
             .toString()
@@ -63,6 +64,7 @@ internal object AndroidAutofillJson {
                         id = item.optString("id"),
                         username = item.optString("username"),
                         password = item.optString("password"),
+                        passkeys = passkeySecretsFromJson(item.optJSONArray("passkeys")),
                     ),
                 )
             }
@@ -158,6 +160,70 @@ internal object AndroidAutofillJson {
         )
     }
 
+    private fun passkeySecretToJson(passkey: AndroidAutofillPasskey): JSONObject {
+        val json = JSONObject()
+            .put("rpId", passkey.rpId)
+            .put("credentialId", passkey.credentialId)
+            .put("username", passkey.username)
+            .put("privateKeyPem", passkey.privateKeyPem)
+            .put("algorithm", passkey.algorithm.rawValue)
+            .put("be", passkey.backupEligible)
+            .put("bs", passkey.backupState)
+        passkey.userHandle?.let { json.put("userHandle", it) }
+        return json
+    }
+
+    /** Absent in every sealed cache written before spec 023. */
+    private fun passkeySecretsFromJson(array: JSONArray?): List<AndroidAutofillPasskey> {
+        if (array == null) return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val algorithm = AndroidPasskeyAlgorithm.fromRawValue(item.optString("algorithm"))
+                    ?: continue
+                val rpId = item.optString("rpId")
+                val credentialId = item.optString("credentialId")
+                val pem = item.optString("privateKeyPem")
+                if (rpId.isEmpty() || credentialId.isEmpty() || pem.isEmpty()) continue
+                val backupEligible = item.optBoolean("be", true)
+                add(
+                    AndroidAutofillPasskey(
+                        rpId = rpId,
+                        credentialId = credentialId,
+                        userHandle = item.optString("userHandle").ifEmpty { null },
+                        username = item.optString("username"),
+                        privateKeyPem = pem,
+                        algorithm = algorithm,
+                        backupEligible = backupEligible,
+                        // WebAuthn forbids BS without BE: a record claiming
+                        // "backed up but not eligible" would sign a flag byte
+                        // relying parties reject.
+                        backupState = backupEligible && item.optBoolean("bs", true),
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun passkeyMetadataToJson(passkey: AndroidAutofillPasskeyMetadata): JSONObject {
+        return JSONObject()
+            .put("rpId", passkey.rpId)
+            .put("credentialId", passkey.credentialId)
+    }
+
+    private fun passkeyMetadataFromJson(array: JSONArray?): List<AndroidAutofillPasskeyMetadata> {
+        if (array == null) return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val rpId = item.optString("rpId")
+                val credentialId = item.optString("credentialId")
+                if (rpId.isEmpty() || credentialId.isEmpty()) continue
+                add(AndroidAutofillPasskeyMetadata(rpId = rpId, credentialId = credentialId))
+            }
+        }
+    }
+
     private fun metadataToJson(metadata: AndroidAutofillCredentialMetadata): JSONObject {
         return JSONObject()
             .put("id", metadata.id)
@@ -166,6 +232,14 @@ internal object AndroidAutofillJson {
             .put("displayService", metadata.displayService)
             .put("updatedAtEpochMs", metadata.updatedAtEpochMs)
             .put("serviceIdentifiers", JSONArray(metadata.serviceIdentifiers.map(::identifierToJson)))
+            .apply {
+                if (metadata.passkeys.isNotEmpty()) {
+                    put("passkeys", JSONArray(metadata.passkeys.map(::passkeyMetadataToJson)))
+                    // Written only alongside passkeys: without them it cannot
+                    // be false, and an older reader defaults it to true.
+                    put("hasPassword", metadata.hasPassword)
+                }
+            }
     }
 
     private fun metadataFromJson(json: JSONObject): AndroidAutofillCredentialMetadata {
@@ -182,6 +256,8 @@ internal object AndroidAutofillJson {
             username = json.optString("username"),
             displayService = json.optString("displayService"),
             serviceIdentifiers = identifiers,
+            passkeys = passkeyMetadataFromJson(json.optJSONArray("passkeys")),
+            hasPassword = json.optBoolean("hasPassword", true),
             updatedAtEpochMs = json.optLong("updatedAtEpochMs"),
         )
     }

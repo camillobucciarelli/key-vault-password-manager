@@ -93,6 +93,12 @@ class MergeLedgerEntry {
 class MergeDecisionLedger {
   final Map<KdbxFieldRef, MergeLedgerEntry> _fields = {};
   final Map<String, MergeLedgerEntry> _credentialBlocks = {};
+
+  /// spec 023 T209 — a passkey group, keyed by entry UUID plus the group's
+  /// suffix. Its own map rather than a composed string key in
+  /// [_credentialBlocks]: the two families answer different questions, and a
+  /// composed key would let one silently satisfy a replay of the other.
+  final Map<KdbxPasskeyBlockRef, MergeLedgerEntry> _passkeyBlocks = {};
   final Map<String, MergeLedgerEntry> _records = {};
 
   /// Records (or overwrites) the decision for one field conflict.
@@ -121,6 +127,18 @@ class MergeDecisionLedger {
       choice,
       decidedValue: decidedValue,
     );
+  }
+
+  /// spec 023 T209 — records the decision for one passkey group. Same
+  /// atomicity as [recordCredentialBlock]: a single member whose value moved
+  /// reopens the whole credential, never a subset, because half of one passkey
+  /// beside half of another is exactly the chimera FR-008 exists to prevent.
+  void recordPasskeyBlock(
+    KdbxPasskeyBlockRef ref,
+    MergeChoice choice, {
+    Map<String, KdbxFieldPresent>? decidedValue,
+  }) {
+    _passkeyBlocks[ref] = MergeLedgerEntry(choice, decidedValue: decidedValue);
   }
 
   /// Records the decision for one record-level deletion conflict. Always
@@ -162,6 +180,28 @@ class MergeDecisionLedger {
     required Map<String, KdbxFieldPresent> currentRemote,
   }) {
     final entry = _credentialBlocks[entryUuid];
+    if (entry == null) return const MergeLedgerNeverShown();
+    return _replayValue(
+      entry,
+      matchesLocal: _blockMapMatches(
+        entry.decidedValue as Map<String, KdbxFieldPresent>?,
+        currentLocal,
+      ),
+      matchesRemote: _blockMapMatches(
+        entry.decidedValue as Map<String, KdbxFieldPresent>?,
+        currentRemote,
+      ),
+    );
+  }
+
+  /// spec 023 T209 — replays a passkey-group decision, member for member, as
+  /// [replayCredentialBlock] does.
+  MergeLedgerReplay replayPasskeyBlock(
+    KdbxPasskeyBlockRef ref, {
+    required Map<String, KdbxFieldPresent> currentLocal,
+    required Map<String, KdbxFieldPresent> currentRemote,
+  }) {
+    final entry = _passkeyBlocks[ref];
     if (entry == null) return const MergeLedgerNeverShown();
     return _replayValue(
       entry,

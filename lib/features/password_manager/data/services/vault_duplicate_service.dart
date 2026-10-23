@@ -1,6 +1,7 @@
 import '../../domain/models/duplicate_group.dart';
 import '../../domain/models/merge_preview.dart';
 import '../../domain/models/vault_entry.dart';
+import '../../domain/models/vault_passkey.dart';
 import '../../domain/services/url_field_keys.dart';
 
 class VaultDuplicateService {
@@ -10,6 +11,10 @@ class VaultDuplicateService {
   ///    regardless of URL. These merge into one record carrying all URLs.
   /// 2. **Site groups** — remaining entries with the same normalized URL +
   ///    username (the pre-multi-URL behavior; catches stale-password copies).
+  ///    A bucket holding exactly one passkey, on an entry with no password,
+  ///    becomes a `passkeyPassword` group instead (spec 023 D10 / FR-011a);
+  ///    a bucket holding two or more passkeys drops them, because two
+  ///    credentials for one site are not copies of each other.
   ///
   /// Returns only groups with 2+ entries, sorted by size desc then label asc.
   /// Entries inside each group are sorted newest first (updatedAt, then
@@ -37,22 +42,82 @@ class VaultDuplicateService {
           sharedUsername: _normalizeUsername(sorted.first.username),
           urls: _distinctUrls(sorted),
           entries: sorted,
+          kind: DuplicateGroupKind.credentials,
         ),
       );
     }
 
-    // Pass 2 — same normalized URL + username among the rest.
+    // Pass 2 — same normalized URL + username among the rest. One bucket,
+    // three outcomes, because a passkey is an identity rather than a copy of a
+    // password (spec 023 D10):
+    //
+    //  * no passkey in the bucket, or the passkey holder also holds a
+    //    password — an ordinary site group, exactly as before;
+    //  * two or more passkeys — the holders are dropped from the group. Two
+    //    entries that each hold a credential for one site are not copies of
+    //    each other, and merging them would have to pick one (FR-008). What
+    //    is left may still be a site group on its own;
+    //  * exactly one passkey, on an entry with no password — the FR-011a
+    //    pairing: that entry plus every entry here that does hold a password.
     final bySite = <String, List<VaultEntry>>{};
     for (final entry in allEntries) {
       if (consumed.contains(entry.id)) continue;
       if (entry.url.trim().isEmpty) continue;
-      final key =
-          '${normalizeUrlForCompare(entry.url)}\x00${_normalizeUsername(entry.username)}';
-      bySite.putIfAbsent(key, () => []).add(entry);
+      bySite.putIfAbsent(_siteKey(entry), () => []).add(entry);
     }
     for (final mapEntry in bySite.entries) {
-      if (mapEntry.value.length < 2) continue;
-      final sorted = _sortNewestFirst(mapEntry.value);
+      final bucket = mapEntry.value;
+      if (bucket.length < 2) continue;
+      final holders = bucket
+          .where((entry) => entry.hasPasskey)
+          .toList(growable: false);
+      final withoutPasskeys = bucket
+          .where((entry) => !entry.hasPasskey)
+          .toList(growable: false);
+
+      List<VaultEntry> members;
+      DuplicateGroupKind kind;
+      var passkeyHolderLast = false;
+      if (holders.length == 1 && holders.single.password.trim().isEmpty) {
+        final partners = withoutPasskeys
+            .where((entry) => entry.password.trim().isNotEmpty)
+            .toList(growable: false);
+        if (partners.isNotEmpty) {
+          members = [holders.single, ...partners];
+          kind = DuplicateGroupKind.passkeyPassword;
+          // The kept entry is the first one, and a merge never copies a
+          // password (the kept record keeps its own). Keeping the passkey-only
+          // entry would therefore produce a record with a passkey and no
+          // password — the opposite of FR-011a's "one entry holding both". So
+          // the passkey holder is placed last, whatever its timestamps say,
+          // and the passkey moves into the entry that holds the password.
+          passkeyHolderLast = true;
+        } else {
+          // Nothing to pair the passkey with: fall back to whatever ordinary
+          // duplicates are left here.
+          members = withoutPasskeys;
+          kind = DuplicateGroupKind.site;
+        }
+      } else if (holders.length > 1) {
+        members = withoutPasskeys;
+        kind = DuplicateGroupKind.site;
+      } else {
+        members = bucket;
+        kind = DuplicateGroupKind.site;
+      }
+      if (members.length < 2) continue;
+
+      final sorted = passkeyHolderLast
+          ? [
+              ..._sortNewestFirst(
+                members.where((entry) => !entry.hasPasskey).toList(),
+              ),
+              ...members.where((entry) => entry.hasPasskey),
+            ]
+          : _sortNewestFirst(members);
+      for (final entry in sorted) {
+        consumed.add(entry.id);
+      }
       final parts = mapEntry.key.split('\x00');
       result.add(
         DuplicateGroup(
@@ -60,6 +125,7 @@ class VaultDuplicateService {
           sharedUsername: parts.length > 1 ? parts[1] : '',
           urls: [parts[0]],
           entries: sorted,
+          kind: kind,
         ),
       );
     }
@@ -102,6 +168,22 @@ class VaultDuplicateService {
       }
     }
 
+    // spec 023 D10 — a passkey moves as one credential. An identity the
+    // primary already holds is never overwritten: that is the FR-011a
+    // conflict, and it makes the merge refuse instead of choosing.
+    final primaryPasskeyIdentities = primary.passkeys
+        .map(_passkeyIdentity)
+        .toSet();
+    final passkeysToCopy = <VaultPasskey>[];
+    var passkeyConflict = false;
+    for (final passkey in secondary.passkeys) {
+      if (primaryPasskeyIdentities.contains(_passkeyIdentity(passkey))) {
+        passkeyConflict = true;
+        continue;
+      }
+      passkeysToCopy.add(passkey);
+    }
+
     final primaryAttachmentNames = primary.attachments
         .map((a) => a.name)
         .toSet();
@@ -117,6 +199,8 @@ class VaultDuplicateService {
       customFieldKeysToCopy: customFieldKeysToCopy,
       urlsToCopy: urlsToCopy,
       willCopyAttachments: willCopyAttachments,
+      passkeysToCopy: passkeysToCopy,
+      passkeyConflict: passkeyConflict,
     );
   }
 
@@ -154,6 +238,21 @@ class VaultDuplicateService {
     }
     return urls;
   }
+
+  /// What makes two passkeys the same credential slot for merge purposes:
+  /// the relying party plus the user handle it was issued for. The credential
+  /// id is deliberately not part of it — a site that re-registers the same
+  /// account issues a new credential id, and holding both would leave the
+  /// entry advertising a credential the site has already replaced.
+  String _passkeyIdentity(VaultPasskey passkey) {
+    final handle = passkey.userHandle;
+    final handleKey = handle == null || handle.isEmpty ? '' : handle.join(',');
+    return '${passkey.relyingPartyId.trim().toLowerCase()}\x00$handleKey';
+  }
+
+  String _siteKey(VaultEntry entry) =>
+      '${normalizeUrlForCompare(entry.url)}\x00'
+      '${_normalizeUsername(entry.username)}';
 
   String _normalizeUsername(String username) => username.trim().toLowerCase();
 

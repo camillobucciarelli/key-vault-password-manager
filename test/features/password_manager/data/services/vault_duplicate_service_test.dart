@@ -1,8 +1,13 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_manager/features/password_manager/data/services/vault_duplicate_service.dart';
+import 'package:password_manager/features/password_manager/domain/models/duplicate_group.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_attachment.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_custom_field.dart';
 import 'package:password_manager/features/password_manager/domain/models/vault_entry.dart';
+import 'package:password_manager/features/password_manager/domain/models/vault_passkey.dart';
 
 void main() {
   late VaultDuplicateService service;
@@ -20,6 +25,7 @@ void main() {
     String? otpUri,
     List<VaultCustomField> customFields = const [],
     List<VaultAttachment> attachments = const [],
+    List<VaultPasskey> passkeys = const [],
     DateTime? updatedAt,
     DateTime? createdAt,
   }) {
@@ -37,6 +43,7 @@ void main() {
       notes: notes,
       customFields: allCustomFields,
       attachments: attachments,
+      passkeys: passkeys,
       otpUri: otpUri,
       updatedAt: updatedAt,
       createdAt: createdAt,
@@ -379,6 +386,170 @@ void main() {
       );
       final preview = service.previewMerge(primary, secondary);
       expect(preview.customFieldKeysToCopy, isEmpty);
+    });
+  });
+
+  group('spec 023 T206 — pairing a passkey with a password', () {
+    VaultPasskey passkey({
+      String relyingPartyId = 'github.com',
+      String credentialId = 'cred-1',
+      String userHandle = 'handle-1',
+    }) {
+      return VaultPasskey(
+        relyingPartyId: relyingPartyId,
+        credentialId: Uint8List.fromList(utf8.encode(credentialId)),
+        userHandle: userHandle.isEmpty
+            ? null
+            : Uint8List.fromList(utf8.encode(userHandle)),
+        privateKeyPem: 'FIXTURE-KEY-$credentialId',
+        algorithm: VaultPasskeyAlgorithm.es256,
+      );
+    }
+
+    test('E1 + E2 form one passkeyPassword group', () {
+      final e1 = entry(
+        id: 'e1',
+        password: '',
+        passkeys: [passkey()],
+        updatedAt: DateTime(2026, 1, 2),
+      );
+      final e2 = entry(id: 'e2', password: 'pw', updatedAt: DateTime(2026));
+
+      final groups = service.findDuplicates([e1, e2]);
+
+      expect(groups, hasLength(1));
+      expect(groups.single.kind, DuplicateGroupKind.passkeyPassword);
+      expect(groups.single.sharedUsername, 'alice');
+      // The password holder is kept even though the passkey entry is newer:
+      // a merge never copies a password, so keeping the passkey-only entry
+      // would leave a record with a passkey and no password (FR-011a).
+      expect(groups.single.entries.map((entry) => entry.id), ['e2', 'e1']);
+      expect(groups.single.passkeyHolder?.id, 'e1');
+    });
+
+    test('two different passkeys on the same site are not duplicates', () {
+      final a = entry(
+        id: 'a',
+        password: '',
+        passkeys: [passkey(credentialId: 'cred-a', userHandle: 'handle-a')],
+      );
+      final b = entry(
+        id: 'b',
+        password: '',
+        passkeys: [passkey(credentialId: 'cred-b', userHandle: 'handle-b')],
+      );
+
+      expect(service.findDuplicates([a, b]), isEmpty);
+    });
+
+    test('a passkey entry is not paired by the site pass alone', () {
+      // Two passkeys plus a password entry: the password entry cannot be
+      // merged without choosing between credentials, so nothing is offered.
+      final a = entry(
+        id: 'a',
+        password: '',
+        passkeys: [passkey(credentialId: 'a')],
+      );
+      final b = entry(
+        id: 'b',
+        password: '',
+        passkeys: [passkey(credentialId: 'b')],
+      );
+      final c = entry(id: 'c', password: 'pw');
+
+      expect(service.findDuplicates([a, b, c]), isEmpty);
+    });
+
+    test('a passkey entry that also holds the password stays a site group', () {
+      final withBoth = entry(
+        id: 'both',
+        password: 'pw1',
+        passkeys: [passkey()],
+        updatedAt: DateTime(2026, 1, 2),
+      );
+      final plain = entry(
+        id: 'plain',
+        password: 'pw2',
+        updatedAt: DateTime(2026),
+      );
+
+      final groups = service.findDuplicates([withBoth, plain]);
+
+      expect(groups, hasLength(1));
+      expect(groups.single.kind, DuplicateGroupKind.site);
+      expect(groups.single.passkeyHolder, isNull);
+    });
+
+    test('same username and password still wins as a credentials group', () {
+      final a = entry(id: 'a', url: 'https://github.com', password: 'shared');
+      final b = entry(id: 'b', url: 'https://gitlab.com', password: 'shared');
+
+      final groups = service.findDuplicates([a, b]);
+
+      expect(groups, hasLength(1));
+      expect(groups.single.kind, DuplicateGroupKind.credentials);
+    });
+
+    test('a passkey-only entry with no partner forms no group', () {
+      final lonely = entry(id: 'lonely', password: '', passkeys: [passkey()]);
+
+      expect(service.findDuplicates([lonely]), isEmpty);
+    });
+
+    test('previewMerge carries the passkey and flags no conflict', () {
+      final primary = entry(id: 'p', password: 'pw');
+      final secondary = entry(id: 's', password: '', passkeys: [passkey()]);
+
+      final preview = service.previewMerge(primary, secondary);
+
+      expect(preview.passkeysToCopy, hasLength(1));
+      expect(preview.passkeysToCopy.single.relyingPartyId, 'github.com');
+      expect(preview.passkeyConflict, isFalse);
+      expect(preview.hasAnythingToCopy, isTrue);
+    });
+
+    test('previewMerge flags a conflict on the same rpId and handle', () {
+      final primary = entry(
+        id: 'p',
+        password: 'pw',
+        passkeys: [passkey(credentialId: 'old')],
+      );
+      final secondary = entry(
+        id: 's',
+        password: '',
+        passkeys: [passkey(credentialId: 'new')],
+      );
+
+      final preview = service.previewMerge(primary, secondary);
+
+      expect(preview.passkeyConflict, isTrue);
+      expect(preview.passkeysToCopy, isEmpty);
+    });
+
+    test('a different user handle on the same site is not a conflict', () {
+      final primary = entry(
+        id: 'p',
+        password: 'pw',
+        passkeys: [passkey(userHandle: 'handle-a')],
+      );
+      final secondary = entry(
+        id: 's',
+        password: '',
+        passkeys: [passkey(userHandle: 'handle-b')],
+      );
+
+      final preview = service.previewMerge(primary, secondary);
+
+      expect(preview.passkeyConflict, isFalse);
+      expect(preview.passkeysToCopy, hasLength(1));
+    });
+
+    test('the preview never exposes the private key through props', () {
+      final secondary = entry(id: 's', password: '', passkeys: [passkey()]);
+      final preview = service.previewMerge(entry(id: 'p'), secondary);
+
+      expect(preview.toString(), isNot(contains('FIXTURE-KEY')));
+      expect(preview.props.toString(), isNot(contains('FIXTURE-KEY')));
     });
   });
 }

@@ -68,13 +68,30 @@ struct AutofillCredentialMetadata: Codable, Identifiable, Equatable {
   let serviceIdentifiers: [AutofillServiceIdentifier]
   let updatedAtEpochMs: Int64?
 
+  /// spec 023 — which passkeys this record holds, by site and credential id
+  /// only. Enough to answer `prepareCredentialList` without unsealing
+  /// anything; not enough to sign, which is the point.
+  let passkeys: [AutofillPasskeyMetadata]
+
+  /// spec 023 — whether a password exists, never what it is.
+  ///
+  /// Needed here because a passkey-only record must not register a password
+  /// identity, and that decision is made from the metadata. Defaults to true
+  /// when decoding a pre-023 file, where every record had one by
+  /// construction.
+  let hasPassword: Bool
+
+  var hasPasskey: Bool { !passkeys.isEmpty }
+
   init(
     id: String,
     title: String,
     username: String,
     displayService: String,
     serviceIdentifiers: [AutofillServiceIdentifier],
-    updatedAtEpochMs: Int64? = nil
+    updatedAtEpochMs: Int64? = nil,
+    passkeys: [AutofillPasskeyMetadata] = [],
+    hasPassword: Bool = true
   ) {
     self.id = id
     self.title = title
@@ -82,6 +99,8 @@ struct AutofillCredentialMetadata: Codable, Identifiable, Equatable {
     self.displayService = displayService
     self.serviceIdentifiers = serviceIdentifiers
     self.updatedAtEpochMs = updatedAtEpochMs
+    self.passkeys = passkeys
+    self.hasPassword = hasPassword
   }
 
   init(from decoder: Decoder) throws {
@@ -90,6 +109,11 @@ struct AutofillCredentialMetadata: Codable, Identifiable, Equatable {
     title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
     username = try c.decodeIfPresent(String.self, forKey: .username) ?? ""
     updatedAtEpochMs = try c.decodeIfPresent(Int64.self, forKey: .updatedAtEpochMs)
+
+    // Both absent in every metadata file written before spec 023, where a
+    // published record always had a password.
+    passkeys = try c.decodeIfPresent([AutofillPasskeyMetadata].self, forKey: .passkeys) ?? []
+    hasPassword = try c.decodeIfPresent(Bool.self, forKey: .hasPassword) ?? true
 
     let decodedService = try c.decodeIfPresent(String.self, forKey: .displayService)
     let legacyURL = try c.decodeIfPresent(String.self, forKey: .url)
@@ -112,6 +136,12 @@ struct AutofillCredentialMetadata: Codable, Identifiable, Equatable {
     try c.encode(displayService, forKey: .displayService)
     try c.encode(serviceIdentifiers, forKey: .serviceIdentifiers)
     try c.encodeIfPresent(updatedAtEpochMs, forKey: .updatedAtEpochMs)
+    if !passkeys.isEmpty {
+      try c.encode(passkeys, forKey: .passkeys)
+      // Written only alongside passkeys: without them the field cannot be
+      // false, and an older reader defaults it to true anyway.
+      try c.encode(hasPassword, forKey: .hasPassword)
+    }
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -121,6 +151,8 @@ struct AutofillCredentialMetadata: Codable, Identifiable, Equatable {
     case displayService
     case serviceIdentifiers
     case updatedAtEpochMs
+    case passkeys
+    case hasPassword
     case url
   }
 }
@@ -137,6 +169,36 @@ struct AutofillInputServiceIdentifier {
   let value: String
 }
 
+/// spec 023 — the COSE algorithms a stored passkey may name.
+enum AutofillPasskeyAlgorithm: String, Codable {
+  case es256 = "ES256"
+  case eddsa = "EdDSA"
+  case rs256 = "RS256"
+
+  /// The identifier WebAuthn uses on the wire, for the rare relying party
+  /// that reads it back off the credential.
+  var coseIdentifier: Int {
+    switch self {
+    case .es256: return -7
+    case .eddsa: return -8
+    case .rs256: return -257
+    }
+  }
+}
+
+/// spec 023 — one passkey on its way in from Dart. `privateKeyPem` is the
+/// secret and must reach nothing but the sealed cache.
+struct AutofillInputPasskey {
+  let rpId: String
+  let credentialId: String
+  let userHandle: String?
+  let username: String
+  let privateKeyPem: String
+  let algorithm: String
+  let backupEligible: Bool
+  let backupState: Bool
+}
+
 struct AutofillCredentialPublishEntry {
   let id: String
   let title: String
@@ -144,12 +206,128 @@ struct AutofillCredentialPublishEntry {
   let password: String
   let url: String?
   let serviceIdentifiers: [AutofillInputServiceIdentifier]
+  let passkeys: [AutofillInputPasskey]
+
+  init(
+    id: String,
+    title: String,
+    username: String,
+    password: String,
+    url: String?,
+    serviceIdentifiers: [AutofillInputServiceIdentifier],
+    passkeys: [AutofillInputPasskey] = []
+  ) {
+    self.id = id
+    self.title = title
+    self.username = username
+    self.password = password
+    self.url = url
+    self.serviceIdentifiers = serviceIdentifiers
+    self.passkeys = passkeys
+  }
+}
+
+/// spec 023 — a passkey inside the sealed cache. The PEM lives here and
+/// nowhere else on the device; `AutofillPasskeyMetadata` is what the
+/// plaintext metadata file gets.
+struct AutofillPasskeySecret: Codable, Equatable {
+  let rpId: String
+  let credentialId: String
+  let userHandle: String?
+  let username: String
+  let privateKeyPem: String
+  let algorithm: AutofillPasskeyAlgorithm
+  let backupEligible: Bool
+  let backupState: Bool
+}
+
+/// spec 023 — what the plaintext metadata may say about a passkey: which
+/// site it belongs to and which credential it is. Never the key, never the
+/// user handle (which is an account identifier at the relying party).
+struct AutofillPasskeyMetadata: Codable, Equatable {
+  let rpId: String
+  let credentialId: String
+}
+
+extension AutofillPasskeySecret {
+  /// Validates one passkey arriving from Dart. Anything the extension could
+  /// not sign with is dropped rather than sealed: a key on the device that
+  /// can never answer a request is a secret held for nothing.
+  init?(input: AutofillInputPasskey) {
+    let rpId = input.rpId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let credentialId = input.credentialId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !rpId.isEmpty,
+          rpId.count <= 253,
+          !credentialId.isEmpty,
+          Data(base64URLEncoded: credentialId) != nil,
+          !input.privateKeyPem.isEmpty,
+          let algorithm = AutofillPasskeyAlgorithm(rawValue: input.algorithm) else {
+      return nil
+    }
+    let userHandle = input.userHandle?.trimmingCharacters(in: .whitespacesAndNewlines)
+    self.init(
+      rpId: rpId,
+      credentialId: credentialId,
+      userHandle: (userHandle?.isEmpty ?? true) ? nil : userHandle,
+      username: String(input.username.prefix(512)),
+      privateKeyPem: input.privateKeyPem,
+      algorithm: algorithm,
+      // WebAuthn forbids BS without BE: a record claiming "backed up but not
+      // eligible" would sign a flag byte relying parties reject.
+      backupEligible: input.backupEligible,
+      backupState: input.backupEligible && input.backupState
+    )
+  }
+}
+
+extension Data {
+  /// base64url, padded or not — KeePassXC omits the padding.
+  init?(base64URLEncoded value: String) {
+    var text = value.replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+    let remainder = text.count % 4
+    if remainder > 0 {
+      text += String(repeating: "=", count: 4 - remainder)
+    }
+    guard let data = Data(base64Encoded: text) else { return nil }
+    self = data
+  }
+
+  /// base64url without padding, which is how every WebAuthn field is spelled.
+  var base64URLEncodedString: String {
+    base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-")
+      .replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: "=", with: "")
+  }
 }
 
 struct AutofillCredentialSecret: Codable, Equatable {
   let id: String
   let username: String
   let password: String
+  let passkeys: [AutofillPasskeySecret]
+
+  init(
+    id: String,
+    username: String,
+    password: String,
+    passkeys: [AutofillPasskeySecret] = []
+  ) {
+    self.id = id
+    self.username = username
+    self.password = password
+    self.passkeys = passkeys
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = try c.decode(String.self, forKey: .id)
+    username = try c.decodeIfPresent(String.self, forKey: .username) ?? ""
+    password = try c.decodeIfPresent(String.self, forKey: .password) ?? ""
+    // Absent in every cache written before spec 023.
+    passkeys = try c.decodeIfPresent([AutofillPasskeySecret].self, forKey: .passkeys) ?? []
+  }
 }
 
 struct AutofillPendingAssociation: Codable, Equatable, Identifiable {
@@ -200,7 +378,25 @@ struct AutofillPublishOutcome {
   let skippedCount: Int
   let identityCount: Int
   let identityStoreSynced: Bool
+  /// spec 023 — how many passkeys were sealed, across every record.
+  let passkeyPublishedCount: Int
   let warnings: [String]
+
+  init(
+    publishedCount: Int,
+    skippedCount: Int,
+    identityCount: Int,
+    identityStoreSynced: Bool,
+    passkeyPublishedCount: Int = 0,
+    warnings: [String]
+  ) {
+    self.publishedCount = publishedCount
+    self.skippedCount = skippedCount
+    self.identityCount = identityCount
+    self.identityStoreSynced = identityStoreSynced
+    self.passkeyPublishedCount = passkeyPublishedCount
+    self.warnings = warnings
+  }
 
   var dictionary: [String: Any] {
     [
@@ -208,6 +404,7 @@ struct AutofillPublishOutcome {
       "skippedCount": skippedCount,
       "identityCount": identityCount,
       "identityStoreSynced": identityStoreSynced,
+      "passkeyPublishedCount": passkeyPublishedCount,
       "warnings": warnings,
     ]
   }
@@ -335,6 +532,7 @@ final class SharedAutofillStore {
             skippedCount: prepared.skippedCount,
             identityCount: 0,
             identityStoreSynced: identitySynced,
+            passkeyPublishedCount: 0,
             warnings: warnings
           )))
         }
@@ -355,6 +553,7 @@ final class SharedAutofillStore {
           skippedCount: prepared.skippedCount,
           identityCount: prepared.identities.count,
           identityStoreSynced: identitySynced,
+          passkeyPublishedCount: prepared.passkeyPublishedCount,
           warnings: warnings
         )))
       }
@@ -631,8 +830,9 @@ final class SharedAutofillStore {
     let metadataData: Data
     let envelopeData: Data
     let keyData: Data
-    let identities: [ASPasswordCredentialIdentity]
+    let identities: [ASCredentialIdentity]
     let skippedCount: Int
+    let passkeyPublishedCount: Int
     let warnings: [String]
   }
 
@@ -667,7 +867,11 @@ final class SharedAutofillStore {
         warnings.insert("duplicate_entry_id_skipped")
         continue
       }
-      guard !entry.password.isEmpty else {
+      // spec 023: a passkey-only record has nothing to fill but something to
+      // sign with, so an empty password no longer disqualifies it. A record
+      // with neither is still nothing to publish.
+      let passkeys = entry.passkeys.compactMap(AutofillPasskeySecret.init(input:))
+      guard !entry.password.isEmpty || !passkeys.isEmpty else {
         skippedCount += 1
         warnings.insert("entry_without_password_skipped")
         continue
@@ -693,12 +897,17 @@ final class SharedAutofillStore {
         username: username,
         displayService: displayService,
         serviceIdentifiers: normalizedIdentifiers,
-        updatedAtEpochMs: generatedAt
+        updatedAtEpochMs: generatedAt,
+        passkeys: passkeys.map {
+          AutofillPasskeyMetadata(rpId: $0.rpId, credentialId: $0.credentialId)
+        },
+        hasPassword: !entry.password.isEmpty
       ))
       secretEntries.append(AutofillCredentialSecret(
         id: id,
         username: username,
-        password: entry.password
+        password: entry.password,
+        passkeys: passkeys
       ))
     }
 
@@ -743,6 +952,7 @@ final class SharedAutofillStore {
       keyData: keyData,
       identities: identities,
       skippedCount: skippedCount,
+      passkeyPublishedCount: metadata.entries.reduce(0) { $0 + $1.passkeys.count },
       warnings: Array(warnings).sorted()
     )
   }
@@ -772,31 +982,70 @@ final class SharedAutofillStore {
     }
   }
 
+  /// Password identities for records that have a password, plus (spec 023) a
+  /// passkey identity per stored passkey.
+  ///
+  /// A record that holds only a passkey registers NO password identity: it
+  /// has nothing to fill, and offering it in the QuickType bar as a password
+  /// would put an empty field behind a suggestion the user tapped.
+  ///
+  /// The passkey identity's service identifier is the relying party id the
+  /// passkey itself names, not the record's URL. They are usually the same,
+  /// but the passkey's own rpId is the one the system matches a request
+  /// against, so a record whose URL drifted still answers.
   private func makeCredentialIdentities(
     for entries: [AutofillCredentialMetadata]
-  ) -> [ASPasswordCredentialIdentity] {
-    var identities: [ASPasswordCredentialIdentity] = []
+  ) -> [ASCredentialIdentity] {
+    var identities: [ASCredentialIdentity] = []
     var seen = Set<String>()
 
     for (index, entry) in entries.enumerated() {
-      for identifier in entry.serviceIdentifiers {
-        guard identifier.type != .bundleId else { continue }
-        let key = "\(identifier.type.rawValue):\(identifier.value):\(entry.id)"
+      let rank = max(0, 10_000 - index)
+
+      if entry.hasPassword {
+        for identifier in entry.serviceIdentifiers {
+          guard identifier.type != .bundleId else { continue }
+          let key = "\(identifier.type.rawValue):\(identifier.value):\(entry.id)"
+          guard !seen.contains(key) else { continue }
+          seen.insert(key)
+
+          let serviceType: ASCredentialServiceIdentifier.IdentifierType =
+            identifier.type == .domain ? .domain : .URL
+          let service = ASCredentialServiceIdentifier(
+            identifier: identifier.value,
+            type: serviceType
+          )
+          let identity = ASPasswordCredentialIdentity(
+            serviceIdentifier: service,
+            user: entry.username.isEmpty ? entry.title : entry.username,
+            recordIdentifier: entry.id
+          )
+          identity.rank = rank
+          identities.append(identity)
+        }
+      }
+
+      for passkey in entry.passkeys {
+        guard let credentialData = Data(base64URLEncoded: passkey.credentialId) else {
+          continue
+        }
+        let key = "passkey:\(passkey.rpId):\(passkey.credentialId)"
         guard !seen.contains(key) else { continue }
         seen.insert(key)
 
-        let serviceType: ASCredentialServiceIdentifier.IdentifierType =
-          identifier.type == .domain ? .domain : .URL
-        let service = ASCredentialServiceIdentifier(
-          identifier: identifier.value,
-          type: serviceType
-        )
-        let identity = ASPasswordCredentialIdentity(
-          serviceIdentifier: service,
-          user: entry.username.isEmpty ? entry.title : entry.username,
+        // `userHandle` is required by the initializer but is account material
+        // at the relying party, and the plaintext metadata deliberately does
+        // not carry it. The record id stands in: the system uses it to
+        // correlate the identity with the request, and the real handle is
+        // read out of the sealed cache when the assertion is built.
+        let identity = ASPasskeyCredentialIdentity(
+          relyingPartyIdentifier: passkey.rpId,
+          userName: entry.username.isEmpty ? entry.title : entry.username,
+          credentialID: credentialData,
+          userHandle: Data(entry.id.utf8),
           recordIdentifier: entry.id
         )
-        identity.rank = max(0, 10_000 - index)
+        identity.rank = rank
         identities.append(identity)
       }
     }
@@ -805,7 +1054,7 @@ final class SharedAutofillStore {
   }
 
   private func replaceCredentialIdentities(
-    _ identities: [ASPasswordCredentialIdentity],
+    _ identities: [ASCredentialIdentity],
     completion: @escaping (Bool, String?) -> Void
   ) {
     ASCredentialIdentityStore.shared.replaceCredentialIdentities(identities) { success, error in

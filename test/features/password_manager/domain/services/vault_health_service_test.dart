@@ -73,6 +73,7 @@ void main() {
         _entry(id: 'dup-a', url: 'dup.example.com', username: 'dup-user'),
         _entry(id: 'dup-b', url: 'dup.example.com', username: 'dup-user'),
       ],
+      kind: DuplicateGroupKind.site,
     ),
   ];
 

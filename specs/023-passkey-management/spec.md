@@ -56,7 +56,7 @@ this feature, not a checklist item at the end.
 - Q: Is user presence required on every assertion, or may a recent unlock satisfy it? → A: Every assertion — biometrics or device passcode each time; do not reuse the password autofill recent-unlock window.
 - Q: Where does passkey private key material live when the app is not running? → A: In the same sealed, device-local cache already used for passwords (excluded from backups), wiped when the database is locked or removed.
 - Q: Does Android's Credential Manager belong in this spec or its own? → A: Its own spec — 023 stops at Apple. *(Superseded on 2026-09-09, see below.)*
-- Q: Where is the key pair generated at registration? → A: In the credential provider extension using the platform cryptography APIs; this spec adds no Dart cryptography dependency.
+- Q: Where is the key pair generated at registration? → A: In the credential provider extension using the platform cryptography APIs; this spec adds no Dart cryptography dependency. *(Superseded by T708's decision: the key is generated in the app, by `PasskeyGenerator`, because only the app can write the vault the key must land in — see User Story 3's note. The app therefore does carry a Dart cryptography dependency for this, `pointycastle`, which it already used elsewhere.)*
 
 ### Session 2026-09-09
 
@@ -212,6 +212,22 @@ visible in the vault (Story 1) and usable for sign-in (Story 2).
 
 **Why this priority**: It removes the dependency on KeePassXC for creating
 passkeys, but the user still gets real value from Stories 1 and 2 without it.
+
+**Where this story shipped, and why not on Apple (T708).** The story is served on
+Windows and Linux, through the browser extension and the running app, and not on
+iOS or macOS. FR-020 is the reason: a registration may only be reported once the
+credential is durably in the vault, and only the app can write the vault — the
+Apple credential provider extension has no master password. On desktop the app is
+open and unlocked when the request arrives, so the write completes before the site
+is answered. On Apple the extension would have to answer the site itself, so it
+refuses the ceremony instead and says where creating a passkey works. Registration
+always goes through the app; the extension implements no step of it the app does
+not perform. Staging a credential for the app to adopt later was considered and
+rejected: a WebAuthn challenge cannot be answered after its ceremony ends, so
+staging would give the site nothing while costing the user the account the moment
+the extension claimed success. Completing it on macOS needs an app-group XPC
+transport (T709); on iOS no supported extension-to-app channel exists, so it
+cannot be completed there by any design.
 
 **Independent Test**: Run a passkey registration on a test relying party
 choosing KeyVault, then confirm the credential appears in the vault with the
@@ -460,8 +476,10 @@ correct site and account, and that signing in with it afterwards succeeds.
 
 Out of scope for 023, each to be its own spec if adopted:
 
-- **Passkey registration on Android, Windows and Linux.** Slice 3 covers the
-  Apple extension only.
+- **Passkey registration on Android.** Slice 3 shipped on Windows and Linux,
+  through the browser extension and the running app; Apple is covered by T708's
+  refusal and T709's unbuilt transport, and Android's Credential Manager
+  registration is untouched.
 - **Windows and Linux system-level passkey providers** (serving native desktop
   apps rather than browser pages).
 - **Attestation statements**, enterprise attestation and device-bound keys.

@@ -4,6 +4,8 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Use Touch ID to authorise signing in with a stored passkey.</string>
 	<key>CFBundleDisplayName</key>
 	<string>KeyVault AutoFill</string>
 	<key>CFBundleExecutable</key>
@@ -27,6 +29,8 @@
 			<key>ASCredentialProviderExtensionCapabilities</key>
 			<dict>
 				<key>ProvidesPasswords</key>
+				<true/>
+				<key>ProvidesPasskeys</key>
 				<true/>
 			</dict>
 		</dict>

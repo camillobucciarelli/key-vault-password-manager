@@ -59,13 +59,18 @@ class DesktopPasskeySigner {
 
   /// `challenge` is the base64url the site supplied; it is passed through
   /// verbatim, as the WebAuthn client data serialization requires.
+  ///
+  /// [type] is `webauthn.get` for a sign-in and `webauthn.create` for a
+  /// registration (spec 023 US3); a relying party checks it and rejects the
+  /// other one.
   static Uint8List clientDataJson({
     required String challenge,
     required String origin,
+    String type = 'webauthn.get',
   }) => Uint8List.fromList(
     utf8.encode(
       jsonEncode({
-        'type': 'webauthn.get',
+        'type': type,
         'challenge': challenge,
         'origin': origin,
         'crossOrigin': false,

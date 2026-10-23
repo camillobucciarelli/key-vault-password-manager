@@ -28,6 +28,8 @@ zip -X "${OUT_FILE}" \
   overlay_lifecycle.js \
   overlay_routes.js \
   content_overlay.js \
+  passkey_page.js \
+  passkey_bridge.js \
   popup.html \
   popup.js \
   popup.css \

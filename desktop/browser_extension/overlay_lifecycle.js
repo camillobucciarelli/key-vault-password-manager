@@ -94,6 +94,22 @@ const GLOBAL_REGISTRATION_ID = registrationIdForPattern(
   GLOBAL_REGISTRATION_PATTERN_KEY
 );
 
+/**
+ * spec 023 T503 — the passkey wrapper's own pair of registrations.
+ *
+ * Separate from the overlay's registration for two reasons that are not
+ * stylistic. First, `navigator.credentials.get` must be wrapped BEFORE the
+ * page can call it, so these run at `document_start` while the overlay runs
+ * at `document_idle`. Second, the wrapper has to live in the page's own
+ * world to be visible to the site at all, and a registration names one world.
+ */
+const PASSKEY_PAGE_REGISTRATION_ID = registrationIdForPattern(
+  `${GLOBAL_REGISTRATION_PATTERN_KEY}#passkey-main`
+);
+const PASSKEY_BRIDGE_REGISTRATION_ID = registrationIdForPattern(
+  `${GLOBAL_REGISTRATION_PATTERN_KEY}#passkey-isolated`
+);
+
 function globalRegistration() {
   return {
     id: GLOBAL_REGISTRATION_ID,
@@ -104,6 +120,30 @@ function globalRegistration() {
     world: "ISOLATED",
     persistAcrossSessions: true,
   };
+}
+
+function passkeyRegistrations() {
+  const matches = [...securityModule.GLOBAL_PERMISSION_PATTERNS];
+  return [
+    {
+      id: PASSKEY_PAGE_REGISTRATION_ID,
+      matches,
+      js: ["passkey_page.js"],
+      runAt: "document_start",
+      allFrames: true,
+      world: "MAIN",
+      persistAcrossSessions: true,
+    },
+    {
+      id: PASSKEY_BRIDGE_REGISTRATION_ID,
+      matches,
+      js: ["passkey_bridge.js"],
+      runAt: "document_start",
+      allFrames: true,
+      world: "ISOLATED",
+      persistAcrossSessions: true,
+    },
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -427,19 +467,26 @@ class OverlayLifecycle {
   async _reconcileRegistrations(config) {
     const wanted = config.enabled === true;
     const registered = await this._registeredOverlayScripts();
+    // spec 023 T503: the passkey pair rides the same switch as the overlay.
+    // One control, one answer to "is KeyVault acting on my pages" — a wrapper
+    // that survived the switch being turned off would be exactly the
+    // permission the user thought they had withdrawn.
+    const desired = wanted
+      ? [globalRegistration(), ...passkeyRegistrations()]
+      : [];
+    const desiredIds = new Set(desired.map((script) => script.id));
 
     const orphans = registered
       .map((script) => script.id)
-      .filter((id) => !(wanted && id === GLOBAL_REGISTRATION_ID));
+      .filter((id) => !desiredIds.has(id));
     if (orphans.length > 0) {
       await this._browser.scripting.unregisterContentScripts({ ids: orphans });
     }
 
-    const alreadyRegistered = registered.some(
-      (script) => script.id === GLOBAL_REGISTRATION_ID
-    );
-    if (wanted && !alreadyRegistered) {
-      await this._browser.scripting.registerContentScripts([globalRegistration()]);
+    const registeredIds = new Set(registered.map((script) => script.id));
+    const missing = desired.filter((script) => !registeredIds.has(script.id));
+    if (missing.length > 0) {
+      await this._browser.scripting.registerContentScripts(missing);
     }
   }
 
@@ -826,6 +873,40 @@ class OverlayLifecycle {
   }
 
   /**
+   * spec 023 T503 — authorize one passkey signing request.
+   *
+   * The overlay's own gate minus the parts that do not apply: no body
+   * `origin` to cross-check (the page world has no trustworthy one to give)
+   * and no frame-support classification (a signature is not drawn anywhere,
+   * so there is no frame it could be drawn in the wrong place of). What
+   * remains is what protects the key: a real content script of this
+   * extension, the global switch on, and the broad host permission still
+   * held — so a wrapper still running in a page after the user turned
+   * KeyVault off cannot sign.
+   */
+  async authorizePasskeyRequest({ sender, runtimeId } = {}) {
+    await this.ready();
+    const config = await this.readCommittedConfig();
+    if (config.__invalid === true) {
+      this._reconciled = null;
+      return { ok: false, error: "stale_session" };
+    }
+    if (config.enabled !== true) return { ok: false, error: "disabled" };
+
+    const senderResult = securityModule.validateContentScriptSender(
+      sender,
+      runtimeId
+    );
+    if (!senderResult.ok) return { ok: false, error: senderResult.error };
+
+    const grantedPatterns = await this._grantedPatterns();
+    if (!securityModule.coversGlobalPermission(grantedPatterns)) {
+      return { ok: false, error: "permission_missing" };
+    }
+    return { ok: true, sender: senderResult, config };
+  }
+
+  /**
    * A018/A020 — an already-injected content script stays inert until this
    * approves it. Authorization is re-derived from committed config every time;
    * the script's own claim about its origin is only ever a mismatch detector.
@@ -860,6 +941,8 @@ const API = {
   REGISTRATION_PREFIX,
   GLOBAL_REGISTRATION_ID,
   registrationIdForPattern,
+  PASSKEY_PAGE_REGISTRATION_ID,
+  PASSKEY_BRIDGE_REGISTRATION_ID,
   isOverlayRegistrationId,
   globalRegistration,
   desiredPatterns,

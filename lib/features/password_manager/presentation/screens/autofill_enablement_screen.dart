@@ -58,6 +58,11 @@ class AutofillEnablementScreen extends StatefulWidget {
     'password',
     'url',
     'serviceIdentifiers',
+    // spec 023: the entry's usable passkeys, private key included. Sealed
+    // exactly like the password and listed here for the same reason — this
+    // set is a complete inventory of what crosses the channel, not a
+    // hand-picked subset.
+    'passkeys',
   };
 
   @override

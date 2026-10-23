@@ -95,12 +95,15 @@ says so in the section copy rather than pretending otherwise.
   (`Build.VERSION.SDK_INT >= 34`) via `PackageManager.setComponentEnabledSetting`
   on first launch; the settings screen shows "not available on this device"
   below 34. `minSdk` stays 29.
-- **D10 — Duplicate pairing.** `VaultDuplicateService` gains a third pass:
-  a passkey-only entry (empty password) and a password entry sharing normalized
-  site and username form a group of kind `passkeyPassword`; `previewMerge`
-  carries the secondary's passkey into the primary as a credential, protected
-  flags preserved, and refuses if the primary already holds a passkey for the
-  same rpId + userHandle.
+- **D10 — Duplicate pairing.** `VaultDuplicateService`'s site pass gains a
+  third outcome (implemented inside that pass rather than after it, so a
+  bucket is classified once and an entry cannot land in two groups): a
+  passkey-only entry (empty password) and a password entry sharing normalized
+  site and username form a group of kind `passkeyPassword`. A bucket holding
+  two or more passkeys drops the holders instead — two credentials for one site
+  are not copies of each other. `previewMerge` carries the secondary's passkey
+  into the primary as a credential, protected flags preserved, and refuses if
+  the primary already holds a passkey for the same rpId + userHandle.
 
 ## Phases
 

@@ -1,6 +1,10 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import '../models/apple_autofill_v2_models.dart';
 import 'url_field_keys.dart';
 import '../models/vault_entry.dart';
+import '../models/vault_passkey.dart';
 
 class AppleAutofillV2PayloadMapper {
   const AppleAutofillV2PayloadMapper();
@@ -14,7 +18,14 @@ class AppleAutofillV2PayloadMapper {
 
   AppleAutofillV2Credential? mapEntry(VaultEntry entry) {
     final id = entry.id.trim();
-    if (id.isEmpty || entry.password.isEmpty) {
+    if (id.isEmpty) {
+      return null;
+    }
+    // spec 023 T301: a passkey-only entry has nothing to fill but something
+    // to sign with, so an empty password no longer disqualifies it. An entry
+    // with neither is still nothing to publish.
+    final passkeys = _passkeysForEntry(entry);
+    if (entry.password.isEmpty && passkeys.isEmpty) {
       return null;
     }
 
@@ -26,8 +37,48 @@ class AppleAutofillV2PayloadMapper {
       password: entry.password,
       url: normalizedUrl,
       serviceIdentifiers: _serviceIdentifiersForEntry(entry, normalizedUrl),
+      passkeys: passkeys,
     );
   }
+
+  /// Only usable passkeys cross the channel: an unusable one cannot answer a
+  /// sign-in request, so sealing it would put a private key on the device for
+  /// nothing. The entry detail still shows it (FR-012).
+  List<AppleAutofillV2Passkey> _passkeysForEntry(VaultEntry entry) => [
+    for (final passkey in entry.passkeys)
+      if (passkey.usable && passkey.relyingPartyId.isNotEmpty)
+        AppleAutofillV2Passkey(
+          relyingPartyId: passkey.relyingPartyId,
+          // Re-encoded from the bytes rather than passed through as stored:
+          // KeePassXC omits base64url padding and the extension compares this
+          // string against `allowedCredentials`, so both sides must spell it
+          // the same way.
+          credentialId: _base64Url(passkey.credentialId),
+          userHandle: passkey.userHandle == null
+              ? null
+              : _base64Url(passkey.userHandle!),
+          username: passkey.username.trim().isEmpty
+              ? entry.username.trim()
+              : passkey.username.trim(),
+          privateKeyPem: passkey.privateKeyPem,
+          algorithm: _algorithmChannelValue(passkey.algorithm),
+          backupEligible: passkey.backupEligible,
+          backupState: passkey.backupState,
+        ),
+  ];
+
+  static String _base64Url(Uint8List bytes) =>
+      base64Url.encode(bytes).replaceAll('=', '');
+
+  static String _algorithmChannelValue(VaultPasskeyAlgorithm algorithm) =>
+      switch (algorithm) {
+        VaultPasskeyAlgorithm.es256 => 'ES256',
+        VaultPasskeyAlgorithm.eddsa => 'EdDSA',
+        VaultPasskeyAlgorithm.rs256 => 'RS256',
+        // Unreachable: an unknown algorithm makes the passkey unusable, and
+        // unusable passkeys are filtered out above.
+        VaultPasskeyAlgorithm.unknown => 'unknown',
+      };
 
   List<AppleAutofillV2ServiceIdentifier> _serviceIdentifiersForEntry(
     VaultEntry entry,

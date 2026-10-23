@@ -7,6 +7,14 @@ import io.flutter.plugin.common.MethodChannel
 
 internal class AndroidAutofillV2Channel(context: Context) {
     private val store = AndroidAutofillStore(context)
+    private val appContext = context.applicationContext
+
+    init {
+        // spec 023 T405: bring the credential provider component into line
+        // with what this OS version can actually use. Done here rather than in
+        // the service because a disabled component is never instantiated.
+        AndroidPasskeyProviderAvailability.reconcile(appContext)
+    }
 
     fun handle(call: MethodCall, result: MethodChannel.Result) {
         try {
@@ -21,6 +29,10 @@ internal class AndroidAutofillV2Channel(context: Context) {
                 "resolvePendingCapture" -> handleResolvePendingCapture(call.arguments, result)
                 "takePendingCaptureToken" -> result.success(takePendingCaptureToken())
                 "getStatus" -> result.success(statusMap())
+                // spec 023 T405: what the settings row reads.
+                "getPasskeyProviderAvailability" -> result.success(
+                    AndroidPasskeyProviderAvailability.availabilityMap(),
+                )
                 else -> result.notImplemented()
             }
         } catch (error: Throwable) {
@@ -167,7 +179,43 @@ internal class AndroidAutofillV2Channel(context: Context) {
                 ?: throw IllegalArgumentException("entry.password must be a string"),
             url = map["url"] as? String,
             serviceIdentifiers = parseServiceIdentifiers(map["serviceIdentifiers"]),
+            passkeys = parsePasskeys(map["passkeys"]),
         )
+    }
+
+    /**
+     * spec 023 — the `passkeys` list of `contracts/passkey_platform_bridges.md`.
+     *
+     * Absent from an older app's payload, which is not an error: it has no
+     * passkeys to publish. A malformed entry inside the list IS dropped here
+     * rather than failing the whole publish — one unreadable passkey must not
+     * cost the user every password in the cache.
+     */
+    private fun parsePasskeys(rawValue: Any?): List<AndroidAutofillPasskey> {
+        val rawList = rawValue as? List<*> ?: return emptyList()
+        return rawList.mapNotNull { rawPasskey ->
+            val map = rawPasskey as? Map<*, *> ?: return@mapNotNull null
+            val rpId = (map["rpId"] as? String)?.trim()?.lowercase().orEmpty()
+            val credentialId = (map["credentialId"] as? String)?.trim().orEmpty()
+            val pem = map["privateKeyPem"] as? String ?: return@mapNotNull null
+            val algorithm = AndroidPasskeyAlgorithm.fromRawValue(
+                map["algorithm"] as? String ?: "",
+            ) ?: return@mapNotNull null
+            if (rpId.isEmpty() || rpId.length > 253 || credentialId.isEmpty() || pem.isEmpty()) {
+                return@mapNotNull null
+            }
+            val backupEligible = map["be"] as? Boolean ?: true
+            AndroidAutofillPasskey(
+                rpId = rpId,
+                credentialId = credentialId,
+                userHandle = (map["userHandle"] as? String)?.trim()?.ifEmpty { null },
+                username = (map["username"] as? String).orEmpty().take(512),
+                privateKeyPem = pem,
+                algorithm = algorithm,
+                backupEligible = backupEligible,
+                backupState = backupEligible && (map["bs"] as? Boolean ?: true),
+            )
+        }
     }
 
     private fun parseServiceIdentifiers(rawValue: Any?): List<AndroidAutofillServiceIdentifier> {
