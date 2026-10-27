@@ -88,6 +88,11 @@ jobs:
           printf 'storeFile=upload-keystore.jks\nstorePassword=%s\nkeyAlias=upload\nkeyPassword=%s\n' \
             "$ANDROID_STORE_PASSWORD" "$ANDROID_KEY_PASSWORD" > android/key.properties
 
+      # The checked-in list may be stale (or the empty placeholder); ship the
+      # current one so passkey sign-in works from every privileged browser.
+      - name: Refresh passkey privileged-browser allowlist
+        run: ./tool/update_passkey_privileged_apps.sh
+
       - name: Build
         run: ./tool/build_prod_packages.sh --platforms android
 

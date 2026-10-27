@@ -178,14 +178,20 @@ run_xcodebuild_filtered() {
   shift
 
   local xcodebuild_status=0
+  local full_log
+  full_log="$(mktemp -t xcodebuild.XXXXXX)"
   set +e
-  "$@" 2>&1 | grep -E "${filter_regex}"
+  "$@" 2>&1 | tee "${full_log}" | grep -E "${filter_regex}"
   xcodebuild_status=${PIPESTATUS[0]}
   set -e
 
   if [[ "${xcodebuild_status}" -ne 0 ]]; then
-    echo "xcodebuild failed with exit code ${xcodebuild_status}"
+    # The filter can drop the line that explains the failure (a failed script
+    # phase, a signing problem), so show the unfiltered tail as well.
+    echo "xcodebuild failed with exit code ${xcodebuild_status}; last 80 lines of its output:"
+    tail -n 80 "${full_log}"
   fi
+  rm -f "${full_log}"
 
   return "${xcodebuild_status}"
 }
