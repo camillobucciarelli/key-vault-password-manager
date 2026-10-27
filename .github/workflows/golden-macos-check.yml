@@ -1,0 +1,37 @@
+name: Golden macOS check (temporary)
+
+# Temporary, for PR #234 only: goldens are macOS-rasterized and no other job
+# runs them. 3.47.7 checks the runner reproduces the committed baselines;
+# 3.47.8 is the upgrade under test. Removed before merge.
+on:
+  push:
+    branches: [ claude/gallant-allen-diuyun ]
+
+permissions:
+  contents: read
+
+jobs:
+  goldens:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        flutter: [ '3.47.7', '3.47.8' ]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ matrix.flutter }}
+
+      - run: flutter --version
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter test test/goldens
+
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: golden-failures-${{ matrix.flutter }}
+          path: test/goldens/failures/
+          if-no-files-found: ignore
