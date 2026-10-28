@@ -177,7 +177,11 @@ printf 'Compiling x64 native host under Rosetta...\n'
 
 install -d -m 0755 "${HOST_DIR}" "${MANIFEST_DIRS[@]}"
 lipo -create "${ARM64_HOST}" "${X64_HOST}" -output "${HOST_PATH}"
-lipo "${HOST_PATH}" -verify_arch arm64 x86_64
+# One architecture per call: newer lipo reads a second -verify_arch argument
+# as another input file ("-verify_arch requires exactly one input file").
+for host_arch in arm64 x86_64; do
+  lipo "${HOST_PATH}" -verify_arch "${host_arch}"
+done
 chmod 0755 "${HOST_PATH}"
 # Hardened runtime is required for notarization, but it kills Dart AOT
 # binaries at launch (the runtime maps the embedded snapshot as executable
