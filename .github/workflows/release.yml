@@ -352,14 +352,18 @@ jobs:
 
       - name: Build extension artifact
         env:
+          VERSION_NAME: ${{ needs.version.outputs.version_name }}
           BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
         run: |
           [[ "${BUILD_NUMBER}" =~ ^[0-9]+$ ]] && (( BUILD_NUMBER <= 65535 )) || {
             echo "Chrome extension build number must be between 0 and 65535"
             exit 1
           }
-          base_version=$(jq -r '.version' desktop/browser_extension/manifest.json | cut -d. -f1-3)
-          jq --arg version "${base_version}.${BUILD_NUMBER}" \
+          # The extension follows the app version (pubspec.yaml), not the
+          # version written in manifest.json: a base that is bumped by hand
+          # falls behind when +N resets on an X.Y.Z bump, and the Chrome Web
+          # Store then rejects the upload as lower than the published one.
+          jq --arg version "${VERSION_NAME}.${BUILD_NUMBER}" \
             '.version = $version' \
             desktop/browser_extension/manifest.json > /tmp/manifest.json
           mv /tmp/manifest.json desktop/browser_extension/manifest.json
