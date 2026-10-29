@@ -754,7 +754,7 @@ class _FolderListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    final colors = Theme.of(context).extension<CustodeColors>()!;
     return Semantics(
       button: true,
       label: 'Folder ${folder.name}',
@@ -863,7 +863,7 @@ class _BrowserFolderTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<KeyVaultColors>()!;
+    final colors = Theme.of(context).extension<CustodeColors>()!;
     return Row(
       children: [
         if (onBack != null) ...[
