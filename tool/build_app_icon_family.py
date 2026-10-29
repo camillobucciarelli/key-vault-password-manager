@@ -732,7 +732,9 @@ def build_review_sheet(images: dict[Path, object]) -> object:
     def label(x: int, y: int, text: str) -> None:
         draw.text((x, y), text, fill=(64, 35, 16), font=font)
 
-    label(40, 24, "CUSTODE 007A / COMBINATORE / DETERMINISTIC REVIEW")
+    # Kept as rendered in the committed review sheet: changing it means
+    # regenerating that PNG on the attested macOS toolchain.
+    label(40, 24, "KEYVAULT 007A / COMBINATORE / DETERMINISTIC REVIEW")
     source = images[Path("custode-source-1024.png")]
     assert isinstance(source, Image.Image)
     label(40, 62, "FULL + MASK PREVIEWS / NO-CROP")
